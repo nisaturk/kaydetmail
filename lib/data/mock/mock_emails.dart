@@ -126,6 +126,44 @@ class MockEmails {
         labelIds: [MockLabels.work.id],
       ),
       Email(
+        id: 'seed-long-release',
+        senderName: 'Elena Rodriguez',
+        senderEmail: 'elena.rodriguez@fintrust.com',
+        recipients: ['me@kaydet.app'],
+        subject: 'Release 4.2.0 status report and the complete rollback plan for the API gateway migration across all staging environments including the load test results',
+        bodyText:
+            'Hello,\n\nHere is the full status report for release 4.2.0. '
+            'The API gateway migration is now staged across all environments '
+            'and the load tests completed without any failures.\n\n'
+            'A few observations worth keeping in mind:\n\n'
+            '• Average latency dropped 18% versus the previous release once '
+            'caching was enabled on the edge tier.\n'
+            '• The rollback plan has been exercised in staging twice, and both '
+            'times we were back on the previous version in under four minutes.\n'
+            '• Certificate rotation is on the critical path this month; the '
+            'signing chain for the new endpoints expires before the next '
+            'internal deadline, so scheduling it early would avoid a scramble.\n\n'
+            'Headline numbers for the migration: 213 endpoints moved, 41 '
+            'downstream services repointed, 0 unresolved incidents in the last '
+            'seven days. The full spreadsheet is attached if you want the '
+            'per-service breakdown.\n\n'
+            'One thing I would still like covered before we call it done: a '
+            'dry run of the traffic-shaping rules against production traffic '
+            'mirror, since the simulated profiles never fully match real '
+            'patterns — the evening peak differs noticeably from what the '
+            'synthetic load produces, and we know the short-read path behaves '
+            'differently under sustained concurrency.\n\n'
+            'Let me know if you have questions on any of this.\n\n'
+            'Best regards,\nElena',
+        timestamp: now.subtract(h(40)),
+        isRead: false,
+        attachments: const [
+          Attachment(
+              name: 'release-4.2.0-status.xlsx', sizeBytes: 148 * 1024),
+        ],
+        labelIds: [MockLabels.work.id, MockLabels.important.id],
+      ),
+      Email(
         id: 'seed-marketing-campaign',
         senderName: 'Marketing',
         senderEmail: 'marketing@brightwave.co',

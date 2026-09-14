@@ -8,9 +8,11 @@ import 'package:kaydetmail/widgets/mail_avatar.dart';
 
 Future<void> _login(WidgetTester tester) async {
   await tester.pumpWidget(const KaydetApp());
-  await tester.enterText(find.byType(TextFormField).at(0), 'me@kaydet.app');
-  await tester.enterText(find.byType(TextFormField).at(1), 'secret123');
-  await tester.tap(find.text('Login'));
+  await tester.enterText(find.byKey(const Key('email-field')), 'me@kaydet.app');
+  await tester.tap(find.text('Continue'));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('password-field')), 'secret123');
+  await tester.tap(find.byKey(const Key('signin-button')));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
   await tester.pumpAndSettle();

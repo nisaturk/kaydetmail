@@ -1,16 +1,23 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../models/email.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 
 /// Compose a new mail (or reply/forward — same screen).
 ///
-/// Supports To, CC, BCC (expandable), Subject and Body. The mic button
-/// appends simulated voice text. Smart-back saves a draft when content exists.
+/// Supports To, CC, BCC (expandable), Subject, Body and local file
+/// attachments. Inside a scrolled column so nothing overflows when the
+/// keyboard is open or the screen is narrow. The mic button appends simulated
+/// voice text. Smart-back saves a draft when content exists.
 class ComposeScreen extends StatefulWidget {
-  const ComposeScreen({super.key});
+  const ComposeScreen({super.key, this.pickAttachments});
+
+  /// Lets tests substitute the real OS file picker.
+  final Future<List<Attachment>?> Function()? pickAttachments;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -31,6 +38,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _recording = false;
   bool _sending = false;
 
+  final List<Attachment> _attachments = [];
+
   MailRepository get _repo => AppConfig.mailRepository;
 
   @override
@@ -48,7 +57,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool get _hasContent =>
       _toController.text.trim().isNotEmpty ||
       _subjectController.text.trim().isNotEmpty ||
-      _bodyController.text.trim().isNotEmpty;
+      _bodyController.text.trim().isNotEmpty ||
+      _attachments.isNotEmpty;
 
   Future<bool> _onWillPop() async {
     if (!_hasContent) return true;
@@ -113,6 +123,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             .toList(),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
+        attachments: List.unmodifiable(_attachments),
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -133,7 +144,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final to = _toController.text.trim();
     final hasAny = to.isNotEmpty ||
         _subjectController.text.trim().isNotEmpty ||
-        _bodyController.text.trim().isNotEmpty;
+        _bodyController.text.trim().isNotEmpty ||
+        _attachments.isNotEmpty;
     if (!hasAny) return;
     try {
       await _repo.saveDraft(
@@ -150,10 +162,35 @@ class _ComposeScreenState extends State<ComposeScreen> {
             .toList(),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
+        attachments: List.unmodifiable(_attachments),
       );
     } catch (_) {
       // Silently fail — mock never throws.
     }
+  }
+
+  Future<List<Attachment>?> _osPickAttachments() async {
+    final files = await FilePicker.pickFiles(type: FileType.any);
+    if (files.isEmpty) return null;
+    return [
+      for (final file in files)
+        if (file.name.isNotEmpty)
+          Attachment(
+            name: file.name,
+            sizeBytes: file.lengthSync() ?? 0,
+            mimeType: file.extension,
+          ),
+    ];
+  }
+
+  Future<void> _attach() async {
+    final picked = await (widget.pickAttachments ?? _osPickAttachments)();
+    if (picked == null || picked.isEmpty || !mounted) return;
+    setState(() => _attachments.addAll(picked));
+  }
+
+  void _removeAttachment(Attachment attachment) {
+    setState(() => _attachments.remove(attachment));
   }
 
   Future<void> _simulateVoice() async {
@@ -217,86 +254,92 @@ class _ComposeScreenState extends State<ComposeScreen> {
           child: Column(
             children: [
               Expanded(
-                child: CustomScrollView(
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Column(
-                          children: [
-                            _fieldRow(
-                              label: 'To',
-                              controller: _toController,
-                              focusNode: _toFocus,
-                            ),
-                            if (_ccExpanded)
-                              _fieldRow(
-                                label: 'Cc',
-                                controller: _ccController,
-                              ),
-                            if (_bccExpanded)
-                              _fieldRow(
-                                label: 'Bcc',
-                                controller: _bccController,
-                              ),
-                            if (!_ccExpanded || !_bccExpanded)
-                              Padding(
-                                padding: const EdgeInsets.only(left: 4),
-                                child: Row(
-                                  children: [
-                                    if (!_ccExpanded)
-                                      _expandChip(
-                                        label: 'Cc',
-                                        onTap: () => setState(
-                                            () => _ccExpanded = true),
-                                      ),
-                                    if (!_ccExpanded && !_bccExpanded)
-                                      const SizedBox(width: 8),
-                                    if (!_bccExpanded)
-                                      _expandChip(
-                                        label: 'Bcc',
-                                        onTap: () => setState(
-                                            () => _bccExpanded = true),
-                                      ),
-                                  ],
+                child: SingleChildScrollView(
+                  keyboardDismissBehavior:
+                      ScrollViewKeyboardDismissBehavior.onDrag,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      _fieldRow(
+                        label: 'To',
+                        controller: _toController,
+                        focusNode: _toFocus,
+                        fieldKey: const Key('to-field'),
+                      ),
+                      if (_ccExpanded)
+                        _fieldRow(
+                          label: 'Cc',
+                          controller: _ccController,
+                          fieldKey: const Key('cc-field'),
+                        ),
+                      if (_bccExpanded)
+                        _fieldRow(
+                          label: 'Bcc',
+                          controller: _bccController,
+                          fieldKey: const Key('bcc-field'),
+                        ),
+                      if (!_ccExpanded || !_bccExpanded)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (!_ccExpanded)
+                                _expandChip(
+                                  label: 'Cc',
+                                  onTap: () =>
+                                      setState(() => _ccExpanded = true),
                                 ),
-                              ),
-                            const Divider(indent: 0, endIndent: 0),
-                            _fieldRow(
-                              label: 'Subject',
-                              controller: _subjectController,
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                    SliverFillRemaining(
-                      hasScrollBody: false,
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 20),
-                        child: TextField(
-                          controller: _bodyController,
-                          focusNode: _bodyFocus,
-                          maxLines: null,
-                          expands: true,
-                          textAlignVertical: TextAlignVertical.top,
-                          decoration: const InputDecoration(
-                            hintText: 'Write your mail…',
-                            border: InputBorder.none,
-                            filled: false,
-                            hintStyle: TextStyle(
-                              color: AppTheme.tertiaryText,
-                            ),
-                          ),
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: Color(0xFF1F2937),
-                            height: 1.55,
+                              if (!_ccExpanded && !_bccExpanded)
+                                const SizedBox(width: 8),
+                              if (!_bccExpanded)
+                                _expandChip(
+                                  label: 'Bcc',
+                                  onTap: () =>
+                                      setState(() => _bccExpanded = true),
+                                ),
+                            ],
                           ),
                         ),
+                      const Divider(indent: 0, endIndent: 0),
+                      _fieldRow(
+                        label: 'Subject',
+                        controller: _subjectController,
+                        fieldKey: const Key('subject-field'),
                       ),
-                    ),
-                  ],
+                      if (_attachments.isNotEmpty) ...[
+                        const SizedBox(height: 12),
+                        for (final attachment in _attachments)
+                          _AttachmentRow(
+                            attachment: attachment,
+                            onRemove: () => _removeAttachment(attachment),
+                          ),
+                      ],
+                      const SizedBox(height: 4),
+                      TextField(
+                        controller: _bodyController,
+                        focusNode: _bodyFocus,
+                        minLines: 12,
+                        maxLines: null,
+                        textAlignVertical: TextAlignVertical.top,
+                        decoration: const InputDecoration(
+                          hintText: 'Write your mail…',
+                          border: InputBorder.none,
+                          filled: false,
+                          hintStyle: TextStyle(
+                            color: AppTheme.tertiaryText,
+                          ),
+                        ),
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: Color(0xFF1F2937),
+                          height: 1.55,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+                  ),
                 ),
               ),
               _buildBottomBar(),
@@ -311,23 +354,25 @@ class _ComposeScreenState extends State<ComposeScreen> {
     required String label,
     required TextEditingController controller,
     FocusNode? focusNode,
+    Key? fieldKey,
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        SizedBox(
-          width: 52,
-          child: Text(
-            label,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.secondaryText,
-            ),
+        // Natural-width label; a fixed width is what previously made
+        // "Subject" wrap mid-word on narrow screens.
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: AppTheme.secondaryText,
           ),
         ),
+        const SizedBox(width: 12),
         Expanded(
           child: TextField(
+            key: fieldKey,
             controller: controller,
             focusNode: focusNode,
             textInputAction: TextInputAction.next,
@@ -368,9 +413,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
         color: Colors.white,
         border: Border(top: BorderSide(color: AppTheme.border)),
       ),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
+          IconButton(
+            key: const Key('attach-button'),
+            onPressed: _attach,
+            icon: const Icon(LucideIcons.paperclip, size: 22),
+            tooltip: 'Attach file',
+          ),
           IconButton(
             onPressed: _recording ? null : _simulateVoice,
             icon: _recording
@@ -399,6 +450,51 @@ class _ComposeScreenState extends State<ComposeScreen> {
             )
           else
             const Spacer(),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttachmentRow extends StatelessWidget {
+  const _AttachmentRow({required this.attachment, required this.onRemove});
+
+  final Attachment attachment;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.fileText,
+              size: 20, color: AppTheme.secondaryText),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              attachment.name,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 14, color: Colors.black),
+            ),
+          ),
+          Text(
+            attachment.sizeLabel,
+            style: const TextStyle(
+              fontSize: 13,
+              color: AppTheme.secondaryText,
+            ),
+          ),
+          const SizedBox(width: 4),
+          IconButton(
+            key: ValueKey('attach-remove-${attachment.name}'),
+            onPressed: onRemove,
+            tooltip: 'Remove ${attachment.name}',
+            iconSize: 18,
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(LucideIcons.x, color: AppTheme.secondaryText),
+          ),
         ],
       ),
     );

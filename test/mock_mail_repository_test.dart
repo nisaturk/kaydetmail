@@ -2,6 +2,7 @@ import 'package:flutter/material.dart' show Color;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/data/mock/mock_email_generator.dart';
 import 'package:kaydetmail/data/mock/mock_emails.dart';
+import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/mock_mail_repository.dart';
 
@@ -10,6 +11,115 @@ void main() {
     test('seed email ids are unique', () {
       final ids = MockEmails.seed.map((e) => e.id).toSet();
       expect(ids.length, MockEmails.seed.length);
+    });
+
+    test('seed covers the documented test scenarios', () {
+      final seed = MockEmails.seed;
+
+      // Several inbox messages, some read and some unread.
+      final inbox = seed.where((e) => e.folder == MailFolder.inbox).toList();
+      expect(inbox.length, greaterThanOrEqualTo(5));
+      expect(inbox.any((e) => e.isRead), isTrue);
+      expect(inbox.any((e) => !e.isRead), isTrue);
+
+      // Multiple senders and different dates.
+      expect(inbox.map((e) => e.senderEmail).toSet().length,
+          greaterThanOrEqualTo(3));
+      expect(inbox.map((e) => e.timestamp).toSet().length,
+          greaterThanOrEqualTo(3));
+
+      // Long subject and long body (for preview truncation).
+      expect(inbox.any((e) => e.subject.length >= 80), isTrue);
+      expect(inbox.any((e) => e.bodyText.length >= 400), isTrue);
+
+      // Pinned, sent, draft, trash and spam.
+      expect(seed.any((e) => e.isPinned), isTrue);
+      expect(seed.any((e) => e.folder == MailFolder.sent), isTrue);
+      expect(seed.any((e) => e.folder == MailFolder.drafts), isTrue);
+      expect(seed.any((e) => e.folder == MailFolder.trash), isTrue);
+      expect(seed.any((e) => e.folder == MailFolder.spam), isTrue);
+
+      // Badges/noisy messages (for spam-filtering UI tests).
+      expect(seed.any((e) => e.senderEmail.contains('claim-now')), isTrue);
+      expect(seed.any((e) => e.senderEmail.contains('dealzone')), isTrue);
+
+      // Searchable by sender, subject and body.
+      expect(inbox.any((e) => e.matchesQuery('david')), isTrue);
+      expect(inbox.any((e) => e.matchesQuery('invoice')), isTrue);
+      expect(inbox.any((e) => e.matchesQuery('migration')), isTrue);
+
+      // Labels exist and are attached to at least one message.
+      expect(inbox.any((e) => e.labelIds.isNotEmpty), isTrue);
+    });
+
+    test('documented mock account is accepted by login', () async {
+      // The mock-only documented credentials stay easy to find.
+      expect(MockMailRepository.demoEmail, 'nisa@kaydet.com');
+      expect(MockMailRepository.demoPassword, 'kaydet123');
+
+      final repo = MockMailRepository();
+      final ok = await repo.login(
+        email: MockMailRepository.demoEmail,
+        password: MockMailRepository.demoPassword,
+      );
+      expect(ok, isTrue);
+      expect(repo.currentUser, MockMailRepository.demoEmail);
+    });
+
+    test('resetMockData restores the pristine dataset', () async {
+      final repo = MockMailRepository();
+      expect(repo.currentUser, MockMailRepository.demoEmail);
+
+      // Mutate: trash mail, add a label, delete "permanently", pin, generate.
+      final target = repo.getEmailsInFolder(MailFolder.inbox).first;
+      await repo.moveToTrash([target.id]);
+      await repo.createLabel(
+          name: 'Temp', color: const Color.fromARGB(255, 1, 2, 3));
+
+      final pristineInboxCount = MockEmails.seed
+          .where((e) => e.folder == MailFolder.inbox)
+          .length;
+      final mutatedCount = repo.getEmailsInFolder(MailFolder.inbox).length;
+      expect(mutatedCount, lessThan(pristineInboxCount));
+
+      repo.resetMockData();
+
+      // Back to the exact seed count, pristine labels, no generated emails,
+      // and the default current user again.
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).length,
+        pristineInboxCount,
+      );
+      expect(
+        repo.getLabels().map((l) => l.id),
+        containsAll(MockLabels.all.map((l) => l.id)),
+      );
+      expect(
+        repo
+            .getEmailsInFolder(MailFolder.inbox)
+            .any((e) => e.id.startsWith('gen-')),
+        isFalse,
+      );
+      expect(repo.currentUser, MockMailRepository.demoEmail);
+    });
+
+    test('resetMockData after loadMoreEmails drops the extra pages', () async {
+      final repo = MockMailRepository();
+      await repo.loadMoreEmails(MailFolder.inbox);
+
+      final genCountBefore =
+          repo.getEmailsInFolder(MailFolder.inbox).where((e) =>
+              e.id.startsWith('gen-')).length;
+      expect(genCountBefore, greaterThan(0));
+
+      repo.resetMockData();
+
+      expect(
+        repo
+            .getEmailsInFolder(MailFolder.inbox)
+            .any((e) => e.id.startsWith('gen-')),
+        isFalse,
+      );
     });
 
     test('generated email ids never collide across batches', () {
@@ -178,6 +288,50 @@ void main() {
       expect(draft.folder, MailFolder.drafts);
       expect(repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
           contains(draft.id));
+    });
+
+    test('sendEmail with attachments preserves the metadata', () async {
+      final repo = MockMailRepository();
+      final sent = await repo.sendEmail(
+        to: ['alice@example.com'],
+        subject: 'With files',
+        body: 'Here they are',
+        attachments: const [
+          Attachment(name: 'report.pdf', sizeBytes: 2048, mimeType: 'pdf'),
+          Attachment(
+              name: 'a-very-very-long-attachment-filename.pdf',
+              sizeBytes: 10 * 1024 * 1024),
+        ],
+      );
+
+      expect(sent.folder, MailFolder.sent);
+      expect(sent.attachments.length, 2);
+      expect(sent.attachments.first.name, 'report.pdf');
+      expect(sent.attachments.first.sizeBytes, 2048);
+      expect(sent.attachments.first.sizeLabel, '2 KB');
+      expect(sent.attachments.last.sizeLabel, '10.0 MB');
+
+      // The stored mail in Sent keeps the same attachment metadata.
+      final stored = repo
+          .getEmailsInFolder(MailFolder.sent)
+          .firstWhere((e) => e.id == sent.id);
+      expect(stored.attachments.map((a) => a.name), contains('report.pdf'));
+      expect(stored.attachments.last.sizeBytes, 10 * 1024 * 1024);
+    });
+
+    test('saveDraft keeps attachment metadata in the draft', () async {
+      final repo = MockMailRepository();
+      final draft = await repo.saveDraft(
+        to: ['alice@example.com'],
+        subject: '',
+        body: '',
+        attachments: const [
+          Attachment(name: 'draft-notes.txt', sizeBytes: 512),
+        ],
+      );
+      expect(draft.folder, MailFolder.drafts);
+      expect(draft.attachments.single.name, 'draft-notes.txt');
+      expect(draft.attachments.single.sizeBytes, 512);
     });
 
     test('labels can be listed and created', () async {

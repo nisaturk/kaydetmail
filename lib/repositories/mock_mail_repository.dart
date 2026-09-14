@@ -16,14 +16,36 @@ import 'mail_repository.dart';
 /// the loading states behave like a real network call. State is transient —
 /// restarting the app resets it, which is fine for mock mode.
 class MockMailRepository extends MailRepository {
+  /// Documented mock account accepted by login while `AppConfig.useMockApi`
+  /// is true. `nisa@kaydet.com` / `kaydet123`. Mock-only — no real account
+  /// exists and nothing leaves the device.
+  static const String demoEmail = 'nisa@kaydet.com';
+  static const String demoPassword = 'kaydet123';
+
   static const Duration _latency = Duration(milliseconds: 350);
 
   final List<Email> _emails = [...MockEmails.seed];
   final List<MailLabel> _labels = [...MockLabels.all];
   final Random _random = Random();
 
-  String _currentUser = 'me@kaydet.app';
+  String _currentUser = demoEmail;
   bool _loading = false;
+
+  /// Restores the pristine seed dataset (emails, labels and current user),
+  /// discarding any changes made in the current session. Useful for tests and
+  /// development; the normal app restart already resets mock state because it
+  /// is never persisted anywhere.
+  void resetMockData() {
+    _emails
+      ..clear()
+      ..addAll(MockEmails.seed);
+    _labels
+      ..clear()
+      ..addAll(MockLabels.all);
+    _currentUser = demoEmail;
+    _loading = false;
+    notifyListeners();
+  }
 
   Future<void> _delay() => Future<void>.delayed(_latency);
 
@@ -148,6 +170,7 @@ class MockMailRepository extends MailRepository {
     List<String> bcc = const [],
     String subject = '',
     String body = '',
+    List<Attachment> attachments = const [],
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -156,6 +179,7 @@ class MockMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       body: body,
+      attachments: attachments,
       folder: MailFolder.drafts,
     );
     notifyListeners();

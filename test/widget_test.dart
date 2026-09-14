@@ -3,27 +3,70 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
+import 'package:kaydetmail/repositories/mock_mail_repository.dart';
 
 void main() {
   setUp(() => AppConfig.resetForTest());
-  testWidgets('app boots to the login screen', (WidgetTester tester) async {
+
+  testWidgets('app boots to the email step of the login screen',
+      (WidgetTester tester) async {
     await tester.pumpWidget(const KaydetApp());
 
     expect(find.text('KAYDET'), findsOneWidget);
     expect(find.text('Your secure mail client'), findsOneWidget);
-    expect(find.byType(TextFormField), findsNWidgets(2));
-    expect(find.text('Login'), findsOneWidget);
-    expect(find.text('Advanced server settings'), findsOneWidget);
+    expect(find.byKey(const Key('email-field')), findsOneWidget);
+    expect(find.byKey(const Key('password-field')), findsNothing);
+    expect(find.text('Continue'), findsOneWidget);
+    expect(find.text('Sign in'), findsNothing);
+    expect(find.text('Advanced server settings'), findsNothing);
+  });
+
+  testWidgets('continue slides to the password step', (WidgetTester tester) async {
+    await tester.pumpWidget(const KaydetApp());
+
+    await tester.enterText(find.byKey(const Key('email-field')), 'me@example.com');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('password-field')), findsOneWidget);
+    expect(find.byKey(const Key('signin-button')), findsOneWidget);
+    expect(find.text('Signing in as'), findsOneWidget);
+    expect(find.text('me@example.com'), findsOneWidget);
+  });
+
+  testWidgets('back returns to the email step and preserves the email',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const KaydetApp());
+
+    await tester.enterText(find.byKey(const Key('email-field')), 'me@example.com');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Back'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const Key('email-field')), findsOneWidget);
+    expect(find.byKey(const Key('password-field')), findsNothing);
+    expect(
+      tester
+          .widget<TextFormField>(find.byKey(const Key('email-field')))
+          .controller!
+          .text,
+      'me@example.com',
+    );
   });
 
   testWidgets('login with valid credentials opens the inbox',
       (WidgetTester tester) async {
     await tester.pumpWidget(const KaydetApp());
 
-    await tester.enterText(find.byType(TextFormField).at(0), 'me@kaydet.app');
-    await tester.enterText(find.byType(TextFormField).at(1), 'secret123');
+    await tester.enterText(find.byKey(const Key('email-field')), 'me@kaydet.app');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Login'));
+    await tester.enterText(
+        find.byKey(const Key('password-field')), 'secret123');
+    await tester.tap(find.byKey(const Key('signin-button')));
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
 
@@ -36,17 +79,54 @@ void main() {
     expect(find.text('Fixing the CI pipeline'), findsOneWidget);
   });
 
-  testWidgets('login shows validation errors for bad input',
+  testWidgets('invalid email is rejected on the email step',
       (WidgetTester tester) async {
     await tester.pumpWidget(const KaydetApp());
 
-    await tester.enterText(find.byType(TextFormField).at(0), 'not-an-email');
-    await tester.enterText(find.byType(TextFormField).at(1), '123');
-    await tester.tap(find.text('Login'));
+    await tester.enterText(find.byKey(const Key('email-field')), 'not-an-email');
+    await tester.tap(find.text('Continue'));
     await tester.pump();
 
     expect(find.text('Enter a valid email address'), findsOneWidget);
-    expect(find.text('Password must be at least 6 characters'), findsOneWidget);
+    expect(find.byKey(const Key('password-field')), findsNothing);
     expect(find.text('Inbox'), findsNothing);
+  });
+
+  testWidgets('short password is rejected on the password step',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const KaydetApp());
+
+    await tester.enterText(find.byKey(const Key('email-field')), 'me@example.com');
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byKey(const Key('password-field')), '123');
+    await tester.tap(find.byKey(const Key('signin-button')));
+    await tester.pump();
+
+    expect(
+        find.text('Password must be at least 6 characters'), findsOneWidget);
+    expect(find.text('Inbox'), findsNothing);
+  });
+
+  testWidgets('documented mock credentials sign in', (WidgetTester tester) async {
+    expect(MockMailRepository.demoEmail, 'nisa@kaydet.com');
+    expect(MockMailRepository.demoPassword, 'kaydet123');
+
+    await tester.pumpWidget(const KaydetApp());
+
+    await tester.enterText(
+        find.byKey(const Key('email-field')), MockMailRepository.demoEmail);
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(
+        find.byKey(const Key('password-field')), MockMailRepository.demoPassword);
+    await tester.tap(find.byKey(const Key('signin-button')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Inbox'), findsWidgets);
   });
 }

@@ -57,6 +57,7 @@ class ApiMailRepository extends MailRepository {
     List<String> bcc = const [],
     String subject = '',
     String body = '',
+    List<Attachment> attachments = const [],
   }) =>
       _notImplemented();
 

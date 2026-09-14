@@ -13,10 +13,11 @@ Future<void> _login(
   String email = 'me@kaydet.app',
 }) async {
   await tester.pumpWidget(const KaydetApp());
-  await tester.enterText(find.byType(TextFormField).at(0), email);
-  await tester.enterText(find.byType(TextFormField).at(1), 'secret123');
-  await tester.ensureVisible(find.text('Login'));
-  await tester.tap(find.text('Login'));
+  await tester.enterText(find.byKey(const Key('email-field')), email);
+  await tester.tap(find.text('Continue'));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(const Key('password-field')), 'secret123');
+  await tester.tap(find.byKey(const Key('signin-button')));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 500));
   await tester.pumpAndSettle();

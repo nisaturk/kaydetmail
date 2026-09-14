@@ -94,6 +94,7 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> bcc = const [],
     String subject = '',
     String body = '',
+    List<Attachment> attachments = const [],
   });
 
   /// Moves the given mails to Trash (does not delete them permanently).
