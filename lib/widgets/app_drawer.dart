@@ -30,21 +30,21 @@ class AppDrawer extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 20, 16, 16),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
               child: Row(
                 children: [
                   MailAvatar(
-                    identity: 'me@kaydet.app',
+                    identity: AppConfig.mailRepository.currentUser,
                     displayName: 'KAYDET',
                     size: 40,
                   ),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
+                        const Text(
                           'KAYDET',
                           style: TextStyle(
                             fontSize: 18,
@@ -53,10 +53,10 @@ class AppDrawer extends StatelessWidget {
                           ),
                         ),
                         Text(
-                          'me@kaydet.app',
+                          AppConfig.mailRepository.currentUser,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
+                          style: const TextStyle(
                             fontSize: 13,
                             color: AppTheme.secondaryText,
                           ),

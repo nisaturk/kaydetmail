@@ -37,12 +37,12 @@ class SettingsScreen extends StatelessWidget {
         builder: (context, _) {
           return ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
-            children: const [
-              _SectionHeader('Labels'),
+            children: [
+              const _SectionHeader('Labels'),
               _LabelsSection(),
-              _SectionHeader('Notifications'),
+              const _SectionHeader('Notifications'),
               _NotificationsSection(),
-              _SectionHeader('Synchronization'),
+              const _SectionHeader('Synchronization'),
               _SyncSection(),
             ],
           );
@@ -96,84 +96,96 @@ class _LabelsSection extends StatelessWidget {
     );
   }
 
-  Future<void> _showNewLabelDialog(BuildContext context) async {
-    final controller = TextEditingController();
-    var color = SettingsScreen.labelColors.first;
-
-    await showDialog<void>(
+  Future<void> _showNewLabelDialog(BuildContext context) {
+    return showDialog<void>(
       context: context,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setState) => AlertDialog(
-          title: const Text('New label'),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              TextField(
-                controller: controller,
-                autofocus: true,
-                textInputAction: TextInputAction.done,
-                decoration: const InputDecoration(labelText: 'Name'),
-                onSubmitted: (_) {
-                  final name = controller.text.trim();
-                  if (name.isEmpty) return;
-                  _createAndClose(ctx, name, color);
-                },
-              ),
-              const SizedBox(height: 16),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final c in SettingsScreen.labelColors)
-                    GestureDetector(
-                      onTap: () => setState(() => color = c),
-                      child: Container(
-                        width: 32,
-                        height: 32,
-                        decoration: BoxDecoration(
-                          color: c,
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: c == color ? Colors.black : Colors.transparent,
-                            width: 2,
-                          ),
-                        ),
-                        child: c == color
-                            ? const Icon(LucideIcons.check,
-                                size: 18, color: Colors.white)
-                            : null,
-                      ),
-                    ),
-                ],
-              ),
-            ],
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(),
-              child: const Text('Cancel'),
-            ),
-            FilledButton(
-              onPressed: () {
-                final name = controller.text.trim();
-                if (name.isEmpty) return;
-                _createAndClose(ctx, name, color);
-              },
-              child: const Text('Create'),
-            ),
-          ],
-        ),
-      ),
+      builder: (_) => const _NewLabelDialog(),
     );
+  }
+}
 
-    controller.dispose();
+class _NewLabelDialog extends StatefulWidget {
+  const _NewLabelDialog();
+
+  @override
+  State<_NewLabelDialog> createState() => _NewLabelDialogState();
+}
+
+class _NewLabelDialogState extends State<_NewLabelDialog> {
+  final _controller = TextEditingController();
+  var _color = SettingsScreen.labelColors.first;
+  var _submitting = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
-  Future<void> _createAndClose(
-      BuildContext ctx, String name, Color color) async {
-    await AppConfig.mailRepository.createLabel(name: name, color: color);
-    if (ctx.mounted) Navigator.of(ctx).pop();
+  Future<void> _create() async {
+    if (_submitting) return;
+    final name = _controller.text.trim();
+    if (name.isEmpty) return;
+    setState(() => _submitting = true);
+    await AppConfig.mailRepository.createLabel(name: name, color: _color);
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('New label'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          TextField(
+            controller: _controller,
+            autofocus: true,
+            textInputAction: TextInputAction.done,
+            decoration: const InputDecoration(labelText: 'Name'),
+            onSubmitted: (_) => _create(),
+          ),
+          const SizedBox(height: 16),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final c in SettingsScreen.labelColors)
+                GestureDetector(
+                  onTap: () => setState(() => _color = c),
+                  child: Container(
+                    width: 32,
+                    height: 32,
+                    decoration: BoxDecoration(
+                      color: c,
+                      shape: BoxShape.circle,
+                      border: Border.all(
+                        color: c == _color ? Colors.black : Colors.transparent,
+                        width: 2,
+                      ),
+                    ),
+                    child: c == _color
+                        ? const Icon(LucideIcons.check,
+                            size: 18, color: Colors.white)
+                        : null,
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _create,
+          child: const Text('Create'),
+        ),
+      ],
+    );
   }
 }
 

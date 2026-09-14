@@ -54,6 +54,9 @@ class MockMailRepository extends MailRepository {
   }
 
   @override
+  String get currentUser => _currentUser;
+
+  @override
   List<Email> getEmailsInFolder(MailFolder folder) {
     final result = folder == MailFolder.pinned
         ? _emails.where((e) => e.isPinned).toList()

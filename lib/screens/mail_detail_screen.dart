@@ -28,6 +28,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
   Email? _email;
   bool _loading = true;
+  bool _opened = false;
 
   @override
   void initState() {
@@ -50,9 +51,13 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       _loading = false;
     });
 
-    // A freshly opened mail becomes read.
-    if (email != null && !email.isRead) {
-      await _repo.markAsRead([email.id]);
+    // A freshly opened mail becomes read — but only on the very first load.
+    // Later reloads (pin, mark-as-unread) must not silently flip it back.
+    if (email != null && !_opened) {
+      _opened = true;
+      if (!email.isRead) {
+        await _repo.markAsRead([email.id]);
+      }
     }
   }
 

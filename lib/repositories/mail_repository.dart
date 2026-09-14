@@ -61,6 +61,9 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<void> logout();
 
+  /// Email address of the currently signed-in user.
+  String get currentUser;
+
   // --- Reading ------------------------------------------------------
 
   /// Current snapshot of the folder's emails, newest first.

@@ -28,6 +28,9 @@ class ApiMailRepository extends MailRepository {
   Future<void> logout() => _notImplemented();
 
   @override
+  String get currentUser => _notImplemented();
+
+  @override
   List<Email> getEmailsInFolder(MailFolder folder) => _notImplemented();
 
   @override

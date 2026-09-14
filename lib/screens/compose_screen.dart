@@ -64,8 +64,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
               ),
               TextButton(
                 onPressed: () async {
-                  Navigator.of(ctx).pop(false);
                   await _saveDraft();
+                  if (mounted && ctx.mounted) {
+                    Navigator.of(ctx).pop(true);
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Draft saved.')),
+                    );
+                  }
                 },
                 child: const Text('Save draft'),
               ),
@@ -126,7 +131,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   Future<void> _saveDraft() async {
     final to = _toController.text.trim();
-    if (to.isEmpty && _bodyController.text.trim().isEmpty) return;
+    final hasAny = to.isNotEmpty ||
+        _subjectController.text.trim().isNotEmpty ||
+        _bodyController.text.trim().isNotEmpty;
+    if (!hasAny) return;
     try {
       await _repo.saveDraft(
         to: to.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
