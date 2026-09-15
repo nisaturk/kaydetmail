@@ -56,7 +56,7 @@ class _SearchScreenState extends State<SearchScreen> {
           textInputAction: TextInputAction.search,
           onChanged: (value) => setState(() => _query = value),
           decoration: const InputDecoration(
-            hintText: 'Search mail',
+            hintText: 'E-posta ara',
             border: InputBorder.none,
             filled: false,
             hintStyle: TextStyle(color: AppTheme.tertiaryText, fontSize: 16),
@@ -66,7 +66,7 @@ class _SearchScreenState extends State<SearchScreen> {
         actions: [
           if (_query.isNotEmpty)
             IconButton(
-              tooltip: 'Clear',
+              tooltip: 'Temizle',
               onPressed: () {
                 _controller.clear();
                 setState(() => _query = '');
@@ -79,7 +79,7 @@ class _SearchScreenState extends State<SearchScreen> {
         listenable: _repo,
         builder: (context, _) {
           if (_query.trim().isEmpty) {
-            return const _Hint(message: 'Start typing to search your mail.');
+            return const _Hint(message: 'Aramak için yazmaya başlayın.');
           }
 
           final results = _collectAll()
@@ -87,7 +87,7 @@ class _SearchScreenState extends State<SearchScreen> {
               .toList();
 
           if (results.isEmpty) {
-            return _Hint(message: 'No results for "${_query.trim()}".');
+            return _Hint(message: '“${_query.trim()}” için sonuç yok.');
           }
 
           return ListView.separated(

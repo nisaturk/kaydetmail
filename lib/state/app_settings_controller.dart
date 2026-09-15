@@ -2,11 +2,11 @@ import 'package:flutter/foundation.dart';
 
 /// Simulated synchronization interval.
 enum SyncInterval {
-  manual('Manual'),
-  every5Minutes('Every 5 minutes'),
-  every15Minutes('Every 15 minutes'),
-  every30Minutes('Every 30 minutes'),
-  everyHour('Every hour');
+  manual('Manuel'),
+  every5Minutes('Her 5 dakikada bir'),
+  every15Minutes('Her 15 dakikada bir'),
+  every30Minutes('Her 30 dakikada bir'),
+  everyHour('Her saat');
 
   const SyncInterval(this.label);
 

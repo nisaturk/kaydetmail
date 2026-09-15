@@ -9,7 +9,9 @@ import 'mail_avatar.dart';
 /// One row in the mail list: avatar on the left, sender + subject + preview
 /// on the right.
 ///
-/// Unread mails use stronger typography, pinned mails show a pin icon.
+/// Unread mails use stronger typography, pinned mails show a pin icon and
+/// mails with attachments show a paperclip. While [selected] the row gets a
+/// light background in addition to the avatar check.
 class MailListItem extends StatelessWidget {
   const MailListItem({
     super.key,
@@ -28,98 +30,106 @@ class MailListItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final time = formatMailTime(email.timestamp);
 
-    return InkWell(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (!email.isRead)
-              const Padding(
-                padding: EdgeInsets.only(top: 14, right: 8),
-                child: _UnreadDot(),
+    return Container(
+      color: selected ? const Color(0xFFF3F4F6) : null,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (!email.isRead)
+                const Padding(
+                  padding: EdgeInsets.only(top: 10, right: 8),
+                  child: _UnreadDot(),
+                ),
+              GestureDetector(
+                onTap: onAvatarTap,
+                behavior: HitTestBehavior.opaque,
+                child: MailAvatar(
+                  identity: email.senderEmail,
+                  displayName: email.senderName,
+                  selected: selected,
+                ),
               ),
-            GestureDetector(
-              onTap: onAvatarTap,
-              behavior: HitTestBehavior.opaque,
-              child: MailAvatar(
-                identity: email.senderEmail,
-                displayName: email.senderName,
-                selected: selected,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          email.senderName,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            email.senderName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 15,
+                              fontWeight: email.isRead
+                                  ? FontWeight.w400
+                                  : FontWeight.w700,
+                              color: Colors.black,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        if (email.isPinned) ...[
+                          Icon(LucideIcons.pin,
+                              size: 14, color: AppTheme.tertiaryText),
+                          const SizedBox(width: 6),
+                        ],
+                        if (email.attachments.isNotEmpty) ...[
+                          Icon(LucideIcons.paperclip,
+                              size: 13, color: AppTheme.tertiaryText),
+                          const SizedBox(width: 6),
+                        ],
+                        Text(
+                          time,
                           style: TextStyle(
-                            fontSize: 15,
+                            fontSize: 12,
                             fontWeight: email.isRead
                                 ? FontWeight.w400
                                 : FontWeight.w700,
-                            color: Colors.black,
+                            color: email.isRead
+                                ? AppTheme.secondaryText
+                                : Colors.black,
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                      if (email.isPinned) ...[
-                        Icon(LucideIcons.pin,
-                            size: 14, color: AppTheme.tertiaryText),
-                        const SizedBox(width: 6),
                       ],
-                      Text(
-                        time,
-                        style: TextStyle(
-                          fontSize: 12,
-                          fontWeight: email.isRead
-                              ? FontWeight.w400
-                              : FontWeight.w700,
-                          color: email.isRead
-                              ? AppTheme.secondaryText
-                              : Colors.black,
-                        ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      email.subject,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: email.isRead
+                            ? FontWeight.w400
+                            : FontWeight.w600,
+                        color: email.isRead
+                            ? AppTheme.secondaryText
+                            : Colors.black,
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 3),
-                  Text(
-                    email.subject,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 14,
-                      fontWeight: email.isRead
-                          ? FontWeight.w400
-                          : FontWeight.w600,
-                      color: email.isRead
-                          ? AppTheme.secondaryText
-                          : Colors.black,
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    email.preview,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.secondaryText,
-                      height: 1.3,
+                    const SizedBox(height: 2),
+                    Text(
+                      email.preview,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.secondaryText,
+                        height: 1.3,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

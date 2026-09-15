@@ -124,7 +124,7 @@ class MockMailRepository extends MailRepository {
     final email = Email(
       id: 'composed-${DateTime.now().microsecondsSinceEpoch}-'
           '${_random.nextInt(1 << 32)}',
-      senderName: 'Me',
+      senderName: 'Ben',
       senderEmail: _currentUser,
       recipients: to,
       cc: cc,

@@ -135,7 +135,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Move to',
+                  'Klasöre Taşı',
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w700,
@@ -185,7 +185,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Labels',
+                        'Etiketler',
                         style: TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.w700,
@@ -244,7 +244,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ? null
               : FloatingActionButton(
                   onPressed: _openCompose,
-                  tooltip: 'Compose',
+                  tooltip: 'Yeni E-posta',
                   child: const Icon(LucideIcons.mailPlus),
                 ),
           bottomNavigationBar:
@@ -265,7 +265,7 @@ class _HomeScreenState extends State<HomeScreen> {
         IconButton(
           onPressed: _openSearch,
           icon: const Icon(LucideIcons.search),
-          tooltip: 'Search',
+          tooltip: 'Ara',
         ),
       ],
     );
@@ -275,14 +275,14 @@ class _HomeScreenState extends State<HomeScreen> {
     return AppBar(
       leading: IconButton(
         onPressed: _selection.exit,
-        tooltip: 'Cancel selection',
+        tooltip: 'Seçimi iptal et',
         icon: const Icon(LucideIcons.x),
       ),
-      title: Text('${_selection.count} selected'),
+      title: Text(_selection.count == 1 ? '1 seçili' : '${_selection.count} seçili'),
       actions: [
         TextButton(
           onPressed: _selection.selectAllVisible,
-          child: const Text('Select all'),
+          child: const Text('Tümünü seç'),
         ),
       ],
     );
@@ -308,32 +308,32 @@ class _HomeScreenState extends State<HomeScreen> {
             children: [
               _ActionBtn(
                 icon: LucideIcons.trash2,
-                label: 'Delete',
+                label: 'Sil',
                 onTap: _actionDelete,
               ),
               _ActionBtn(
                 icon: allRead ? LucideIcons.eyeOff : LucideIcons.eye,
-                label: allRead ? 'Unread' : 'Read',
+                label: allRead ? 'Okunmadı' : 'Okundu',
                 onTap: _actionReadUnread,
               ),
               _ActionBtn(
                 icon: allPinned ? LucideIcons.star : LucideIcons.pin,
-                label: allPinned ? 'Unpin' : 'Pin',
+                label: allPinned ? 'Yıldızdan Çıkar' : 'Yıldızla',
                 onTap: _actionPinUnpin,
               ),
               _ActionBtn(
                 icon: LucideIcons.archive,
-                label: 'Archive',
+                label: 'Arşivle',
                 onTap: _actionArchive,
               ),
               _ActionBtn(
                 icon: LucideIcons.move,
-                label: 'Move',
+                label: 'Taşı',
                 onTap: _actionMove,
               ),
               _ActionBtn(
                 icon: LucideIcons.tag,
-                label: 'Label',
+                label: 'Etiket',
                 onTap: _actionLabel,
               ),
             ],
@@ -362,17 +362,17 @@ class _ActionBtn extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 20, color: Colors.black),
-            const SizedBox(height: 3),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 11, color: Colors.black),
-            ),
-          ],
-        ),
+child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, size: 20, color: Colors.black),
+              const SizedBox(height: 4),
+              Text(
+                label,
+                style: const TextStyle(fontSize: 12, color: Colors.black),
+              ),
+            ],
+          ),
       ),
     );
   }

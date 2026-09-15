@@ -14,7 +14,7 @@ Future<void> _login(
 }) async {
   await tester.pumpWidget(const KaydetApp());
   await tester.enterText(find.byKey(const Key('email-field')), email);
-  await tester.tap(find.text('Continue'));
+  await tester.tap(find.text('Devam'));
   await tester.pumpAndSettle();
   await tester.enterText(find.byKey(const Key('password-field')), 'secret123');
   await tester.tap(find.byKey(const Key('signin-button')));
@@ -24,9 +24,9 @@ Future<void> _login(
 }
 
 Future<void> _openSettings(WidgetTester tester) async {
-  await tester.tap(find.byTooltip('Open navigation menu'));
+  await tester.tap(find.byTooltip('Gezinme menüsünü aç'));
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Settings'));
+  await tester.tap(find.text('Ayarlar'));
   await tester.pumpAndSettle();
 }
 
@@ -47,19 +47,19 @@ void main() {
     testWidgets('Save draft closes compose, confirms and stores the draft',
         (tester) async {
       await _login(tester);
-      await tester.tap(find.byTooltip('Compose'));
+      await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(2), 'Draft body content');
-      await tester.tap(find.byTooltip('Close'));
+      await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Save draft'));
+      await tester.tap(find.text('Taslağı Kaydet'));
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
-      expect(find.text('New mail'), findsNothing);
-      expect(find.text('Draft saved.'), findsOneWidget);
+      expect(find.text('Yeni E-posta'), findsNothing);
+      expect(find.text('Taslak kaydedildi.'), findsOneWidget);
       final drafts =
           AppConfig.mailRepository.getEmailsInFolder(MailFolder.drafts);
       expect(
@@ -71,18 +71,18 @@ void main() {
     testWidgets('Save draft also works for a subject-only mail',
         (tester) async {
       await _login(tester);
-      await tester.tap(find.byTooltip('Compose'));
+      await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(1), 'Subject only');
-      await tester.tap(find.byTooltip('Close'));
+      await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Save draft'));
+      await tester.tap(find.text('Taslağı Kaydet'));
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
-      expect(find.text('New mail'), findsNothing);
+      expect(find.text('Yeni E-posta'), findsNothing);
       final drafts =
           AppConfig.mailRepository.getEmailsInFolder(MailFolder.drafts);
       expect(drafts.map((e) => e.subject), contains('Subject only'));
@@ -90,17 +90,17 @@ void main() {
 
     testWidgets('Discard closes compose without saving', (tester) async {
       await _login(tester);
-      await tester.tap(find.byTooltip('Compose'));
+      await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(TextField).at(2), 'Will be discarded');
-      await tester.tap(find.byTooltip('Close'));
+      await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Discard'));
+      await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
 
-      expect(find.text('New mail'), findsNothing);
+      expect(find.text('Yeni E-posta'), findsNothing);
       final drafts =
           AppConfig.mailRepository.getEmailsInFolder(MailFolder.drafts);
       expect(
@@ -134,7 +134,7 @@ void main() {
 
       await tester.tap(find.byType(PopupMenuButton<String>));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Mark as unread'));
+      await tester.tap(find.text('Okunmadı olarak işaretle'));
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
@@ -153,7 +153,7 @@ void main() {
       await _login(tester);
       await _openSettings(tester);
 
-      await tester.tap(find.text('New label'));
+      await tester.tap(find.text('Yeni Etiket'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.descendant(
@@ -162,7 +162,7 @@ void main() {
         ),
         'Clients',
       );
-      await tester.tap(find.text('Create'));
+      await tester.tap(find.text('Oluştur'));
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
@@ -182,13 +182,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(AppSettingsController.instance.notificationsEnabled, isFalse);
 
-      await tester.ensureVisible(find.text('Every hour'));
+      await tester.ensureVisible(find.text('Her saat'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Every hour'));
+      await tester.tap(find.text('Her saat'));
       await tester.pumpAndSettle();
       expect(AppSettingsController.instance.syncInterval, SyncInterval.everyHour);
 
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
       await _openSettings(tester);
 
@@ -204,44 +204,44 @@ void main() {
     testWidgets('drawer switches folders and closes', (tester) async {
       await _login(tester);
 
-      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.tap(find.byTooltip('Gezinme menüsünü aç'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Sent'));
+      await tester.tap(find.text('Gönderilenler'));
       await tester.pumpAndSettle();
 
       expect(
         find.descendant(
           of: find.byType(AppBar),
-          matching: find.text('Sent'),
+          matching: find.text('Gönderilenler'),
         ),
         findsOneWidget,
       );
       expect(find.text('Re: Design review: onboarding flow'), findsOneWidget);
-      expect(find.text('Logout'), findsNothing);
+      expect(find.text('Çıkış Yap'), findsNothing);
     });
 
     testWidgets('back navigation returns to a single home without duplicates',
         (tester) async {
       await _login(tester);
 
-      await tester.tap(find.byTooltip('Search'));
+      await tester.tap(find.byTooltip('Ara'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'invoice');
       await tester.pump();
       await tester.tap(find.text('Invoice #4821 for March'));
       await tester.pumpAndSettle();
 
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
       expect(find.byType(AppBar), findsOneWidget);
 
-      await tester.pageBack();
+      await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
       expect(find.byType(AppBar), findsOneWidget);
       expect(
         find.descendant(
           of: find.byType(AppBar),
-          matching: find.text('Inbox'),
+          matching: find.text('Gelen Kutusu'),
         ),
         findsOneWidget,
       );
@@ -250,7 +250,7 @@ void main() {
     testWidgets('drawer shows the signed-in account', (tester) async {
       await _login(tester, email: 'other@example.com');
 
-      await tester.tap(find.byTooltip('Open navigation menu'));
+      await tester.tap(find.byTooltip('Gezinme menüsünü aç'));
       await tester.pumpAndSettle();
 
       expect(find.text('other@example.com'), findsOneWidget);
@@ -265,7 +265,7 @@ void main() {
 
       await _login(tester);
 
-      await tester.tap(find.byTooltip('Compose'));
+      await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byType(TextField).at(2),
@@ -273,12 +273,12 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byTooltip('Close'));
+      await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Discard'));
+      await tester.tap(find.text('Sil'));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byTooltip('Search'));
+      await tester.tap(find.byTooltip('Ara'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(TextField), 'x' * 300);
       await tester.pump();

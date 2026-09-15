@@ -9,15 +9,15 @@ class MockLabels {
   MockLabels._();
 
   static const work = MailLabel(
-      id: 'lab-work', name: 'Work', color: Color(0xFF3E7CB1));
+      id: 'lab-work', name: 'İş', color: Color(0xFF3E7CB1));
   static const personal = MailLabel(
-      id: 'lab-personal', name: 'Personal', color: Color(0xFF8E7CC3));
+      id: 'lab-personal', name: 'Kişisel', color: Color(0xFF8E7CC3));
   static const finance = MailLabel(
-      id: 'lab-finance', name: 'Finance', color: Color(0xFF2E8B6E));
+      id: 'lab-finance', name: 'Finans', color: Color(0xFF2E8B6E));
   static const travel = MailLabel(
-      id: 'lab-travel', name: 'Travel', color: Color(0xFFC77D2E));
+      id: 'lab-travel', name: 'Seyahat', color: Color(0xFFC77D2E));
   static const important = MailLabel(
-      id: 'lab-important', name: 'Important', color: Color(0xFFB02A2A));
+      id: 'lab-important', name: 'Önemli', color: Color(0xFFB02A2A));
 
   static const all = [work, personal, finance, travel, important];
 }
@@ -266,7 +266,7 @@ class MockEmails {
       ),
       Email(
         id: 'seed-sent-onboarding',
-        senderName: 'Me',
+        senderName: 'Ben',
         senderEmail: 'me@kaydet.app',
         recipients: ['alice.johnson@northstar.io'],
         subject: 'Re: Design review: onboarding flow',
@@ -285,7 +285,7 @@ class MockEmails {
       ),
       Email(
         id: 'seed-sent-roadmap',
-        senderName: 'Me',
+        senderName: 'Ben',
         senderEmail: 'me@kaydet.app',
         recipients: ['priya.patel@quantica.com'],
         subject: 'Questions about Q2 roadmap',
@@ -303,7 +303,7 @@ class MockEmails {
       ),
       Email(
         id: 'seed-draft-budget',
-        senderName: 'Me',
+        senderName: 'Ben',
         senderEmail: 'me@kaydet.app',
         recipients: ['finance@northstar.io'],
         subject: 'Draft: Budget proposal',
@@ -323,7 +323,7 @@ class MockEmails {
       ),
       Email(
         id: 'seed-draft-weekend',
-        senderName: 'Me',
+        senderName: 'Ben',
         senderEmail: 'me@kaydet.app',
         recipients: ['alice.johnson@northstar.io'],
         subject: 'Weekend plans',

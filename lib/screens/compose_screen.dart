@@ -65,12 +65,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Discard this mail?'),
-            content: const Text('You can save it as a draft or discard.'),
+            title: const Text('Bu e-posta silinsin mi?'),
+            content: const Text('Taslak olarak kaydedebilir veya silebilirsiniz.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Cancel'),
+                child: const Text('Vazgeç'),
               ),
               TextButton(
                 onPressed: () async {
@@ -78,16 +78,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   if (mounted && ctx.mounted) {
                     Navigator.of(ctx).pop(true);
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Draft saved.')),
+                      const SnackBar(content: Text('Taslak kaydedildi.')),
                     );
                   }
                 },
-                child: const Text('Save draft'),
+                child: const Text('Taslağı Kaydet'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
                 child: const Text(
-                  'Discard',
+                  'Sil',
                   style: TextStyle(color: Colors.red),
                 ),
               ),
@@ -101,7 +101,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final to = _toController.text.trim();
     if (to.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('At least one recipient is required.')),
+        const SnackBar(content: Text('En az bir alıcı yazmalısınız.')),
       );
       _toFocus.requestFocus();
       return;
@@ -128,13 +128,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Email sent.')),
+        const SnackBar(content: Text('E-posta gönderildi.')),
       );
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Failed to send: $e')),
+          SnackBar(content: Text('Gönderilemedi: $e')),
         );
       }
     }
@@ -201,8 +201,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
     final insertion = _bodyController.text.isEmpty ? '' : '\n';
     final text =
-        '${insertion}This is a simulated voice transcription. '
-        'The real implementation will use the device microphone.';
+        '${insertion}Bu, simüle edilmiş bir sesli diktedir. '
+        'Gerçek uygulama cihaz mikrofonunu kullanacaktır.';
     _bodyController.text += text;
     _bodyController.selection = TextSelection.fromPosition(
       TextPosition(offset: _bodyController.text.length),
@@ -224,14 +224,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(LucideIcons.x),
-            tooltip: 'Close',
+            tooltip: 'Kapat',
             onPressed: () async {
               final nav = Navigator.of(context);
               final shouldPop = await _onWillPop();
               if (shouldPop && mounted) nav.pop();
             },
           ),
-          title: const Text('New mail'),
+          title: const Text('Yeni E-posta'),
           actions: [
             if (_sending)
               const Padding(
@@ -245,7 +245,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             else
               IconButton(
                 icon: const Icon(LucideIcons.send),
-                tooltip: 'Send',
+                tooltip: 'Gönder',
                 onPressed: _send,
               ),
           ],
@@ -262,7 +262,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       _fieldRow(
-                        label: 'To',
+                        label: 'Alıcı',
                         controller: _toController,
                         focusNode: _toFocus,
                         fieldKey: const Key('to-field'),
@@ -304,7 +304,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         ),
                       const Divider(indent: 0, endIndent: 0),
                       _fieldRow(
-                        label: 'Subject',
+                        label: 'Konu',
                         controller: _subjectController,
                         fieldKey: const Key('subject-field'),
                       ),
@@ -324,7 +324,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         maxLines: null,
                         textAlignVertical: TextAlignVertical.top,
                         decoration: const InputDecoration(
-                          hintText: 'Write your mail…',
+                          hintText: 'E-postanızı yazın…',
                           border: InputBorder.none,
                           filled: false,
                           hintStyle: TextStyle(
@@ -333,7 +333,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         ),
                         style: const TextStyle(
                           fontSize: 15,
-                          color: Color(0xFF1F2937),
+                          color: AppTheme.bodyText,
                           height: 1.55,
                         ),
                       ),
@@ -420,7 +420,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             key: const Key('attach-button'),
             onPressed: _attach,
             icon: const Icon(LucideIcons.paperclip, size: 22),
-            tooltip: 'Attach file',
+            tooltip: 'Dosya ekle',
           ),
           IconButton(
             onPressed: _recording ? null : _simulateVoice,
@@ -434,13 +434,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
                     ),
                   )
                 : const Icon(LucideIcons.mic, size: 22),
-            tooltip: _recording ? 'Listening…' : 'Voice input (simulated)',
+            tooltip: _recording ? 'Dinleniyor…' : 'Sesle yaz (simülasyon)',
           ),
           if (_recording)
             const Padding(
               padding: EdgeInsets.only(left: 4),
               child: Text(
-                'Listening…',
+                'Dinleniyor…',
                 style: TextStyle(
                   fontSize: 13,
                   color: Colors.red,
@@ -464,8 +464,14 @@ class _AttachmentRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 8),
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
+      decoration: BoxDecoration(
+        border: Border.all(color: AppTheme.border),
+        borderRadius: BorderRadius.circular(10),
+        color: const Color(0xFFF9FAFB),
+      ),
       child: Row(
         children: [
           const Icon(LucideIcons.fileText,
@@ -479,6 +485,7 @@ class _AttachmentRow extends StatelessWidget {
               style: const TextStyle(fontSize: 14, color: Colors.black),
             ),
           ),
+          const SizedBox(width: 8),
           Text(
             attachment.sizeLabel,
             style: const TextStyle(
@@ -486,11 +493,10 @@ class _AttachmentRow extends StatelessWidget {
               color: AppTheme.secondaryText,
             ),
           ),
-          const SizedBox(width: 4),
           IconButton(
             key: ValueKey('attach-remove-${attachment.name}'),
             onPressed: onRemove,
-            tooltip: 'Remove ${attachment.name}',
+            tooltip: '${attachment.name} kaldır',
             iconSize: 18,
             visualDensity: VisualDensity.compact,
             icon: const Icon(LucideIcons.x, color: AppTheme.secondaryText),

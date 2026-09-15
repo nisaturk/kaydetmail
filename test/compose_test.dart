@@ -45,7 +45,7 @@ void main() {
       ],
     );
 
-    await tester.tap(find.byTooltip('Attach file'));
+    await tester.tap(find.byTooltip('Dosya ekle'));
     await tester.pumpAndSettle();
 
     expect(find.text('report.pdf'), findsOneWidget);
@@ -66,7 +66,7 @@ void main() {
       ],
     );
 
-    await tester.tap(find.byTooltip('Attach file'));
+    await tester.tap(find.byTooltip('Dosya ekle'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('attach-remove-drop.pdf')));
     await tester.pumpAndSettle();
@@ -87,17 +87,17 @@ void main() {
     await tester.enterText(find.byKey(const Key('to-field')), 'a@example.com');
     await tester.enterText(
         find.byKey(const Key('subject-field')), 'Spec attached');
-    await tester.tap(find.byTooltip('Attach file'));
+    await tester.tap(find.byTooltip('Dosya ekle'));
     await tester.pumpAndSettle();
     expect(find.text('spec.pdf'), findsOneWidget);
 
-    await tester.tap(find.byTooltip('Send'));
+    await tester.tap(find.byTooltip('Gönder'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
 
     // Compose was popped back to where it was pushed from.
-    expect(find.text('New mail'), findsNothing);
+    expect(find.text('Yeni E-posta'), findsNothing);
 
     final sent = AppConfig.mailRepository
         .getEmailsInFolder(MailFolder.sent)
@@ -116,18 +116,18 @@ void main() {
       ],
     );
 
-    await tester.tap(find.byTooltip('Attach file'));
+    await tester.tap(find.byTooltip('Dosya ekle'));
     await tester.pumpAndSettle();
 
     // Close with content that is only attachments.
-    await tester.tap(find.byTooltip('Close'));
+    await tester.tap(find.byTooltip('Kapat'));
     await tester.pumpAndSettle();
-    expect(find.text('Discard this mail?'), findsOneWidget);
-    expect(find.text('Save draft'), findsOneWidget);
+    expect(find.text('Bu e-posta silinsin mi?'), findsOneWidget);
+    expect(find.text('Taslağı Kaydet'), findsOneWidget);
 
-    await tester.tap(find.text('Discard'));
+    await tester.tap(find.text('Sil'));
     await tester.pumpAndSettle();
-    expect(find.text('New mail'), findsNothing);
+    expect(find.text('Yeni E-posta'), findsNothing);
   });
 
   testWidgets('long filenames do not overflow on a narrow screen',
@@ -146,7 +146,7 @@ void main() {
       ],
     );
 
-    await tester.tap(find.byTooltip('Attach file'));
+    await tester.tap(find.byTooltip('Dosya ekle'));
     await tester.pumpAndSettle();
 
     expect(tester.takeException(), isNull);

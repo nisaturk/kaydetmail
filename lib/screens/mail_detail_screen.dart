@@ -71,12 +71,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Mail'),
+        title: const Text('E-posta'),
         actions: [
           if (_email != null)
             IconButton(
               onPressed: _togglePin,
-              tooltip: _email!.isPinned ? 'Unpin' : 'Pin',
+              tooltip: _email!.isPinned ? 'Yıldızdan Çıkar' : 'Yıldızla',
               icon: Icon(
                 _email!.isPinned ? LucideIcons.star : LucideIcons.pin,
               ),
@@ -89,12 +89,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
                 if (_email!.isRead)
                   const PopupMenuItem(
                     value: 'unread',
-                    child: Text('Mark as unread'),
+                    child: Text('Okunmadı olarak işaretle'),
                   )
                 else
                   const PopupMenuItem(
                     value: 'read',
-                    child: Text('Mark as read'),
+                    child: Text('Okundu olarak işaretle'),
                   ),
               ],
             ),
@@ -120,7 +120,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     if (email == null) {
       return const Center(
         child: Text(
-          'This mail is no longer available.',
+          'Bu e-posta artık mevcut değil.',
           style: TextStyle(fontSize: 15, color: AppTheme.secondaryText),
         ),
       );
@@ -165,14 +165,21 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
                         color: AppTheme.secondaryText,
                       ),
                     ),
-                    const SizedBox(height: 2),
-                    Text(
-                      _recipientLabel(email),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.secondaryText,
+                    if (email.recipients.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      _RecipientLine(
+                        label: 'Alıcı: ',
+                        addresses: _recipientText(email.recipients),
                       ),
-                    ),
+                    ],
+                    if (email.cc.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      _RecipientLine(
+                        label: 'Cc: ',
+                        addresses: _recipientText(email.cc),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
                     Text(
                       formatMailDateFull(email.timestamp),
                       style: const TextStyle(
@@ -202,7 +209,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           if (email.attachments.isNotEmpty) ...[
             const SizedBox(height: 16),
             const Text(
-              'Attachments',
+              'Ekler',
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -220,7 +227,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
             style: const TextStyle(
               fontSize: 15,
               height: 1.6,
-              color: Color(0xFF1F2937),
+              color: AppTheme.bodyText,
             ),
           ),
         ],
@@ -228,9 +235,29 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     );
   }
 
-  String _recipientLabel(Email email) {
-    final to = email.recipients.join(', ');
-    return 'To: $to';
+  String _recipientText(List<String> recipients) => recipients.join(', ');
+}
+
+class _RecipientLine extends StatelessWidget {
+  const _RecipientLine({required this.label, required this.addresses});
+
+  final String label;
+  final String addresses;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text.rich(
+      TextSpan(
+        style: const TextStyle(fontSize: 13, color: AppTheme.secondaryText),
+        children: [
+          TextSpan(
+            text: label,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          TextSpan(text: addresses),
+        ],
+      ),
+    );
   }
 }
 
@@ -277,7 +304,7 @@ class _AttachmentTile extends StatelessWidget {
       onTap: () {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Downloading ${attachment.name} (simulated)…'),
+            content: Text('${attachment.name} indiriliyor (simülasyon)…'),
           ),
         );
       },

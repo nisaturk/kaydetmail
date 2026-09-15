@@ -74,7 +74,7 @@ class AppDrawer extends StatelessWidget {
                 builder: (context, _) {
                   final repo = AppConfig.mailRepository;
                   return ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    padding: const EdgeInsets.symmetric(vertical: 4),
                     children: [
                       for (final folder in MailFolder.values)
                         _FolderTile(
@@ -83,20 +83,27 @@ class AppDrawer extends StatelessWidget {
                           onTap: () => onSelectFolder(folder),
                           badgeCount: _badgeCount(repo, folder),
                         ),
-                      const Divider(),
-                      _SectionTile(
-                        icon: LucideIcons.settings,
-                        label: 'Settings',
-                        onTap: onOpenSettings,
-                      ),
-                      _SectionTile(
-                        icon: LucideIcons.logOut,
-                        label: 'Logout',
-                        onTap: onLogout,
-                      ),
                     ],
                   );
                 },
+              ),
+            ),
+            const Divider(),
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Column(
+                children: [
+                  _SectionTile(
+                    icon: LucideIcons.settings,
+                    label: 'Ayarlar',
+                    onTap: onOpenSettings,
+                  ),
+                  _SectionTile(
+                    icon: LucideIcons.logOut,
+                    label: 'Çıkış Yap',
+                    onTap: onLogout,
+                  ),
+                ],
               ),
             ),
           ],
@@ -136,32 +143,35 @@ class _FolderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      dense: true,
-      selected: selected,
-      selectedColor: Colors.black,
-      selectedTileColor: const Color(0xFFF3F4F6),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      leading: Icon(
-        folder.icon,
-        size: 20,
-        color: selected ? Colors.black : AppTheme.secondaryText,
-      ),
-      title: Text(
-        folder.label,
-        style: TextStyle(
-          fontSize: 14.5,
-          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: ListTile(
+        onTap: onTap,
+        selected: selected,
+        selectedColor: Colors.black,
+        selectedTileColor: const Color(0xFFF3F4F6),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        leading: Icon(
+          folder.icon,
+          size: 20,
           color: selected ? Colors.black : AppTheme.secondaryText,
         ),
+        title: Text(
+          folder.label,
+          style: TextStyle(
+            fontSize: 14.5,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: selected ? Colors.black : AppTheme.secondaryText,
+          ),
+        ),
+        trailing: badgeCount > 0
+            ? Badge(
+                label: Text('$badgeCount'),
+                largeSize: 20,
+              )
+            : null,
       ),
-      trailing: badgeCount > 0
-          ? Badge(
-              label: Text('$badgeCount'),
-              largeSize: 20,
-            )
-          : null,
     );
   }
 }
@@ -179,16 +189,18 @@ class _SectionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ListTile(
-      onTap: onTap,
-      dense: true,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      leading: Icon(icon, size: 20, color: AppTheme.secondaryText),
-      title: Text(
-        label,
-        style: const TextStyle(
-          fontSize: 14.5,
-          color: AppTheme.secondaryText,
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: ListTile(
+        onTap: onTap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        leading: Icon(icon, size: 20, color: AppTheme.secondaryText),
+        title: Text(
+          label,
+          style: const TextStyle(
+            fontSize: 14.5,
+            color: AppTheme.secondaryText,
+          ),
         ),
       ),
     );

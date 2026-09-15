@@ -172,6 +172,16 @@ class _EmptyState extends StatelessWidget {
 
   final MailFolder folder;
 
+  String get _subtitle => switch (folder) {
+        MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
+        MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
+        MailFolder.pinned => 'Yıldızladığınız e-postalar burada görünür.',
+        MailFolder.drafts => 'Kaydettiğiniz taslaklar burada durur.',
+        MailFolder.trash => 'Sildiğiniz e-postalar burada durur.',
+        MailFolder.spam => 'İstenmeyen e-postalar buraya düşer.',
+        MailFolder.archive => 'Arşivlediğiniz e-postalar burada durur.',
+      };
+
   @override
   Widget build(BuildContext context) {
     return Center(
@@ -180,18 +190,23 @@ class _EmptyState extends StatelessWidget {
         children: [
           Icon(folder.icon, size: 40, color: AppTheme.tertiaryText),
           const SizedBox(height: 12),
-          const Text(
-            'Nothing here yet',
-            style: TextStyle(
+          Text(
+            '${folder.label} boş',
+            style: const TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
               color: Colors.black,
             ),
           ),
           const SizedBox(height: 4),
-          Text(
-            'Your ${folder.label.toLowerCase()} folder is empty.',
-            style: const TextStyle(fontSize: 14, color: AppTheme.secondaryText),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 32),
+            child: Text(
+              _subtitle,
+              textAlign: TextAlign.center,
+              style:
+                  const TextStyle(fontSize: 14, color: AppTheme.secondaryText),
+            ),
           ),
         ],
       ),
@@ -214,7 +229,7 @@ class _ErrorState extends StatelessWidget {
               size: 40, color: AppTheme.secondaryText),
           const SizedBox(height: 12),
           const Text(
-            'Could not load your mail',
+            'E-postalarınız yüklenemedi',
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -225,7 +240,7 @@ class _ErrorState extends StatelessWidget {
           TextButton.icon(
             onPressed: onRetry,
             icon: const Icon(LucideIcons.refreshCw, size: 18),
-            label: const Text('Retry'),
+            label: const Text('Tekrar dene'),
           ),
         ],
       ),

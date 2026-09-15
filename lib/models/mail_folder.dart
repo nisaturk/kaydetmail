@@ -15,13 +15,13 @@ enum MailFolder {
   archive;
 
   String get label => switch (this) {
-        MailFolder.inbox => 'Inbox',
-        MailFolder.sent => 'Sent',
-        MailFolder.pinned => 'Starred',
-        MailFolder.drafts => 'Drafts',
-        MailFolder.trash => 'Trash',
+        MailFolder.inbox => 'Gelen Kutusu',
+        MailFolder.sent => 'Gönderilenler',
+        MailFolder.pinned => 'Yıldızlılar',
+        MailFolder.drafts => 'Taslaklar',
+        MailFolder.trash => 'Çöp Kutusu',
         MailFolder.spam => 'Spam',
-        MailFolder.archive => 'Archive',
+        MailFolder.archive => 'Arşiv',
       };
 
   IconData get icon => switch (this) {

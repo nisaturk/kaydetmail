@@ -29,7 +29,7 @@ class SettingsScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Settings')),
+      appBar: AppBar(title: const Text('Ayarlar')),
       body: ListenableBuilder(
         listenable: Listenable.merge(
           [AppSettingsController.instance, AppConfig.mailRepository],
@@ -38,11 +38,11 @@ class SettingsScreen extends StatelessWidget {
           return ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
-              const _SectionHeader('Labels'),
+              const _SectionHeader('Etiketler'),
               _LabelsSection(),
-              const _SectionHeader('Notifications'),
+              const _SectionHeader('Bildirimler'),
               _NotificationsSection(),
-              const _SectionHeader('Synchronization'),
+              const _SectionHeader('Senkronizasyon'),
               _SyncSection(),
             ],
           );
@@ -90,7 +90,7 @@ class _LabelsSection extends StatelessWidget {
         TextButton.icon(
           onPressed: () => _showNewLabelDialog(context),
           icon: const Icon(LucideIcons.plus, size: 18),
-          label: const Text('New label'),
+          label: const Text('Yeni Etiket'),
         ),
       ],
     );
@@ -134,7 +134,7 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('New label'),
+      title: const Text('Yeni Etiket'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -143,7 +143,7 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
             controller: _controller,
             autofocus: true,
             textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(labelText: 'Name'),
+            decoration: const InputDecoration(labelText: 'Ad'),
             onSubmitted: (_) => _create(),
           ),
           const SizedBox(height: 16),
@@ -178,11 +178,11 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Cancel'),
+          child: const Text('Vazgeç'),
         ),
         FilledButton(
           onPressed: _create,
-          child: const Text('Create'),
+          child: const Text('Oluştur'),
         ),
       ],
     );
@@ -197,8 +197,8 @@ class _NotificationsSection extends StatelessWidget {
     final settings = AppSettingsController.instance;
     return SwitchListTile(
       dense: true,
-      title: const Text('Notifications'),
-      subtitle: const Text('Simulated — no real notifications yet.'),
+      title: const Text('Bildirimler'),
+      subtitle: const Text('Simülasyon — gerçek bildirim henüz yok.'),
       value: settings.notificationsEnabled,
       activeThumbColor: Colors.black,
       onChanged: (v) => settings.notificationsEnabled = v,

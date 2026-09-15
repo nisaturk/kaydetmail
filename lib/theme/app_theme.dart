@@ -9,6 +9,9 @@ class AppTheme {
   static const Color secondaryText = Color(0xFF6B7280);
   static const Color tertiaryText = Color(0xFF9CA3AF);
 
+  /// Near-black main text used for long-form content (mail bodies).
+  static const Color bodyText = Color(0xFF1F2937);
+
   static ThemeData get light {
     final base =
         ColorScheme.fromSeed(seedColor: const Color(0xFF0B0B0B));

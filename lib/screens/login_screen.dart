@@ -30,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
   bool _obscurePassword = true;
   bool _loading = false;
+  int _page = _emailPage;
 
   static final RegExp _emailPattern =
       RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
@@ -43,6 +44,7 @@ class _LoginScreenState extends State<LoginScreen> {
   }
 
   void _slideTo(int page) {
+    setState(() => _page = page);
     _pageController.animateToPage(
       page,
       duration: const Duration(milliseconds: 260),
@@ -83,29 +85,37 @@ class _LoginScreenState extends State<LoginScreen> {
       } else {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Login failed. Try again.')),
+          const SnackBar(content: Text('Giriş başarısız. Tekrar deneyin.')),
         );
       }
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login failed: $e')),
+        SnackBar(content: Text('Giriş başarısız: $e')),
       );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      body: SafeArea(
-        child: PageView(
-          controller: _pageController,
-          physics: const NeverScrollableScrollPhysics(),
-          children: [
-            _buildEmailStep(),
-            _buildPasswordStep(),
-          ],
+    return PopScope(
+      // On the password step the system back gesture slides to the email step
+      // instead of exiting the app; on the email step it behaves normally.
+      canPop: _page == _emailPage && !_loading,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !_loading) _back();
+      },
+      child: Scaffold(
+        body: SafeArea(
+          child: PageView(
+            controller: _pageController,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              _buildEmailStep(),
+              _buildPasswordStep(),
+            ],
+          ),
         ),
       ),
     );
@@ -140,7 +150,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Your secure mail client',
+                      'E-postalarınız için güvenli bir uygulama',
+                      textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
                         color: AppTheme.secondaryText,
@@ -161,14 +172,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   onFieldSubmitted: (_) => _continue(),
                   validator: (value) {
                     final text = value?.trim() ?? '';
-                    if (text.isEmpty) return 'Email is required';
+                    if (text.isEmpty) return 'E-posta adresi zorunludur';
                     if (!_emailPattern.hasMatch(text)) {
-                      return 'Enter a valid email address';
+                      return 'Geçerli bir e-posta adresi girin';
                     }
                     return null;
                   },
                   decoration: const InputDecoration(
-                    labelText: 'Email',
+                    labelText: 'E-posta',
                     prefixIcon: Icon(LucideIcons.mail, size: 20),
                   ),
                 ),
@@ -177,7 +188,7 @@ class _LoginScreenState extends State<LoginScreen> {
               FilledButton(
                 key: const Key('continue-button'),
                 onPressed: _continue,
-                child: const Text('Continue'),
+                child: const Text('Devam'),
               ),
             ],
           ),
@@ -200,7 +211,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: IconButton(
                   key: const Key('back-button'),
                   onPressed: _loading ? null : _back,
-                  tooltip: 'Back',
+                  tooltip: 'Geri',
                   icon: const Icon(LucideIcons.arrowLeft, size: 22),
                 ),
               ),
@@ -213,7 +224,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       const Text(
-                        'Signing in as',
+                        'Şu hesapla oturum açıyorsunuz',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 13,
@@ -247,15 +258,15 @@ class _LoginScreenState extends State<LoginScreen> {
                   onFieldSubmitted: (_) => _loading ? null : _login(),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Password is required';
+                      return 'Şifre zorunludur';
                     }
                     if (value.length < 6) {
-                      return 'Password must be at least 6 characters';
+                      return 'Şifre en az 6 karakter olmalıdır';
                     }
                     return null;
                   },
                   decoration: InputDecoration(
-                    labelText: 'Password',
+                    labelText: 'Şifre',
                     prefixIcon: const Icon(LucideIcons.lock, size: 20),
                     suffixIcon: IconButton(
                       onPressed: () => setState(
@@ -283,7 +294,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Sign in'),
+                    : const Text('Giriş Yap'),
               ),
             ],
           ),
