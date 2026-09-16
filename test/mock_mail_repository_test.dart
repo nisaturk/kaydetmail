@@ -4,6 +4,7 @@ import 'package:kaydetmail/data/mock/mock_email_generator.dart';
 import 'package:kaydetmail/data/mock/mock_emails.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
+import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/repositories/mock_mail_repository.dart';
 
 void main() {
@@ -160,8 +161,7 @@ void main() {
           isTrue);
     });
 
-    test('getEmailsInFolder filters by folder and sorts newest first',
-        () async {
+    test('getEmailsInFolder keeps pinned mails on top', () async {
       final repo = MockMailRepository();
       final inbox = repo.getEmailsInFolder(MailFolder.inbox);
       final trash = repo.getEmailsInFolder(MailFolder.trash);
@@ -175,8 +175,20 @@ void main() {
       expect(inbox.any((e) => e.isRead), isTrue);
       expect(inbox.any((e) => !e.isRead), isTrue);
 
+      // One continuous list: all pinned mails first, newest-first preserved
+      // inside the pinned and unpinned groups.
+      final firstUnpinned = inbox.indexWhere((e) => !e.isPinned);
+      expect(firstUnpinned, greaterThan(0));
+      expect(
+        inbox.sublist(firstUnpinned).every((e) => !e.isPinned),
+        isTrue,
+      );
       for (var i = 1; i < inbox.length; i++) {
-        expect(inbox[i - 1].timestamp.isAfter(inbox[i].timestamp), isTrue);
+        final prev = inbox[i - 1];
+        final curr = inbox[i];
+        if (prev.isPinned == curr.isPinned) {
+          expect(prev.timestamp.isAfter(curr.timestamp), isTrue);
+        }
       }
     });
 
@@ -239,6 +251,35 @@ void main() {
               .firstWhere((e) => e.id == targetId)
               .isPinned,
           wasPinned);
+    });
+
+    test('at most 3 mails can be pinned at the same time', () async {
+      final repo = MockMailRepository();
+      final unpinned = repo
+          .getEmailsInFolder(MailFolder.inbox)
+          .where((e) => !e.isPinned)
+          .take(3)
+          .map((e) => e.id)
+          .toList();
+      expect(unpinned.length, 3);
+
+      // Seed starts with 2 pinned mails: the first extra pin fills the
+      // third slot, the second one is ignored.
+      await repo.setPinned([unpinned[0]], true);
+      await repo.setPinned([unpinned[1], unpinned[2]], true);
+
+      final pinned = repo.getEmailsInFolder(MailFolder.pinned);
+      expect(pinned.length, MailRepository.maxPinnedMails);
+      expect(pinned.map((e) => e.id), contains(unpinned[0]));
+      expect(pinned.map((e) => e.id), isNot(contains(unpinned[1])));
+
+      // Unpinning frees a slot again.
+      await repo.setPinned([unpinned[0]], false);
+      await repo.setPinned([unpinned[1]], true);
+      expect(
+        repo.getEmailsInFolder(MailFolder.pinned).map((e) => e.id),
+        contains(unpinned[1]),
+      );
     });
 
     test('moveToTrash moves a mail into the trash folder', () async {

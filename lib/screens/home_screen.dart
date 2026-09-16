@@ -98,6 +98,16 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionPinUnpin() async {
     final emails = _selectedEmails;
     final allPinned = emails.every((e) => e.isPinned);
+    if (!allPinned) {
+      final newPins = emails.where((e) => !e.isPinned).length;
+      final pinnedCount = _repo.getEmailsInFolder(MailFolder.pinned).length;
+      if (pinnedCount + newPins > MailRepository.maxPinnedMails) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('En fazla 3 mail sabitlenebilir.')),
+        );
+        return;
+      }
+    }
     await _repo.setPinned(_selection.selectedIds.toList(), !allPinned);
     _selection.exit();
   }

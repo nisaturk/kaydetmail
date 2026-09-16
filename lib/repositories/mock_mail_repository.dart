@@ -108,7 +108,12 @@ class MockMailRepository extends MailRepository {
     final result = folder == MailFolder.pinned
         ? _emails.where((e) => e.isPinned).toList()
         : _emails.where((e) => e.folder == folder).toList();
-    result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    // Pinned mails float above the rest (no separate section — one list);
+    // newest-first is preserved inside each group.
+    result.sort((a, b) {
+      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+      return b.timestamp.compareTo(a.timestamp);
+    });
     return List.unmodifiable(result);
   }
 
@@ -117,11 +122,22 @@ class MockMailRepository extends MailRepository {
     if (_loading) return const [];
     _loading = true;
     await _delay();
-    final batch = MockEmailGenerator.generateMoreEmails(
+    final generated = MockEmailGenerator.generateMoreEmails(
       count: 20,
       folder: folder,
       random: _random,
     );
+    // Generated mails must not push the pinned total past the limit.
+    var pinnedCount = _emails.where((e) => e.isPinned).length;
+    final batch = <Email>[];
+    for (final email in generated) {
+      if (email.isPinned && pinnedCount >= MailRepository.maxPinnedMails) {
+        batch.add(email.copyWith(isPinned: false, isStarred: false));
+      } else {
+        if (email.isPinned) pinnedCount++;
+        batch.add(email);
+      }
+    }
     _emails.addAll(batch);
     _loading = false;
     notifyListeners();
@@ -250,19 +266,51 @@ class MockMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  /// Pins only while slots remain (see [MailRepository.maxPinnedMails]);
+  /// extras are ignored. Unpinning always applies.
+  List<String> _pinnableIds(List<String> ids) {
+    var count = _emails.where((e) => e.isPinned).length;
+    final allowed = <String>[];
+    for (final id in ids) {
+      final index = _emails.indexWhere((e) => e.id == id);
+      if (index < 0) continue;
+      if (_emails[index].isPinned) continue;
+      if (count >= MailRepository.maxPinnedMails) continue;
+      allowed.add(id);
+      count++;
+    }
+    return allowed;
+  }
+
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     await _delay();
-    // ponytail: pin and star share one state in mock so Yıldızlılar keeps working.
-    _replaceMany(ids, (e) => e.copyWith(isPinned: pinned, isStarred: pinned));
+    if (!pinned) {
+      // ponytail: pin and star share one state in mock so Yıldızlılar keeps working.
+      _replaceMany(ids, (e) => e.copyWith(isPinned: false, isStarred: false));
+    } else {
+      _replaceMany(ids, (e) => e.copyWith(isStarred: true));
+      _replaceMany(
+        _pinnableIds(ids),
+        (e) => e.copyWith(isPinned: true, isStarred: true),
+      );
+    }
     notifyListeners();
   }
 
   @override
   Future<void> setStarred(List<String> ids, bool starred) async {
     await _delay();
-    // ponytail: starred mirrors pinned for the mock so Yıldızlılar stays working.
-    _replaceMany(ids, (e) => e.copyWith(isStarred: starred, isPinned: starred));
+    if (!starred) {
+      // ponytail: starred mirrors pinned for the mock so Yıldızlılar stays working.
+      _replaceMany(ids, (e) => e.copyWith(isStarred: false, isPinned: false));
+    } else {
+      _replaceMany(ids, (e) => e.copyWith(isStarred: true));
+      _replaceMany(
+        _pinnableIds(ids),
+        (e) => e.copyWith(isStarred: true, isPinned: true),
+      );
+    }
     notifyListeners();
   }
 

@@ -48,6 +48,12 @@ class MailServerSettings {
 /// extends [ChangeNotifier] so screens can rebuild whenever the underlying
 /// store changes.
 abstract class MailRepository extends ChangeNotifier {
+  /// Maximum number of mails that can be pinned at the same time.
+  ///
+  /// Pinning beyond this is ignored (and the UI explains it in Turkish).
+  /// Unpinning frees a slot again.
+  static const int maxPinnedMails = 3;
+
   // --- Auth ---------------------------------------------------------
 
   /// Attempts to sign in. Returns `true` on success, `false` on failure.

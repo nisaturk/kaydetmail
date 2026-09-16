@@ -7,6 +7,36 @@ import '../models/email.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 
+/// Borderless field decoration shared by every compose input.
+///
+/// Every border state is explicitly [InputBorder.none]: the global theme
+/// draws rounded boxes (including on focus) and compose must stay one flat
+/// writing surface with only a cursor for feedback.
+const _flatFieldDecoration = InputDecoration(
+  hintText: '',
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none,
+  focusedBorder: InputBorder.none,
+  errorBorder: InputBorder.none,
+  focusedErrorBorder: InputBorder.none,
+  disabledBorder: InputBorder.none,
+  filled: false,
+  isDense: true,
+  contentPadding: EdgeInsets.symmetric(vertical: 12),
+);
+
+const _flatBodyDecoration = InputDecoration(
+  hintText: 'E-postanızı yazın…',
+  border: InputBorder.none,
+  enabledBorder: InputBorder.none,
+  focusedBorder: InputBorder.none,
+  errorBorder: InputBorder.none,
+  focusedErrorBorder: InputBorder.none,
+  disabledBorder: InputBorder.none,
+  filled: false,
+  hintStyle: TextStyle(color: AppTheme.tertiaryText),
+);
+
 /// Compose a new mail (or reply/forward — same screen).
 ///
 /// Supports To, CC, BCC (expandable), Subject, Body and local file
@@ -350,6 +380,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         controller: _subjectController,
                         fieldKey: const Key('subject-field'),
                       ),
+                      const Divider(indent: 0, endIndent: 0, height: 1),
                       if (_attachments.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         for (final attachment in _attachments)
@@ -358,19 +389,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
                             onRemove: () => _removeAttachment(attachment),
                           ),
                       ],
-                      const SizedBox(height: 4),
+                      const SizedBox(height: 8),
                       TextField(
                         controller: _bodyController,
                         focusNode: _bodyFocus,
-                        minLines: 12,
                         maxLines: null,
                         textAlignVertical: TextAlignVertical.top,
-                        decoration: const InputDecoration(
-                          hintText: 'E-postanızı yazın…',
-                          border: InputBorder.none,
-                          filled: false,
-                          hintStyle: TextStyle(color: AppTheme.tertiaryText),
-                        ),
+                        decoration: _flatBodyDecoration,
                         style: const TextStyle(
                           fontSize: 15,
                           color: AppTheme.bodyText,
@@ -390,6 +415,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
     );
   }
 
+  /// Single-line label with a fixed width shared by Kimden/Kime/Konu/Cc/Bcc,
+  /// so every value starts at the same x offset and labels never wrap.
+  static const _labelWidth = 64.0;
+
+  static const _labelStyle = TextStyle(
+    fontSize: 15,
+    fontWeight: FontWeight.w600,
+    color: AppTheme.secondaryText,
+  );
+
   Widget _fieldRow({
     required String label,
     required TextEditingController controller,
@@ -400,14 +435,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
         SizedBox(
-          width: 64,
+          width: _labelWidth,
           child: Text(
             label,
-            style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: AppTheme.secondaryText,
-            ),
+            maxLines: 1,
+            overflow: TextOverflow.clip,
+            style: _labelStyle,
           ),
         ),
         Expanded(
@@ -416,13 +449,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             controller: controller,
             focusNode: focusNode,
             textInputAction: TextInputAction.next,
-            decoration: const InputDecoration(
-              hintText: '',
-              border: InputBorder.none,
-              filled: false,
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(vertical: 12),
-            ),
+            decoration: _flatFieldDecoration,
             style: const TextStyle(fontSize: 15, color: Colors.black),
           ),
         ),
@@ -444,14 +471,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             const SizedBox(
-              width: 64,
+              width: _labelWidth,
               child: Text(
                 'Kimden',
-                style: TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.w600,
-                  color: AppTheme.secondaryText,
-                ),
+                maxLines: 1,
+                overflow: TextOverflow.clip,
+                style: _labelStyle,
               ),
             ),
             Expanded(

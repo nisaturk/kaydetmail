@@ -9,9 +9,10 @@ import 'mail_avatar.dart';
 /// One row in the mail list: avatar on the left, sender + subject + preview
 /// on the right.
 ///
-/// Unread mails use stronger typography, pinned mails show a pin icon and
-/// mails with attachments show a paperclip. While [selected] the row gets a
-/// light background in addition to the avatar check.
+/// Unread mails use stronger typography over a very slightly darker
+/// background; the row structure is identical either way. Pinned mails show
+/// a pin icon and mails with attachments show a paperclip. While [selected]
+/// the row gets a light background in addition to the avatar check.
 class MailListItem extends StatelessWidget {
   const MailListItem({
     super.key,
@@ -31,7 +32,9 @@ class MailListItem extends StatelessWidget {
     final time = formatMailTime(email.timestamp);
 
     return Container(
-      color: selected ? const Color(0xFFF3F4F6) : null,
+      color: selected
+          ? const Color(0xFFF3F4F6)
+          : (email.isRead ? null : AppTheme.unreadBackground),
       child: InkWell(
         onTap: onTap,
         child: Padding(
@@ -39,11 +42,6 @@ class MailListItem extends StatelessWidget {
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (!email.isRead)
-                const Padding(
-                  padding: EdgeInsets.only(top: 10, right: 8),
-                  child: _UnreadDot(),
-                ),
               GestureDetector(
                 onTap: onAvatarTap,
                 behavior: HitTestBehavior.opaque,
@@ -143,26 +141,10 @@ class MailListItem extends StatelessWidget {
   }
 }
 
-class _UnreadDot extends StatelessWidget {
-  const _UnreadDot();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 7,
-      height: 7,
-      decoration: const BoxDecoration(
-        color: Colors.black,
-        shape: BoxShape.circle,
-      ),
-      margin: const EdgeInsets.only(top: 7),
-    );
-  }
-}
-
 /// Compact secondary status icons: read/unread + replied + forwarded.
 ///
 /// All small, tertiary (except unread), never dominating sender/subject.
+/// Read and unread variants share the same size so rows stay aligned.
 class _StatusIcons extends StatelessWidget {
   const _StatusIcons({required this.email});
 

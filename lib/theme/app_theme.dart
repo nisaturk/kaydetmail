@@ -12,6 +12,10 @@ class AppTheme {
   /// Near-black main text used for long-form content (mail bodies).
   static const Color bodyText = Color(0xFF1F2937);
 
+  /// Barely-darker row background marking unread mails. Same neutral as the
+  /// default input fill so the list still reads as one surface.
+  static const Color unreadBackground = Color(0xFFF9FAFB);
+
   static ThemeData get light {
     final base =
         ColorScheme.fromSeed(seedColor: const Color(0xFF0B0B0B));
