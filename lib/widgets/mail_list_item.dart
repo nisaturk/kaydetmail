@@ -20,12 +20,17 @@ class MailListItem extends StatelessWidget {
     this.onTap,
     this.onAvatarTap,
     this.selected = false,
+    this.accountLabel,
   });
 
   final Email email;
   final VoidCallback? onTap;
   final VoidCallback? onAvatarTap;
   final bool selected;
+
+  /// Originating mailbox shown as a tiny tertiary line (unified inbox only).
+  /// Null hides the line so single-account lists stay exactly as before.
+  final String? accountLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -105,6 +110,19 @@ class MailListItem extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 3),
+                    if (accountLabel != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 2),
+                        child: Text(
+                          accountLabel!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 11,
+                            color: AppTheme.tertiaryText,
+                          ),
+                        ),
+                      ),
                     Text(
                       email.subject,
                       maxLines: 1,

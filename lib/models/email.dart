@@ -57,6 +57,7 @@ class Email {
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
+    this.accountId = '',
   });
 
   final String id;
@@ -81,6 +82,13 @@ class Email {
   /// Ids of the labels attached to this mail (see `MailLabel`).
   final List<String> labelIds;
   final List<Attachment> attachments;
+
+  /// Id of the [MailAccount] that owns this mail (the lowercase account
+  /// email). Empty means "unassigned" — repositories stamp it on ingest.
+  /// Never duplicated across accounts: one mail object lives in exactly one
+  /// account, so starring/reading/deleting it in the unified inbox affects
+  /// only the originating account.
+  final String accountId;
 
   /// One-line preview derived from the body.
   String get preview {
@@ -117,6 +125,7 @@ class Email {
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
+    String? accountId,
   }) {
     return Email(
       id: id,
@@ -136,6 +145,7 @@ class Email {
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,
+      accountId: accountId ?? this.accountId,
     );
   }
 

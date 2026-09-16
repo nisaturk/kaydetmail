@@ -78,6 +78,30 @@ abstract class MailRepository extends ChangeNotifier {
   /// Mock-first: no sync, no backend contract.
   List<MailAccount> get accounts;
 
+  /// Id of the account whose mailbox is currently shown, or `null` for the
+  /// unified mailbox ("Tüm Gelen Kutuları") spanning all connected accounts.
+  String? get activeAccountId;
+
+  /// Switches the mailbox scope. `null` selects the unified mailbox.
+  /// Unknown ids are ignored so stray navigation never blanks the list.
+  Future<void> setActiveAccount(String? accountId);
+
+  /// Connects a mailbox account (mock flow for now, OAuth later) and returns
+  /// it. Connecting an already-connected email re-selects it instead of
+  /// duplicating it.
+  Future<MailAccount> connectAccount({
+    required String email,
+    String? displayName,
+    AccountProvider? provider,
+  });
+
+  /// Disconnects an account and drops its mails. The last remaining account
+  /// cannot be removed. Removing the active account falls back to unified.
+  Future<void> removeAccount(String accountId);
+
+  /// Looks up a connected account by id, or `null` when unknown.
+  MailAccount? getAccount(String accountId);
+
   /// Restores a previously persisted session without a password.
   /// Used at startup by the session persistence layer.
   Future<void> restoreSession(String email);
@@ -85,7 +109,15 @@ abstract class MailRepository extends ChangeNotifier {
   // --- Reading ------------------------------------------------------
 
   /// Current snapshot of the folder's emails, newest first.
+  ///
+  /// Scoped to the active mailbox: one account when an account is selected,
+  /// all accounts when unified. Within a folder, starred/pinned mails float
+  /// above the rest; newest-first is preserved inside each group.
   List<Email> getEmailsInFolder(MailFolder folder);
+
+  /// Every mail the repository holds, regardless of folder or account,
+  /// newest first. Powers unified search across accounts.
+  List<Email> getAllEmails();
 
   /// Fetches/appends the next page of emails for [folder].
   ///
@@ -105,6 +137,7 @@ abstract class MailRepository extends ChangeNotifier {
     required String body,
     List<Attachment> attachments = const [],
     String? from,
+    String? fromAccountId,
   });
 
   Future<Email> saveDraft({
@@ -115,6 +148,7 @@ abstract class MailRepository extends ChangeNotifier {
     String body = '',
     List<Attachment> attachments = const [],
     String? from,
+    String? fromAccountId,
   });
 
   /// Moves the given mails to Trash (does not delete them permanently).

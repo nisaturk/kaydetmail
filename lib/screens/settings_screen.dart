@@ -31,9 +31,10 @@ class SettingsScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('Ayarlar')),
       body: ListenableBuilder(
-        listenable: Listenable.merge(
-          [AppSettingsController.instance, AppConfig.mailRepository],
-        ),
+        listenable: Listenable.merge([
+          AppSettingsController.instance,
+          AppConfig.mailRepository,
+        ]),
         builder: (context, _) {
           return ListView(
             padding: const EdgeInsets.symmetric(vertical: 8),
@@ -166,8 +167,11 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
                       ),
                     ),
                     child: c == _color
-                        ? const Icon(LucideIcons.check,
-                            size: 18, color: Colors.white)
+                        ? const Icon(
+                            LucideIcons.check,
+                            size: 18,
+                            color: Colors.white,
+                          )
                         : null,
                   ),
                 ),
@@ -180,10 +184,7 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Vazgeç'),
         ),
-        FilledButton(
-          onPressed: _create,
-          child: const Text('Oluştur'),
-        ),
+        FilledButton(onPressed: _create, child: const Text('Oluştur')),
       ],
     );
   }

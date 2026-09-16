@@ -104,9 +104,7 @@ class _InboxScreenState extends State<InboxScreen> {
       widget.selection.toggle(email.id);
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => MailDetailScreen(emailId: email.id),
-        ),
+        MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: email.id)),
       );
     }
   }
@@ -117,9 +115,7 @@ class _InboxScreenState extends State<InboxScreen> {
       listenable: _repo,
       builder: (context, _) {
         final emails = _repo.getEmailsInFolder(widget.folder);
-        widget.selection.syncVisibleIds(
-          emails.map((e) => e.id).toList(),
-        );
+        widget.selection.syncVisibleIds(emails.map((e) => e.id).toList());
 
         if (_error != null) {
           return _ErrorState(onRetry: _init);
@@ -131,13 +127,20 @@ class _InboxScreenState extends State<InboxScreen> {
           return _EmptyState(folder: widget.folder);
         }
 
+        // In the unified mailbox each row names its originating account;
+        // account-specific lists stay clean.
+        final showAccount =
+            _repo.activeAccountId == null && _repo.accounts.length > 1;
+        final accountEmail = showAccount
+            ? {for (final a in _repo.accounts) a.id: a.email}
+            : const <String, String>{};
+
         final itemCount = emails.length + (_loadingMore ? 1 : 0);
         return ListView.separated(
           key: PageStorageKey(widget.folder),
           controller: _scrollController,
           itemCount: itemCount,
-          separatorBuilder: (_, _) =>
-              const Divider(indent: 64, endIndent: 16),
+          separatorBuilder: (_, _) => const Divider(indent: 64, endIndent: 16),
           itemBuilder: (context, index) {
             if (index == emails.length) {
               return const Padding(
@@ -155,8 +158,10 @@ class _InboxScreenState extends State<InboxScreen> {
             return MailListItem(
               key: ValueKey(email.id),
               email: email,
-              selected: widget.selection.isActive &&
+              selected:
+                  widget.selection.isActive &&
                   widget.selection.selectedIds.contains(email.id),
+              accountLabel: showAccount ? accountEmail[email.accountId] : null,
               onTap: () => _onMailTap(email),
               onAvatarTap: () => widget.selection.toggle(email.id),
             );
@@ -173,14 +178,14 @@ class _EmptyState extends StatelessWidget {
   final MailFolder folder;
 
   String get _subtitle => switch (folder) {
-        MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
-        MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
-        MailFolder.pinned => 'Yıldızladığınız e-postalar burada görünür.',
-        MailFolder.drafts => 'Kaydettiğiniz taslaklar burada durur.',
-        MailFolder.trash => 'Sildiğiniz e-postalar burada durur.',
-        MailFolder.spam => 'İstenmeyen e-postalar buraya düşer.',
-        MailFolder.archive => 'Arşivlediğiniz e-postalar burada durur.',
-      };
+    MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
+    MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
+    MailFolder.pinned => 'Yıldızladığınız e-postalar burada görünür.',
+    MailFolder.drafts => 'Kaydettiğiniz taslaklar burada durur.',
+    MailFolder.trash => 'Sildiğiniz e-postalar burada durur.',
+    MailFolder.spam => 'İstenmeyen e-postalar buraya düşer.',
+    MailFolder.archive => 'Arşivlediğiniz e-postalar burada durur.',
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -204,8 +209,10 @@ class _EmptyState extends StatelessWidget {
             child: Text(
               _subtitle,
               textAlign: TextAlign.center,
-              style:
-                  const TextStyle(fontSize: 14, color: AppTheme.secondaryText),
+              style: const TextStyle(
+                fontSize: 14,
+                color: AppTheme.secondaryText,
+              ),
             ),
           ),
         ],
@@ -225,8 +232,11 @@ class _ErrorState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(LucideIcons.alertOctagon,
-              size: 40, color: AppTheme.secondaryText),
+          const Icon(
+            LucideIcons.alertOctagon,
+            size: 40,
+            color: AppTheme.secondaryText,
+          ),
           const SizedBox(height: 12),
           const Text(
             'E-postalarınız yüklenemedi',

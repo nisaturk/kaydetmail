@@ -15,22 +15,22 @@ enum MailFolder {
   archive;
 
   String get label => switch (this) {
-        MailFolder.inbox => 'Gelen Kutusu',
-        MailFolder.sent => 'Gönderilenler',
-        MailFolder.pinned => 'Yıldızlılar',
-        MailFolder.drafts => 'Taslaklar',
-        MailFolder.trash => 'Çöp Kutusu',
-        MailFolder.spam => 'Spam',
-        MailFolder.archive => 'Arşiv',
-      };
+    MailFolder.inbox => 'Gelen Kutusu',
+    MailFolder.sent => 'Gönderilenler',
+    MailFolder.pinned => 'Yıldızlılar',
+    MailFolder.drafts => 'Taslaklar',
+    MailFolder.trash => 'Çöp Kutusu',
+    MailFolder.spam => 'Spam',
+    MailFolder.archive => 'Arşiv',
+  };
 
   IconData get icon => switch (this) {
-        MailFolder.inbox => LucideIcons.inbox,
-        MailFolder.sent => LucideIcons.send,
-        MailFolder.pinned => LucideIcons.star,
-        MailFolder.drafts => LucideIcons.fileText,
-        MailFolder.trash => LucideIcons.trash2,
-        MailFolder.spam => LucideIcons.shieldAlert,
-        MailFolder.archive => LucideIcons.archive,
-      };
+    MailFolder.inbox => LucideIcons.inbox,
+    MailFolder.sent => LucideIcons.send,
+    MailFolder.pinned => LucideIcons.star,
+    MailFolder.drafts => LucideIcons.fileText,
+    MailFolder.trash => LucideIcons.trash2,
+    MailFolder.spam => LucideIcons.shieldAlert,
+    MailFolder.archive => LucideIcons.archive,
+  };
 }

@@ -7,7 +7,7 @@ import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import 'mail_avatar.dart';
 
-/// Navigation drawer: folders, then Settings and Logout.
+/// Navigation drawer: folders, then Hesaplar, Settings and Logout.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({
     super.key,
@@ -15,12 +15,16 @@ class AppDrawer extends StatelessWidget {
     required this.onSelectFolder,
     required this.onLogout,
     required this.onOpenSettings,
+    required this.onOpenAccounts,
+    required this.onShowUnified,
   });
 
   final MailFolder selectedFolder;
   final ValueChanged<MailFolder> onSelectFolder;
   final VoidCallback onLogout;
   final VoidCallback onOpenSettings;
+  final VoidCallback onOpenAccounts;
+  final VoidCallback onShowUnified;
 
   @override
   Widget build(BuildContext context) {
@@ -94,6 +98,16 @@ class AppDrawer extends StatelessWidget {
               child: Column(
                 children: [
                   _SectionTile(
+                    icon: LucideIcons.inbox,
+                    label: 'Tüm Gelen Kutuları',
+                    onTap: onShowUnified,
+                  ),
+                  _SectionTile(
+                    icon: LucideIcons.users,
+                    label: 'Hesaplar',
+                    onTap: onOpenAccounts,
+                  ),
+                  _SectionTile(
                     icon: LucideIcons.settings,
                     label: 'Ayarlar',
                     onTap: onOpenSettings,
@@ -150,8 +164,7 @@ class _FolderTile extends StatelessWidget {
         selected: selected,
         selectedColor: Colors.black,
         selectedTileColor: const Color(0xFFF3F4F6),
-        shape:
-            RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         leading: Icon(
           folder.icon,
           size: 20,
@@ -166,10 +179,7 @@ class _FolderTile extends StatelessWidget {
           ),
         ),
         trailing: badgeCount > 0
-            ? Badge(
-                label: Text('$badgeCount'),
-                largeSize: 20,
-              )
+            ? Badge(label: Text('$badgeCount'), largeSize: 20)
             : null,
       ),
     );
@@ -197,10 +207,7 @@ class _SectionTile extends StatelessWidget {
         leading: Icon(icon, size: 20, color: AppTheme.secondaryText),
         title: Text(
           label,
-          style: const TextStyle(
-            fontSize: 14.5,
-            color: AppTheme.secondaryText,
-          ),
+          style: const TextStyle(fontSize: 14.5, color: AppTheme.secondaryText),
         ),
       ),
     );

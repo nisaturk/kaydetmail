@@ -3,7 +3,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
-import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mail_list_item.dart';
@@ -11,9 +10,10 @@ import 'mail_detail_screen.dart';
 
 /// Client-side search over every mail currently loaded in the repository.
 ///
-/// No API is involved — results are the mails the mock repository already
-/// holds, filtered as the user types. The future backend can replace this
-/// screen's internals without touching the rest of the app.
+/// Always spans ALL connected accounts (the unified set), regardless of which
+/// mailbox is active — a search must find the mail wherever it lives. No API
+/// is involved; the future backend can replace this screen's internals
+/// without touching the rest of the app.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 
@@ -33,17 +33,7 @@ class _SearchScreenState extends State<SearchScreen> {
     super.dispose();
   }
 
-  List<Email> _collectAll() {
-    final seen = <String>{};
-    final out = <Email>[];
-    for (final folder in MailFolder.values) {
-      for (final email in _repo.getEmailsInFolder(folder)) {
-        if (seen.add(email.id)) out.add(email);
-      }
-    }
-    out.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return out;
-  }
+  List<Email> _collectAll() => _repo.getAllEmails();
 
   @override
   Widget build(BuildContext context) {
@@ -90,6 +80,11 @@ class _SearchScreenState extends State<SearchScreen> {
             return _Hint(message: '“${_query.trim()}” için sonuç yok.');
           }
 
+          final showAccount = _repo.accounts.length > 1;
+          final accountEmail = showAccount
+              ? {for (final a in _repo.accounts) a.id: a.email}
+              : const <String, String>{};
+
           return ListView.separated(
             itemCount: results.length,
             separatorBuilder: (_, _) =>
@@ -99,11 +94,13 @@ class _SearchScreenState extends State<SearchScreen> {
               return MailListItem(
                 key: ValueKey(email.id),
                 email: email,
+                accountLabel: showAccount
+                    ? accountEmail[email.accountId]
+                    : null,
                 onTap: () {
                   Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) =>
-                          MailDetailScreen(emailId: email.id),
+                      builder: (_) => MailDetailScreen(emailId: email.id),
                     ),
                   );
                 },

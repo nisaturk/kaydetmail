@@ -1,0 +1,170 @@
+import 'package:flutter/material.dart';
+import 'package:lucide_icons_flutter/lucide_icons.dart';
+
+import '../config/app_config.dart';
+import '../models/mail_account.dart';
+import '../theme/app_theme.dart';
+
+/// Mock account-connection flow: pick a provider, enter the address, connect.
+///
+/// No real OAuth happens here — [AppConfig.mailRepository] runs a
+/// [MockAccountConnection] that validates the address and provisions a mock
+/// mailbox. Swapping in real Google/Microsoft/IMAP connections later only
+/// changes the repository's connection object, not this screen.
+class AddAccountScreen extends StatefulWidget {
+  const AddAccountScreen({super.key});
+
+  @override
+  State<AddAccountScreen> createState() => _AddAccountScreenState();
+}
+
+class _AddAccountScreenState extends State<AddAccountScreen> {
+  final _formKey = GlobalKey<FormState>();
+  final _emailController = TextEditingController();
+  final _nameController = TextEditingController();
+
+  var _provider = AccountProvider.google;
+  var _connecting = false;
+  String? _error;
+
+  static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+  @override
+  void dispose() {
+    _emailController.dispose();
+    _nameController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _connect() async {
+    if (!_formKey.currentState!.validate() || _connecting) return;
+    setState(() {
+      _connecting = true;
+      _error = null;
+    });
+    try {
+      final account = await AppConfig.mailRepository.connectAccount(
+        email: _emailController.text.trim(),
+        displayName: _nameController.text.trim().isEmpty
+            ? null
+            : _nameController.text.trim(),
+        provider: _provider,
+      );
+      if (!mounted) return;
+      Navigator.of(context).pop();
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('${account.email} bağlandı.')));
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _connecting = false;
+        _error = '$e'.replaceFirst('Invalid argument(s): ', '');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: const Text('Yeni hesap ekle')),
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const Text(
+                  'Sağlayıcı',
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w700,
+                    color: AppTheme.secondaryText,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    for (final provider in AccountProvider.values)
+                      ChoiceChip(
+                        key: ValueKey('provider-${provider.name}'),
+                        label: Text(provider.label),
+                        selected: _provider == provider,
+                        onSelected: (_) => setState(() => _provider = provider),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                TextFormField(
+                  key: const Key('new-email-field'),
+                  controller: _emailController,
+                  keyboardType: TextInputType.emailAddress,
+                  autofillHints: const [AutofillHints.email],
+                  textInputAction: TextInputAction.next,
+                  validator: (value) {
+                    final text = value?.trim() ?? '';
+                    if (text.isEmpty) return 'E-posta adresi zorunludur';
+                    if (!_emailPattern.hasMatch(text)) {
+                      return 'Geçerli bir e-posta adresi girin';
+                    }
+                    return null;
+                  },
+                  decoration: const InputDecoration(
+                    labelText: 'E-posta',
+                    prefixIcon: Icon(LucideIcons.mail, size: 20),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                TextFormField(
+                  key: const Key('new-name-field'),
+                  controller: _nameController,
+                  textInputAction: TextInputAction.done,
+                  onFieldSubmitted: (_) => _connect(),
+                  decoration: const InputDecoration(
+                    labelText: 'Görünen ad (isteğe bağlı)',
+                    prefixIcon: Icon(LucideIcons.user, size: 20),
+                  ),
+                ),
+                if (_error != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _error!,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFFB3261E),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                FilledButton(
+                  key: const Key('connect-button'),
+                  onPressed: _connecting ? null : _connect,
+                  child: _connecting
+                      ? const SizedBox(
+                          width: 22,
+                          height: 22,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2.5,
+                            color: Colors.white,
+                          ),
+                        )
+                      : const Text('Bağla'),
+                ),
+                const SizedBox(height: 12),
+                const Text(
+                  'Geliştirme modu: gerçek giriş yapılmaz, örnek bir posta kutusu açılır.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(fontSize: 12, color: AppTheme.tertiaryText),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}

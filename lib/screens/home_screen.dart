@@ -9,6 +9,7 @@ import '../services/session_store.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_drawer.dart';
+import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
 import 'login_screen.dart';
@@ -65,6 +66,20 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).pop(); // close the drawer
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
+  }
+
+  void _openAccounts() {
+    Navigator.of(context).pop(); // close the drawer
+    _selection.exit();
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const AccountsScreen()));
+  }
+
+  void _showUnified() {
+    Navigator.of(context).pop(); // close the drawer
+    _selection.exit();
+    setState(() => _folder = MailFolder.inbox);
+    _repo.setActiveAccount(null);
   }
 
   void _openCompose() {
@@ -242,6 +257,8 @@ class _HomeScreenState extends State<HomeScreen> {
             onSelectFolder: _selectFolder,
             onLogout: _logout,
             onOpenSettings: _openSettings,
+            onOpenAccounts: _openAccounts,
+            onShowUnified: _showUnified,
           ),
           floatingActionButton: _selection.isActive
               ? null
@@ -263,8 +280,32 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   PreferredSizeWidget _buildNormalAppBar() {
+    // With several accounts the title names the visible mailbox; with one
+    // account there is nothing to disambiguate, so no subtitle.
+    final accounts = _repo.accounts;
+    final activeId = _repo.activeAccountId;
+    final scopeLabel = accounts.length < 2
+        ? null
+        : (activeId == null
+              ? 'Tüm Gelen Kutuları'
+              : _repo.getAccount(activeId)?.email);
     return AppBar(
-      title: Text(_folder.label),
+      title: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(_folder.label),
+          if (scopeLabel != null)
+            Text(
+              scopeLabel,
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+                color: AppTheme.secondaryText,
+              ),
+            ),
+        ],
+      ),
       actions: [
         IconButton(
           onPressed: _openSearch,

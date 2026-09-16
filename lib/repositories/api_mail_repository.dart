@@ -39,10 +39,32 @@ class ApiMailRepository extends MailRepository {
   List<MailAccount> get accounts => _notImplemented();
 
   @override
+  String? get activeAccountId => _notImplemented();
+
+  @override
+  Future<void> setActiveAccount(String? accountId) => _notImplemented();
+
+  @override
+  Future<MailAccount> connectAccount({
+    required String email,
+    String? displayName,
+    AccountProvider? provider,
+  }) => _notImplemented();
+
+  @override
+  Future<void> removeAccount(String accountId) => _notImplemented();
+
+  @override
+  MailAccount? getAccount(String accountId) => _notImplemented();
+
+  @override
   Future<void> restoreSession(String email) => _notImplemented();
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) => _notImplemented();
+
+  @override
+  List<Email> getAllEmails() => _notImplemented();
 
   @override
   Future<List<Email>> loadMoreEmails(MailFolder folder) => _notImplemented();
@@ -59,6 +81,7 @@ class ApiMailRepository extends MailRepository {
     required String body,
     List<Attachment> attachments = const [],
     String? from,
+    String? fromAccountId,
   }) => _notImplemented();
 
   @override
@@ -70,6 +93,7 @@ class ApiMailRepository extends MailRepository {
     String body = '',
     List<Attachment> attachments = const [],
     String? from,
+    String? fromAccountId,
   }) => _notImplemented();
 
   @override

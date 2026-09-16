@@ -8,6 +8,7 @@ import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../services/account_connection.dart';
 import 'mail_repository.dart';
 
 /// Fully functional in-memory implementation of [MailRepository].
@@ -23,34 +24,63 @@ class MockMailRepository extends MailRepository {
   static const String demoEmail = 'nisa@kaydet.com';
   static const String demoPassword = 'kaydet123';
 
-  /// Second mock account so the Compose "Kimden" picker has something to
-  /// select. Mock-only — no real provider, no credentials.
-  static const String secondMockEmail = 'nisa.yedek@kaydet.com';
-
   static const Duration _latency = Duration(milliseconds: 350);
 
-  final List<Email> _emails = [...MockEmails.seed];
-  final List<MailLabel> _labels = [...MockLabels.all];
+  MockMailRepository({AccountConnection? connection})
+    : _connection = connection ?? MockAccountConnection() {
+    resetMockData();
+  }
+
+  final AccountConnection _connection;
+
+  final List<Email> _emails = [];
+  final List<MailLabel> _labels = [];
+  final List<MailAccount> _accounts = [];
   final Random _random = Random();
 
   String _currentUser = demoEmail;
+  String? _activeAccountId;
   bool _loggedIn = false;
   bool _loading = false;
 
-  /// Restores the pristine seed dataset (emails, labels and current user),
-  /// discarding any changes made in the current session. Useful for tests and
-  /// development; the normal app restart already resets mock state because it
-  /// is never persisted anywhere.
-  void resetMockData() {
+  /// Mails with no account stamp belong to the primary account. Keeps the
+  /// seed/generator call sites untouched.
+  Email _stamped(Email email, String accountId) =>
+      email.accountId.isEmpty ? email.copyWith(accountId: accountId) : email;
+
+  /// Resets everything to a pristine single-account session for [email]:
+  /// seed mailbox, default labels, one connected account, active mailbox.
+  /// Logging in (or restoring a session) always lands on the signing-in
+  /// user's own mailbox — a different user means different data, like the
+  /// real backend will behave. Only the explicit add-account flow grows the
+  /// account list.
+  void _resetToSingleAccount(String email, {String? displayName}) {
+    final account = MailAccount(
+      email: email.trim(),
+      displayName: displayName,
+      provider: AccountProvider.inferFromEmail(email),
+    );
     _emails
       ..clear()
-      ..addAll(MockEmails.seed);
+      ..addAll(MockEmails.seed.map((e) => _stamped(e, account.id)));
     _labels
       ..clear()
       ..addAll(MockLabels.all);
-    _currentUser = demoEmail;
+    _accounts
+      ..clear()
+      ..add(account);
+    _currentUser = account.email;
+    _activeAccountId = account.id;
     _loggedIn = false;
     _loading = false;
+  }
+
+  /// Restores the pristine single-account dataset (emails, labels, accounts
+  /// and active mailbox), discarding any changes made in the current session.
+  /// Useful for tests and development; the normal app restart already resets
+  /// mock state because it is never persisted anywhere.
+  void resetMockData() {
+    _resetToSingleAccount(demoEmail, displayName: 'Ben');
     notifyListeners();
   }
 
@@ -70,8 +100,11 @@ class MockMailRepository extends MailRepository {
     MailServerSettings? serverSettings,
   }) async {
     await _delay();
-    // Simulated auth: any well-formed credentials are accepted.
-    _currentUser = email;
+    // Simulated auth: any well-formed credentials are accepted. A login
+    // starts a fresh single-account session for that user (see
+    // [_resetToSingleAccount]); adding a second mailbox is only possible
+    // through the explicit add-account flow.
+    _resetToSingleAccount(email.trim(), displayName: 'Ben');
     _loggedIn = true;
     notifyListeners();
     return true;
@@ -79,7 +112,7 @@ class MockMailRepository extends MailRepository {
 
   @override
   Future<void> restoreSession(String email) async {
-    _currentUser = email;
+    _resetToSingleAccount(email.trim(), displayName: 'Ben');
     _loggedIn = true;
     notifyListeners();
   }
@@ -92,29 +125,123 @@ class MockMailRepository extends MailRepository {
   }
 
   @override
-  String get currentUser => _currentUser;
+  String get currentUser {
+    final active = getAccount(_activeAccountId ?? '');
+    if (active != null) return active.email;
+    if (_accounts.isNotEmpty) return _accounts.first.email;
+    return _currentUser;
+  }
 
   @override
   bool get isLoggedIn => _loggedIn;
 
   @override
-  List<MailAccount> get accounts => List.unmodifiable([
-    MailAccount(email: _currentUser, displayName: 'Ben'),
-    const MailAccount(email: secondMockEmail, displayName: 'Nisa Yedek'),
-  ]);
+  List<MailAccount> get accounts => List.unmodifiable(_accounts);
+
+  @override
+  String? get activeAccountId => _activeAccountId;
+
+  @override
+  Future<void> setActiveAccount(String? accountId) async {
+    if (accountId == null) {
+      _activeAccountId = null; // Unified mailbox.
+    } else {
+      if (getAccount(accountId) == null) return; // Unknown: never blank.
+      _activeAccountId = getAccount(accountId)!.id;
+    }
+    _currentUser = currentUser;
+    notifyListeners();
+  }
+
+  @override
+  MailAccount? getAccount(String accountId) {
+    final id = accountId.trim().toLowerCase();
+    for (final account in _accounts) {
+      if (account.id == id) return account;
+    }
+    return null;
+  }
+
+  @override
+  Future<MailAccount> connectAccount({
+    required String email,
+    String? displayName,
+    AccountProvider? provider,
+  }) async {
+    final normalized = email.trim();
+    final existing = getAccount(normalized);
+    if (existing != null) {
+      await setActiveAccount(existing.id);
+      return existing;
+    }
+    final connected = await _connection.connect(
+      email: normalized,
+      displayName: displayName,
+      provider: provider,
+    );
+    final account = MailAccount(
+      email: connected.email,
+      displayName: connected.displayName,
+      provider: connected.provider,
+    );
+    _accounts.add(account);
+    _emails.addAll(
+      MockEmails.secondAccountSeed(account.email)
+          .map((e) => _stamped(e, account.id)),
+    );
+    await setActiveAccount(account.id);
+    return account;
+  }
+
+  @override
+  Future<void> removeAccount(String accountId) async {
+    final account = getAccount(accountId);
+    if (account == null) return;
+    if (_accounts.length <= 1) {
+      throw StateError('Son hesap kaldırılamaz.');
+    }
+    await _delay();
+    _emails.removeWhere((e) => e.accountId == account.id);
+    _accounts.removeWhere((a) => a.id == account.id);
+    if (_activeAccountId == account.id) {
+      _activeAccountId = null; // Fall back to unified.
+    }
+    _currentUser = currentUser;
+    notifyListeners();
+  }
+
+  /// Mails visible in the current mailbox scope: the active account's mails,
+  /// or every account's mails when unified (`_activeAccountId == null`).
+  Iterable<Email> get _scopedEmails {
+    final active = _activeAccountId;
+    if (active == null) return _emails;
+    return _emails.where((e) => e.accountId == active);
+  }
+
+  /// Starred and pinned both surface in Yıldızlılar as one group.
+  static bool _isHighlighted(Email e) => e.isPinned || e.isStarred;
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) {
     final result = folder == MailFolder.pinned
-        ? _emails.where((e) => e.isPinned).toList()
-        : _emails.where((e) => e.folder == folder).toList();
-    // Pinned mails float above the rest (no separate section — one list);
-    // newest-first is preserved inside each group.
+        ? _scopedEmails.where((e) => _isHighlighted(e)).toList()
+        : _scopedEmails.where((e) => e.folder == folder).toList();
+    // Highlighted mails float above the rest (no separate section — one
+    // list); newest-first is preserved inside each group.
     result.sort((a, b) {
-      if (a.isPinned != b.isPinned) return a.isPinned ? -1 : 1;
+      final ha = _isHighlighted(a);
+      final hb = _isHighlighted(b);
+      if (ha != hb) return ha ? -1 : 1;
       return b.timestamp.compareTo(a.timestamp);
     });
     return List.unmodifiable(result);
+  }
+
+  @override
+  List<Email> getAllEmails() {
+    final all = [..._emails];
+    all.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return List.unmodifiable(all);
   }
 
   @override
@@ -129,14 +256,20 @@ class MockMailRepository extends MailRepository {
     );
     // Generated mails must not push the pinned total past the limit.
     var pinnedCount = _emails.where((e) => e.isPinned).length;
+    final targets = _activeAccountId == null
+        ? _accounts.map((a) => a.id).toList()
+        : [_activeAccountId!];
     final batch = <Email>[];
-    for (final email in generated) {
+    for (var i = 0; i < generated.length; i++) {
+      var email = generated[i];
       if (email.isPinned && pinnedCount >= MailRepository.maxPinnedMails) {
-        batch.add(email.copyWith(isPinned: false, isStarred: false));
+        email = email.copyWith(isPinned: false, isStarred: false);
       } else {
         if (email.isPinned) pinnedCount++;
-        batch.add(email);
       }
+      // Round-robin across the visible accounts so unified load-more feeds
+      // every mailbox instead of biasing the first one.
+      batch.add(_stamped(email, targets[i % targets.length]));
     }
     _emails.addAll(batch);
     _loading = false;
@@ -153,6 +286,19 @@ class MockMailRepository extends MailRepository {
     return null;
   }
 
+  /// Which account a composed mail belongs to: explicit id first, then the
+  /// sender address, then the active mailbox, then the first account.
+  String _resolveAccountId(String? fromAccountId, String? from) {
+    if (fromAccountId != null && getAccount(fromAccountId) != null) {
+      return getAccount(fromAccountId)!.id;
+    }
+    if (from != null && getAccount(from) != null) {
+      return getAccount(from)!.id;
+    }
+    if (_activeAccountId != null) return _activeAccountId!;
+    return _accounts.first.id;
+  }
+
   Email _createFromCompose({
     required List<String> to,
     required List<String> cc,
@@ -162,13 +308,16 @@ class MockMailRepository extends MailRepository {
     List<Attachment> attachments = const [],
     required MailFolder folder,
     String? from,
+    String? fromAccountId,
   }) {
+    final accountId = _resolveAccountId(fromAccountId, from);
+    final account = getAccount(accountId)!;
     final email = Email(
       id:
           'composed-${DateTime.now().microsecondsSinceEpoch}-'
           '${_random.nextInt(1 << 32)}',
-      senderName: 'Ben',
-      senderEmail: from ?? _currentUser,
+      senderName: account.displayName ?? 'Ben',
+      senderEmail: from ?? account.email,
       recipients: to,
       cc: cc,
       bcc: bcc,
@@ -178,6 +327,7 @@ class MockMailRepository extends MailRepository {
       isRead: true,
       folder: folder,
       attachments: attachments,
+      accountId: accountId,
     );
     _emails.add(email);
     return email;
@@ -192,6 +342,7 @@ class MockMailRepository extends MailRepository {
     required String body,
     List<Attachment> attachments = const [],
     String? from,
+    String? fromAccountId,
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -203,6 +354,7 @@ class MockMailRepository extends MailRepository {
       attachments: attachments,
       folder: MailFolder.sent,
       from: from,
+      fromAccountId: fromAccountId,
     );
     notifyListeners();
     return email;
@@ -217,6 +369,7 @@ class MockMailRepository extends MailRepository {
     String body = '',
     List<Attachment> attachments = const [],
     String? from,
+    String? fromAccountId,
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -228,6 +381,7 @@ class MockMailRepository extends MailRepository {
       attachments: attachments,
       folder: MailFolder.drafts,
       from: from,
+      fromAccountId: fromAccountId,
     );
     notifyListeners();
     return email;
@@ -285,15 +439,12 @@ class MockMailRepository extends MailRepository {
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     await _delay();
+    // Star and pin are independent flags: pinning never flips starred and
+    // unpinning never clears it (and vice versa below).
     if (!pinned) {
-      // ponytail: pin and star share one state in mock so Yıldızlılar keeps working.
-      _replaceMany(ids, (e) => e.copyWith(isPinned: false, isStarred: false));
+      _replaceMany(ids, (e) => e.copyWith(isPinned: false));
     } else {
-      _replaceMany(ids, (e) => e.copyWith(isStarred: true));
-      _replaceMany(
-        _pinnableIds(ids),
-        (e) => e.copyWith(isPinned: true, isStarred: true),
-      );
+      _replaceMany(_pinnableIds(ids), (e) => e.copyWith(isPinned: true));
     }
     notifyListeners();
   }
@@ -301,16 +452,8 @@ class MockMailRepository extends MailRepository {
   @override
   Future<void> setStarred(List<String> ids, bool starred) async {
     await _delay();
-    if (!starred) {
-      // ponytail: starred mirrors pinned for the mock so Yıldızlılar stays working.
-      _replaceMany(ids, (e) => e.copyWith(isStarred: false, isPinned: false));
-    } else {
-      _replaceMany(ids, (e) => e.copyWith(isStarred: true));
-      _replaceMany(
-        _pinnableIds(ids),
-        (e) => e.copyWith(isStarred: true, isPinned: true),
-      );
-    }
+    // Starring is free: unlike pinning it consumes no pin slot.
+    _replaceMany(ids, (e) => e.copyWith(isStarred: starred));
     notifyListeners();
   }
 

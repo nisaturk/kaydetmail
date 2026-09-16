@@ -403,4 +403,92 @@ class MockEmails {
       ),
     ];
   }
+
+  /// Starter mailbox for a newly connected second account (e.g.
+  /// `nisa@outlook.com`). Small, deterministic (fixed ids, fixed relative
+  /// order) and deliberately free of pinned mails so the global pin limit
+  /// stays predictable in tests. Senders/subjects don't overlap [seed].
+  ///
+  /// Ids embed a slug of the account email, so connecting several accounts
+  /// never produces duplicate mail ids (id-based star/pin/read/delete would
+  /// otherwise hit the wrong account's copy).
+  static List<Email> secondAccountSeed(String email) {
+    final now = DateTime.now();
+    Duration h(num n) =>
+        Duration(hours: n.toInt(), minutes: ((n % 1) * 60).round());
+    final slug = email
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '-')
+        .replaceAll(RegExp(r'^-+|-+$'), '');
+    String id(String name) => 'seed2-$slug-$name';
+
+    return [
+      Email(
+        id: id('ersin-sprint'),
+        senderName: 'Ersin Kaya',
+        senderEmail: 'ersin.kaya@outlook.com',
+        recipients: [email],
+        subject: 'Sprint hedefleri netleşti',
+        bodyText:
+            'Selam,\n\nGelecek sprintin hedeflerini netleştirdik. Öncelikli '
+            'işler listede işaretli. Yarın kısa bir toplantı yapalım mı?\n\n'
+            'Sevgiler,\nErsin',
+        timestamp: now.subtract(h(3)),
+        isRead: false,
+        labelIds: [MockLabels.work.id],
+      ),
+      Email(
+        id: id('outlook-team'),
+        senderName: 'Outlook Ekibi',
+        senderEmail: 'ekip@outlook.com',
+        recipients: [email],
+        subject: 'Outlook hesabınız KAYDET’e bağlandı',
+        bodyText:
+            'Merhaba,\n\nBu adres artık KAYDET üzerinden okunabiliyor. '
+            'Tüm kutular görünümünde diğer hesaplarınızla birlikte '
+            'listelenecek.\n\n'
+            'İyi kullanımlar.',
+        timestamp: now.subtract(h(26)),
+        isRead: true,
+      ),
+      Email(
+        id: id('zeynep-flight'),
+        senderName: 'Zeynep Arslan',
+        senderEmail: 'zeynep.arslan@hotmail.com',
+        recipients: [email],
+        subject: 'Uçak bileti onaylandı',
+        bodyText:
+            'Merhaba,\n\nPerşembe 09:40 uçuşun onaylandı. Rezervasyon kodu '
+            'bilgilerin ekte. Bagaj hakkı 20 kg.\n\n'
+            'İyi yolculuklar,\nZeynep',
+        timestamp: now.subtract(h(49)),
+        isRead: true,
+        labelIds: [MockLabels.travel.id],
+      ),
+      Email(
+        id: id('sent-hesap'),
+        senderName: 'Ben',
+        senderEmail: email,
+        recipients: ['muhasebe@ornek.com'],
+        subject: 'Hesap özeti',
+        bodyText:
+            'Merhaba,\n\nNisan ayı hesap özetini ekte gönderiyorum.\n\n'
+            'Teşekkürler.',
+        timestamp: now.subtract(h(73)),
+        isRead: true,
+        folder: MailFolder.sent,
+      ),
+      Email(
+        id: id('draft-not'),
+        senderName: 'Ben',
+        senderEmail: email,
+        recipients: ['kendime@ornek.com'],
+        subject: 'Taslak: alınacaklar',
+        bodyText: 'Süt, yumurta, ekmek ve filtre kahve.',
+        timestamp: now.subtract(h(8)),
+        isRead: true,
+        folder: MailFolder.drafts,
+      ),
+    ];
+  }
 }

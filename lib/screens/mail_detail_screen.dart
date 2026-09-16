@@ -86,9 +86,17 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   Future<void> _toggleStar() async {
     final email = _email;
     if (email == null) return;
+    // Star and pin are independent: starring consumes no pin slot.
     final starred = email.isStarred || email.isPinned;
-    if (!starred && !_ensurePinSlot()) return;
     await _repo.setStarred([email.id], !starred);
+  }
+
+  /// The address a reply/forward is sent from: the originating account, so a
+  /// mail received on account B is never answered from account A.
+  String? _originatingFrom() {
+    final email = _email;
+    if (email == null || email.accountId.isEmpty) return null;
+    return _repo.getAccount(email.accountId)?.email;
   }
 
   void _reply() {
@@ -99,6 +107,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
           composeTitle: 'Yanıtla',
+          initialFrom: _originatingFrom(),
           initialTo: email.senderEmail,
           initialSubject: _replySubject(email.subject),
         ),
@@ -114,6 +123,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
           composeTitle: 'İlet',
+          initialFrom: _originatingFrom(),
           initialSubject: _forwardSubject(email.subject),
           initialBody:
               '\n\n--- İletilen mesaj ---\nKimden: ${email.senderName} <${email.senderEmail}>\nKonu: ${email.subject}\n\n${email.bodyText}',
