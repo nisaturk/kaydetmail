@@ -16,8 +16,12 @@ class Attachment {
   final String? mimeType;
 
   String get sizeLabel {
-    if (sizeBytes < 1024) return '$sizeBytes B';
-    if (sizeBytes < 1024 * 1024) return '${(sizeBytes / 1024).toStringAsFixed(0)} KB';
+    if (sizeBytes < 1024) {
+      return '$sizeBytes B';
+    }
+    if (sizeBytes < 1024 * 1024) {
+      return '${(sizeBytes / 1024).toStringAsFixed(0)} KB';
+    }
     return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
@@ -47,6 +51,9 @@ class Email {
     required this.timestamp,
     this.isRead = false,
     this.isPinned = false,
+    this.isStarred = false,
+    this.isReplied = false,
+    this.isForwarded = false,
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
@@ -66,6 +73,9 @@ class Email {
   final DateTime timestamp;
   final bool isRead;
   final bool isPinned;
+  final bool isStarred;
+  final bool isReplied;
+  final bool isForwarded;
   final MailFolder folder;
 
   /// Ids of the labels attached to this mail (see `MailLabel`).
@@ -101,6 +111,9 @@ class Email {
     DateTime? timestamp,
     bool? isRead,
     bool? isPinned,
+    bool? isStarred,
+    bool? isReplied,
+    bool? isForwarded,
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
@@ -117,6 +130,9 @@ class Email {
       timestamp: timestamp ?? this.timestamp,
       isRead: isRead ?? this.isRead,
       isPinned: isPinned ?? this.isPinned,
+      isStarred: isStarred ?? this.isStarred,
+      isReplied: isReplied ?? this.isReplied,
+      isForwarded: isForwarded ?? this.isForwarded,
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,

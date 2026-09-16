@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mail_avatar.dart';
 import 'home_screen.dart';
@@ -32,8 +33,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   int _page = _emailPage;
 
-  static final RegExp _emailPattern =
-      RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+  static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void dispose() {
@@ -79,6 +79,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (ok) {
+        await SessionStore.saveEmail(_emailController.text.trim());
+        if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),
         );
@@ -91,9 +93,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Giriş başarısız: $e')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Giriş başarısız: $e')));
     }
   }
 
@@ -111,10 +112,7 @@ class _LoginScreenState extends State<LoginScreen> {
           child: PageView(
             controller: _pageController,
             physics: const NeverScrollableScrollPhysics(),
-            children: [
-              _buildEmailStep(),
-              _buildPasswordStep(),
-            ],
+            children: [_buildEmailStep(), _buildPasswordStep()],
           ),
         ),
       ),
@@ -269,12 +267,10 @@ class _LoginScreenState extends State<LoginScreen> {
                     labelText: 'Şifre',
                     prefixIcon: const Icon(LucideIcons.lock, size: 20),
                     suffixIcon: IconButton(
-                      onPressed: () => setState(
-                          () => _obscurePassword = !_obscurePassword),
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
                       icon: Icon(
-                        _obscurePassword
-                            ? LucideIcons.eye
-                            : LucideIcons.eyeOff,
+                        _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
                         size: 20,
                       ),
                     ),

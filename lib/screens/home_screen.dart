@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
+import '../services/session_store.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_drawer.dart';
@@ -47,6 +48,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _logout() async {
     Navigator.of(context).pop();
     await _repo.logout();
+    await SessionStore.clear();
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const LoginScreen()),
@@ -55,22 +57,19 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSearch() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SearchScreen()),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
   }
 
   void _openSettings() {
     Navigator.of(context).pop(); // close the drawer
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const SettingsScreen()),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
   }
 
   void _openCompose() {
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ComposeScreen()),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const ComposeScreen()));
   }
 
   // ── Bulk actions ──────────────────────────────────────────────────────
@@ -99,10 +98,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionPinUnpin() async {
     final emails = _selectedEmails;
     final allPinned = emails.every((e) => e.isPinned);
-    await _repo.setPinned(
-      _selection.selectedIds.toList(),
-      !allPinned,
-    );
+    await _repo.setPinned(_selection.selectedIds.toList(), !allPinned);
     _selection.exit();
   }
 
@@ -117,11 +113,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void _actionMove() {
     final ids = _selection.selectedIds.toList();
     final targets = MailFolder.values
-        .where((f) =>
-            f != MailFolder.pinned &&
-            f != _folder &&
-            f != MailFolder.sent &&
-            f != MailFolder.archive)
+        .where(
+          (f) =>
+              f != MailFolder.pinned &&
+              f != _folder &&
+              f != MailFolder.sent &&
+              f != MailFolder.archive,
+        )
         .toList();
 
     showModalBottomSheet(
@@ -136,10 +134,7 @@ class _HomeScreenState extends State<HomeScreen> {
                 alignment: Alignment.centerLeft,
                 child: Text(
                   'Klasöre Taşı',
-                  style: TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
               ),
             ),
@@ -166,9 +161,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (labels.isEmpty) return;
 
     final selectedEmails = _selectedEmails;
-    final applied = <String>{
-      for (final e in selectedEmails) ...e.labelIds,
-    };
+    final applied = <String>{for (final e in selectedEmails) ...e.labelIds};
 
     await showModalBottomSheet(
       context: context,
@@ -247,8 +240,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Yeni E-posta',
                   child: const Icon(LucideIcons.mailPlus),
                 ),
-          bottomNavigationBar:
-              _selection.isActive ? _buildBulkActionBar() : null,
+          bottomNavigationBar: _selection.isActive
+              ? _buildBulkActionBar()
+              : null,
           body: KeyedSubtree(
             key: ValueKey(_folder),
             child: InboxScreen(folder: _folder, selection: _selection),
@@ -278,7 +272,9 @@ class _HomeScreenState extends State<HomeScreen> {
         tooltip: 'Seçimi iptal et',
         icon: const Icon(LucideIcons.x),
       ),
-      title: Text(_selection.count == 1 ? '1 seçili' : '${_selection.count} seçili'),
+      title: Text(
+        _selection.count == 1 ? '1 seçili' : '${_selection.count} seçili',
+      ),
       actions: [
         TextButton(
           onPressed: _selection.selectAllVisible,
@@ -362,17 +358,17 @@ class _ActionBtn extends StatelessWidget {
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Icon(icon, size: 20, color: Colors.black),
-              const SizedBox(height: 4),
-              Text(
-                label,
-                style: const TextStyle(fontSize: 12, color: Colors.black),
-              ),
-            ],
-          ),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(icon, size: 20, color: Colors.black),
+            const SizedBox(height: 4),
+            Text(
+              label,
+              style: const TextStyle(fontSize: 12, color: Colors.black),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -13,6 +13,7 @@ Future<void> _login(
   String email = 'me@kaydet.app',
 }) async {
   await tester.pumpWidget(const KaydetApp());
+  await tester.pumpAndSettle();
   await tester.enterText(find.byKey(const Key('email-field')), email);
   await tester.tap(find.text('Devam'));
   await tester.pumpAndSettle();
@@ -44,13 +45,17 @@ void main() {
   });
 
   group('smart back', () {
-    testWidgets('Save draft closes compose, confirms and stores the draft',
-        (tester) async {
+    testWidgets('Save draft closes compose, confirms and stores the draft', (
+      tester,
+    ) async {
       await _login(tester);
       await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
 
-      await tester.enterText(find.byType(TextField).at(2), 'Draft body content');
+      await tester.enterText(
+        find.byType(TextField).at(2),
+        'Draft body content',
+      );
       await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
 
@@ -60,16 +65,18 @@ void main() {
 
       expect(find.text('Yeni E-posta'), findsNothing);
       expect(find.text('Taslak kaydedildi.'), findsOneWidget);
-      final drafts =
-          AppConfig.mailRepository.getEmailsInFolder(MailFolder.drafts);
+      final drafts = AppConfig.mailRepository.getEmailsInFolder(
+        MailFolder.drafts,
+      );
       expect(
         drafts.where((e) => e.bodyText.contains('Draft body content')),
         isNotEmpty,
       );
     });
 
-    testWidgets('Save draft also works for a subject-only mail',
-        (tester) async {
+    testWidgets('Save draft also works for a subject-only mail', (
+      tester,
+    ) async {
       await _login(tester);
       await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
@@ -83,8 +90,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Yeni E-posta'), findsNothing);
-      final drafts =
-          AppConfig.mailRepository.getEmailsInFolder(MailFolder.drafts);
+      final drafts = AppConfig.mailRepository.getEmailsInFolder(
+        MailFolder.drafts,
+      );
       expect(drafts.map((e) => e.subject), contains('Subject only'));
     });
 
@@ -101,8 +109,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Yeni E-posta'), findsNothing);
-      final drafts =
-          AppConfig.mailRepository.getEmailsInFolder(MailFolder.drafts);
+      final drafts = AppConfig.mailRepository.getEmailsInFolder(
+        MailFolder.drafts,
+      );
       expect(
         drafts.where((e) => e.bodyText.contains('Will be discarded')),
         isEmpty,
@@ -148,8 +157,9 @@ void main() {
   });
 
   group('settings', () {
-    testWidgets('created labels appear in settings and the repository',
-        (tester) async {
+    testWidgets('created labels appear in settings and the repository', (
+      tester,
+    ) async {
       await _login(tester);
       await _openSettings(tester);
 
@@ -173,8 +183,9 @@ void main() {
       );
     });
 
-    testWidgets('notification and sync choices persist across visits',
-        (tester) async {
+    testWidgets('notification and sync choices persist across visits', (
+      tester,
+    ) async {
       await _login(tester);
       await _openSettings(tester);
 
@@ -186,7 +197,10 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.text('Her saat'));
       await tester.pumpAndSettle();
-      expect(AppSettingsController.instance.syncInterval, SyncInterval.everyHour);
+      expect(
+        AppSettingsController.instance.syncInterval,
+        SyncInterval.everyHour,
+      );
 
       await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
@@ -220,8 +234,9 @@ void main() {
       expect(find.text('Çıkış Yap'), findsNothing);
     });
 
-    testWidgets('back navigation returns to a single home without duplicates',
-        (tester) async {
+    testWidgets('back navigation returns to a single home without duplicates', (
+      tester,
+    ) async {
       await _login(tester);
 
       await tester.tap(find.byTooltip('Ara'));
@@ -258,8 +273,9 @@ void main() {
   });
 
   group('responsive / overflow', () {
-    testWidgets('small screen renders core screens without overflow',
-        (tester) async {
+    testWidgets('small screen renders core screens without overflow', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(320, 568);
       tester.view.devicePixelRatio = 1.0;
 
@@ -289,8 +305,9 @@ void main() {
       await tester.pumpAndSettle();
     });
 
-    testWidgets('long sender and subject do not overflow the list row',
-        (tester) async {
+    testWidgets('long sender and subject do not overflow the list row', (
+      tester,
+    ) async {
       tester.view.physicalSize = const Size(320, 568);
       tester.view.devicePixelRatio = 1.0;
 
@@ -300,16 +317,19 @@ void main() {
             'A Very Long Sender Name That Just Keeps Going And Going And Going',
         senderEmail: 'vlsn@example.com',
         recipients: const ['me@example.com'],
-        subject: 'This is an exceedingly long subject line that should never '
+        subject:
+            'This is an exceedingly long subject line that should never '
             'overflow the row regardless of how much text is crammed into it',
         bodyText: 'body text ' * 30,
         timestamp: DateTime.now(),
       );
-      await tester.pumpWidget(MaterialApp(
-        home: Scaffold(
-          body: ListView(children: [MailListItem(email: email)]),
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListView(children: [MailListItem(email: email)]),
+          ),
         ),
-      ));
+      );
       await tester.pump();
 
       // Reset view inside the test body so the tree settles before disposal.

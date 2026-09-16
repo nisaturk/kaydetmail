@@ -8,6 +8,7 @@ import 'package:kaydetmail/widgets/mail_avatar.dart';
 
 Future<void> _login(WidgetTester tester) async {
   await tester.pumpWidget(const KaydetApp());
+  await tester.pumpAndSettle();
   await tester.enterText(find.byKey(const Key('email-field')), 'me@kaydet.app');
   await tester.tap(find.text('Devam'));
   await tester.pumpAndSettle();
@@ -21,8 +22,9 @@ Future<void> _login(WidgetTester tester) async {
 void main() {
   setUp(() => AppConfig.resetForTest());
 
-  testWidgets('avatar tap enters selection mode and shows the selection bar',
-      (tester) async {
+  testWidgets('avatar tap enters selection mode and shows the selection bar', (
+    tester,
+  ) async {
     await _login(tester);
 
     await tester.tap(find.byType(MailAvatar).first);
@@ -84,7 +86,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Yeni E-posta'), findsOneWidget);
-    expect(find.text('Alıcı'), findsOneWidget);
+    expect(find.text('Kimden'), findsOneWidget);
+    expect(find.text('Kime'), findsOneWidget);
     expect(find.text('Konu'), findsOneWidget);
   });
 

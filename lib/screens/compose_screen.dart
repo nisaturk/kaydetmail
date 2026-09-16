@@ -14,10 +14,24 @@ import '../theme/app_theme.dart';
 /// keyboard is open or the screen is narrow. The mic button appends simulated
 /// voice text. Smart-back saves a draft when content exists.
 class ComposeScreen extends StatefulWidget {
-  const ComposeScreen({super.key, this.pickAttachments});
+  const ComposeScreen({
+    super.key,
+    this.pickAttachments,
+    this.initialFrom,
+    this.initialTo = '',
+    this.initialSubject = '',
+    this.initialBody = '',
+    this.composeTitle,
+  });
 
   /// Lets tests substitute the real OS file picker.
   final Future<List<Attachment>?> Function()? pickAttachments;
+
+  final String? initialFrom;
+  final String initialTo;
+  final String initialSubject;
+  final String initialBody;
+  final String? composeTitle;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -37,10 +51,28 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _bccExpanded = false;
   bool _recording = false;
   bool _sending = false;
+  String? _fromAccount;
 
   final List<Attachment> _attachments = [];
 
   MailRepository get _repo => AppConfig.mailRepository;
+
+  @override
+  void initState() {
+    super.initState();
+    _toController.text = widget.initialTo;
+    _subjectController.text = widget.initialSubject;
+    _bodyController.text = widget.initialBody;
+    final accounts = _repo.accounts;
+    if (widget.initialFrom != null &&
+        accounts.any((a) => a.email == widget.initialFrom)) {
+      _fromAccount = widget.initialFrom;
+    } else {
+      _fromAccount = accounts.any((a) => a.email == _repo.currentUser)
+          ? _repo.currentUser
+          : (accounts.isNotEmpty ? accounts.first.email : null);
+    }
+  }
 
   @override
   void dispose() {
@@ -66,7 +98,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
           context: context,
           builder: (ctx) => AlertDialog(
             title: const Text('Bu e-posta silinsin mi?'),
-            content: const Text('Taslak olarak kaydedebilir veya silebilirsiniz.'),
+            content: const Text(
+              'Taslak olarak kaydedebilir veya silebilirsiniz.',
+            ),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
@@ -86,10 +120,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
               ),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text(
-                  'Sil',
-                  style: TextStyle(color: Colors.red),
-                ),
+                child: const Text('Sil', style: TextStyle(color: Colors.red)),
               ),
             ],
           ),
@@ -110,7 +141,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
     setState(() => _sending = true);
     try {
       await _repo.sendEmail(
-        to: to.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+        from: _fromAccount,
+        to: to
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(),
         cc: _ccController.text
             .split(',')
             .map((e) => e.trim())
@@ -127,29 +163,33 @@ class _ComposeScreenState extends State<ComposeScreen> {
       );
       if (!mounted) return;
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('E-posta gönderildi.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('E-posta gönderildi.')));
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gönderilemedi: $e')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Gönderilemedi: $e')));
       }
     }
   }
 
   Future<void> _saveDraft() async {
     final to = _toController.text.trim();
-    final hasAny = to.isNotEmpty ||
+    final hasAny =
+        to.isNotEmpty ||
         _subjectController.text.trim().isNotEmpty ||
         _bodyController.text.trim().isNotEmpty ||
         _attachments.isNotEmpty;
     if (!hasAny) return;
     try {
       await _repo.saveDraft(
-        to: to.split(',').map((e) => e.trim()).where((e) => e.isNotEmpty).toList(),
+        from: _fromAccount,
+        to: to
+            .split(',')
+            .map((e) => e.trim())
+            .where((e) => e.isNotEmpty)
+            .toList(),
         cc: _ccController.text
             .split(',')
             .map((e) => e.trim())
@@ -231,7 +271,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
               if (shouldPop && mounted) nav.pop();
             },
           ),
-          title: const Text('Yeni E-posta'),
+          title: Text(widget.composeTitle ?? 'Yeni E-posta'),
           actions: [
             if (_sending)
               const Padding(
@@ -261,8 +301,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
+                      _fromRow(),
+                      const Divider(indent: 0, endIndent: 0, height: 1),
                       _fieldRow(
-                        label: 'Alıcı',
+                        label: 'Kime',
                         controller: _toController,
                         focusNode: _toFocus,
                         fieldKey: const Key('to-field'),
@@ -327,9 +369,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           hintText: 'E-postanızı yazın…',
                           border: InputBorder.none,
                           filled: false,
-                          hintStyle: TextStyle(
-                            color: AppTheme.tertiaryText,
-                          ),
+                          hintStyle: TextStyle(color: AppTheme.tertiaryText),
                         ),
                         style: const TextStyle(
                           fontSize: 15,
@@ -359,17 +399,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
-        // Natural-width label; a fixed width is what previously made
-        // "Subject" wrap mid-word on narrow screens.
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 15,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.secondaryText,
+        SizedBox(
+          width: 64,
+          child: Text(
+            label,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.secondaryText,
+            ),
           ),
         ),
-        const SizedBox(width: 12),
         Expanded(
           child: TextField(
             key: fieldKey,
@@ -388,6 +428,103 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ),
       ],
     );
+  }
+
+  Widget _fromRow() {
+    final accounts = _repo.accounts;
+    final selected =
+        _fromAccount ?? (accounts.isNotEmpty ? accounts.first.email : '');
+    return InkWell(
+      key: const Key('from-field'),
+      onTap: accounts.length < 2 ? null : _pickFromAccount,
+      borderRadius: BorderRadius.circular(4),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 64,
+              child: Text(
+                'Kimden',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w600,
+                  color: AppTheme.secondaryText,
+                ),
+              ),
+            ),
+            Expanded(
+              child: Text(
+                selected,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(fontSize: 15, color: Colors.black),
+              ),
+            ),
+            if (accounts.length > 1)
+              const Icon(
+                LucideIcons.chevronDown,
+                size: 18,
+                color: AppTheme.secondaryText,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickFromAccount() async {
+    final accounts = _repo.accounts;
+    final picked = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Kimden',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
+              ),
+            ),
+            for (final account in accounts)
+              ListTile(
+                key: ValueKey('from-${account.email}'),
+                leading: Icon(
+                  account.email == _fromAccount
+                      ? LucideIcons.circleCheckBig
+                      : LucideIcons.circle,
+                  size: 20,
+                  color: account.email == _fromAccount
+                      ? Colors.black
+                      : AppTheme.tertiaryText,
+                ),
+                title: Text(
+                  account.email,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 15),
+                ),
+                subtitle: account.displayName == null
+                    ? null
+                    : Text(
+                        account.displayName!,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                onTap: () => Navigator.of(ctx).pop(account.email),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _fromAccount = picked);
   }
 
   Widget _expandChip({required String label, required VoidCallback onTap}) {
@@ -474,8 +611,11 @@ class _AttachmentRow extends StatelessWidget {
       ),
       child: Row(
         children: [
-          const Icon(LucideIcons.fileText,
-              size: 20, color: AppTheme.secondaryText),
+          const Icon(
+            LucideIcons.fileText,
+            size: 20,
+            color: AppTheme.secondaryText,
+          ),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
@@ -488,10 +628,7 @@ class _AttachmentRow extends StatelessWidget {
           const SizedBox(width: 8),
           Text(
             attachment.sizeLabel,
-            style: const TextStyle(
-              fontSize: 13,
-              color: AppTheme.secondaryText,
-            ),
+            style: const TextStyle(fontSize: 13, color: AppTheme.secondaryText),
           ),
           IconButton(
             key: ValueKey('attach-remove-${attachment.name}'),

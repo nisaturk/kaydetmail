@@ -9,15 +9,30 @@ class MockLabels {
   MockLabels._();
 
   static const work = MailLabel(
-      id: 'lab-work', name: 'İş', color: Color(0xFF3E7CB1));
+    id: 'lab-work',
+    name: 'İş',
+    color: Color(0xFF3E7CB1),
+  );
   static const personal = MailLabel(
-      id: 'lab-personal', name: 'Kişisel', color: Color(0xFF8E7CC3));
+    id: 'lab-personal',
+    name: 'Kişisel',
+    color: Color(0xFF8E7CC3),
+  );
   static const finance = MailLabel(
-      id: 'lab-finance', name: 'Finans', color: Color(0xFF2E8B6E));
+    id: 'lab-finance',
+    name: 'Finans',
+    color: Color(0xFF2E8B6E),
+  );
   static const travel = MailLabel(
-      id: 'lab-travel', name: 'Seyahat', color: Color(0xFFC77D2E));
+    id: 'lab-travel',
+    name: 'Seyahat',
+    color: Color(0xFFC77D2E),
+  );
   static const important = MailLabel(
-      id: 'lab-important', name: 'Önemli', color: Color(0xFFB02A2A));
+    id: 'lab-important',
+    name: 'Önemli',
+    color: Color(0xFFB02A2A),
+  );
 
   static const all = [work, personal, finance, travel, important];
 }
@@ -29,7 +44,8 @@ class MockEmails {
 
   static List<Email> get seed {
     final now = DateTime.now();
-    Duration h(num n) => Duration(hours: n.toInt(), minutes: ((n % 1) * 60).round());
+    Duration h(num n) =>
+        Duration(hours: n.toInt(), minutes: ((n % 1) * 60).round());
 
     return [
       Email(
@@ -84,6 +100,7 @@ class MockEmails {
             'Thanks,\nEngineering Team',
         timestamp: now.subtract(h(26)),
         isRead: true,
+        isReplied: true,
         labelIds: [MockLabels.work.id],
       ),
       Email(
@@ -101,8 +118,7 @@ class MockEmails {
         timestamp: now.subtract(h(5)),
         isRead: false,
         attachments: const [
-          Attachment(
-              name: 'invoice-4821-march.pdf', sizeBytes: 182 * 1024),
+          Attachment(name: 'invoice-4821-march.pdf', sizeBytes: 182 * 1024),
         ],
         labelIds: [MockLabels.finance.id],
       ),
@@ -123,6 +139,7 @@ class MockEmails {
             'Best,\nSarah',
         timestamp: now.subtract(h(30)),
         isRead: true,
+        isForwarded: true,
         labelIds: [MockLabels.work.id],
       ),
       Email(
@@ -158,8 +175,7 @@ class MockEmails {
         timestamp: now.subtract(h(40)),
         isRead: false,
         attachments: const [
-          Attachment(
-              name: 'release-4.2.0-status.xlsx', sizeBytes: 148 * 1024),
+          Attachment(name: 'release-4.2.0-status.xlsx', sizeBytes: 148 * 1024),
         ],
         labelIds: [MockLabels.work.id, MockLabels.important.id],
       ),
@@ -342,8 +358,7 @@ class MockEmails {
         senderEmail: 'billing@amazon.com',
         recipients: ['me@kaydet.app'],
         subject: 'Receipt: AWS billing',
-        bodyText:
-            'Your monthly invoice from AWS is ready. Amount: USD 412.18.',
+        bodyText: 'Your monthly invoice from AWS is ready. Amount: USD 412.18.',
         timestamp: now.subtract(h(96)),
         isRead: true,
         folder: MailFolder.trash,

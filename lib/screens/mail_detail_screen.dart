@@ -8,6 +8,7 @@ import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../widgets/mail_avatar.dart';
+import 'compose_screen.dart';
 
 /// Full view of a single mail: header, subject, labels, attachments and body.
 ///
@@ -67,6 +68,59 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     await _repo.setPinned([email.id], !email.isPinned);
   }
 
+  Future<void> _toggleStar() async {
+    final email = _email;
+    if (email == null) return;
+    final starred = email.isStarred || email.isPinned;
+    await _repo.setStarred([email.id], !starred);
+  }
+
+  void _reply() {
+    final email = _email;
+    if (email == null) return;
+    _repo.markAsReplied([email.id]);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ComposeScreen(
+          composeTitle: 'Yanıtla',
+          initialTo: email.senderEmail,
+          initialSubject: _replySubject(email.subject),
+        ),
+      ),
+    );
+  }
+
+  void _forward() {
+    final email = _email;
+    if (email == null) return;
+    _repo.markAsForwarded([email.id]);
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => ComposeScreen(
+          composeTitle: 'İlet',
+          initialSubject: _forwardSubject(email.subject),
+          initialBody:
+              '\n\n--- İletilen mesaj ---\nKimden: ${email.senderName} <${email.senderEmail}>\nKonu: ${email.subject}\n\n${email.bodyText}',
+        ),
+      ),
+    );
+  }
+
+  static String _replySubject(String subject) {
+    final s = subject.trim();
+    if (s.toLowerCase().startsWith('re:')) return subject;
+    return 'Re: $subject';
+  }
+
+  static String _forwardSubject(String subject) {
+    final s = subject.trim();
+    if (s.toLowerCase().startsWith('fwd:') ||
+        s.toLowerCase().startsWith('ilet:')) {
+      return subject;
+    }
+    return 'Fwd: $subject';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -75,17 +129,36 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         actions: [
           if (_email != null)
             IconButton(
-              onPressed: _togglePin,
-              tooltip: _email!.isPinned ? 'Yıldızdan Çıkar' : 'Yıldızla',
-              icon: Icon(
-                _email!.isPinned ? LucideIcons.star : LucideIcons.pin,
-              ),
+              onPressed: _reply,
+              tooltip: 'Yanıtla',
+              icon: const Icon(LucideIcons.reply),
+            ),
+          if (_email != null)
+            IconButton(
+              onPressed: _forward,
+              tooltip: 'İlet',
+              icon: const Icon(LucideIcons.forward),
             ),
           if (_email != null)
             PopupMenuButton<String>(
-              icon: const Icon(LucideIcons.moreVertical),
+              icon: const Icon(LucideIcons.moreHorizontal),
+              tooltip: 'Daha fazla',
               onSelected: (action) => _handleMenu(action),
               itemBuilder: (context) => [
+                PopupMenuItem(
+                  value: 'pin',
+                  child: Text(
+                    _email!.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle',
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'star',
+                  child: Text(
+                    (_email!.isStarred || _email!.isPinned)
+                        ? 'Yıldızı kaldır'
+                        : 'Yıldızla',
+                  ),
+                ),
                 if (_email!.isRead)
                   const PopupMenuItem(
                     value: 'unread',
@@ -109,6 +182,10 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await _repo.markAsRead([widget.emailId]);
     } else if (action == 'unread') {
       await _repo.markAsUnread([widget.emailId]);
+    } else if (action == 'pin') {
+      await _togglePin();
+    } else if (action == 'star') {
+      await _toggleStar();
     }
   }
 
@@ -313,8 +390,11 @@ class _AttachmentTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            const Icon(LucideIcons.fileText,
-                size: 20, color: AppTheme.secondaryText),
+            const Icon(
+              LucideIcons.fileText,
+              size: 20,
+              color: AppTheme.secondaryText,
+            ),
             const SizedBox(width: 10),
             Expanded(
               child: Text(

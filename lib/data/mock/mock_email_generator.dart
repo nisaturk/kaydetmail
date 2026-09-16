@@ -143,20 +143,24 @@ class MockEmailGenerator {
       final (name, email) = _people[rnd.nextInt(_people.length)];
       final minutesAgo = 3 + rnd.nextInt(60 * 24 * 30); // minutes to ~30 days
 
-      out.add(Email(
-        id: _nextId(),
-        senderName: name,
-        senderEmail: email,
-        recipients: ['me@kaydet.app'],
-        subject: _subjects[rnd.nextInt(_subjects.length)],
-        bodyText: _buildBody(rnd, name),
-        timestamp: now.subtract(Duration(minutes: minutesAgo)),
-        isRead: rnd.nextInt(3) != 0, // roughly one third stay unread
-        isPinned: folder == MailFolder.pinned || rnd.nextInt(20) == 0,
-        folder: targetFolder,
-        labelIds: _pickLabels(rnd),
-        attachments: rnd.nextInt(8) == 0 ? [_attachment(rnd)] : const [],
-      ));
+      out.add(
+        Email(
+          id: _nextId(),
+          senderName: name,
+          senderEmail: email,
+          recipients: ['me@kaydet.app'],
+          subject: _subjects[rnd.nextInt(_subjects.length)],
+          bodyText: _buildBody(rnd, name),
+          timestamp: now.subtract(Duration(minutes: minutesAgo)),
+          isRead: rnd.nextInt(3) != 0, // roughly one third stay unread
+          isPinned: folder == MailFolder.pinned || rnd.nextInt(20) == 0,
+          isReplied: rnd.nextInt(12) == 0,
+          isForwarded: rnd.nextInt(15) == 0,
+          folder: targetFolder,
+          labelIds: _pickLabels(rnd),
+          attachments: rnd.nextInt(8) == 0 ? [_attachment(rnd)] : const [],
+        ),
+      );
     }
     return out;
   }

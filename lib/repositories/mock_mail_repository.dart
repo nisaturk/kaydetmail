@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/mock/mock_email_generator.dart';
 import '../data/mock/mock_emails.dart';
 import '../models/email.dart';
+import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import 'mail_repository.dart';
@@ -22,6 +23,10 @@ class MockMailRepository extends MailRepository {
   static const String demoEmail = 'nisa@kaydet.com';
   static const String demoPassword = 'kaydet123';
 
+  /// Second mock account so the Compose "Kimden" picker has something to
+  /// select. Mock-only — no real provider, no credentials.
+  static const String secondMockEmail = 'nisa.yedek@kaydet.com';
+
   static const Duration _latency = Duration(milliseconds: 350);
 
   final List<Email> _emails = [...MockEmails.seed];
@@ -29,6 +34,7 @@ class MockMailRepository extends MailRepository {
   final Random _random = Random();
 
   String _currentUser = demoEmail;
+  bool _loggedIn = false;
   bool _loading = false;
 
   /// Restores the pristine seed dataset (emails, labels and current user),
@@ -43,6 +49,7 @@ class MockMailRepository extends MailRepository {
       ..clear()
       ..addAll(MockLabels.all);
     _currentUser = demoEmail;
+    _loggedIn = false;
     _loading = false;
     notifyListeners();
   }
@@ -65,18 +72,36 @@ class MockMailRepository extends MailRepository {
     await _delay();
     // Simulated auth: any well-formed credentials are accepted.
     _currentUser = email;
+    _loggedIn = true;
     notifyListeners();
     return true;
   }
 
   @override
+  Future<void> restoreSession(String email) async {
+    _currentUser = email;
+    _loggedIn = true;
+    notifyListeners();
+  }
+
+  @override
   Future<void> logout() async {
     await _delay();
+    _loggedIn = false;
     notifyListeners();
   }
 
   @override
   String get currentUser => _currentUser;
+
+  @override
+  bool get isLoggedIn => _loggedIn;
+
+  @override
+  List<MailAccount> get accounts => List.unmodifiable([
+    MailAccount(email: _currentUser, displayName: 'Ben'),
+    const MailAccount(email: secondMockEmail, displayName: 'Nisa Yedek'),
+  ]);
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) {
@@ -120,12 +145,14 @@ class MockMailRepository extends MailRepository {
     required String body,
     List<Attachment> attachments = const [],
     required MailFolder folder,
+    String? from,
   }) {
     final email = Email(
-      id: 'composed-${DateTime.now().microsecondsSinceEpoch}-'
+      id:
+          'composed-${DateTime.now().microsecondsSinceEpoch}-'
           '${_random.nextInt(1 << 32)}',
       senderName: 'Ben',
-      senderEmail: _currentUser,
+      senderEmail: from ?? _currentUser,
       recipients: to,
       cc: cc,
       bcc: bcc,
@@ -148,6 +175,7 @@ class MockMailRepository extends MailRepository {
     required String subject,
     required String body,
     List<Attachment> attachments = const [],
+    String? from,
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -158,6 +186,7 @@ class MockMailRepository extends MailRepository {
       body: body,
       attachments: attachments,
       folder: MailFolder.sent,
+      from: from,
     );
     notifyListeners();
     return email;
@@ -171,6 +200,7 @@ class MockMailRepository extends MailRepository {
     String subject = '',
     String body = '',
     List<Attachment> attachments = const [],
+    String? from,
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -181,6 +211,7 @@ class MockMailRepository extends MailRepository {
       body: body,
       attachments: attachments,
       folder: MailFolder.drafts,
+      from: from,
     );
     notifyListeners();
     return email;
@@ -190,7 +221,11 @@ class MockMailRepository extends MailRepository {
   Future<void> moveToTrash(List<String> ids) async {
     await _delay();
     _replaceMany(
-        ids, (e) => e.folder == MailFolder.trash ? e : e.copyWith(folder: MailFolder.trash));
+      ids,
+      (e) => e.folder == MailFolder.trash
+          ? e
+          : e.copyWith(folder: MailFolder.trash),
+    );
     notifyListeners();
   }
 
@@ -218,7 +253,30 @@ class MockMailRepository extends MailRepository {
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     await _delay();
-    _replaceMany(ids, (e) => e.copyWith(isPinned: pinned));
+    // ponytail: pin and star share one state in mock so Yıldızlılar keeps working.
+    _replaceMany(ids, (e) => e.copyWith(isPinned: pinned, isStarred: pinned));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> setStarred(List<String> ids, bool starred) async {
+    await _delay();
+    // ponytail: starred mirrors pinned for the mock so Yıldızlılar stays working.
+    _replaceMany(ids, (e) => e.copyWith(isStarred: starred, isPinned: starred));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> markAsReplied(List<String> ids) async {
+    await _delay();
+    _replaceMany(ids, (e) => e.copyWith(isReplied: true, isRead: true));
+    notifyListeners();
+  }
+
+  @override
+  Future<void> markAsForwarded(List<String> ids) async {
+    await _delay();
+    _replaceMany(ids, (e) => e.copyWith(isForwarded: true, isRead: true));
     notifyListeners();
   }
 
@@ -243,7 +301,9 @@ class MockMailRepository extends MailRepository {
 
   @override
   Future<void> addLabelsToEmails(
-      List<String> emailIds, List<String> labelIds) async {
+    List<String> emailIds,
+    List<String> labelIds,
+  ) async {
     await _delay();
     _replaceMany(emailIds, (e) {
       final updated = {...e.labelIds, ...labelIds}.toList();
@@ -254,12 +314,13 @@ class MockMailRepository extends MailRepository {
 
   @override
   Future<void> removeLabelsFromEmails(
-      List<String> emailIds, List<String> labelIds) async {
+    List<String> emailIds,
+    List<String> labelIds,
+  ) async {
     await _delay();
     final remove = labelIds.toSet();
     _replaceMany(emailIds, (e) {
-      final updated =
-          e.labelIds.where((id) => !remove.contains(id)).toList();
+      final updated = e.labelIds.where((id) => !remove.contains(id)).toList();
       return e.copyWith(labelIds: updated);
     });
     notifyListeners();

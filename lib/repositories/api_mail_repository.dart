@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/email.dart';
+import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import 'mail_repository.dart';
@@ -11,9 +12,10 @@ import 'mail_repository.dart';
 /// documentation/endpoints are available, implement each method here (mapping
 /// the API JSON to our models) WITHOUT touching the UI.
 class ApiMailRepository extends MailRepository {
-  Never _notImplemented() =>
-      throw UnimplementedError('ApiMailRepository is not connected yet. '
-          'Implement this method once the backend contract is provided.');
+  Never _notImplemented() => throw UnimplementedError(
+    'ApiMailRepository is not connected yet. '
+    'Implement this method once the backend contract is provided.',
+  );
 
   @override
   Future<bool> login({
@@ -29,6 +31,15 @@ class ApiMailRepository extends MailRepository {
 
   @override
   String get currentUser => _notImplemented();
+
+  @override
+  bool get isLoggedIn => _notImplemented();
+
+  @override
+  List<MailAccount> get accounts => _notImplemented();
+
+  @override
+  Future<void> restoreSession(String email) => _notImplemented();
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) => _notImplemented();
@@ -47,8 +58,8 @@ class ApiMailRepository extends MailRepository {
     required String subject,
     required String body,
     List<Attachment> attachments = const [],
-  }) =>
-      _notImplemented();
+    String? from,
+  }) => _notImplemented();
 
   @override
   Future<Email> saveDraft({
@@ -58,8 +69,8 @@ class ApiMailRepository extends MailRepository {
     String subject = '',
     String body = '',
     List<Attachment> attachments = const [],
-  }) =>
-      _notImplemented();
+    String? from,
+  }) => _notImplemented();
 
   @override
   Future<void> moveToTrash(List<String> ids) => _notImplemented();
@@ -78,22 +89,30 @@ class ApiMailRepository extends MailRepository {
   Future<void> setPinned(List<String> ids, bool pinned) => _notImplemented();
 
   @override
+  Future<void> setStarred(List<String> ids, bool starred) => _notImplemented();
+
+  @override
+  Future<void> markAsReplied(List<String> ids) => _notImplemented();
+
+  @override
+  Future<void> markAsForwarded(List<String> ids) => _notImplemented();
+
+  @override
   List<MailLabel> getLabels() => _notImplemented();
 
   @override
-  Future<MailLabel> createLabel({
-    required String name,
-    required Color color,
-  }) =>
+  Future<MailLabel> createLabel({required String name, required Color color}) =>
       _notImplemented();
 
   @override
   Future<void> addLabelsToEmails(
-          List<String> emailIds, List<String> labelIds) =>
-      _notImplemented();
+    List<String> emailIds,
+    List<String> labelIds,
+  ) => _notImplemented();
 
   @override
   Future<void> removeLabelsFromEmails(
-          List<String> emailIds, List<String> labelIds) =>
-      _notImplemented();
+    List<String> emailIds,
+    List<String> labelIds,
+  ) => _notImplemented();
 }

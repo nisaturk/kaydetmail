@@ -8,12 +8,17 @@ import 'package:kaydetmail/repositories/mock_mail_repository.dart';
 void main() {
   setUp(() => AppConfig.resetForTest());
 
-  testWidgets('app boots to the email step of the login screen',
-      (WidgetTester tester) async {
+  testWidgets('app boots to the email step of the login screen', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
     expect(find.text('KAYDET'), findsOneWidget);
-    expect(find.text('E-postalarınız için güvenli bir uygulama'), findsOneWidget);
+    expect(
+      find.text('E-postalarınız için güvenli bir uygulama'),
+      findsOneWidget,
+    );
     expect(find.byKey(const Key('email-field')), findsOneWidget);
     expect(find.byKey(const Key('password-field')), findsNothing);
     expect(find.text('Devam'), findsOneWidget);
@@ -21,10 +26,16 @@ void main() {
     expect(find.text('Advanced server settings'), findsNothing);
   });
 
-  testWidgets('continue slides to the password step', (WidgetTester tester) async {
+  testWidgets('continue slides to the password step', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'me@example.com');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'me@example.com',
+    );
     await tester.tap(find.text('Devam'));
     await tester.pumpAndSettle();
 
@@ -34,11 +45,16 @@ void main() {
     expect(find.text('me@example.com'), findsOneWidget);
   });
 
-  testWidgets('back returns to the email step and preserves the email',
-      (WidgetTester tester) async {
+  testWidgets('back returns to the email step and preserves the email', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'me@example.com');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'me@example.com',
+    );
     await tester.tap(find.text('Devam'));
     await tester.pumpAndSettle();
 
@@ -56,16 +72,23 @@ void main() {
     );
   });
 
-  testWidgets('login with valid credentials opens the inbox',
-      (WidgetTester tester) async {
+  testWidgets('login with valid credentials opens the inbox', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'me@kaydet.app');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'me@kaydet.app',
+    );
     await tester.tap(find.text('Devam'));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byKey(const Key('password-field')), 'secret123');
+      find.byKey(const Key('password-field')),
+      'secret123',
+    );
     await tester.tap(find.byKey(const Key('signin-button')));
     await tester.pump();
     expect(find.byType(CircularProgressIndicator), findsOneWidget);
@@ -79,11 +102,16 @@ void main() {
     expect(find.text('Fixing the CI pipeline'), findsOneWidget);
   });
 
-  testWidgets('invalid email is rejected on the email step',
-      (WidgetTester tester) async {
+  testWidgets('invalid email is rejected on the email step', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'not-an-email');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'not-an-email',
+    );
     await tester.tap(find.text('Devam'));
     await tester.pump();
 
@@ -92,11 +120,16 @@ void main() {
     expect(find.text('Gelen Kutusu'), findsNothing);
   });
 
-  testWidgets('short password is rejected on the password step',
-      (WidgetTester tester) async {
+  testWidgets('short password is rejected on the password step', (
+    WidgetTester tester,
+  ) async {
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
-    await tester.enterText(find.byKey(const Key('email-field')), 'me@example.com');
+    await tester.enterText(
+      find.byKey(const Key('email-field')),
+      'me@example.com',
+    );
     await tester.tap(find.text('Devam'));
     await tester.pumpAndSettle();
 
@@ -104,24 +137,30 @@ void main() {
     await tester.tap(find.byKey(const Key('signin-button')));
     await tester.pump();
 
-    expect(
-        find.text('Şifre en az 6 karakter olmalıdır'), findsOneWidget);
+    expect(find.text('Şifre en az 6 karakter olmalıdır'), findsOneWidget);
     expect(find.text('Gelen Kutusu'), findsNothing);
   });
 
-  testWidgets('documented mock credentials sign in', (WidgetTester tester) async {
+  testWidgets('documented mock credentials sign in', (
+    WidgetTester tester,
+  ) async {
     expect(MockMailRepository.demoEmail, 'nisa@kaydet.com');
     expect(MockMailRepository.demoPassword, 'kaydet123');
 
     await tester.pumpWidget(const KaydetApp());
+    await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byKey(const Key('email-field')), MockMailRepository.demoEmail);
+      find.byKey(const Key('email-field')),
+      MockMailRepository.demoEmail,
+    );
     await tester.tap(find.text('Devam'));
     await tester.pumpAndSettle();
 
     await tester.enterText(
-        find.byKey(const Key('password-field')), MockMailRepository.demoPassword);
+      find.byKey(const Key('password-field')),
+      MockMailRepository.demoPassword,
+    );
     await tester.tap(find.byKey(const Key('signin-button')));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 500));

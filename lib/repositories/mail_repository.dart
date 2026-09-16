@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../models/email.dart';
+import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 
@@ -64,6 +65,17 @@ abstract class MailRepository extends ChangeNotifier {
   /// Email address of the currently signed-in user.
   String get currentUser;
 
+  /// Whether a session is active. False before login / after logout.
+  bool get isLoggedIn;
+
+  /// Locally represented sending accounts for the Compose "Kimden" picker.
+  /// Mock-first: no sync, no backend contract.
+  List<MailAccount> get accounts;
+
+  /// Restores a previously persisted session without a password.
+  /// Used at startup by the session persistence layer.
+  Future<void> restoreSession(String email);
+
   // --- Reading ------------------------------------------------------
 
   /// Current snapshot of the folder's emails, newest first.
@@ -86,6 +98,7 @@ abstract class MailRepository extends ChangeNotifier {
     required String subject,
     required String body,
     List<Attachment> attachments = const [],
+    String? from,
   });
 
   Future<Email> saveDraft({
@@ -95,6 +108,7 @@ abstract class MailRepository extends ChangeNotifier {
     String subject = '',
     String body = '',
     List<Attachment> attachments = const [],
+    String? from,
   });
 
   /// Moves the given mails to Trash (does not delete them permanently).
@@ -108,6 +122,12 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<void> setPinned(List<String> ids, bool pinned);
 
+  Future<void> setStarred(List<String> ids, bool starred);
+
+  Future<void> markAsReplied(List<String> ids);
+
+  Future<void> markAsForwarded(List<String> ids);
+
   // --- Labels -------------------------------------------------------
 
   List<MailLabel> getLabels();
@@ -117,5 +137,7 @@ abstract class MailRepository extends ChangeNotifier {
   Future<void> addLabelsToEmails(List<String> emailIds, List<String> labelIds);
 
   Future<void> removeLabelsFromEmails(
-      List<String> emailIds, List<String> labelIds);
+    List<String> emailIds,
+    List<String> labelIds,
+  );
 }

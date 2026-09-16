@@ -76,15 +76,22 @@ class MailListItem extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         if (email.isPinned) ...[
-                          Icon(LucideIcons.pin,
-                              size: 14, color: AppTheme.tertiaryText),
+                          Icon(
+                            LucideIcons.pin,
+                            size: 14,
+                            color: AppTheme.tertiaryText,
+                          ),
                           const SizedBox(width: 6),
                         ],
                         if (email.attachments.isNotEmpty) ...[
-                          Icon(LucideIcons.paperclip,
-                              size: 13, color: AppTheme.tertiaryText),
+                          Icon(
+                            LucideIcons.paperclip,
+                            size: 13,
+                            color: AppTheme.tertiaryText,
+                          ),
                           const SizedBox(width: 6),
                         ],
+                        _StatusIcons(email: email),
                         Text(
                           time,
                           style: TextStyle(
@@ -149,6 +156,42 @@ class _UnreadDot extends StatelessWidget {
         shape: BoxShape.circle,
       ),
       margin: const EdgeInsets.only(top: 7),
+    );
+  }
+}
+
+/// Compact secondary status icons: read/unread + replied + forwarded.
+///
+/// All small, tertiary (except unread), never dominating sender/subject.
+class _StatusIcons extends StatelessWidget {
+  const _StatusIcons({required this.email});
+
+  final Email email;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          email.isRead ? LucideIcons.mailOpen : LucideIcons.mail,
+          size: 13,
+          color: email.isRead ? AppTheme.tertiaryText : Colors.black,
+        ),
+        if (email.isReplied) ...[
+          const SizedBox(width: 5),
+          const Icon(LucideIcons.reply, size: 13, color: AppTheme.tertiaryText),
+        ],
+        if (email.isForwarded) ...[
+          const SizedBox(width: 5),
+          const Icon(
+            LucideIcons.forward,
+            size: 13,
+            color: AppTheme.tertiaryText,
+          ),
+        ],
+        const SizedBox(width: 6),
+      ],
     );
   }
 }
