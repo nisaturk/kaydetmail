@@ -47,9 +47,22 @@ Future<void> _connectOutlook(WidgetTester tester) async {
     find.byKey(const Key('new-email-field')),
     'nisa@outlook.com',
   );
+  await tester.enterText(
+    find.byKey(const Key('new-password-field')),
+    'secret123',
+  );
   await tester.tap(find.byKey(const Key('connect-button')));
   await tester.pump();
   await tester.pump(const Duration(milliseconds: 600));
+  await tester.pumpAndSettle();
+}
+
+/// With two accounts the inbox app-bar title becomes the mailbox selector;
+/// tapping it and choosing "Tüm Gelen Kutuları" switches to the unified view.
+Future<void> _goUnified(WidgetTester tester) async {
+  await tester.tap(find.byKey(const Key('mailbox-selector')));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text('Tüm Gelen Kutuları'));
   await tester.pumpAndSettle();
 }
 
@@ -64,7 +77,6 @@ void main() {
       await _openDrawer(tester);
 
       expect(find.text('Hesaplar'), findsOneWidget);
-      expect(find.text('Tüm Gelen Kutuları'), findsOneWidget);
       await tester.tap(find.text('Hesaplar'));
       await tester.pumpAndSettle();
 
@@ -80,14 +92,13 @@ void main() {
       await _login(tester);
       await _connectOutlook(tester);
 
-      expect(find.text('nisa@outlook.com'), findsWidgets);
+      expect(find.text('nisa@outlook.com'), findsOneWidget);
       await tester.tap(find.text('nisa@outlook.com').first);
       await tester.pumpAndSettle();
 
-      // Outlook mailbox: starter mail visible, scope shown in the app bar.
+      // Outlook mailbox: starter mail visible, primary mailbox does not leak.
       expect(find.text('Sprint hedefleri netleşti'), findsOneWidget);
       expect(find.text('Invoice #4821 for March'), findsNothing);
-      expect(find.text('nisa@outlook.com'), findsWidgets);
     });
 
     testWidgets('unified inbox shows both mailboxes with account labels', (
@@ -95,12 +106,10 @@ void main() {
     ) async {
       await _login(tester);
       await _connectOutlook(tester);
-      // connectAccount activates the new account; go unified via the drawer.
+      // connectAccount activates the new account; go unified via the selector.
       await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
-      await _openDrawer(tester);
-      await tester.tap(find.text('Tüm Gelen Kutuları'));
-      await tester.pumpAndSettle();
+      await _goUnified(tester);
 
       expect(find.text('Sprint hedefleri netleşti'), findsOneWidget);
       // The primary mailbox mail sits further down the unified list.
@@ -121,9 +130,7 @@ void main() {
       await _connectOutlook(tester);
       await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
-      await _openDrawer(tester);
-      await tester.tap(find.text('Tüm Gelen Kutuları'));
-      await tester.pumpAndSettle();
+      await _goUnified(tester);
 
       await tester.scrollUntilVisible(
         find.text('Sprint hedefleri netleşti'),
@@ -188,9 +195,7 @@ void main() {
       await _connectOutlook(tester);
       await tester.tap(find.byTooltip('Geri'));
       await tester.pumpAndSettle();
-      await _openDrawer(tester);
-      await tester.tap(find.text('Tüm Gelen Kutuları'));
-      await tester.pumpAndSettle();
+      await _goUnified(tester);
 
       await tester.tap(find.byType(MailAvatar).first);
       await tester.pump();

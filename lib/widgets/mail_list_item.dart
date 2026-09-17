@@ -21,6 +21,7 @@ class MailListItem extends StatelessWidget {
     this.onAvatarTap,
     this.selected = false,
     this.accountLabel,
+    this.threadCount,
   });
 
   final Email email;
@@ -31,6 +32,10 @@ class MailListItem extends StatelessWidget {
   /// Originating mailbox shown as a tiny tertiary line (unified inbox only).
   /// Null hides the line so single-account lists stay exactly as before.
   final String? accountLabel;
+
+  /// Messages in the conversation this row represents. When > 1 the row
+  /// aggregates the whole thread and a small `(n)` indicator appears.
+  final int? threadCount;
 
   @override
   Widget build(BuildContext context) {
@@ -78,6 +83,10 @@ class MailListItem extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(width: 8),
+                        if (email.isStarred) ...[
+                          const Icon(Icons.star, size: 14, color: Colors.black),
+                          const SizedBox(width: 6),
+                        ],
                         if (email.isPinned) ...[
                           Icon(
                             LucideIcons.pin,
@@ -123,19 +132,36 @@ class MailListItem extends StatelessWidget {
                           ),
                         ),
                       ),
-                    Text(
-                      email.subject,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: email.isRead
-                            ? FontWeight.w400
-                            : FontWeight.w600,
-                        color: email.isRead
-                            ? AppTheme.secondaryText
-                            : Colors.black,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            email.subject,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 14,
+                              fontWeight: email.isRead
+                                  ? FontWeight.w400
+                                  : FontWeight.w600,
+                              color: email.isRead
+                                  ? AppTheme.secondaryText
+                                  : Colors.black,
+                            ),
+                          ),
+                        ),
+                        if (threadCount != null && threadCount! > 1) ...[
+                          const SizedBox(width: 6),
+                          Text(
+                            '($threadCount)',
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.tertiaryText,
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 2),
                     Text(

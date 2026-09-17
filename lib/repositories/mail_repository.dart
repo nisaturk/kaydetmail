@@ -88,11 +88,11 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Connects a mailbox account (mock flow for now, OAuth later) and returns
   /// it. Connecting an already-connected email re-selects it instead of
-  /// duplicating it.
+  /// duplicating it. The password is only used to simulate the connection and
+  /// is never stored.
   Future<MailAccount> connectAccount({
     required String email,
-    String? displayName,
-    AccountProvider? provider,
+    required String password,
   });
 
   /// Disconnects an account and drops its mails. The last remaining account
@@ -125,7 +125,19 @@ abstract class MailRepository extends ChangeNotifier {
   /// emails and must keep existing entries intact.
   Future<List<Email>> loadMoreEmails(MailFolder folder);
 
+  /// Re-syncs [folder] from the source without touching the existing page.
+  ///
+  /// Pull-to-refresh must never duplicate already-loaded mails nor change
+  /// read/star/pin/folder state; it only simulates the network round-trip and
+  /// notifies listeners so the UI re-reads the current snapshot.
+  Future<void> refreshEmails(MailFolder folder);
+
   Future<Email?> getEmail(String id);
+
+  /// Every mail belonging to the same conversation, oldest first.
+  /// Grouped by [threadId] — never by subject/account, which can coincide
+  /// across unrelated conversations.
+  List<Email> getThreadEmails(String threadId);
 
   // --- Writing ------------------------------------------------------
 
@@ -138,6 +150,8 @@ abstract class MailRepository extends ChangeNotifier {
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   });
 
   Future<Email> saveDraft({
@@ -149,6 +163,8 @@ abstract class MailRepository extends ChangeNotifier {
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   });
 
   /// Moves the given mails to Trash (does not delete them permanently).

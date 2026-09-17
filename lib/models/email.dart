@@ -58,6 +58,8 @@ class Email {
     this.labelIds = const [],
     this.attachments = const [],
     this.accountId = '',
+    this.threadId = '',
+    this.inReplyToId,
   });
 
   final String id;
@@ -89,6 +91,16 @@ class Email {
   /// account, so starring/reading/deleting it in the unified inbox affects
   /// only the originating account.
   final String accountId;
+
+  /// Stable conversation identifier shared by every mail that belongs to the
+  /// same thread (a reply reuses the original message's id). Empty means
+  /// "unassigned" — repositories stamp one on ingest so older seed/generated
+  /// mails stay valid (each becomes its own thread).
+  final String threadId;
+
+  /// Id of the message this one replies to, when known. Nothing groups by
+  /// this — [threadId] is the conversation identity. Pure provenance.
+  final String? inReplyToId;
 
   /// One-line preview derived from the body.
   String get preview {
@@ -126,6 +138,8 @@ class Email {
     List<String>? labelIds,
     List<Attachment>? attachments,
     String? accountId,
+    String? threadId,
+    String? inReplyToId,
   }) {
     return Email(
       id: id,
@@ -146,6 +160,8 @@ class Email {
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,
       accountId: accountId ?? this.accountId,
+      threadId: threadId ?? this.threadId,
+      inReplyToId: inReplyToId ?? this.inReplyToId,
     );
   }
 

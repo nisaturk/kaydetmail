@@ -17,8 +17,7 @@ class AppTheme {
   static const Color unreadBackground = Color(0xFFF9FAFB);
 
   static ThemeData get light {
-    final base =
-        ColorScheme.fromSeed(seedColor: const Color(0xFF0B0B0B));
+    final base = ColorScheme.fromSeed(seedColor: const Color(0xFF0B0B0B));
     final scheme = base.copyWith(
       primary: Colors.black,
       onPrimary: Colors.white,
@@ -56,8 +55,10 @@ class AppTheme {
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: const Color(0xFFF9FAFB),
-        contentPadding:
-            const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
+        ),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(10),
           borderSide: const BorderSide(color: border),

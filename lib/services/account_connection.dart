@@ -1,7 +1,8 @@
 import '../models/mail_account.dart';
 
 /// Result of a successful account-connection flow: who was connected and
-/// through which provider. Carries no tokens — mock-only for now.
+/// through which provider. Carries no tokens and never a password — mock-only
+/// for now.
 class ConnectedAccount {
   const ConnectedAccount({
     required this.email,
@@ -16,14 +17,16 @@ class ConnectedAccount {
 
 /// How KAYDET connects a new mailbox account.
 ///
-/// Mock-first: [MockAccountConnection] simulates the flow with a short delay
-/// and infers the provider from the email domain. Later this gets replaced by
+/// Mock-first: [MockAccountConnection] simulates the flow with a short delay,
+/// validates the email address and (non-empty) password, and infers the
+/// provider from the email domain. Later this gets replaced by
 /// [GoogleOAuthAccountConnection], [MicrosoftOAuthAccountConnection] and
 /// [ImapAccountConnection] without touching the repository or the UI — they
 /// only ever see [ConnectedAccount].
 abstract class AccountConnection {
   Future<ConnectedAccount> connect({
     required String email,
+    required String password,
     String? displayName,
     AccountProvider? provider,
   });
@@ -37,12 +40,16 @@ class MockAccountConnection implements AccountConnection {
   @override
   Future<ConnectedAccount> connect({
     required String email,
+    required String password,
     String? displayName,
     AccountProvider? provider,
   }) async {
     final normalized = email.trim();
     if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(normalized)) {
       throw ArgumentError('Geçerli bir e-posta adresi girin.');
+    }
+    if (password.isEmpty) {
+      throw ArgumentError('Şifre gerekli.');
     }
     await Future<void>.delayed(latency);
     return ConnectedAccount(

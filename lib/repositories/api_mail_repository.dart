@@ -47,8 +47,7 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<MailAccount> connectAccount({
     required String email,
-    String? displayName,
-    AccountProvider? provider,
+    required String password,
   }) => _notImplemented();
 
   @override
@@ -70,7 +69,13 @@ class ApiMailRepository extends MailRepository {
   Future<List<Email>> loadMoreEmails(MailFolder folder) => _notImplemented();
 
   @override
+  Future<void> refreshEmails(MailFolder folder) => _notImplemented();
+
+  @override
   Future<Email?> getEmail(String id) => _notImplemented();
+
+  @override
+  List<Email> getThreadEmails(String threadId) => _notImplemented();
 
   @override
   Future<Email> sendEmail({
@@ -82,6 +87,8 @@ class ApiMailRepository extends MailRepository {
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   }) => _notImplemented();
 
   @override
@@ -94,6 +101,8 @@ class ApiMailRepository extends MailRepository {
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   }) => _notImplemented();
 
   @override

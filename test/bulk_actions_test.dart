@@ -36,9 +36,7 @@ void main() {
       await repo.moveToFolder([mail.id], MailFolder.archive);
 
       expect(
-        repo
-            .getEmailsInFolder(MailFolder.inbox)
-            .map((e) => e.id),
+        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
         isNot(contains(mail.id)),
       );
     });
@@ -85,8 +83,10 @@ void main() {
         body: 'Hello Bob',
       );
       expect(sent.folder, MailFolder.sent);
-      expect(repo.getEmailsInFolder(MailFolder.sent).map((e) => e.id),
-          contains(sent.id));
+      expect(
+        repo.getEmailsInFolder(MailFolder.sent).map((e) => e.id),
+        contains(sent.id),
+      );
     });
 
     test('saveDraft places mail in Drafts', () async {
@@ -97,8 +97,10 @@ void main() {
         body: 'Half done',
       );
       expect(draft.folder, MailFolder.drafts);
-      expect(repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
-          contains(draft.id));
+      expect(
+        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+        contains(draft.id),
+      );
     });
   });
 }

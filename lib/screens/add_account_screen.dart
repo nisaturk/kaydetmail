@@ -2,10 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
-import '../models/mail_account.dart';
 import '../theme/app_theme.dart';
 
-/// Mock account-connection flow: pick a provider, enter the address, connect.
+/// Mock account-connection flow: enter the address and password, connect.
 ///
 /// No real OAuth happens here — [AppConfig.mailRepository] runs a
 /// [MockAccountConnection] that validates the address and provisions a mock
@@ -21,9 +20,8 @@ class AddAccountScreen extends StatefulWidget {
 class _AddAccountScreenState extends State<AddAccountScreen> {
   final _formKey = GlobalKey<FormState>();
   final _emailController = TextEditingController();
-  final _nameController = TextEditingController();
+  final _passwordController = TextEditingController();
 
-  var _provider = AccountProvider.google;
   var _connecting = false;
   String? _error;
 
@@ -32,7 +30,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   @override
   void dispose() {
     _emailController.dispose();
-    _nameController.dispose();
+    _passwordController.dispose();
     super.dispose();
   }
 
@@ -45,10 +43,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     try {
       final account = await AppConfig.mailRepository.connectAccount(
         email: _emailController.text.trim(),
-        displayName: _nameController.text.trim().isEmpty
-            ? null
-            : _nameController.text.trim(),
-        provider: _provider,
+        password: _passwordController.text,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -76,29 +71,6 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'Sağlayıcı',
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w700,
-                    color: AppTheme.secondaryText,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: [
-                    for (final provider in AccountProvider.values)
-                      ChoiceChip(
-                        key: ValueKey('provider-${provider.name}'),
-                        label: Text(provider.label),
-                        selected: _provider == provider,
-                        onSelected: (_) => setState(() => _provider = provider),
-                      ),
-                  ],
-                ),
-                const SizedBox(height: 20),
                 TextFormField(
                   key: const Key('new-email-field'),
                   controller: _emailController,
@@ -120,13 +92,20 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                 ),
                 const SizedBox(height: 16),
                 TextFormField(
-                  key: const Key('new-name-field'),
-                  controller: _nameController,
+                  key: const Key('new-password-field'),
+                  controller: _passwordController,
+                  obscureText: true,
+                  autofillHints: const [AutofillHints.password],
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _connect(),
+                  validator: (value) {
+                    final text = value ?? '';
+                    if (text.isEmpty) return 'Şifre zorunludur';
+                    return null;
+                  },
                   decoration: const InputDecoration(
-                    labelText: 'Görünen ad (isteğe bağlı)',
-                    prefixIcon: Icon(LucideIcons.user, size: 20),
+                    labelText: 'Şifre',
+                    prefixIcon: Icon(LucideIcons.lock, size: 20),
                   ),
                 ),
                 if (_error != null) ...[

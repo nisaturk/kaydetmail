@@ -8,6 +8,9 @@ import '../theme/app_theme.dart';
 import 'mail_avatar.dart';
 
 /// Navigation drawer: folders, then Hesaplar, Settings and Logout.
+///
+/// Mailbox switching happens from the inbox title (one clear mechanism) — the
+/// drawer only manages folders and app-level destinations.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({
     super.key,
@@ -16,7 +19,6 @@ class AppDrawer extends StatelessWidget {
     required this.onLogout,
     required this.onOpenSettings,
     required this.onOpenAccounts,
-    required this.onShowUnified,
   });
 
   final MailFolder selectedFolder;
@@ -24,7 +26,6 @@ class AppDrawer extends StatelessWidget {
   final VoidCallback onLogout;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenAccounts;
-  final VoidCallback onShowUnified;
 
   @override
   Widget build(BuildContext context) {
@@ -97,11 +98,6 @@ class AppDrawer extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 8),
               child: Column(
                 children: [
-                  _SectionTile(
-                    icon: LucideIcons.inbox,
-                    label: 'Tüm Gelen Kutuları',
-                    onTap: onShowUnified,
-                  ),
                   _SectionTile(
                     icon: LucideIcons.users,
                     label: 'Hesaplar',

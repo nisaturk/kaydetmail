@@ -75,12 +75,74 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(MaterialPageRoute(builder: (_) => const AccountsScreen()));
   }
 
-  void _showUnified() {
-    Navigator.of(context).pop(); // close the drawer
+  void _showMailboxSelector() {
     _selection.exit();
-    setState(() => _folder = MailFolder.inbox);
-    _repo.setActiveAccount(null);
+    showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) {
+        final activeId = _repo.activeAccountId;
+        return SafeArea(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Padding(
+                padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Gelen Kutusu',
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
+              ListTile(
+                key: const ValueKey('selector-unified'),
+                leading: const Icon(
+                  LucideIcons.inbox,
+                  size: 20,
+                  color: AppTheme.secondaryText,
+                ),
+                title: const Text('Tüm Gelen Kutuları'),
+                selected: activeId == null,
+                onTap: () => Navigator.of(ctx).pop(_unifiedScope),
+              ),
+              for (final account in _repo.accounts)
+                ListTile(
+                  key: ValueKey('selector-${account.id}'),
+                  leading: Icon(
+                    account.id == activeId
+                        ? LucideIcons.circleCheckBig
+                        : LucideIcons.circle,
+                    size: 20,
+                    color: account.id == activeId
+                        ? Colors.black
+                        : AppTheme.tertiaryText,
+                  ),
+                  title: Text(
+                    account.email,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                  selected: account.id == activeId,
+                  onTap: () => Navigator.of(ctx).pop(account.id),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        );
+      },
+    ).then((picked) {
+      if (picked == null || !mounted) return;
+      if (picked == _unifiedScope) {
+        _repo.setActiveAccount(null);
+      } else {
+        _repo.setActiveAccount(picked);
+      }
+    });
   }
+
+  /// Sentinal returned by the mailbox selector for the unified scope.
+  static const String _unifiedScope = '__unified__';
 
   void _openCompose() {
     Navigator.of(context)
@@ -110,7 +172,16 @@ class _HomeScreenState extends State<HomeScreen> {
     _selection.exit();
   }
 
-  Future<void> _actionPinUnpin() async {
+  Future<void> _actionStar() async {
+    // Star and pin are independent concepts: this bulk action toggles only
+    // the star. Starring is free — no pin-slot limit applies.
+    final emails = _selectedEmails;
+    final allStarred = emails.every((e) => e.isStarred);
+    await _repo.setStarred(_selection.selectedIds.toList(), !allStarred);
+    _selection.exit();
+  }
+
+  Future<void> _actionPin() async {
     final emails = _selectedEmails;
     final allPinned = emails.every((e) => e.isPinned);
     if (!allPinned) {
@@ -258,7 +329,6 @@ class _HomeScreenState extends State<HomeScreen> {
             onLogout: _logout,
             onOpenSettings: _openSettings,
             onOpenAccounts: _openAccounts,
-            onShowUnified: _showUnified,
           ),
           floatingActionButton: _selection.isActive
               ? null
@@ -280,32 +350,37 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   PreferredSizeWidget _buildNormalAppBar() {
-    // With several accounts the title names the visible mailbox; with one
-    // account there is nothing to disambiguate, so no subtitle.
-    final accounts = _repo.accounts;
-    final activeId = _repo.activeAccountId;
-    final scopeLabel = accounts.length < 2
-        ? null
-        : (activeId == null
-              ? 'Tüm Gelen Kutuları'
-              : _repo.getAccount(activeId)?.email);
-    return AppBar(
-      title: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(_folder.label),
-          if (scopeLabel != null)
-            Text(
-              scopeLabel,
-              style: const TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w400,
-                color: AppTheme.secondaryText,
+    // The inbox title doubles as the mailbox selector when more than one
+    // account is connected: tap it to pick "Tüm Gelen Kutuları" or a single
+    // mailbox. With one account — and outside the inbox — the plain folder
+    // label stands alone, no chevron, no redundant scope subtitle.
+    final selectingInbox =
+        _folder == MailFolder.inbox && _repo.accounts.length > 1;
+    final Widget title = selectingInbox
+        ? InkWell(
+            key: const Key('mailbox-selector'),
+            borderRadius: BorderRadius.circular(6),
+            onTap: _showMailboxSelector,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Gelen Kutusu'),
+                  const SizedBox(width: 6),
+                  const Icon(
+                    LucideIcons.chevronDown,
+                    size: 18,
+                    color: AppTheme.secondaryText,
+                  ),
+                ],
               ),
             ),
-        ],
-      ),
+          )
+        : Text(_folder.label);
+
+    return AppBar(
+      title: title,
       actions: [
         IconButton(
           onPressed: _openSearch,
@@ -337,6 +412,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Widget _buildBulkActionBar() {
     final allRead = _selectedEmails.every((e) => e.isRead);
+    final allStarred = _selectedEmails.every((e) => e.isStarred);
     final allPinned = _selectedEmails.every((e) => e.isPinned);
 
     return Container(
@@ -364,9 +440,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: _actionReadUnread,
               ),
               _ActionBtn(
-                icon: allPinned ? LucideIcons.star : LucideIcons.pin,
-                label: allPinned ? 'Yıldızdan Çıkar' : 'Yıldızla',
-                onTap: _actionPinUnpin,
+                icon: allStarred ? Icons.star : Icons.star_border,
+                label: allStarred ? 'Yıldızdan Çıkar' : 'Yıldızla',
+                onTap: _actionStar,
+              ),
+              _ActionBtn(
+                icon: LucideIcons.pin,
+                label: allPinned ? 'Sabitlerden Çıkar' : 'Sabitle',
+                onTap: _actionPin,
               ),
               _ActionBtn(
                 icon: LucideIcons.archive,

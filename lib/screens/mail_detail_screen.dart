@@ -11,11 +11,13 @@ import '../utils/date_format.dart';
 import '../widgets/mail_avatar.dart';
 import 'compose_screen.dart';
 
-/// Full view of a single mail: header, subject, labels, attachments and body.
+/// Full view of a mail — and, when it belongs to a conversation, the whole
+/// thread stacked oldest-first with collapsible messages.
 ///
 /// Opening a mail marks it as read. Pin and read/unread state change through
 /// the repository and are reflected immediately because the screen listens to
-/// it.
+/// it. A single-message thread renders the plain detail view; a multi-message
+/// conversation renders one row per message, older ones collapsed.
 class MailDetailScreen extends StatefulWidget {
   const MailDetailScreen({super.key, required this.emailId});
 
@@ -29,6 +31,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   MailRepository get _repo => AppConfig.mailRepository;
 
   Email? _email;
+  List<Email> _thread = const [];
+  final Set<String> _collapsed = {};
+  bool _threadInit = false;
   bool _loading = true;
   bool _opened = false;
 
@@ -47,11 +52,14 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
   Future<void> _reload() async {
     final email = await _repo.getEmail(widget.emailId);
+    final thread = email == null ? const <Email>[] : _threadFor(email);
     if (!mounted) return;
     setState(() {
       _email = email;
+      _thread = thread;
       _loading = false;
     });
+    _initCollapsed();
 
     // A freshly opened mail becomes read — but only on the very first load.
     // Later reloads (pin, mark-as-unread) must not silently flip it back.
@@ -63,8 +71,33 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
+  /// The conversation sorted oldest-first. Data is fetched from the
+  /// repository, not just reconstructed, so shared [threadId]s (even across
+  /// folders) join up; single threads are just themselves.
+  List<Email> _threadFor(Email email) => _repo.getThreadEmails(email.threadId);
+
+  /// Older messages collapse on first load; the newest stays expanded. Mails
+  /// that arrive later (e.g. a reply created from this thread) are naturally
+  /// expanded because they were never collapsed.
+  void _initCollapsed() {
+    if (_threadInit) return;
+    _threadInit = true;
+    if (_thread.length < 2) return;
+    setState(() {
+      _collapsed.addAll(
+        _thread.sublist(0, _thread.length - 1).map((e) => e.id),
+      );
+    });
+  }
+
+  void _toggleMessage(String id) {
+    setState(() {
+      if (!_collapsed.remove(id)) _collapsed.add(id);
+    });
+  }
+
   /// Shows the pin-limit notice when no slot is left. Returns true when the
-  /// caller may proceed with pinning/starring.
+  /// caller may proceed with pinning.
   bool _ensurePinSlot() {
     if (_repo.getEmailsInFolder(MailFolder.pinned).length >=
         MailRepository.maxPinnedMails) {
@@ -86,9 +119,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   Future<void> _toggleStar() async {
     final email = _email;
     if (email == null) return;
-    // Star and pin are independent: starring consumes no pin slot.
-    final starred = email.isStarred || email.isPinned;
-    await _repo.setStarred([email.id], !starred);
+    // Star and pin are independent flags: starring never pins, unstarring
+    // never unpins. Starring consumes no pin slot.
+    await _repo.setStarred([email.id], !email.isStarred);
   }
 
   /// The address a reply/forward is sent from: the originating account, so a
@@ -110,6 +143,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           initialFrom: _originatingFrom(),
           initialTo: email.senderEmail,
           initialSubject: _replySubject(email.subject),
+          initialThreadId: email.threadId,
+          inReplyToId: email.id,
         ),
       ),
     );
@@ -180,9 +215,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
                 PopupMenuItem(
                   value: 'star',
                   child: Text(
-                    (_email!.isStarred || _email!.isPinned)
-                        ? 'Yıldızı kaldır'
-                        : 'Yıldızla',
+                    _email!.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
                   ),
                 ),
                 if (_email!.isRead)
@@ -229,73 +262,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       );
     }
 
-    final labels = _repo
-        .getLabels()
-        .where((l) => email.labelIds.contains(l.id))
-        .toList();
-
     return SingleChildScrollView(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MailAvatar(
-                identity: email.senderEmail,
-                displayName: email.senderName,
-                size: 44,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      email.senderName,
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: Colors.black,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      email.senderEmail,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.secondaryText,
-                      ),
-                    ),
-                    if (email.recipients.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      _RecipientLine(
-                        label: 'Alıcı: ',
-                        addresses: _recipientText(email.recipients),
-                      ),
-                    ],
-                    if (email.cc.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      _RecipientLine(
-                        label: 'Cc: ',
-                        addresses: _recipientText(email.cc),
-                      ),
-                    ],
-                    const SizedBox(height: 6),
-                    Text(
-                      formatMailDateFull(email.timestamp),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.secondaryText,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
           Text(
             email.subject,
             style: const TextStyle(
@@ -305,40 +276,284 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               height: 1.25,
             ),
           ),
-          if (labels.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            _LabelChips(labels: labels),
-          ],
-          if (email.attachments.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            const Text(
-              'Ekler',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: AppTheme.secondaryText,
+          const SizedBox(height: 12),
+          const Divider(),
+          if (_thread.length > 1) ...[
+            for (final message in _thread.reversed)
+              _ThreadMessage(
+                email: message,
+                labels: _labelsFor(message),
+                expanded: !_collapsed.contains(message.id),
+                onToggle: () => _toggleMessage(message.id),
               ),
-            ),
-            const SizedBox(height: 8),
-            for (final attachment in email.attachments)
-              _AttachmentTile(attachment: attachment),
-          ],
-          const Divider(height: 32),
-          const SizedBox(height: 4),
-          SelectableText(
-            email.bodyText,
-            style: const TextStyle(
-              fontSize: 15,
-              height: 1.6,
-              color: AppTheme.bodyText,
-            ),
-          ),
+          ] else
+            _SingleMessage(email: email, labels: _labelsFor(email)),
         ],
       ),
     );
   }
 
-  String _recipientText(List<String> recipients) => recipients.join(', ');
+  List<MailLabel> _labelsFor(Email email) =>
+      _repo.getLabels().where((l) => email.labelIds.contains(l.id)).toList();
+}
+
+/// One mail in the classic detail layout (single-message conversations stay
+/// simple — no collapsible header).
+class _SingleMessage extends StatelessWidget {
+  const _SingleMessage({required this.email, required this.labels});
+
+  final Email email;
+  final List<MailLabel> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 8),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            MailAvatar(
+              identity: email.senderEmail,
+              displayName: email.senderName,
+              size: 44,
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    email.senderName,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    email.senderEmail,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.secondaryText,
+                    ),
+                  ),
+                  if (email.recipients.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    _RecipientLine(
+                      label: 'Alıcı: ',
+                      addresses: recipientText(email.recipients),
+                    ),
+                  ],
+                  if (email.cc.isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    _RecipientLine(
+                      label: 'Cc: ',
+                      addresses: recipientText(email.cc),
+                    ),
+                  ],
+                  const SizedBox(height: 6),
+                  Text(
+                    formatMailDateFull(email.timestamp),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: AppTheme.secondaryText,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        if (labels.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _LabelChips(labels: labels),
+        ],
+        if (email.attachments.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          const Text(
+            'Ekler',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: AppTheme.secondaryText,
+            ),
+          ),
+          const SizedBox(height: 8),
+          for (final attachment in email.attachments)
+            _AttachmentTile(attachment: attachment),
+        ],
+        const Divider(height: 32),
+        const SizedBox(height: 4),
+        SelectableText(
+          email.bodyText,
+          style: const TextStyle(
+            fontSize: 15,
+            height: 1.6,
+            color: AppTheme.bodyText,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String recipientText(List<String> recipients) => recipients.join(', ');
+}
+
+/// One collapsible message inside a conversation stack.
+///
+/// The header always shows the sender, address, timestamp and recipients; a
+/// compact preview appears while collapsed. Expanded, the full body, labels
+/// and attachments follow under a divider.
+class _ThreadMessage extends StatelessWidget {
+  const _ThreadMessage({
+    required this.email,
+    required this.labels,
+    required this.expanded,
+    required this.onToggle,
+  });
+
+  final Email email;
+  final List<MailLabel> labels;
+  final bool expanded;
+  final VoidCallback onToggle;
+
+  @override
+  Widget build(BuildContext context) {
+    String recipientText(List<String> recipients) => recipients.join(', ');
+    return InkWell(
+      onTap: onToggle,
+      child: Container(
+        decoration: const BoxDecoration(
+          border: Border(bottom: BorderSide(color: AppTheme.border)),
+        ),
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                MailAvatar(
+                  identity: email.senderEmail,
+                  displayName: email.senderName,
+                  size: 36,
+                ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              email.senderName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          Icon(
+                            expanded
+                                ? LucideIcons.chevronUp
+                                : LucideIcons.chevronDown,
+                            size: 16,
+                            color: AppTheme.tertiaryText,
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        email.senderEmail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppTheme.secondaryText,
+                        ),
+                      ),
+                      if (email.recipients.isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        _RecipientLine(
+                          label: 'Alıcı: ',
+                          addresses: recipientText(email.recipients),
+                        ),
+                      ],
+                      if (email.cc.isNotEmpty) ...[
+                        const SizedBox(height: 2),
+                        _RecipientLine(
+                          label: 'Cc: ',
+                          addresses: recipientText(email.cc),
+                        ),
+                      ],
+                      const SizedBox(height: 4),
+                      Text(
+                        formatMailDateFull(email.timestamp),
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: AppTheme.secondaryText,
+                        ),
+                      ),
+                      if (!expanded) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          email.preview,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: AppTheme.secondaryText,
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            if (expanded) ...[
+              const SizedBox(height: 12),
+              if (labels.isNotEmpty) ...[
+                _LabelChips(labels: labels),
+                const SizedBox(height: 10),
+              ],
+              if (email.attachments.isNotEmpty) ...[
+                const Text(
+                  'Ekler',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w600,
+                    color: AppTheme.secondaryText,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                for (final attachment in email.attachments)
+                  _AttachmentTile(attachment: attachment),
+                const SizedBox(height: 4),
+              ],
+              SelectableText(
+                email.bodyText,
+                style: const TextStyle(
+                  fontSize: 14.5,
+                  height: 1.6,
+                  color: AppTheme.bodyText,
+                ),
+              ),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _RecipientLine extends StatelessWidget {

@@ -85,7 +85,6 @@ class AccountsScreen extends StatelessWidget {
                 _AccountRow(
                   key: ValueKey('account-${account.id}'),
                   title: account.email,
-                  subtitle: account.provider.label,
                   avatarIdentity: account.email,
                   isActive: account.id == activeId,
                   canRemove: accounts.length > 1,
@@ -122,7 +121,7 @@ class _AccountRow extends StatelessWidget {
   const _AccountRow({
     super.key,
     required this.title,
-    required this.subtitle,
+    this.subtitle,
     required this.isActive,
     required this.onTap,
     this.avatarIdentity,
@@ -132,7 +131,7 @@ class _AccountRow extends StatelessWidget {
   });
 
   final String title;
-  final String subtitle;
+  final String? subtitle;
   final bool isActive;
   final VoidCallback onTap;
   final String? avatarIdentity;
@@ -158,10 +157,15 @@ class _AccountRow extends StatelessWidget {
           color: Colors.black,
         ),
       ),
-      subtitle: Text(
-        isActive ? '$subtitle · Aktif' : subtitle,
-        style: const TextStyle(fontSize: 13, color: AppTheme.secondaryText),
-      ),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              isActive ? '$subtitle · Aktif' : subtitle!,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.secondaryText,
+              ),
+            ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [

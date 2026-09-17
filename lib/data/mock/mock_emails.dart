@@ -84,6 +84,8 @@ class MockEmails {
         timestamp: now.subtract(h(3)),
         isRead: false,
         labelIds: [MockLabels.work.id],
+        // The conversation this inbox row becomes: three linked mails.
+        threadId: 'thread-onboarding',
       ),
       Email(
         id: 'seed-eng-retro',
@@ -298,6 +300,26 @@ class MockEmails {
         isRead: true,
         folder: MailFolder.sent,
         labelIds: [MockLabels.work.id],
+        threadId: 'thread-onboarding',
+        inReplyToId: 'seed-alice-onboarding',
+      ),
+      Email(
+        id: 'seed-alice-onboarding-reply',
+        senderName: 'Alice Johnson',
+        senderEmail: 'alice.johnson@northstar.io',
+        recipients: ['me@kaydet.app'],
+        subject: 'Re: Design review: onboarding flow',
+        bodyText:
+            'Great feedback — the password-hint note is already in the issue '
+            'tracker and I added the skip link to the last screen.\n\n'
+            'I also want your take on the signup state when the token expires '
+            'mid-flow before we freeze the design.\n\n'
+            'Cheers,\nAlice',
+        timestamp: now.subtract(const Duration(minutes: 40)),
+        isRead: false,
+        labelIds: [MockLabels.work.id],
+        threadId: 'thread-onboarding',
+        inReplyToId: 'seed-sent-onboarding',
       ),
       Email(
         id: 'seed-sent-roadmap',

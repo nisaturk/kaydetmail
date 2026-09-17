@@ -1,10 +1,10 @@
-import 'package:flutter_test/flutter_test.dart';
+﻿import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/mock_mail_repository.dart';
 import 'package:kaydetmail/services/account_connection.dart';
 
-/// Accounts (spec §21 items 1–8): connecting, coexistence, switching,
+/// Accounts (spec Â§21 items 1â€“8): connecting, coexistence, switching,
 /// removal and active-account state.
 MockMailRepository _repo() => MockMailRepository(
   connection: MockAccountConnection(latency: Duration.zero),
@@ -22,7 +22,10 @@ void main() {
 
     test('connecting an account adds it with provider and mailbox', () async {
       final repo = _repo();
-      final account = await repo.connectAccount(email: 'nisa@gmail.com');
+      final account = await repo.connectAccount(
+        email: 'nisa@gmail.com',
+        password: 'secret123',
+      );
 
       expect(account.email, 'nisa@gmail.com');
       expect(account.provider, AccountProvider.google);
@@ -36,15 +39,27 @@ void main() {
 
     test('outlook address is detected as Microsoft', () async {
       final repo = _repo();
-      final account = await repo.connectAccount(email: 'nisa@outlook.com');
+      final account = await repo.connectAccount(
+        email: 'nisa@outlook.com',
+        password: 'secret123',
+      );
       expect(account.provider, AccountProvider.microsoft);
     });
 
     test('three or more accounts can coexist', () async {
       final repo = _repo();
-      await repo.connectAccount(email: 'nisa@gmail.com');
-      await repo.connectAccount(email: 'nisa@outlook.com');
-      await repo.connectAccount(email: 'nisa@kisisel.com');
+      await repo.connectAccount(
+        email: 'nisa@gmail.com',
+        password: 'secret123',
+      );
+      await repo.connectAccount(
+        email: 'nisa@outlook.com',
+        password: 'secret123',
+      );
+      await repo.connectAccount(
+        email: 'nisa@kisisel.com',
+        password: 'secret123',
+      );
 
       expect(repo.accounts.length, 4);
       expect(
@@ -55,8 +70,14 @@ void main() {
 
     test('connecting the same email twice does not duplicate it', () async {
       final repo = _repo();
-      final first = await repo.connectAccount(email: 'nisa@gmail.com');
-      final second = await repo.connectAccount(email: 'NISA@gmail.com');
+      final first = await repo.connectAccount(
+        email: 'nisa@gmail.com',
+        password: 'secret123',
+      );
+      final second = await repo.connectAccount(
+        email: 'NISA@gmail.com',
+        password: 'secret123',
+      );
 
       expect(repo.accounts.length, 2);
       expect(second.id, first.id);
@@ -65,7 +86,10 @@ void main() {
 
     test('account switching scopes the mailbox; null is unified', () async {
       final repo = _repo();
-      final gmail = await repo.connectAccount(email: 'nisa@gmail.com');
+      final gmail = await repo.connectAccount(
+        email: 'nisa@gmail.com',
+        password: 'secret123',
+      );
 
       await repo.setActiveAccount(gmail.id);
       expect(repo.activeAccountId, gmail.id);
@@ -84,7 +108,10 @@ void main() {
       final primaryId = repo.activeAccountId!;
       final primaryInboxCount = repo.getEmailsInFolder(MailFolder.inbox).length;
 
-      final gmail = await repo.connectAccount(email: 'nisa@gmail.com');
+      final gmail = await repo.connectAccount(
+        email: 'nisa@gmail.com',
+        password: 'secret123',
+      );
       await repo.setActiveAccount(null);
       final unifiedCount = repo.getAllEmails().length;
 
@@ -103,7 +130,10 @@ void main() {
 
     test('removing the active account falls back to unified', () async {
       final repo = _repo();
-      final gmail = await repo.connectAccount(email: 'nisa@gmail.com');
+      final gmail = await repo.connectAccount(
+        email: 'nisa@gmail.com',
+        password: 'secret123',
+      );
       expect(repo.activeAccountId, gmail.id);
 
       await repo.removeAccount(gmail.id);

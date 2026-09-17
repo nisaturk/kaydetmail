@@ -24,10 +24,14 @@ void main() {
       expect(inbox.any((e) => !e.isRead), isTrue);
 
       // Multiple senders and different dates.
-      expect(inbox.map((e) => e.senderEmail).toSet().length,
-          greaterThanOrEqualTo(3));
-      expect(inbox.map((e) => e.timestamp).toSet().length,
-          greaterThanOrEqualTo(3));
+      expect(
+        inbox.map((e) => e.senderEmail).toSet().length,
+        greaterThanOrEqualTo(3),
+      );
+      expect(
+        inbox.map((e) => e.timestamp).toSet().length,
+        greaterThanOrEqualTo(3),
+      );
 
       // Long subject and long body (for preview truncation).
       expect(inbox.any((e) => e.subject.length >= 80), isTrue);
@@ -75,7 +79,9 @@ void main() {
       final target = repo.getEmailsInFolder(MailFolder.inbox).first;
       await repo.moveToTrash([target.id]);
       await repo.createLabel(
-          name: 'Temp', color: const Color.fromARGB(255, 1, 2, 3));
+        name: 'Temp',
+        color: const Color.fromARGB(255, 1, 2, 3),
+      );
 
       final pristineInboxCount = MockEmails.seed
           .where((e) => e.folder == MailFolder.inbox)
@@ -108,9 +114,10 @@ void main() {
       final repo = MockMailRepository();
       await repo.loadMoreEmails(MailFolder.inbox);
 
-      final genCountBefore =
-          repo.getEmailsInFolder(MailFolder.inbox).where((e) =>
-              e.id.startsWith('gen-')).length;
+      final genCountBefore = repo
+          .getEmailsInFolder(MailFolder.inbox)
+          .where((e) => e.id.startsWith('gen-'))
+          .length;
       expect(genCountBefore, greaterThan(0));
 
       repo.resetMockData();
@@ -128,8 +135,11 @@ void main() {
       for (var i = 0; i < 5; i++) {
         final batch = MockEmailGenerator.generateMoreEmails(count: 50);
         for (final email in batch) {
-          expect(seen.add(email.id), isTrue,
-              reason: 'duplicate id ${email.id}');
+          expect(
+            seen.add(email.id),
+            isTrue,
+            reason: 'duplicate id ${email.id}',
+          );
           expect(email.id.startsWith('gen-'), isTrue);
         }
       }
@@ -153,12 +163,16 @@ void main() {
   group('MockMailRepository', () {
     test('login succeeds and logout resets', () async {
       final repo = MockMailRepository();
-      expect(await repo.login(email: 'me@kaydet.app', password: 'secret1'),
-          isTrue);
+      expect(
+        await repo.login(email: 'me@kaydet.app', password: 'secret1'),
+        isTrue,
+      );
       await repo.logout();
       // Logging in again after logout still works.
-      expect(await repo.login(email: 'me@kaydet.app', password: 'secret2'),
-          isTrue);
+      expect(
+        await repo.login(email: 'me@kaydet.app', password: 'secret2'),
+        isTrue,
+      );
     });
 
     test('getEmailsInFolder keeps pinned mails on top', () async {
@@ -168,10 +182,7 @@ void main() {
 
       expect(inbox, isNotEmpty);
       expect(trash, isNotEmpty);
-      expect(
-        inbox.every((e) => e.folder != MailFolder.trash),
-        isTrue,
-      );
+      expect(inbox.every((e) => e.folder != MailFolder.trash), isTrue);
       expect(inbox.any((e) => e.isRead), isTrue);
       expect(inbox.any((e) => !e.isRead), isTrue);
 
@@ -179,10 +190,7 @@ void main() {
       // inside the pinned and unpinned groups.
       final firstUnpinned = inbox.indexWhere((e) => !e.isPinned);
       expect(firstUnpinned, greaterThan(0));
-      expect(
-        inbox.sublist(firstUnpinned).every((e) => !e.isPinned),
-        isTrue,
-      );
+      expect(inbox.sublist(firstUnpinned).every((e) => !e.isPinned), isTrue);
       for (var i = 1; i < inbox.length; i++) {
         final prev = inbox[i - 1];
         final curr = inbox[i];
@@ -207,8 +215,10 @@ void main() {
           .toSet();
 
       final batch = await repo.loadMoreEmails(MailFolder.inbox);
-      final afterIds =
-          repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id).toSet();
+      final afterIds = repo
+          .getEmailsInFolder(MailFolder.inbox)
+          .map((e) => e.id)
+          .toSet();
 
       expect(batch.length, 20);
       expect(afterIds.length, beforeIds.length + batch.length);
@@ -217,21 +227,28 @@ void main() {
 
     test('markAsRead and markAsUnread update state', () async {
       final repo = MockMailRepository();
-      final target = repo.getEmailsInFolder(MailFolder.inbox)
+      final target = repo
+          .getEmailsInFolder(MailFolder.inbox)
           .firstWhere((e) => !e.isRead);
       final targetId = target.id;
 
       await repo.markAsRead([targetId]);
-      expect(repo.getEmailsInFolder(MailFolder.inbox)
-              .firstWhere((e) => e.id == targetId)
-              .isRead,
-          isTrue);
+      expect(
+        repo
+            .getEmailsInFolder(MailFolder.inbox)
+            .firstWhere((e) => e.id == targetId)
+            .isRead,
+        isTrue,
+      );
 
       await repo.markAsUnread([targetId]);
-      expect(repo.getEmailsInFolder(MailFolder.inbox)
-              .firstWhere((e) => e.id == targetId)
-              .isRead,
-          isFalse);
+      expect(
+        repo
+            .getEmailsInFolder(MailFolder.inbox)
+            .firstWhere((e) => e.id == targetId)
+            .isRead,
+        isFalse,
+      );
     });
 
     test('setPinned toggles the pin state', () async {
@@ -241,16 +258,22 @@ void main() {
       final wasPinned = target.isPinned;
 
       await repo.setPinned([targetId], !wasPinned);
-      expect(repo.getEmailsInFolder(MailFolder.inbox)
-              .firstWhere((e) => e.id == targetId)
-              .isPinned,
-          !wasPinned);
+      expect(
+        repo
+            .getEmailsInFolder(MailFolder.inbox)
+            .firstWhere((e) => e.id == targetId)
+            .isPinned,
+        !wasPinned,
+      );
 
       await repo.setPinned([targetId], wasPinned);
-      expect(repo.getEmailsInFolder(MailFolder.inbox)
-              .firstWhere((e) => e.id == targetId)
-              .isPinned,
-          wasPinned);
+      expect(
+        repo
+            .getEmailsInFolder(MailFolder.inbox)
+            .firstWhere((e) => e.id == targetId)
+            .isPinned,
+        wasPinned,
+      );
     });
 
     test('at most 3 mails can be pinned at the same time', () async {
@@ -288,10 +311,14 @@ void main() {
       expect(inboxMail.folder, isNot(MailFolder.trash));
 
       await repo.moveToTrash([inboxMail.id]);
-      expect(repo.getEmailsInFolder(MailFolder.trash).map((e) => e.id),
-          contains(inboxMail.id));
-      expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
-          isNot(contains(inboxMail.id)));
+      expect(
+        repo.getEmailsInFolder(MailFolder.trash).map((e) => e.id),
+        contains(inboxMail.id),
+      );
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
+        isNot(contains(inboxMail.id)),
+      );
     });
 
     test('moveToFolder moves the mail and notifies', () async {
@@ -303,8 +330,10 @@ void main() {
       await repo.moveToFolder([mail.id], MailFolder.spam);
 
       expect(notified, greaterThan(0));
-      expect(repo.getEmailsInFolder(MailFolder.spam).map((e) => e.id),
-          contains(mail.id));
+      expect(
+        repo.getEmailsInFolder(MailFolder.spam).map((e) => e.id),
+        contains(mail.id),
+      );
     });
 
     test('sendEmail lands in Sent, saveDraft in Drafts', () async {
@@ -318,8 +347,10 @@ void main() {
       );
       expect(sent.folder, MailFolder.sent);
       expect(sent.isRead, isTrue);
-      expect(repo.getEmailsInFolder(MailFolder.sent).map((e) => e.id),
-          contains(sent.id));
+      expect(
+        repo.getEmailsInFolder(MailFolder.sent).map((e) => e.id),
+        contains(sent.id),
+      );
 
       final draft = await repo.saveDraft(
         to: ['alice@example.com'],
@@ -327,8 +358,10 @@ void main() {
         body: 'Half written',
       );
       expect(draft.folder, MailFolder.drafts);
-      expect(repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
-          contains(draft.id));
+      expect(
+        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+        contains(draft.id),
+      );
     });
 
     test('sendEmail with attachments preserves the metadata', () async {
@@ -340,8 +373,9 @@ void main() {
         attachments: const [
           Attachment(name: 'report.pdf', sizeBytes: 2048, mimeType: 'pdf'),
           Attachment(
-              name: 'a-very-very-long-attachment-filename.pdf',
-              sizeBytes: 10 * 1024 * 1024),
+            name: 'a-very-very-long-attachment-filename.pdf',
+            sizeBytes: 10 * 1024 * 1024,
+          ),
         ],
       );
 
@@ -380,7 +414,9 @@ void main() {
       expect(repo.getLabels(), isNotEmpty);
 
       final label = await repo.createLabel(
-          name: 'Clients', color: const Color.fromARGB(255, 100, 150, 200));
+        name: 'Clients',
+        color: const Color.fromARGB(255, 100, 150, 200),
+      );
       expect(repo.getLabels().map((l) => l.id), contains(label.id));
     });
   });

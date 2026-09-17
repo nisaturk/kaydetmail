@@ -80,6 +80,12 @@ class _InboxScreenState extends State<InboxScreen> {
     if (mounted) setState(() => _loadingMore = false);
   }
 
+  Future<void> _refresh() async {
+    // Repository-level refresh: simulates the sync, leaves read/star/pin/
+    // folder state and the already-loaded page untouched, never duplicates.
+    await _repo.refreshEmails(widget.folder);
+  }
+
   void _onScroll() {
     if (!_scrollController.hasClients) return;
     final position = _scrollController.position;
@@ -115,7 +121,6 @@ class _InboxScreenState extends State<InboxScreen> {
       listenable: _repo,
       builder: (context, _) {
         final emails = _repo.getEmailsInFolder(widget.folder);
-        widget.selection.syncVisibleIds(emails.map((e) => e.id).toList());
 
         if (_error != null) {
           return _ErrorState(onRetry: _init);
@@ -123,9 +128,13 @@ class _InboxScreenState extends State<InboxScreen> {
         if (_initialLoading) {
           return const Center(child: CircularProgressIndicator());
         }
-        if (emails.isEmpty) {
-          return _EmptyState(folder: widget.folder);
-        }
+
+        // One row per conversation: emails sharing a threadId collapse into a
+        // single representative row (newest of the group wins).
+        final grouped = _groupByThread(emails);
+        widget.selection.syncVisibleIds(grouped.map((e) => e.id).toList());
+
+        final threadCounts = _threadCounts();
 
         // In the unified mailbox each row names its originating account;
         // account-specific lists stay clean.
@@ -135,39 +144,105 @@ class _InboxScreenState extends State<InboxScreen> {
             ? {for (final a in _repo.accounts) a.id: a.email}
             : const <String, String>{};
 
-        final itemCount = emails.length + (_loadingMore ? 1 : 0);
-        return ListView.separated(
-          key: PageStorageKey(widget.folder),
-          controller: _scrollController,
-          itemCount: itemCount,
-          separatorBuilder: (_, _) => const Divider(indent: 64, endIndent: 16),
-          itemBuilder: (context, index) {
-            if (index == emails.length) {
-              return const Padding(
-                padding: EdgeInsets.symmetric(vertical: 16),
-                child: Center(
-                  child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(strokeWidth: 2.4),
+        if (grouped.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: _refresh,
+            child: _EmptyScrollable(folder: widget.folder),
+          );
+        }
+
+        final itemCount = grouped.length + (_loadingMore ? 1 : 0);
+        return RefreshIndicator(
+          onRefresh: _refresh,
+          child: ListView.separated(
+            key: PageStorageKey(widget.folder),
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(),
+            itemCount: itemCount,
+            separatorBuilder: (_, _) =>
+                const Divider(indent: 64, endIndent: 16),
+            itemBuilder: (context, index) {
+              if (index == grouped.length) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Center(
+                    child: SizedBox(
+                      width: 22,
+                      height: 22,
+                      child: CircularProgressIndicator(strokeWidth: 2.4),
+                    ),
                   ),
-                ),
+                );
+              }
+              final email = grouped[index];
+              return MailListItem(
+                key: ValueKey(email.id),
+                email: email,
+                selected:
+                    widget.selection.isActive &&
+                    widget.selection.selectedIds.contains(email.id),
+                accountLabel: showAccount
+                    ? accountEmail[email.accountId]
+                    : null,
+                threadCount: threadCounts[email.threadId],
+                onTap: () => _onMailTap(email),
+                onAvatarTap: () => widget.selection.toggle(email.id),
               );
-            }
-            final email = emails[index];
-            return MailListItem(
-              key: ValueKey(email.id),
-              email: email,
-              selected:
-                  widget.selection.isActive &&
-                  widget.selection.selectedIds.contains(email.id),
-              accountLabel: showAccount ? accountEmail[email.accountId] : null,
-              onTap: () => _onMailTap(email),
-              onAvatarTap: () => widget.selection.toggle(email.id),
-            );
-          },
+            },
+          ),
         );
       },
+    );
+  }
+
+  /// Drops every mail whose thread already appeared earlier in the (newest
+  /// first) list, so a conversation occupies exactly one row.
+  List<Email> _groupByThread(List<Email> emails) {
+    final seen = <String>{};
+    final reps = <Email>[];
+    for (final email in emails) {
+      if (email.threadId.isNotEmpty && !seen.add(email.threadId)) continue;
+      reps.add(email);
+    }
+    return reps;
+  }
+
+  /// Messages per conversation in the current mailbox scope (account or
+  /// unified), across folders — so an inbox row can say its thread holds
+  /// messages that also live in Sent.
+  Map<String, int> _threadCounts() {
+    final active = _repo.activeAccountId;
+    final all = active == null
+        ? _repo.getAllEmails()
+        : _repo.getAllEmails().where((e) => e.accountId == active).toList();
+    final counts = <String, int>{};
+    for (final email in all) {
+      if (email.threadId.isEmpty) continue;
+      counts[email.threadId] = (counts[email.threadId] ?? 0) + 1;
+    }
+    return counts;
+  }
+}
+
+/// Scrollable wrapper around the empty state so pull-to-refresh keeps working
+/// even when the folder has no mails (and short lists stay pullable).
+class _EmptyScrollable extends StatelessWidget {
+  const _EmptyScrollable({required this.folder});
+
+  final MailFolder folder;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) => ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        children: [
+          SizedBox(
+            height: constraints.maxHeight,
+            child: _EmptyState(folder: folder),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -52,6 +52,8 @@ class ComposeScreen extends StatefulWidget {
     this.initialSubject = '',
     this.initialBody = '',
     this.composeTitle,
+    this.initialThreadId,
+    this.inReplyToId,
   });
 
   /// Lets tests substitute the real OS file picker.
@@ -62,6 +64,11 @@ class ComposeScreen extends StatefulWidget {
   final String initialSubject;
   final String initialBody;
   final String? composeTitle;
+
+  /// When replying: the conversation this message continues. Null/empty means
+  /// a new conversation; the repository generates a fresh thread id.
+  final String? initialThreadId;
+  final String? inReplyToId;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -190,6 +197,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
+        threadId: widget.initialThreadId,
+        inReplyToId: widget.inReplyToId,
       );
       if (!mounted) return;
       Navigator.of(context).pop();
@@ -233,6 +242,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
+        threadId: widget.initialThreadId,
+        inReplyToId: widget.inReplyToId,
       );
     } catch (_) {
       // Silently fail — mock never throws.

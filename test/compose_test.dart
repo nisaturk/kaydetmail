@@ -10,24 +10,26 @@ Future<void> _openCompose(
   WidgetTester tester, {
   Future<List<Attachment>?> Function()? picker,
 }) async {
-  await tester.pumpWidget(MaterialApp(
-    home: Builder(
-      builder: (context) => Scaffold(
-        body: Center(
-          child: TextButton(
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => ComposeScreen(pickAttachments: picker),
-                ),
-              );
-            },
-            child: const Text('open'),
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: Center(
+            child: TextButton(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => ComposeScreen(pickAttachments: picker),
+                  ),
+                );
+              },
+              child: const Text('open'),
+            ),
           ),
         ),
       ),
     ),
-  ));
+  );
   await tester.tap(find.text('open'));
   await tester.pumpAndSettle();
 }
@@ -35,8 +37,9 @@ Future<void> _openCompose(
 void main() {
   setUp(() => AppConfig.resetForTest());
 
-  testWidgets('paperclip shows picked files with name and size',
-      (tester) async {
+  testWidgets('paperclip shows picked files with name and size', (
+    tester,
+  ) async {
     await _openCompose(
       tester,
       picker: () async => const [
@@ -52,12 +55,13 @@ void main() {
     expect(find.text('128 KB'), findsOneWidget);
     expect(find.text('notes.txt'), findsOneWidget);
     expect(find.text('3.0 MB'), findsOneWidget);
-    expect(find.byKey(const ValueKey('attach-remove-report.pdf')),
-        findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('attach-remove-report.pdf')),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('an attachment can be removed from the composer',
-      (tester) async {
+  testWidgets('an attachment can be removed from the composer', (tester) async {
     await _openCompose(
       tester,
       picker: () async => const [
@@ -75,8 +79,9 @@ void main() {
     expect(find.text('drop.pdf'), findsNothing);
   });
 
-  testWidgets('send with attachments stores the metadata in the sent mail',
-      (tester) async {
+  testWidgets('send with attachments stores the metadata in the sent mail', (
+    tester,
+  ) async {
     await _openCompose(
       tester,
       picker: () async => const [
@@ -86,7 +91,9 @@ void main() {
 
     await tester.enterText(find.byKey(const Key('to-field')), 'a@example.com');
     await tester.enterText(
-        find.byKey(const Key('subject-field')), 'Spec attached');
+      find.byKey(const Key('subject-field')),
+      'Spec attached',
+    );
     await tester.tap(find.byTooltip('Dosya ekle'));
     await tester.pumpAndSettle();
     expect(find.text('spec.pdf'), findsOneWidget);
@@ -107,8 +114,9 @@ void main() {
     expect(sent.attachments.single.mimeType, 'pdf');
   });
 
-  testWidgets('attachment-only compose keeps the smart-back draft dialog',
-      (tester) async {
+  testWidgets('attachment-only compose keeps the smart-back draft dialog', (
+    tester,
+  ) async {
     await _openCompose(
       tester,
       picker: () async => const [
@@ -130,8 +138,9 @@ void main() {
     expect(find.text('Yeni E-posta'), findsNothing);
   });
 
-  testWidgets('long filenames do not overflow on a narrow screen',
-      (tester) async {
+  testWidgets('long filenames do not overflow on a narrow screen', (
+    tester,
+  ) async {
     tester.view.physicalSize = const Size(320, 568);
     tester.view.devicePixelRatio = 1.0;
 
@@ -139,7 +148,8 @@ void main() {
       tester,
       picker: () async => const [
         Attachment(
-          name: 'quarterly-revenue-and-sales-forcecast-report-2026-'
+          name:
+              'quarterly-revenue-and-sales-forcecast-report-2026-'
               'with-final-numbers-and-notes-from-the-accounting-team.docx',
           sizeBytes: 7 * 1024 * 1024,
         ),

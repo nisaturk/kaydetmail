@@ -44,9 +44,16 @@ class MockMailRepository extends MailRepository {
   bool _loading = false;
 
   /// Mails with no account stamp belong to the primary account. Keeps the
-  /// seed/generator call sites untouched.
-  Email _stamped(Email email, String accountId) =>
-      email.accountId.isEmpty ? email.copyWith(accountId: accountId) : email;
+  /// seed/generator call sites untouched. Mails without a thread id get their
+  /// own conversation (`t-<id>`), so old seed/generated mails remain valid
+  /// and are never merged across unrelated senders/subjects.
+  Email _stamped(Email email, String accountId) {
+    final withAccount = email.accountId.isEmpty
+        ? email.copyWith(accountId: accountId)
+        : email;
+    if (withAccount.threadId.isNotEmpty) return withAccount;
+    return withAccount.copyWith(threadId: 't-${withAccount.id}');
+  }
 
   /// Resets everything to a pristine single-account session for [email]:
   /// seed mailbox, default labels, one connected account, active mailbox.
@@ -165,8 +172,7 @@ class MockMailRepository extends MailRepository {
   @override
   Future<MailAccount> connectAccount({
     required String email,
-    String? displayName,
-    AccountProvider? provider,
+    required String password,
   }) async {
     final normalized = email.trim();
     final existing = getAccount(normalized);
@@ -176,8 +182,7 @@ class MockMailRepository extends MailRepository {
     }
     final connected = await _connection.connect(
       email: normalized,
-      displayName: displayName,
-      provider: provider,
+      password: password,
     );
     final account = MailAccount(
       email: connected.email,
@@ -278,12 +283,31 @@ class MockMailRepository extends MailRepository {
   }
 
   @override
+  Future<void> refreshEmails(MailFolder folder) async {
+    // Simulate a network round-trip without mutating anything: the stored
+    // mails (read/star/pin/folder state included) stay intact, listeners are
+    // notified, and no new messages are invented per gesture, so a pull never
+    // duplicates mail. No write path is shared with [_loading], so this can
+    // never race `_loadMore`.
+    await _delay();
+    notifyListeners();
+  }
+
+  @override
   Future<Email?> getEmail(String id) async {
     await _delay();
     for (final e in _emails) {
       if (e.id == id) return e;
     }
     return null;
+  }
+
+  @override
+  List<Email> getThreadEmails(String threadId) {
+    if (threadId.isEmpty) return const [];
+    final thread = _emails.where((e) => e.threadId == threadId).toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return List.unmodifiable(thread);
   }
 
   /// Which account a composed mail belongs to: explicit id first, then the
@@ -309,13 +333,16 @@ class MockMailRepository extends MailRepository {
     required MailFolder folder,
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   }) {
     final accountId = _resolveAccountId(fromAccountId, from);
     final account = getAccount(accountId)!;
+    final id =
+        'composed-${DateTime.now().microsecondsSinceEpoch}-'
+        '${_random.nextInt(1 << 32)}';
     final email = Email(
-      id:
-          'composed-${DateTime.now().microsecondsSinceEpoch}-'
-          '${_random.nextInt(1 << 32)}',
+      id: id,
       senderName: account.displayName ?? 'Ben',
       senderEmail: from ?? account.email,
       recipients: to,
@@ -328,6 +355,9 @@ class MockMailRepository extends MailRepository {
       folder: folder,
       attachments: attachments,
       accountId: accountId,
+      // A reply reuses the caller's thread; a plain new mail starts its own.
+      threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
+      inReplyToId: inReplyToId,
     );
     _emails.add(email);
     return email;
@@ -343,6 +373,8 @@ class MockMailRepository extends MailRepository {
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -355,6 +387,8 @@ class MockMailRepository extends MailRepository {
       folder: MailFolder.sent,
       from: from,
       fromAccountId: fromAccountId,
+      threadId: threadId,
+      inReplyToId: inReplyToId,
     );
     notifyListeners();
     return email;
@@ -370,6 +404,8 @@ class MockMailRepository extends MailRepository {
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
   }) async {
     await _delay();
     final email = _createFromCompose(
@@ -382,6 +418,8 @@ class MockMailRepository extends MailRepository {
       folder: MailFolder.drafts,
       from: from,
       fromAccountId: fromAccountId,
+      threadId: threadId,
+      inReplyToId: inReplyToId,
     );
     notifyListeners();
     return email;
