@@ -166,7 +166,7 @@ void main() {
       await _openSettings(tester);
 
       expect(find.text('Sunucu adresi'), findsOneWidget);
-      expect(find.text('http://localhost:8080'), findsOneWidget);
+      expect(find.text('http://localhost:5071'), findsOneWidget);
     });
 
     testWidgets('a new server address is applied and persisted', (

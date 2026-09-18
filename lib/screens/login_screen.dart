@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../services/api_exception.dart';
 import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mail_avatar.dart';
@@ -93,8 +94,11 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
+      final message = e is ApiException
+          ? e.userMessage
+          : 'Giriş başarısız. Tekrar deneyin.';
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Giriş başarısız: $e')));
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
