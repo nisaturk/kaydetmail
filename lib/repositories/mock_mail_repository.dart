@@ -63,6 +63,7 @@ class MockMailRepository extends MailRepository {
   /// account list.
   void _resetToSingleAccount(String email, {String? displayName}) {
     final account = MailAccount(
+      id: email.trim().toLowerCase(),
       email: email.trim(),
       displayName: displayName,
       provider: AccountProvider.inferFromEmail(email),
@@ -185,6 +186,7 @@ class MockMailRepository extends MailRepository {
       password: password,
     );
     final account = MailAccount(
+      id: connected.email.trim().toLowerCase(),
       email: connected.email,
       displayName: connected.displayName,
       provider: connected.provider,

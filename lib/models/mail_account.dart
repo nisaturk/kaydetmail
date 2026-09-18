@@ -19,6 +19,14 @@ enum AccountProvider {
 
   /// Infers the provider from an email address. Pure function so tests and
   /// future connection flows share one rule.
+  static AccountProvider fromBackend(String value) => switch (value) {
+    'Google' => AccountProvider.google,
+    'Microsoft' => AccountProvider.microsoft,
+    _ => AccountProvider.other,
+  };
+
+  /// Infers the provider from an email address. Pure function so tests and
+  /// future connection flows share one rule.
   static AccountProvider inferFromEmail(String email) {
     final domain = email.trim().toLowerCase().split('@').lastOrNull ?? '';
     if (domain == 'gmail.com' || domain == 'googlemail.com') {
@@ -35,21 +43,19 @@ enum AccountProvider {
 
 /// One connected mailbox account.
 ///
-/// The account id is the lowercase email address: unique, stable and
-/// human-readable, so no separate id registry is needed. Whether an account
-/// is currently active is NOT stored here — the repository owns the active
-/// account id as the single source of truth.
+/// Identity comes from the backend. Mock mode explicitly derives an id when
+/// it provisions its in-memory accounts. Whether an account is currently active
+/// is NOT stored here — the repository owns the active account id.
 @immutable
 class MailAccount {
   const MailAccount({
+    required this.id,
     required this.email,
     this.displayName,
     this.provider = AccountProvider.other,
   });
 
-  /// Unique account id. Lowercase email — stable across restarts.
-  String get id => email.trim().toLowerCase();
-
+  final String id;
   final String email;
   final String? displayName;
   final AccountProvider provider;
