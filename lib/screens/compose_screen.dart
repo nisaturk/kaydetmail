@@ -260,6 +260,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             name: file.name,
             sizeBytes: file.lengthSync() ?? 0,
             mimeType: file.extension,
+            bytes: await file.readAsBytes(),
           ),
     ];
   }

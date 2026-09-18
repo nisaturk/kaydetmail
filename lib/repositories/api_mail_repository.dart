@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:flutter/material.dart';
 
 import '../models/email.dart';
@@ -173,7 +175,18 @@ class ApiMailRepository extends MailRepository {
   );
 
   @override
-  Future<void> removeAccount(String accountId) => _notImplemented();
+  Future<void> removeAccount(String accountId) async {
+    if (_account?.id != accountId) return;
+    await _mailService.deleteAccount();
+    await _authService.tokenStore.clear();
+    _account = null;
+    _loggedIn = false;
+    _flagsStore = null;
+    _pinnedIds = {};
+    _repliedIds = {};
+    _forwardedIds = {};
+    notifyListeners();
+  }
 
   @override
   MailAccount? getAccount(String accountId) =>
@@ -377,7 +390,44 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
-  }) => _notImplemented();
+  }) async {
+    final result = await _mailService.sendMail(
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      attachments: attachments,
+      replySourceMailId: inReplyToId,
+      idempotencyKey: _newIdempotencyKey(),
+    );
+    // The endpoint confirms send/save outcome but never returns the created
+    // mail — build the local copy from what we sent and echo it into the
+    // Sent cache so the UI reflects it before the next refresh reconciles.
+    final id = 'sent-${DateTime.now().microsecondsSinceEpoch}';
+    final email = Email(
+      id: id,
+      senderName: _account?.displayName ?? '',
+      senderEmail: from ?? _account?.email ?? '',
+      recipients: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      timestamp: DateTime.now(),
+      isRead: true,
+      folder: MailFolder.sent,
+      attachments: attachments,
+      accountId: _account?.id ?? '',
+      threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
+      inReplyToId: inReplyToId,
+    );
+    if (result.sentCopySaved) {
+      _emails.putIfAbsent(MailFolder.sent, () => <Email>[]).insert(0, email);
+      notifyListeners();
+    }
+    return email;
+  }
 
   @override
   Future<Email> saveDraft({
@@ -391,7 +441,55 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
-  }) => _notImplemented();
+  }) async {
+    final result = await _mailService.createDraft(
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      attachments: attachments,
+      replySourceMailId: inReplyToId,
+    );
+    // Reconciliation can still be pending right after APPEND — fall back to
+    // a local id so the draft is still usable; refreshEmails(drafts) will
+    // reconcile it with the server's real id on the next sync.
+    final id = result.mailId ?? 'draft-${DateTime.now().microsecondsSinceEpoch}';
+    final email = Email(
+      id: id,
+      senderName: _account?.displayName ?? '',
+      senderEmail: from ?? _account?.email ?? '',
+      recipients: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      timestamp: DateTime.now(),
+      isRead: true,
+      folder: MailFolder.drafts,
+      attachments: attachments,
+      accountId: _account?.id ?? '',
+      threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
+      inReplyToId: inReplyToId,
+    );
+    _emails.putIfAbsent(MailFolder.drafts, () => <Email>[]).insert(0, email);
+    notifyListeners();
+    return email;
+  }
+
+  /// A client-generated UUID v4 for the `Idempotency-Key` header — stable
+  /// per send attempt so a network-timeout retry never double-sends.
+  String _newIdempotencyKey() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    String hex(int start, int end) => bytes
+        .sublist(start, end)
+        .map((b) => b.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
+  }
 
   @override
   Future<void> moveToTrash(List<String> ids) => _bulkAndApply(

@@ -9,11 +9,17 @@ class Attachment {
     required this.name,
     required this.sizeBytes,
     this.mimeType,
+    this.bytes,
   });
 
   final String name;
   final int sizeBytes;
   final String? mimeType;
+
+  /// File content, when picked from disk. Null for mock/seed attachments
+  /// (display-only) — [ApiMailRepository] needs this to actually upload the
+  /// file; without it the attachment is sent as metadata only.
+  final Uint8List? bytes;
 
   String get sizeLabel {
     if (sizeBytes < 1024) {
