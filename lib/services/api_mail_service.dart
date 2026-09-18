@@ -1,3 +1,5 @@
+import 'package:http/http.dart' as http;
+
 import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
@@ -17,6 +19,9 @@ class ApiMailService {
       provider: AccountProvider.fromBackend(body['provider'] as String),
     );
   }
+
+  /// Permanently deletes the connected account and all its cached mail.
+  Future<void> deleteAccount() => _client.delete('/api/account');
 
   Future<List<ApiMailFolder>> getFolders() async {
     final items = await _client.getList('/api/folders');
@@ -120,6 +125,91 @@ class ApiMailService {
         .toList();
   }
 
+  /// Creates a draft via `POST /api/drafts` (IMAP `APPEND`). Returns the
+  /// real server-assigned mail id.
+  Future<DraftResult> createDraft({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+  }) async {
+    final body = await _client.multipart(
+      '/api/drafts',
+      fields: _composeFields(subject: subject, bodyText: bodyText, replySourceMailId: replySourceMailId),
+      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+    );
+    return DraftResult(
+      created: body['created'] as bool? ?? true,
+      // Null when the append succeeded but the server hasn't reconciled the
+      // new message to a mail id yet (see `reconciliationPending`).
+      mailId: body['mailId'] as String?,
+      warning: body['warning'] as String?,
+    );
+  }
+
+  /// Sends a mail directly via `POST /api/mails/send`. [idempotencyKey]
+  /// must be stable across retries of the same send attempt.
+  Future<SendResult> sendMail({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String bodyText = '',
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    required String idempotencyKey,
+  }) async {
+    final body = await _client.multipart(
+      '/api/mails/send',
+      fields: _composeFields(subject: subject, bodyText: bodyText, replySourceMailId: replySourceMailId),
+      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      headers: {'Idempotency-Key': idempotencyKey},
+    );
+    return SendResult(
+      sent: body['sent'] as bool? ?? false,
+      sentCopySaved: body['sentCopySaved'] as bool? ?? false,
+      warning: body['warning'] as String?,
+    );
+  }
+
+  Map<String, String> _composeFields({
+    required String subject,
+    required String bodyText,
+    String? replySourceMailId,
+  }) => {
+    'subject': subject,
+    'bodyText': bodyText,
+    'replySourceMailId': ?replySourceMailId,
+  };
+
+  /// `To`/`Cc`/`Bcc` are read server-side as repeated same-name form
+  /// values (`form["To"]`), not indexed keys — `MultipartRequest.fields` is
+  /// single-valued per key, so each address goes in as a nameless text
+  /// part instead, the same list `MultipartRequest` sends attachment files
+  /// through. Attachments without picked file [Attachment.bytes]
+  /// (mock/seed data, or a picker that only returned metadata) are
+  /// silently dropped — sent as metadata with no way to upload content.
+  List<http.MultipartFile> _composeParts({
+    required List<String> to,
+    required List<String> cc,
+    required List<String> bcc,
+    required List<Attachment> attachments,
+  }) => [
+    for (final address in to) http.MultipartFile.fromString('To', address),
+    for (final address in cc) http.MultipartFile.fromString('Cc', address),
+    for (final address in bcc) http.MultipartFile.fromString('Bcc', address),
+    for (final attachment in attachments)
+      if (attachment.bytes != null)
+        http.MultipartFile.fromBytes(
+          'attachments',
+          attachment.bytes!,
+          filename: attachment.name,
+        ),
+  ];
+
   String _buildQuery(String path, Map<String, String> params) {
     final query = params.entries
         .map(
@@ -206,6 +296,35 @@ class BulkActionResult {
 
   /// Failure error code (see the mail action error table), null on success.
   final String? code;
+}
+
+/// Result of `POST /api/drafts`.
+class DraftResult {
+  const DraftResult({
+    required this.created,
+    required this.mailId,
+    this.warning,
+  });
+
+  final bool created;
+
+  /// Null when the append succeeded but reconciliation to a mail id is
+  /// still pending server-side.
+  final String? mailId;
+  final String? warning;
+}
+
+/// Result of `POST /api/mails/send`.
+class SendResult {
+  const SendResult({
+    required this.sent,
+    required this.sentCopySaved,
+    this.warning,
+  });
+
+  final bool sent;
+  final bool sentCopySaved;
+  final String? warning;
 }
 
 class MailListPage {

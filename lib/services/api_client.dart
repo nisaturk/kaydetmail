@@ -43,6 +43,13 @@ class ApiClient {
     );
   }
 
+  Future<void> delete(String path, {bool authenticated = true}) async {
+    await _sendWithRefresh(
+      () async => http.Request('DELETE', await _uri(path)),
+      authenticated: authenticated,
+    );
+  }
+
   Future<Uint8List> getBytes(String path) async {
     final response = await _sendWithRefresh(
       () async => http.Request('GET', await _uri(path)),
@@ -55,11 +62,13 @@ class ApiClient {
     String path, {
     required Map<String, String> fields,
     List<http.MultipartFile> files = const [],
+    Map<String, String> headers = const {},
   }) async {
     final response = await _sendWithRefresh(() async {
       final request = http.MultipartRequest('POST', await _uri(path));
       request.fields.addAll(fields);
       request.files.addAll(files);
+      request.headers.addAll(headers);
       return request;
     }, authenticated: true);
     return _decodeObject(response.body);
