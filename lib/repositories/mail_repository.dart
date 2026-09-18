@@ -4,6 +4,7 @@ import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../models/mail_session.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -105,6 +106,14 @@ abstract class MailRepository extends ChangeNotifier {
   /// Restores a previously persisted session without a password.
   /// Used at startup by the session persistence layer.
   Future<void> restoreSession(String email);
+
+  /// Every device currently signed into this account, for the "Bağlı
+  /// cihazlar" settings screen. One entry marks [MailSession.isCurrentDevice].
+  Future<List<MailSession>> getSessions();
+
+  /// Closes a device's session. If it's the current device, the caller must
+  /// also sign the app out locally — this only revokes it server-side.
+  Future<void> revokeSession(String sessionId);
 
   // --- Reading ------------------------------------------------------
 

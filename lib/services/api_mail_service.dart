@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
+import '../models/mail_session.dart';
 import 'api_client.dart';
 
 class ApiMailService {
@@ -22,6 +23,24 @@ class ApiMailService {
 
   /// Permanently deletes the connected account and all its cached mail.
   Future<void> deleteAccount() => _client.delete('/api/account');
+
+  Future<List<MailSession>> getSessions() async {
+    final items = await _client.getList('/api/account/sessions');
+    return items
+        .map(
+          (item) => MailSession(
+            id: item['id'] as String,
+            deviceIdentifier: item['deviceIdentifier'] as String,
+            createdAt: DateTime.parse(item['createdAt'] as String),
+            lastUsedAt: DateTime.parse(item['lastUsedAt'] as String),
+            expiresAt: DateTime.parse(item['expiresAt'] as String),
+          ),
+        )
+        .toList();
+  }
+
+  Future<void> deleteSession(String sessionId) =>
+      _client.delete('/api/account/sessions/${Uri.encodeComponent(sessionId)}');
 
   Future<List<ApiMailFolder>> getFolders() async {
     final items = await _client.getList('/api/folders');

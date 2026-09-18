@@ -189,6 +189,15 @@ void main() {
       await _login(tester);
       await _openSettings(tester);
 
+      await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Bildirimler'),
+        150,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('settings-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
+      await tester.pumpAndSettle();
       await tester.tap(find.widgetWithText(SwitchListTile, 'Bildirimler'));
       await tester.pumpAndSettle();
       expect(AppSettingsController.instance.notificationsEnabled, isFalse);

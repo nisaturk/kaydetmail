@@ -127,6 +127,18 @@ class ApiAuthService {
     return _save(TokenResponse.fromJson(json));
   }
 
+  Future<TokenResponse> login({
+    required String email,
+    required String password,
+  }) async {
+    final json = await client.postJson('/api/accounts/login', {
+      'email': email,
+      'password': password,
+      'deviceIdentifier': await deviceIdentifierProvider.getIdentifier(),
+    }, authenticated: false);
+    return _save(TokenResponse.fromJson(json));
+  }
+
   Future<TokenResponse> connectManualRequest(ManualConnectionRequest request) =>
       connectManual(
         email: request.email,

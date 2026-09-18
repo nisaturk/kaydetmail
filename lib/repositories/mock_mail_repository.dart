@@ -8,6 +8,7 @@ import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../models/mail_session.dart';
 import '../services/account_connection.dart';
 import 'mail_repository.dart';
 
@@ -36,6 +37,7 @@ class MockMailRepository extends MailRepository {
   final List<Email> _emails = [];
   final List<MailLabel> _labels = [];
   final List<MailAccount> _accounts = [];
+  final List<MailSession> _sessions = [];
   final Random _random = Random();
 
   String _currentUser = demoEmail;
@@ -81,6 +83,27 @@ class MockMailRepository extends MailRepository {
     _activeAccountId = account.id;
     _loggedIn = false;
     _loading = false;
+
+    final now = DateTime.now();
+    _sessions
+      ..clear()
+      ..addAll([
+        MailSession(
+          id: 'session-this-device',
+          deviceIdentifier: 'this-device',
+          createdAt: now.subtract(const Duration(days: 12)),
+          lastUsedAt: now,
+          expiresAt: now.add(const Duration(days: 180)),
+          isCurrentDevice: true,
+        ),
+        MailSession(
+          id: 'session-other-phone',
+          deviceIdentifier: 'other-phone',
+          createdAt: now.subtract(const Duration(days: 30)),
+          lastUsedAt: now.subtract(const Duration(hours: 6)),
+          expiresAt: now.add(const Duration(days: 150)),
+        ),
+      ]);
   }
 
   /// Restores the pristine single-account dataset (emails, labels, accounts
@@ -129,6 +152,19 @@ class MockMailRepository extends MailRepository {
   Future<void> logout() async {
     await _delay();
     _loggedIn = false;
+    notifyListeners();
+  }
+
+  @override
+  Future<List<MailSession>> getSessions() async {
+    await _delay();
+    return List.unmodifiable(_sessions);
+  }
+
+  @override
+  Future<void> revokeSession(String sessionId) async {
+    await _delay();
+    _sessions.removeWhere((s) => s.id == sessionId);
     notifyListeners();
   }
 

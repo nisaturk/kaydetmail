@@ -6,6 +6,7 @@ import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../models/mail_session.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
@@ -57,6 +58,27 @@ class ApiMailRepository extends MailRepository {
     required String password,
     MailServerSettings? serverSettings,
   }) async {
+    if (serverSettings != null) {
+      await connectManual(
+        ManualConnectionRequest(
+          email: email,
+          username: email,
+          password: password,
+          imap: ManualMailServer(
+            host: serverSettings.imapServer,
+            port: serverSettings.imapPort,
+            security: _securityForPort(serverSettings.imapPort),
+          ),
+          smtp: ManualMailServer(
+            host: serverSettings.smtpServer,
+            port: serverSettings.smtpPort,
+            security: _securityForPort(serverSettings.smtpPort),
+          ),
+          displayName: email,
+        ),
+      );
+      return true;
+    }
     final discovery = await _authService.discover(email);
     await _connect(
       discoveryId: discovery.discoveryId,
@@ -66,6 +88,12 @@ class ApiMailRepository extends MailRepository {
     );
     return true;
   }
+
+  /// The backend only accepts two (port, security) pairings per protocol —
+  /// 993/465 implicit TLS, 143/587 STARTTLS — anything else is rejected
+  /// server-side as `mail_server_unsafe`.
+  MailSecurity _securityForPort(int port) =>
+      (port == 993 || port == 465) ? MailSecurity.sslOnConnect : MailSecurity.startTls;
 
   @override
   Future<void> logout() async {
@@ -114,9 +142,13 @@ class ApiMailRepository extends MailRepository {
     required String password,
     required AccountProvider provider,
   }) async {
-    final tokens = await _authService.connect(
-      discoveryId: discoveryId,
+    final tokens = await _connectOrLogin(
+      email: email,
       password: password,
+      connect: () => _authService.connect(
+        discoveryId: discoveryId,
+        password: password,
+      ),
     );
     final account = MailAccount(
       id: tokens.mailAccountId,
@@ -128,7 +160,11 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<MailAccount> connectManual(ManualConnectionRequest request) async {
-    final tokens = await _authService.connectManualRequest(request);
+    final tokens = await _connectOrLogin(
+      email: request.email,
+      password: request.password,
+      connect: () => _authService.connectManualRequest(request),
+    );
     final account = MailAccount(
       id: tokens.mailAccountId,
       email: request.email,
@@ -137,6 +173,23 @@ class ApiMailRepository extends MailRepository {
     );
     await _activateAccount(account);
     return _account!;
+  }
+
+  /// The account may already be registered from another device — the server
+  /// rejects a duplicate `connect`/`connect-manual` with
+  /// `mail_account_already_exists` instead of silently logging in, so this
+  /// falls back to the dedicated login endpoint for that one error.
+  Future<TokenResponse> _connectOrLogin({
+    required String email,
+    required String password,
+    required Future<TokenResponse> Function() connect,
+  }) async {
+    try {
+      return await connect();
+    } on ApiException catch (e) {
+      if (e.code != 'mail_account_already_exists') rethrow;
+      return _authService.login(email: email, password: password);
+    }
   }
 
   /// Sets [account] as signed-in and loads its mailbox. Rolls the account
@@ -207,6 +260,19 @@ class ApiMailRepository extends MailRepository {
     );
     await _activateAccount(account);
   }
+
+  @override
+  Future<List<MailSession>> getSessions() async {
+    final sessions = await _mailService.getSessions();
+    final myDeviceId = await _authService.deviceIdentifierProvider.getIdentifier();
+    return sessions
+        .map((s) => s.copyWith(isCurrentDevice: s.deviceIdentifier == myDeviceId))
+        .toList();
+  }
+
+  @override
+  Future<void> revokeSession(String sessionId) =>
+      _mailService.deleteSession(sessionId);
 
   Future<void> _loadMailbox() async {
     final folders = await _mailService.getFolders();
