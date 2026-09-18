@@ -7,13 +7,18 @@ import '../services/session_store.dart';
 
 /// Central place that decides where the app gets its data.
 ///
-/// Flip [useMockApi] to `false` once the real backend is ready. The rest of
-/// the app only ever talks to [MailRepository] and never checks this flag.
+/// Defaults to the mock repository (so `flutter test`/a plain `flutter run`
+/// never need the real backend). Run with `--dart-define=USE_MOCK_API=false`
+/// to use [ApiMailRepository] instead — see the "Kaydetmail (Real API)" run
+/// configuration. The rest of the app only ever talks to [MailRepository]
+/// and never checks this flag.
 class AppConfig {
   const AppConfig._();
 
-  /// Set to `false` to use [ApiMailRepository] instead of [MockMailRepository].
-  static const bool useMockApi = true;
+  static const bool useMockApi = bool.fromEnvironment(
+    'USE_MOCK_API',
+    defaultValue: true,
+  );
 
   static MailRepository? _mailRepository;
 

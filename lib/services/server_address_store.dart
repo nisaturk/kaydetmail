@@ -11,8 +11,13 @@ class ServerAddressStore {
   static const String _key = 'kaydet.server.baseUrl';
 
   /// Development default, kept in one place. Change it here and every reader
-  /// picks it up.
-  static const String defaultBaseUrl = 'http://localhost:5071';
+  /// picks it up. Override per-run with `--dart-define=API_BASE_URL=...`
+  /// (e.g. `http://10.0.2.2:5071` for the Android emulator) instead of
+  /// editing this — see the "Kaydetmail (Real API)" run configuration.
+  static const String defaultBaseUrl = String.fromEnvironment(
+    'API_BASE_URL',
+    defaultValue: 'http://localhost:5071',
+  );
 
   /// Normalizes a raw server address: trims whitespace, strips trailing
   /// slashes and requires a valid absolute http/https URL. Throws
