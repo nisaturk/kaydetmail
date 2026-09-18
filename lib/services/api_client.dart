@@ -18,6 +18,17 @@ class ApiClient {
   Future<Map<String, dynamic>> get(String path, {bool authenticated = true}) =>
       _jsonRequest('GET', path, authenticated: authenticated);
 
+  Future<List<dynamic>> getList(
+    String path, {
+    bool authenticated = true,
+  }) async {
+    final response = await _sendWithRefresh(
+      () async => http.Request('GET', await _uri(path)),
+      authenticated: authenticated,
+    );
+    return jsonDecode(response.body) as List<dynamic>;
+  }
+
   Future<Map<String, dynamic>> postJson(
     String path,
     Map<String, dynamic> body, {
