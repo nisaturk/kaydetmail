@@ -3,8 +3,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/mail_label.dart';
+import '../models/mail_session.dart';
+import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/date_format.dart';
+import '../widgets/server_address_dialog.dart';
+import 'login_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
 ///
@@ -51,6 +56,8 @@ class SettingsScreen extends StatelessWidget {
               _LabelsSection(),
               const _SectionHeader('Sunucu'),
               _ServerSection(),
+              const _SectionHeader('Bağlı Cihazlar'),
+              _SessionsSection(),
               const _SectionHeader('Bildirimler'),
               _NotificationsSection(),
               const _SectionHeader('Senkronizasyon'),
@@ -314,86 +321,193 @@ class _ServerSection extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      onTap: () => _showServerDialog(context),
-    );
-  }
-
-  Future<void> _showServerDialog(BuildContext context) {
-    return showDialog<void>(
-      context: context,
-      builder: (_) => const _ServerDialog(),
+      onTap: () => ServerAddressDialog.show(context),
     );
   }
 }
 
-class _ServerDialog extends StatefulWidget {
-  const _ServerDialog();
+/// Lists every device signed into the account and lets the user close any
+/// of them remotely. Fetched on demand (not part of the repository's
+/// change-notifier state), so it keeps its own loading/error state.
+class _SessionsSection extends StatefulWidget {
+  const _SessionsSection();
 
   @override
-  State<_ServerDialog> createState() => _ServerDialogState();
+  State<_SessionsSection> createState() => _SessionsSectionState();
 }
 
-class _ServerDialogState extends State<_ServerDialog> {
-  late final TextEditingController _controller;
+class _SessionsSectionState extends State<_SessionsSection> {
+  List<MailSession>? _sessions;
   String? _error;
-  bool _saving = false;
+  String? _revokingId;
 
   @override
   void initState() {
     super.initState();
-    _controller = TextEditingController(
-      text: AppSettingsController.instance.serverBaseUrl,
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _error = null);
+    try {
+      final sessions = await AppConfig.mailRepository.getSessions();
+      if (!mounted) return;
+      setState(() => _sessions = sessions);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _error = 'Cihazlar yüklenemedi.');
+    }
+  }
+
+  Future<void> _revoke(MailSession session) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Oturumu kapat?'),
+        content: Text(
+          session.isCurrentDevice
+              ? 'Bu cihazdaki oturum kapatılacak ve çıkış yapılacak.'
+              : 'Bu cihaz artık bu hesaba erişemeyecek.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Kapat'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _revokingId = session.id);
+    try {
+      await AppConfig.mailRepository.revokeSession(session.id);
+      if (session.isCurrentDevice) {
+        if (!mounted) return;
+        await _signOutAfterRevoke();
+        return;
+      }
+      if (!mounted) return;
+      setState(() {
+        _sessions = _sessions?.where((s) => s.id != session.id).toList();
+        _revokingId = null;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _revokingId = null);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Oturum kapatılamadı. Tekrar deneyin.')),
+      );
+    }
+  }
+
+  Future<void> _signOutAfterRevoke() async {
+    await AppConfig.mailRepository.logout();
+    await SessionStore.clear();
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
     );
   }
 
   @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_saving) return;
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    try {
-      await AppSettingsController.instance.setServerAddress(_controller.text);
-      if (mounted) Navigator.of(context).pop();
-    } on ArgumentError catch (e) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = e.message;
-        });
-      }
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Sunucu adresi'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        textInputAction: TextInputAction.done,
-        keyboardType: TextInputType.url,
-        decoration: InputDecoration(
-          labelText: 'Adres',
-          hintText: 'http://192.168.1.100:8080',
-          errorText: _error,
-          errorMaxLines: 2,
+    final sessions = _sessions;
+    if (_error != null) {
+      return ListTile(
+        dense: true,
+        leading: const Icon(
+          LucideIcons.triangleAlert,
+          size: 20,
+          color: AppTheme.secondaryText,
         ),
-        onSubmitted: (_) => _save(),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+        title: Text(_error!),
+        trailing: TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+      );
+    }
+    if (sessions == null) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 24),
+        child: Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(strokeWidth: 2.5),
+          ),
         ),
-        FilledButton(onPressed: _save, child: const Text('Kaydet')),
+      );
+    }
+    if (sessions.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Text(
+          'Bağlı cihaz yok.',
+          style: TextStyle(fontSize: 14, color: AppTheme.secondaryText),
+        ),
+      );
+    }
+    return Column(
+      children: [
+        for (final session in sessions)
+          ListTile(
+            dense: true,
+            leading: const Icon(
+              LucideIcons.smartphone,
+              size: 20,
+              color: AppTheme.secondaryText,
+            ),
+            title: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    session.deviceIdentifier,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (session.isCurrentDevice) ...[
+                  const SizedBox(width: 8),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 6,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF9FAFB),
+                      borderRadius: BorderRadius.circular(4),
+                      border: Border.all(color: AppTheme.border),
+                    ),
+                    child: const Text(
+                      'Bu cihaz',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: AppTheme.secondaryText,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+            subtitle: Text('Son kullanım: ${formatMailTime(session.lastUsedAt)}'),
+            trailing: _revokingId == session.id
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : TextButton(
+                    onPressed: () => _revoke(session),
+                    style: TextButton.styleFrom(
+                      foregroundColor: const Color(0xFFB3261E),
+                    ),
+                    child: const Text('Kapat'),
+                  ),
+          ),
       ],
     );
   }

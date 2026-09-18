@@ -235,6 +235,14 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Etiketler'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.widgetWithText(SwitchListTile, 'Bildirimler'),
+        150,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('settings-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       expect(find.text('Bildirimler'), findsWidgets);
       expect(find.text('İş'), findsOneWidget);
     });

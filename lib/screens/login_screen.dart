@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mail_avatar.dart';
+import '../widgets/manual_mail_setup_dialog.dart';
+import '../widgets/server_address_dialog.dart';
 import 'home_screen.dart';
 
 /// Two-step login: an email step that slides horizontally into a password
@@ -66,7 +69,7 @@ class _LoginScreenState extends State<LoginScreen> {
     _slideTo(_emailPage);
   }
 
-  Future<void> _login() async {
+  Future<void> _login({MailServerSettings? serverSettings}) async {
     if (!_passwordFormKey.currentState!.validate()) return;
 
     setState(() => _loading = true);
@@ -75,6 +78,7 @@ class _LoginScreenState extends State<LoginScreen> {
       final ok = await AppConfig.mailRepository.login(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        serverSettings: serverSettings,
       );
 
       if (!mounted) return;
@@ -91,14 +95,31 @@ class _LoginScreenState extends State<LoginScreen> {
           const SnackBar(content: Text('Giriş başarısız. Tekrar deneyin.')),
         );
       }
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      // Automatic discovery couldn't find the IMAP/SMTP servers for this
+      // domain — offer manual entry instead of a dead-end error.
+      if (e.code == 'mail_discovery_failed' &&
+          e.details['manualSetupAvailable'] == true) {
+        setState(() => _loading = false);
+        final settings = await ManualMailSetupDialog.show(
+          context,
+          email: _emailController.text.trim(),
+        );
+        if (settings != null && mounted) {
+          await _login(serverSettings: settings);
+        }
+        return;
+      }
+      setState(() => _loading = false);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(e.userMessage)));
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      final message = e is ApiException
-          ? e.userMessage
-          : 'Giriş başarısız. Tekrar deneyin.';
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(message)));
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Giriş başarısız. Tekrar deneyin.')),
+      );
     }
   }
 
@@ -132,6 +153,15 @@ class _LoginScreenState extends State<LoginScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  key: const Key('server-address-button'),
+                  onPressed: () => ServerAddressDialog.show(context),
+                  tooltip: 'Sunucu adresi',
+                  icon: const Icon(LucideIcons.settings, size: 20),
+                ),
+              ),
               const Center(
                 child: Column(
                   children: [
