@@ -26,6 +26,7 @@ class ApiClient {
       () async => http.Request('GET', await _uri(path)),
       authenticated: authenticated,
     );
+    if (response.body.isEmpty) return const [];
     return jsonDecode(response.body) as List<dynamic>;
   }
 

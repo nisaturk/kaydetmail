@@ -9,6 +9,7 @@ import '../services/api_client.dart';
 import '../services/api_exception.dart';
 import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
+import '../services/local_mail_flags_store.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
 
@@ -28,8 +29,13 @@ class ApiMailRepository extends MailRepository {
   MailAccount? _account;
   bool _loggedIn = false;
   final Map<MailFolder, String> _folderIds = {};
+  final Map<String, MailFolder> _folderTypeById = {};
   final Map<MailFolder, List<Email>> _emails = {};
   final Map<MailFolder, int> _pages = {};
+  LocalMailFlagsStore? _flagsStore;
+  Set<String> _pinnedIds = {};
+  Set<String> _repliedIds = {};
+  Set<String> _forwardedIds = {};
 
   static ApiAuthService _createAuthService() {
     final tokenStore = TokenStore();
@@ -64,6 +70,10 @@ class ApiMailRepository extends MailRepository {
     await _authService.logout();
     _account = null;
     _loggedIn = false;
+    _flagsStore = null;
+    _pinnedIds = {};
+    _repliedIds = {};
+    _forwardedIds = {};
     notifyListeners();
   }
 
@@ -111,9 +121,7 @@ class ApiMailRepository extends MailRepository {
       email: email,
       provider: provider,
     );
-    _account = account;
-    _loggedIn = true;
-    await _loadMailbox();
+    await _activateAccount(account);
     return _account!;
   }
 
@@ -125,11 +133,44 @@ class ApiMailRepository extends MailRepository {
       displayName: request.displayName,
       provider: AccountProvider.other,
     );
-    _account = account;
-    _loggedIn = true;
-    await _loadMailbox();
+    await _activateAccount(account);
     return _account!;
   }
+
+  /// Sets [account] as signed-in and loads its mailbox. Rolls the account
+  /// state back on failure so a mailbox-load error (e.g. a transient network
+  /// failure right after a successful login) never leaves the repository
+  /// reporting `isLoggedIn == true` behind a login/restore failure shown to
+  /// the user.
+  Future<void> _activateAccount(MailAccount account) async {
+    _account = account;
+    _loggedIn = true;
+    try {
+      final flags = LocalMailFlagsStore(account.id);
+      _pinnedIds = await flags.readPinned();
+      _repliedIds = await flags.readReplied();
+      _forwardedIds = await flags.readForwarded();
+      _flagsStore = flags;
+      await _loadMailbox();
+    } catch (_) {
+      _account = null;
+      _loggedIn = false;
+      _flagsStore = null;
+      _pinnedIds = {};
+      _repliedIds = {};
+      _forwardedIds = {};
+      rethrow;
+    }
+  }
+
+  /// Overlays the locally-persisted pin/reply/forward flags onto a mail
+  /// freshly mapped from the API — the server has no concept of any of the
+  /// three, so every fetch would otherwise reset them.
+  Email _stampLocalFlags(Email email) => email.copyWith(
+    isPinned: _pinnedIds.contains(email.id),
+    isReplied: _repliedIds.contains(email.id),
+    isForwarded: _forwardedIds.contains(email.id),
+  );
 
   @override
   Future<void> removeAccount(String accountId) => _notImplemented();
@@ -146,18 +187,18 @@ class ApiMailRepository extends MailRepository {
     if (accessToken == null || refreshToken == null || accountId == null) {
       throw StateError('Secure API session is unavailable.');
     }
-    _account = MailAccount(
+    final account = MailAccount(
       id: accountId,
       email: email,
       provider: AccountProvider.inferFromEmail(email),
     );
-    _loggedIn = true;
-    await _loadMailbox();
+    await _activateAccount(account);
   }
 
   Future<void> _loadMailbox() async {
     final folders = await _mailService.getFolders();
     _folderIds.clear();
+    _folderTypeById.clear();
     for (final folder in folders) {
       final logical = switch (folder.type.toLowerCase()) {
         'inbox' => MailFolder.inbox,
@@ -169,14 +210,110 @@ class ApiMailRepository extends MailRepository {
         'archive' => MailFolder.archive,
         _ => null,
       };
-      if (logical != null) _folderIds[logical] = folder.id;
+      if (logical != null) {
+        _folderIds[logical] = folder.id;
+        _folderTypeById[folder.id] = logical;
+      }
     }
     notifyListeners();
   }
 
+  /// Maps a raw API folder id back to our logical [MailFolder]. Custom
+  /// server folders we don't track locally fall back to inbox, matching the
+  /// filter already applied in [_loadMailbox].
+  MailFolder _resolveFolder(String folderId) =>
+      _folderTypeById[folderId] ?? MailFolder.inbox;
+
+  /// Applies [update] in place to every cached mail in [ids], wherever its
+  /// bucket, without changing which folder bucket it lives in.
+  void _replaceMany(Iterable<String> ids, Email Function(Email) update) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    for (final folder in _emails.keys.toList()) {
+      final list = _emails[folder]!;
+      _emails[folder] = [
+        for (final email in list)
+          idSet.contains(email.id) ? update(email) : email,
+      ];
+    }
+  }
+
+  /// Moves every cached mail in [ids] into [targetFolder]'s bucket,
+  /// stamping the new folder on each and dropping it from wherever it used
+  /// to live. Mails not currently cached are ignored.
+  void _moveMany(Iterable<String> ids, MailFolder targetFolder) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    final moved = <Email>[];
+    for (final folder in _emails.keys.toList()) {
+      if (folder == targetFolder) continue;
+      final list = _emails[folder]!;
+      final keep = <Email>[];
+      for (final email in list) {
+        if (idSet.contains(email.id)) {
+          moved.add(email.copyWith(folder: targetFolder));
+        } else {
+          keep.add(email);
+        }
+      }
+      _emails[folder] = keep;
+    }
+    if (moved.isNotEmpty) {
+      _emails.putIfAbsent(targetFolder, () => <Email>[]).insertAll(0, moved);
+    }
+  }
+
+  /// Ids from [ids] whose cached copy currently lives in Trash or Spam —
+  /// the only two folders `restore` is valid from.
+  List<String> _idsInTrashOrSpam(Iterable<String> ids) {
+    final trashed = {for (final e in _emails[MailFolder.trash] ?? const []) e.id};
+    final spammed = {for (final e in _emails[MailFolder.spam] ?? const []) e.id};
+    return ids.where((id) => trashed.contains(id) || spammed.contains(id)).toList();
+  }
+
+  /// Applies a bulk action and updates the local cache only for the ids the
+  /// server actually confirmed — a partial failure in [ids] never desyncs
+  /// the ones that succeeded (see the API's bulk semantics).
+  Future<void> _bulkAndApply(
+    String action,
+    List<String> ids,
+    void Function(List<String> succeededIds) apply, {
+    String? folderId,
+  }) async {
+    if (ids.isEmpty) return;
+    final results = await _mailService.bulkAction(
+      action,
+      ids,
+      folderId: folderId,
+    );
+    final succeeded = results
+        .where((r) => r.success)
+        .map((r) => r.mailId)
+        .toList();
+    apply(succeeded);
+    notifyListeners();
+  }
+
+  static bool _highlighted(Email e) => e.isPinned || e.isStarred;
+
+  /// [MailFolder.pinned] is virtual — "Yıldızlılar" surfaces every pinned or
+  /// starred mail regardless of its real folder — so it's built by scanning
+  /// every cached bucket rather than a fetched one. Every folder additionally
+  /// floats highlighted mails above the rest, newest-first within each
+  /// group, matching [MailRepository.getEmailsInFolder]'s documented order.
   @override
-  List<Email> getEmailsInFolder(MailFolder folder) =>
-      List.unmodifiable(_emails[folder] ?? const []);
+  List<Email> getEmailsInFolder(MailFolder folder) {
+    final result = folder == MailFolder.pinned
+        ? _emails.values.expand((list) => list).where(_highlighted).toList()
+        : List<Email>.of(_emails[folder] ?? const []);
+    result.sort((a, b) {
+      final ha = _highlighted(a);
+      final hb = _highlighted(b);
+      if (ha != hb) return ha ? -1 : 1;
+      return b.timestamp.compareTo(a.timestamp);
+    });
+    return List.unmodifiable(result);
+  }
 
   @override
   List<Email> getAllEmails() =>
@@ -187,10 +324,17 @@ class ApiMailRepository extends MailRepository {
     final folderId = _folderIds[folder];
     if (folderId == null) return const [];
     final page = (_pages[folder] ?? 0) + 1;
-    final result = await _mailService.getMails(folderId: folderId, page: page);
+    final result = await _mailService.getMails(
+      folderId: folderId,
+      page: page,
+      resolveFolder: _resolveFolder,
+    );
     final current = _emails.putIfAbsent(folder, () => <Email>[]);
     final known = current.map((email) => email.id).toSet();
-    final fresh = result.items.where((email) => known.add(email.id)).toList();
+    final fresh = result.items
+        .where((email) => known.add(email.id))
+        .map(_stampLocalFlags)
+        .toList();
     current.addAll(fresh);
     _pages[folder] = result.page;
     notifyListeners();
@@ -207,7 +351,11 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<Email?> getEmail(String id) async {
     try {
-      return await _mailService.getMail(id);
+      final email = await _mailService.getMail(
+        id,
+        resolveFolder: _resolveFolder,
+      );
+      return _stampLocalFlags(email);
     } on ApiException catch (error) {
       if (error.code == 'mail_not_found' || error.status == 404) return null;
       rethrow;
@@ -246,29 +394,120 @@ class ApiMailRepository extends MailRepository {
   }) => _notImplemented();
 
   @override
-  Future<void> moveToTrash(List<String> ids) => _notImplemented();
+  Future<void> moveToTrash(List<String> ids) => _bulkAndApply(
+    'trash',
+    ids,
+    (succeeded) => _moveMany(succeeded, MailFolder.trash),
+  );
+
+  /// Mails currently in Trash/Spam go back through `restore` (the only
+  /// action that reverses those two, per mail — no bulk variant); everything
+  /// else moves via the bulk `move`/`archive` actions. Both branches can run
+  /// in the same call when [ids] mixes trashed and non-trashed mails (e.g. a
+  /// multi-select spanning folders).
+  @override
+  Future<void> moveToFolder(List<String> ids, MailFolder folder) async {
+    if (ids.isEmpty) return;
+    final folderId = _folderIds[folder];
+    if (folderId == null) {
+      throw ArgumentError('Unknown target folder for this account: $folder');
+    }
+
+    final restoring = _idsInTrashOrSpam(ids);
+    for (final id in restoring) {
+      await _mailService.mailAction(id, 'restore');
+    }
+    if (restoring.isNotEmpty) _moveMany(restoring, folder);
+
+    final rest = ids.where((id) => !restoring.contains(id)).toList();
+    if (rest.isNotEmpty) {
+      await _bulkAndApply(
+        folder == MailFolder.archive ? 'archive' : 'move',
+        rest,
+        (succeeded) => _moveMany(succeeded, folder),
+        folderId: folder == MailFolder.archive ? null : folderId,
+      );
+    }
+    if (restoring.isNotEmpty) notifyListeners();
+  }
 
   @override
-  Future<void> moveToFolder(List<String> ids, MailFolder folder) =>
-      _notImplemented();
+  Future<void> markAsRead(List<String> ids) => _bulkAndApply(
+    'read',
+    ids,
+    (succeeded) => _replaceMany(succeeded, (e) => e.copyWith(isRead: true)),
+  );
 
   @override
-  Future<void> markAsRead(List<String> ids) => _notImplemented();
+  Future<void> markAsUnread(List<String> ids) => _bulkAndApply(
+    'unread',
+    ids,
+    (succeeded) => _replaceMany(succeeded, (e) => e.copyWith(isRead: false)),
+  );
 
+  /// Pinning never reaches the network — see [LocalMailFlagsStore]. Pinning
+  /// beyond [MailRepository.maxPinnedMails] is silently capped; unpinning
+  /// always applies.
   @override
-  Future<void> markAsUnread(List<String> ids) => _notImplemented();
+  Future<void> setPinned(List<String> ids, bool pinned) async {
+    if (ids.isEmpty) return;
+    final store = _flagsStore;
+    if (store == null) return;
+    if (pinned) {
+      var free = MailRepository.maxPinnedMails - _pinnedIds.length;
+      for (final id in ids) {
+        if (free <= 0) break;
+        if (_pinnedIds.add(id)) free--;
+      }
+    } else {
+      _pinnedIds.removeAll(ids);
+    }
+    await store.writePinned(_pinnedIds);
+    _replaceMany(ids, (e) => e.copyWith(isPinned: _pinnedIds.contains(e.id)));
+    notifyListeners();
+  }
 
+  /// No bulk star/unstar endpoint exists, so each id is a separate request.
   @override
-  Future<void> setPinned(List<String> ids, bool pinned) => _notImplemented();
+  Future<void> setStarred(List<String> ids, bool starred) async {
+    if (ids.isEmpty) return;
+    for (final id in ids) {
+      await _mailService.mailAction(id, starred ? 'star' : 'unstar');
+    }
+    _replaceMany(ids, (e) => e.copyWith(isStarred: starred));
+    notifyListeners();
+  }
 
+  /// Marks that the user opened the reply screen. The "replied" flag itself
+  /// is local-only (see [LocalMailFlagsStore]), but opening a reply also
+  /// reads the mail, which the API *does* track — so that half goes through
+  /// the real `read` action instead of being faked locally.
   @override
-  Future<void> setStarred(List<String> ids, bool starred) => _notImplemented();
+  Future<void> markAsReplied(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final store = _flagsStore;
+    if (store == null) return;
+    await markAsRead(ids);
+    _repliedIds.addAll(ids);
+    await store.writeReplied(_repliedIds);
+    _replaceMany(ids, (e) => e.copyWith(isReplied: true));
+    notifyListeners();
+  }
 
+  /// Marks that the user opened the forward screen — same split as
+  /// [markAsReplied]: "forwarded" is local-only, the resulting read state
+  /// goes through the real `read` action.
   @override
-  Future<void> markAsReplied(List<String> ids) => _notImplemented();
-
-  @override
-  Future<void> markAsForwarded(List<String> ids) => _notImplemented();
+  Future<void> markAsForwarded(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final store = _flagsStore;
+    if (store == null) return;
+    await markAsRead(ids);
+    _forwardedIds.addAll(ids);
+    await store.writeForwarded(_forwardedIds);
+    _replaceMany(ids, (e) => e.copyWith(isForwarded: true));
+    notifyListeners();
+  }
 
   @override
   List<MailLabel> getLabels() => _notImplemented();
