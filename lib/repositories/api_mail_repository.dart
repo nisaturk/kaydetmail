@@ -197,6 +197,76 @@ class ApiMailRepository extends MailRepository {
   MailFolder _resolveFolder(String folderId) =>
       _folderTypeById[folderId] ?? MailFolder.inbox;
 
+  /// Applies [update] in place to every cached mail in [ids], wherever its
+  /// bucket, without changing which folder bucket it lives in.
+  void _replaceMany(Iterable<String> ids, Email Function(Email) update) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    for (final folder in _emails.keys.toList()) {
+      final list = _emails[folder]!;
+      _emails[folder] = [
+        for (final email in list)
+          idSet.contains(email.id) ? update(email) : email,
+      ];
+    }
+  }
+
+  /// Moves every cached mail in [ids] into [targetFolder]'s bucket,
+  /// stamping the new folder on each and dropping it from wherever it used
+  /// to live. Mails not currently cached are ignored.
+  void _moveMany(Iterable<String> ids, MailFolder targetFolder) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    final moved = <Email>[];
+    for (final folder in _emails.keys.toList()) {
+      if (folder == targetFolder) continue;
+      final list = _emails[folder]!;
+      final keep = <Email>[];
+      for (final email in list) {
+        if (idSet.contains(email.id)) {
+          moved.add(email.copyWith(folder: targetFolder));
+        } else {
+          keep.add(email);
+        }
+      }
+      _emails[folder] = keep;
+    }
+    if (moved.isNotEmpty) {
+      _emails.putIfAbsent(targetFolder, () => <Email>[]).insertAll(0, moved);
+    }
+  }
+
+  /// Ids from [ids] whose cached copy currently lives in Trash or Spam —
+  /// the only two folders `restore` is valid from.
+  List<String> _idsInTrashOrSpam(Iterable<String> ids) {
+    final trashed = {for (final e in _emails[MailFolder.trash] ?? const []) e.id};
+    final spammed = {for (final e in _emails[MailFolder.spam] ?? const []) e.id};
+    return ids.where((id) => trashed.contains(id) || spammed.contains(id)).toList();
+  }
+
+  /// Applies a bulk action and updates the local cache only for the ids the
+  /// server actually confirmed — a partial failure in [ids] never desyncs
+  /// the ones that succeeded (see the API's bulk semantics).
+  Future<void> _bulkAndApply(
+    String action,
+    List<String> ids,
+    void Function(List<String> succeededIds) apply, {
+    String? folderId,
+  }) async {
+    if (ids.isEmpty) return;
+    final results = await _mailService.bulkAction(
+      action,
+      ids,
+      folderId: folderId,
+    );
+    final succeeded = results
+        .where((r) => r.success)
+        .map((r) => r.mailId)
+        .toList();
+    apply(succeeded);
+    notifyListeners();
+  }
+
   @override
   List<Email> getEmailsInFolder(MailFolder folder) =>
       List.unmodifiable(_emails[folder] ?? const []);
@@ -273,23 +343,70 @@ class ApiMailRepository extends MailRepository {
   }) => _notImplemented();
 
   @override
-  Future<void> moveToTrash(List<String> ids) => _notImplemented();
+  Future<void> moveToTrash(List<String> ids) => _bulkAndApply(
+    'trash',
+    ids,
+    (succeeded) => _moveMany(succeeded, MailFolder.trash),
+  );
+
+  /// Mails currently in Trash/Spam go back through `restore` (the only
+  /// action that reverses those two, per mail — no bulk variant); everything
+  /// else moves via the bulk `move`/`archive` actions. Both branches can run
+  /// in the same call when [ids] mixes trashed and non-trashed mails (e.g. a
+  /// multi-select spanning folders).
+  @override
+  Future<void> moveToFolder(List<String> ids, MailFolder folder) async {
+    if (ids.isEmpty) return;
+    final folderId = _folderIds[folder];
+    if (folderId == null) {
+      throw ArgumentError('Unknown target folder for this account: $folder');
+    }
+
+    final restoring = _idsInTrashOrSpam(ids);
+    for (final id in restoring) {
+      await _mailService.mailAction(id, 'restore');
+    }
+    if (restoring.isNotEmpty) _moveMany(restoring, folder);
+
+    final rest = ids.where((id) => !restoring.contains(id)).toList();
+    if (rest.isNotEmpty) {
+      await _bulkAndApply(
+        folder == MailFolder.archive ? 'archive' : 'move',
+        rest,
+        (succeeded) => _moveMany(succeeded, folder),
+        folderId: folder == MailFolder.archive ? null : folderId,
+      );
+    }
+    if (restoring.isNotEmpty) notifyListeners();
+  }
 
   @override
-  Future<void> moveToFolder(List<String> ids, MailFolder folder) =>
-      _notImplemented();
+  Future<void> markAsRead(List<String> ids) => _bulkAndApply(
+    'read',
+    ids,
+    (succeeded) => _replaceMany(succeeded, (e) => e.copyWith(isRead: true)),
+  );
 
   @override
-  Future<void> markAsRead(List<String> ids) => _notImplemented();
-
-  @override
-  Future<void> markAsUnread(List<String> ids) => _notImplemented();
+  Future<void> markAsUnread(List<String> ids) => _bulkAndApply(
+    'unread',
+    ids,
+    (succeeded) => _replaceMany(succeeded, (e) => e.copyWith(isRead: false)),
+  );
 
   @override
   Future<void> setPinned(List<String> ids, bool pinned) => _notImplemented();
 
+  /// No bulk star/unstar endpoint exists, so each id is a separate request.
   @override
-  Future<void> setStarred(List<String> ids, bool starred) => _notImplemented();
+  Future<void> setStarred(List<String> ids, bool starred) async {
+    if (ids.isEmpty) return;
+    for (final id in ids) {
+      await _mailService.mailAction(id, starred ? 'star' : 'unstar');
+    }
+    _replaceMany(ids, (e) => e.copyWith(isStarred: starred));
+    notifyListeners();
+  }
 
   @override
   Future<void> markAsReplied(List<String> ids) => _notImplemented();

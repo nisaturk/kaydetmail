@@ -63,6 +63,43 @@ class ApiMailService {
     return _mapMailDetail(body, resolveFolder);
   }
 
+  /// One of the nine fixed single-mail actions documented for
+  /// `POST /api/mails/{id}/{action}` (read, unread, star, unstar, trash,
+  /// restore, archive, spam, not-spam). No request/response body.
+  Future<void> mailAction(String id, String action) =>
+      _client.post('/api/mails/${Uri.encodeComponent(id)}/$action');
+
+  /// Moves a single mail into an arbitrary target folder.
+  Future<void> moveMail(String id, String folderId) =>
+      _client.postJson('/api/mails/${Uri.encodeComponent(id)}/move', {
+        'folderId': folderId,
+      });
+
+  /// Applies [action] (read, unread, archive, trash, or move) to every id in
+  /// [mailIds] in one request. Each mail is processed independently server
+  /// side — read the per-item [BulkActionResult.success] rather than
+  /// assuming the whole batch succeeded or failed together.
+  Future<List<BulkActionResult>> bulkAction(
+    String action,
+    List<String> mailIds, {
+    String? folderId,
+  }) async {
+    final body = await _client.postJson('/api/mails/bulk/$action', {
+      'mailIds': mailIds,
+      'folderId': folderId,
+    });
+    final results = body['results'] as List;
+    return results
+        .map(
+          (r) => BulkActionResult(
+            mailId: r['mailId'] as String,
+            success: r['success'] as bool,
+            code: r['code'] as String?,
+          ),
+        )
+        .toList();
+  }
+
   Future<List<Email>> search({
     required String query,
     required MailFolder Function(String folderId) resolveFolder,
@@ -154,6 +191,21 @@ class ApiMailFolder {
   final String mailAccountId;
   final String name;
   final String type;
+}
+
+/// Per-item outcome from `POST /api/mails/bulk/{action}`.
+class BulkActionResult {
+  const BulkActionResult({
+    required this.mailId,
+    required this.success,
+    this.code,
+  });
+
+  final String mailId;
+  final bool success;
+
+  /// Failure error code (see the mail action error table), null on success.
+  final String? code;
 }
 
 class MailListPage {
