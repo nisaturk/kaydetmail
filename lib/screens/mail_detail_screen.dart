@@ -8,6 +8,7 @@ import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
+import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import 'compose_screen.dart';
 
@@ -228,6 +229,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
                     value: 'read',
                     child: Text('Okundu olarak işaretle'),
                   ),
+                const PopupMenuItem(value: 'label', child: Text('Etiketle')),
               ],
             ),
         ],
@@ -245,6 +247,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await _togglePin();
     } else if (action == 'star') {
       await _toggleStar();
+    } else if (action == 'label') {
+      await showLabelPicker(context, emailIds: [widget.emailId]);
     }
   }
 

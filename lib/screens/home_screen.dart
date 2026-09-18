@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
-import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../services/session_store.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/app_drawer.dart';
+import '../widgets/label_picker_sheet.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
@@ -151,50 +151,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Bulk actions ──────────────────────────────────────────────────────
 
-  List<Email> get _selectedEmails => _repo
-      .getEmailsInFolder(_folder)
-      .where((e) => _selection.selectedIds.contains(e.id))
-      .toList();
-
   Future<void> _actionDelete() async {
     await _repo.moveToTrash(_selection.selectedIds.toList());
-    _selection.exit();
-  }
-
-  Future<void> _actionReadUnread() async {
-    final emails = _selectedEmails;
-    final allRead = emails.every((e) => e.isRead);
-    if (allRead) {
-      await _repo.markAsUnread(_selection.selectedIds.toList());
-    } else {
-      await _repo.markAsRead(_selection.selectedIds.toList());
-    }
-    _selection.exit();
-  }
-
-  Future<void> _actionStar() async {
-    // Star and pin are independent concepts: this bulk action toggles only
-    // the star. Starring is free — no pin-slot limit applies.
-    final emails = _selectedEmails;
-    final allStarred = emails.every((e) => e.isStarred);
-    await _repo.setStarred(_selection.selectedIds.toList(), !allStarred);
-    _selection.exit();
-  }
-
-  Future<void> _actionPin() async {
-    final emails = _selectedEmails;
-    final allPinned = emails.every((e) => e.isPinned);
-    if (!allPinned) {
-      final newPins = emails.where((e) => !e.isPinned).length;
-      final pinnedCount = _repo.getEmailsInFolder(MailFolder.pinned).length;
-      if (pinnedCount + newPins > MailRepository.maxPinnedMails) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('En fazla 3 mail sabitlenebilir.')),
-        );
-        return;
-      }
-    }
-    await _repo.setPinned(_selection.selectedIds.toList(), !allPinned);
     _selection.exit();
   }
 
@@ -206,109 +164,12 @@ class _HomeScreenState extends State<HomeScreen> {
     _selection.exit();
   }
 
-  void _actionMove() {
+  Future<void> _actionLabel() async {
     final ids = _selection.selectedIds.toList();
-    final targets = MailFolder.values
-        .where(
-          (f) =>
-              f != MailFolder.pinned &&
-              f != _folder &&
-              f != MailFolder.sent &&
-              f != MailFolder.archive,
-        )
-        .toList();
-
-    showModalBottomSheet(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Klasöre Taşı',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-              ),
-            ),
-            for (final folder in targets)
-              ListTile(
-                leading: Icon(folder.icon, size: 20),
-                title: Text(folder.label),
-                onTap: () async {
-                  Navigator.of(ctx).pop();
-                  await _repo.moveToFolder(ids, folder);
-                  _selection.exit();
-                },
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
-      ),
-    );
-  }
-
-  void _actionLabel() async {
-    final ids = _selection.selectedIds.toList();
-    final labels = _repo.getLabels();
-    if (labels.isEmpty) return;
-
-    final selectedEmails = _selectedEmails;
-    final applied = <String>{for (final e in selectedEmails) ...e.labelIds};
-
-    await showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      builder: (ctx) {
-        return StatefulBuilder(
-          builder: (ctx, setSheetState) {
-            return SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Padding(
-                    padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Etiketler',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w700,
-                        ),
-                      ),
-                    ),
-                  ),
-                  for (final label in labels)
-                    CheckboxListTile(
-                      value: applied.contains(label.id),
-                      onChanged: (checked) async {
-                        if (checked == true) {
-                          await _repo.addLabelsToEmails(ids, [label.id]);
-                          applied.add(label.id);
-                        } else {
-                          await _repo.removeLabelsFromEmails(ids, [label.id]);
-                          applied.remove(label.id);
-                        }
-                        setSheetState(() {});
-                      },
-                      secondary: CircleAvatar(
-                        backgroundColor: label.color,
-                        radius: 8,
-                      ),
-                      title: Text(label.name),
-                    ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
+    if (ids.isEmpty) return;
+    // Shared picker with the mail detail screen, so labeling never forks into
+    // two implementations.
+    await showLabelPicker(context, emailIds: ids);
     _selection.exit();
   }
 
@@ -411,10 +272,6 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Widget _buildBulkActionBar() {
-    final allRead = _selectedEmails.every((e) => e.isRead);
-    final allStarred = _selectedEmails.every((e) => e.isStarred);
-    final allPinned = _selectedEmails.every((e) => e.isPinned);
-
     return Container(
       decoration: const BoxDecoration(
         color: Colors.white,
@@ -435,33 +292,13 @@ class _HomeScreenState extends State<HomeScreen> {
                 onTap: _actionDelete,
               ),
               _ActionBtn(
-                icon: allRead ? LucideIcons.eyeOff : LucideIcons.eye,
-                label: allRead ? 'Okunmadı' : 'Okundu',
-                onTap: _actionReadUnread,
-              ),
-              _ActionBtn(
-                icon: allStarred ? Icons.star : Icons.star_border,
-                label: allStarred ? 'Yıldızdan Çıkar' : 'Yıldızla',
-                onTap: _actionStar,
-              ),
-              _ActionBtn(
-                icon: LucideIcons.pin,
-                label: allPinned ? 'Sabitlerden Çıkar' : 'Sabitle',
-                onTap: _actionPin,
-              ),
-              _ActionBtn(
                 icon: LucideIcons.archive,
                 label: 'Arşivle',
                 onTap: _actionArchive,
               ),
               _ActionBtn(
-                icon: LucideIcons.move,
-                label: 'Taşı',
-                onTap: _actionMove,
-              ),
-              _ActionBtn(
                 icon: LucideIcons.tag,
-                label: 'Etiket',
+                label: 'Etiketle',
                 onTap: _actionLabel,
               ),
             ],

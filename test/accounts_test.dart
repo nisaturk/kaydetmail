@@ -1,4 +1,4 @@
-﻿import 'package:flutter_test/flutter_test.dart';
+import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/mock_mail_repository.dart';
@@ -48,10 +48,7 @@ void main() {
 
     test('three or more accounts can coexist', () async {
       final repo = _repo();
-      await repo.connectAccount(
-        email: 'nisa@gmail.com',
-        password: 'secret123',
-      );
+      await repo.connectAccount(email: 'nisa@gmail.com', password: 'secret123');
       await repo.connectAccount(
         email: 'nisa@outlook.com',
         password: 'secret123',

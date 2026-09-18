@@ -16,14 +16,8 @@ String get _primaryId => MockMailRepository.demoEmail;
 /// last connected account; each test sets its own scope explicitly.
 Future<MockMailRepository> _threeAccounts() async {
   final repo = _repo();
-  await repo.connectAccount(
-    email: 'nisa@gmail.com',
-    password: 'secret123',
-  );
-  await repo.connectAccount(
-    email: 'nisa@outlook.com',
-    password: 'secret123',
-  );
+  await repo.connectAccount(email: 'nisa@gmail.com', password: 'secret123');
+  await repo.connectAccount(email: 'nisa@outlook.com', password: 'secret123');
   return repo;
 }
 

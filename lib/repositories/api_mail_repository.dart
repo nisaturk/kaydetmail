@@ -138,6 +138,16 @@ class ApiMailRepository extends MailRepository {
       _notImplemented();
 
   @override
+  Future<void> updateLabel({
+    required String id,
+    required String name,
+    required Color color,
+  }) => _notImplemented();
+
+  @override
+  Future<void> deleteLabel(String labelId) => _notImplemented();
+
+  @override
   Future<void> addLabelsToEmails(
     List<String> emailIds,
     List<String> labelIds,

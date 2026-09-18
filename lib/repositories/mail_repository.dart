@@ -188,7 +188,24 @@ abstract class MailRepository extends ChangeNotifier {
 
   List<MailLabel> getLabels();
 
+  /// Creates a new label. Throws [ArgumentError] (Turkish message) when the
+  /// trimmed name is empty or duplicates an existing name case-insensitively.
   Future<MailLabel> createLabel({required String name, required Color color});
+
+  /// Renames and/or recolors an existing label.
+  ///
+  /// The label [id] is preserved so mails keep pointing at it. Allowed to keep
+  /// its current name/color. Throws [ArgumentError] for an empty name or a
+  /// duplicate (case-insensitive, trimmed) name held by another label.
+  Future<void> updateLabel({
+    required String id,
+    required String name,
+    required Color color,
+  });
+
+  /// Deletes a label and strips its id from every mail that carried it. The
+  /// mails themselves are untouched. Unknown ids are ignored.
+  Future<void> deleteLabel(String labelId);
 
   Future<void> addLabelsToEmails(List<String> emailIds, List<String> labelIds);
 
@@ -196,4 +213,35 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> emailIds,
     List<String> labelIds,
   );
+
+  // --- Search -------------------------------------------------------
+
+  /// Conversations matching a client-side text [query] and an optional label
+  /// filter, one representative row per conversation, newest first.
+  ///
+  /// The text query and the label filter are AND-ed at the message level: a
+  /// conversation is eligible when any of its messages matches both. The
+  /// returned row is the newest message in the conversation that does, so
+  /// opening it still reveals the whole thread via [getThreadEmails]. Empty
+  /// [query] matches everything; `labelId == null` means no label
+  /// restriction. Spans every account, regardless of the active mailbox.
+  List<Email> searchEmails({String query = '', String? labelId}) {
+    final seen = <String>{};
+    final results = <Email>[];
+    bool matches(Email e) =>
+        e.matchesQuery(query) &&
+        (labelId == null || e.labelIds.contains(labelId));
+
+    for (final email in getAllEmails()) {
+      if (email.threadId.isEmpty) {
+        if (matches(email)) results.add(email);
+        continue;
+      }
+      if (!seen.add(email.threadId)) continue;
+      final candidates = getThreadEmails(email.threadId).where(matches).toList()
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      if (candidates.isNotEmpty) results.add(candidates.first);
+    }
+    return results;
+  }
 }

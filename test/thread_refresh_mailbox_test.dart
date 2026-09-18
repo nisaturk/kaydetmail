@@ -3,7 +3,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
-import 'package:kaydetmail/widgets/mail_avatar.dart';
 
 /// Feature-pack tests (spec §15): thread support and reply preservation,
 /// inbox thread grouping, pull-to-refresh, inbox-as-mailbox-selector, drawer
@@ -63,11 +62,14 @@ void main() {
           'seed-sent-onboarding',
           'seed-alice-onboarding-reply',
         });
-final timestamps = thread.map((e) => e.timestamp).toList();
-      for (var i = 1; i < timestamps.length; i++) {
-        expect(timestamps[i - 1].isBefore(timestamps[i]), isTrue,
-            reason: 'getThreadEmails is oldest-first');
-      }
+        final timestamps = thread.map((e) => e.timestamp).toList();
+        for (var i = 1; i < timestamps.length; i++) {
+          expect(
+            timestamps[i - 1].isBefore(timestamps[i]),
+            isTrue,
+            reason: 'getThreadEmails is oldest-first',
+          );
+        }
         expect(repo.getThreadEmails(''), isEmpty);
 
         // Messages without an explicit thread still get one (their own), so
@@ -266,7 +268,7 @@ final timestamps = thread.map((e) => e.timestamp).toList();
         200,
       );
       await tester.pumpAndSettle();
-await tester.tap(find.text('Re: Design review: onboarding flow'));
+      await tester.tap(find.text('Re: Design review: onboarding flow'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 800));
       await tester.pumpAndSettle();
@@ -480,7 +482,7 @@ await tester.tap(find.text('Re: Design review: onboarding flow'));
       );
     });
 
-    testWidgets('bulk star and bulk pin touch only their own flag', (
+    testWidgets('individual star and pin touch only their own flag', (
       tester,
     ) async {
       await _login(tester);
@@ -495,41 +497,36 @@ await tester.tap(find.text('Re: Design review: onboarding flow'));
       await tester.pumpAndSettle();
       final topMail = repo.getEmailsInFolder(MailFolder.inbox).first;
 
-      // Select one row the way the existing regression tests do (avatar tap).
-      await tester.tap(find.byType(MailAvatar).first);
+      await tester.scrollUntilVisible(find.text(topMail.subject), 200);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(topMail.subject));
       await tester.pump();
-      expect(find.textContaining('seçili'), findsOneWidget);
+      await tester.pump(const Duration(milliseconds: 800));
+      await tester.pumpAndSettle();
 
+      // Star from the individual menu: only the star flag changes.
+      await tester.tap(find.byTooltip('Daha fazla'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Yıldızla'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 800));
       await tester.pumpAndSettle();
 
-      final afterStar = repo.getAllEmails();
-      expect(
-        afterStar.where((e) => e.isStarred).map((e) => e.id).toSet(),
-        {topMail.id},
-      );
-      // Starring must not pin anything.
-      expect(
-        afterStar.where((e) => e.isPinned).toList(),
-        isEmpty,
-      );
+      var stored = repo.getAllEmails().firstWhere((e) => e.id == topMail.id);
+      expect(stored.isStarred, isTrue);
+      expect(stored.isPinned, isFalse);
 
-      // Starred rows float to the top, so the same row is still first.
-      await tester.tap(find.byType(MailAvatar).first);
-      await tester.pump();
+      // Pin from the individual menu: the star survives, pinning adds one.
+      await tester.tap(find.byTooltip('Daha fazla'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Sabitle'));
       await tester.pump();
-      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pump(const Duration(milliseconds: 800));
       await tester.pumpAndSettle();
 
-      final afterPin = repo.getAllEmails();
-      // Pinning touches only the pin flag — the star survives.
-      final pinned = afterPin.where((e) => e.isPinned).toList();
-      expect(pinned, hasLength(1));
-      expect(pinned.single.id, topMail.id);
-      expect(pinned.single.isStarred, isTrue);
+      stored = repo.getAllEmails().firstWhere((e) => e.id == topMail.id);
+      expect(stored.isPinned, isTrue);
+      expect(stored.isStarred, isTrue);
     });
   });
 
@@ -555,14 +552,17 @@ await tester.tap(find.text('Re: Design review: onboarding flow'));
       expect(find.text('Re: Design review: onboarding flow'), findsOneWidget);
 
       // The body field is the last TextField on the compose surface.
-      await tester.enterText(find.byType(TextField).last, 'Evet, aynen katılıyorum.');
+      await tester.enterText(
+        find.byType(TextField).last,
+        'Evet, aynen katılıyorum.',
+      );
       await tester.tap(find.byTooltip('Gönder'));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
       // The new message lives in Sent but belongs to the same conversation…
-final sent = repo
+      final sent = repo
           .getEmailsInFolder(MailFolder.sent)
           .where((e) => e.threadId == 'thread-onboarding')
           .toList();

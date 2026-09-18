@@ -509,6 +509,24 @@ class MockMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  /// Canonical name for duplicate checks: trimmed, Turkish 'İ' folded to 'i',
+  /// lower-cased — "İŞ", "iş" and " İş " all compare equal.
+  static String _canonicalName(String name) =>
+      name.trim().replaceAll('İ', 'i').toLowerCase();
+
+  void _assertLabelNameIsFree(String name, {String? selfId}) {
+    final canonical = _canonicalName(name);
+    if (canonical.isEmpty) {
+      throw ArgumentError('Etiket adı boş olamaz.');
+    }
+    for (final label in _labels) {
+      if (selfId != null && label.id == selfId) continue;
+      if (_canonicalName(label.name) == canonical) {
+        throw ArgumentError('Bu isimde bir etiket zaten var.');
+      }
+    }
+  }
+
   @override
   List<MailLabel> getLabels() => List.unmodifiable(_labels);
 
@@ -518,14 +536,47 @@ class MockMailRepository extends MailRepository {
     required Color color,
   }) async {
     await _delay();
+    _assertLabelNameIsFree(name);
     final label = MailLabel(
       id: 'label-${DateTime.now().microsecondsSinceEpoch}',
-      name: name,
+      name: name.trim(),
       color: color,
     );
     _labels.add(label);
     notifyListeners();
     return label;
+  }
+
+  @override
+  Future<void> updateLabel({
+    required String id,
+    required String name,
+    required Color color,
+  }) async {
+    await _delay();
+    final index = _labels.indexWhere((l) => l.id == id);
+    if (index < 0) return; // Unknown label: nothing to update.
+    _assertLabelNameIsFree(name, selfId: id);
+    _labels[index] = MailLabel(id: id, name: name.trim(), color: color);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteLabel(String labelId) async {
+    await _delay();
+    if (!_labels.any((l) => l.id == labelId)) return;
+    _labels.removeWhere((l) => l.id == labelId);
+    // Strip the id from mails; the mails themselves stay untouched.
+    _replaceMany(
+      _emails
+          .where((e) => e.labelIds.contains(labelId))
+          .map((e) => e.id)
+          .toList(),
+      (e) => e.copyWith(
+        labelIds: e.labelIds.where((id) => id != labelId).toList(),
+      ),
+    );
+    notifyListeners();
   }
 
   @override

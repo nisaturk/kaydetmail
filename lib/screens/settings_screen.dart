@@ -2,14 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../models/mail_label.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
 
-/// Settings screen: label management, notifications and synchronization.
+/// Settings screen: labels, server address, notifications, sync and gestures.
 ///
-/// Labels are created through the repository so they appear everywhere
-/// immediately. Notifications and sync values live in
-/// [AppSettingsController] — simulated, no backend involved.
+/// Labels are created, renamed, recolored and deleted through the repository
+/// so they appear everywhere immediately. The server address is the future
+/// HTTP API's base URL — validated, normalized and persisted. Notifications,
+/// sync and swipe-to-delete live in [AppSettingsController] — simulated, no
+/// backend involved.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -36,15 +39,24 @@ class SettingsScreen extends StatelessWidget {
           AppConfig.mailRepository,
         ]),
         builder: (context, _) {
+          // Section widgets must NOT be const: the list needs fresh widget
+          // instances every build, otherwise SliverChildListDelegate.update()
+          // sees identical const instances and keeps stale children (a changed
+          // server address or swipe toggle would never repaint).
           return ListView(
+            key: const Key('settings-list'),
             padding: const EdgeInsets.symmetric(vertical: 8),
             children: [
               const _SectionHeader('Etiketler'),
               _LabelsSection(),
+              const _SectionHeader('Sunucu'),
+              _ServerSection(),
               const _SectionHeader('Bildirimler'),
               _NotificationsSection(),
               const _SectionHeader('Senkronizasyon'),
               _SyncSection(),
+              const _SectionHeader('Kaydırma'),
+              _SwipeSection(),
             ],
           );
         },
@@ -87,9 +99,14 @@ class _LabelsSection extends StatelessWidget {
             dense: true,
             leading: CircleAvatar(backgroundColor: label.color, radius: 8),
             title: Text(label.name),
+            trailing: IconButton(
+              tooltip: 'Düzenle',
+              icon: const Icon(LucideIcons.pencil, size: 18),
+              onPressed: () => _showLabelEditor(context, label: label),
+            ),
           ),
         TextButton.icon(
-          onPressed: () => _showNewLabelDialog(context),
+          onPressed: () => _showLabelEditor(context),
           icon: const Icon(LucideIcons.plus, size: 18),
           label: const Text('Yeni Etiket'),
         ),
@@ -97,25 +114,75 @@ class _LabelsSection extends StatelessWidget {
     );
   }
 
-  Future<void> _showNewLabelDialog(BuildContext context) {
+  Future<void> _showLabelEditor(BuildContext context, {MailLabel? label}) {
     return showDialog<void>(
       context: context,
-      builder: (_) => const _NewLabelDialog(),
+      builder: (_) => _LabelEditorDialog(label: label),
     );
   }
 }
 
-class _NewLabelDialog extends StatefulWidget {
-  const _NewLabelDialog();
+class _ColorPalette extends StatelessWidget {
+  const _ColorPalette({required this.selected, required this.onSelected});
+
+  final Color selected;
+  final ValueChanged<Color> onSelected;
 
   @override
-  State<_NewLabelDialog> createState() => _NewLabelDialogState();
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final c in SettingsScreen.labelColors)
+          GestureDetector(
+            onTap: () => onSelected(c),
+            child: Container(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: c,
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: c == selected ? Colors.black : Colors.transparent,
+                  width: 2,
+                ),
+              ),
+              child: c == selected
+                  ? const Icon(LucideIcons.check, size: 18, color: Colors.white)
+                  : null,
+            ),
+          ),
+      ],
+    );
+  }
 }
 
-class _NewLabelDialogState extends State<_NewLabelDialog> {
-  final _controller = TextEditingController();
-  var _color = SettingsScreen.labelColors.first;
-  var _submitting = false;
+/// Compact label editor. With [label] set it renames/recolors/deletes an
+/// existing label (id preserved); without it, it creates a new one.
+class _LabelEditorDialog extends StatefulWidget {
+  const _LabelEditorDialog({this.label});
+
+  final MailLabel? label;
+
+  @override
+  State<_LabelEditorDialog> createState() => _LabelEditorDialogState();
+}
+
+class _LabelEditorDialogState extends State<_LabelEditorDialog> {
+  late final TextEditingController _controller;
+  late Color _color;
+  String? _error;
+  bool _submitting = false;
+
+  bool get _isEdit => widget.label != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.label?.name ?? '');
+    _color = widget.label?.color ?? SettingsScreen.labelColors.first;
+  }
 
   @override
   void dispose() {
@@ -123,19 +190,67 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
     super.dispose();
   }
 
-  Future<void> _create() async {
+  Future<void> _save() async {
     if (_submitting) return;
     final name = _controller.text.trim();
-    if (name.isEmpty) return;
+    if (name.isEmpty) {
+      setState(() => _error = 'Etiket adı boş olamaz.');
+      return;
+    }
+    setState(() {
+      _submitting = true;
+      _error = null;
+    });
+    final repo = AppConfig.mailRepository;
+    try {
+      if (_isEdit) {
+        await repo.updateLabel(id: widget.label!.id, name: name, color: _color);
+      } else {
+        await repo.createLabel(name: name, color: _color);
+      }
+      if (mounted) Navigator.of(context).pop();
+    } on ArgumentError catch (e) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _error = e.message;
+        });
+      }
+    }
+  }
+
+  Future<void> _delete() async {
+    if (_submitting) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Etiketi sil?'),
+        content: Text(
+          '“${widget.label!.name}” etiketi kaldırılacak. '
+          'E-postalar silinmez, yalnızca bu etiket onlardan çıkarılır.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Evet, sil'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     setState(() => _submitting = true);
-    await AppConfig.mailRepository.createLabel(name: name, color: _color);
+    await AppConfig.mailRepository.deleteLabel(widget.label!.id);
     if (mounted) Navigator.of(context).pop();
   }
 
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Yeni Etiket'),
+      title: Text(_isEdit ? 'Etiketi Düzenle' : 'Yeni Etiket'),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -144,38 +259,17 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
             controller: _controller,
             autofocus: true,
             textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(labelText: 'Ad'),
-            onSubmitted: (_) => _create(),
+            decoration: InputDecoration(
+              labelText: 'Ad',
+              errorText: _error,
+              errorMaxLines: 2,
+            ),
+            onSubmitted: (_) => _save(),
           ),
           const SizedBox(height: 16),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final c in SettingsScreen.labelColors)
-                GestureDetector(
-                  onTap: () => setState(() => _color = c),
-                  child: Container(
-                    width: 32,
-                    height: 32,
-                    decoration: BoxDecoration(
-                      color: c,
-                      shape: BoxShape.circle,
-                      border: Border.all(
-                        color: c == _color ? Colors.black : Colors.transparent,
-                        width: 2,
-                      ),
-                    ),
-                    child: c == _color
-                        ? const Icon(
-                            LucideIcons.check,
-                            size: 18,
-                            color: Colors.white,
-                          )
-                        : null,
-                  ),
-                ),
-            ],
+          _ColorPalette(
+            selected: _color,
+            onSelected: (c) => setState(() => _color = c),
           ),
         ],
       ),
@@ -184,7 +278,122 @@ class _NewLabelDialogState extends State<_NewLabelDialog> {
           onPressed: () => Navigator.of(context).pop(),
           child: const Text('Vazgeç'),
         ),
-        FilledButton(onPressed: _create, child: const Text('Oluştur')),
+        if (_isEdit)
+          TextButton(
+            onPressed: _delete,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFB3261E),
+            ),
+            child: const Text('Sil'),
+          ),
+        FilledButton(
+          onPressed: _save,
+          child: Text(_isEdit ? 'Kaydet' : 'Oluştur'),
+        ),
+      ],
+    );
+  }
+}
+
+class _ServerSection extends StatelessWidget {
+  const _ServerSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return ListTile(
+      dense: true,
+      leading: const Icon(
+        LucideIcons.server,
+        size: 20,
+        color: AppTheme.secondaryText,
+      ),
+      title: const Text('Sunucu adresi'),
+      subtitle: Text(
+        settings.serverBaseUrl,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      onTap: () => _showServerDialog(context),
+    );
+  }
+
+  Future<void> _showServerDialog(BuildContext context) {
+    return showDialog<void>(
+      context: context,
+      builder: (_) => const _ServerDialog(),
+    );
+  }
+}
+
+class _ServerDialog extends StatefulWidget {
+  const _ServerDialog();
+
+  @override
+  State<_ServerDialog> createState() => _ServerDialogState();
+}
+
+class _ServerDialogState extends State<_ServerDialog> {
+  late final TextEditingController _controller;
+  String? _error;
+  bool _saving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(
+      text: AppSettingsController.instance.serverBaseUrl,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (_saving) return;
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
+    try {
+      await AppSettingsController.instance.setServerAddress(_controller.text);
+      if (mounted) Navigator.of(context).pop();
+    } on ArgumentError catch (e) {
+      if (mounted) {
+        setState(() {
+          _saving = false;
+          _error = e.message;
+        });
+      }
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Sunucu adresi'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        textInputAction: TextInputAction.done,
+        keyboardType: TextInputType.url,
+        decoration: InputDecoration(
+          labelText: 'Adres',
+          hintText: 'http://192.168.1.100:8080',
+          errorText: _error,
+          errorMaxLines: 2,
+        ),
+        onSubmitted: (_) => _save(),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Vazgeç'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Kaydet')),
       ],
     );
   }
@@ -225,6 +434,25 @@ class _SyncSection extends StatelessWidget {
             onTap: () => settings.syncInterval = interval,
           ),
       ],
+    );
+  }
+}
+
+class _SwipeSection extends StatelessWidget {
+  const _SwipeSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return SwitchListTile(
+      dense: true,
+      title: const Text('Kaydırarak sil'),
+      subtitle: const Text(
+        'Listede sola kaydırınca e-postayı çöp kutusuna taşır.',
+      ),
+      value: settings.swipeDeleteEnabled,
+      activeThumbColor: Colors.black,
+      onChanged: (v) => settings.swipeDeleteEnabled = v,
     );
   }
 }

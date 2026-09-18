@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
+import '../state/app_settings_controller.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../widgets/mail_list_item.dart';
@@ -32,6 +33,15 @@ class _InboxScreenState extends State<InboxScreen> {
   bool _initialLoading = true;
   bool _loadingMore = false;
   Object? _error;
+
+  /// Conversations removed from the local list right after a swipe, before the
+  /// async trash move lands. Keyed by thread id (see [_dismissKey]).
+  final Set<String> _dismissed = {};
+
+  /// Stable identity used to hide a row after swiping and to key the
+  /// Dismissible. Threads share one identity; standalone mails use their id.
+  static String _dismissKey(Email e) =>
+      e.threadId.isEmpty ? 'one:${e.id}' : e.threadId;
 
   @override
   void initState() {
@@ -115,10 +125,43 @@ class _InboxScreenState extends State<InboxScreen> {
     }
   }
 
+  /// Swiping a row moves the entire conversation to Trash. Every message's
+  /// original folder is remembered so one Undo can restore each of them.
+  void _swipeDelete(Email representative) {
+    final thread = representative.threadId.isEmpty
+        ? [representative]
+        : _repo.getThreadEmails(representative.threadId);
+    if (thread.isEmpty) return;
+    final ids = thread.map((e) => e.id).toList();
+    final previousFolders = {for (final e in thread) e.id: e.folder};
+    final undoKey = _dismissKey(representative);
+    setState(() => _dismissed.add(undoKey));
+    _repo.moveToTrash(ids).then((_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('E-posta çöp kutusuna taşındı.'),
+          action: SnackBarAction(
+            label: 'Geri al',
+            onPressed: () {
+              for (final entry in previousFolders.entries) {
+                // Restores every message to its exact previous folder; all
+                // other properties (labels, read/star/pin, attachments, …)
+                // are preserved because moveToFolder only swaps the folder.
+                _repo.moveToFolder([entry.key], entry.value);
+              }
+              if (mounted) setState(() => _dismissed.remove(undoKey));
+            },
+          ),
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return ListenableBuilder(
-      listenable: _repo,
+      listenable: Listenable.merge([_repo, AppSettingsController.instance]),
       builder: (context, _) {
         final emails = _repo.getEmailsInFolder(widget.folder);
 
@@ -130,8 +173,11 @@ class _InboxScreenState extends State<InboxScreen> {
         }
 
         // One row per conversation: emails sharing a threadId collapse into a
-        // single representative row (newest of the group wins).
-        final grouped = _groupByThread(emails);
+        // single representative row (newest of the group wins). Swiped rows
+        // stay hidden until the repository confirms the move.
+        final grouped = _groupByThread(emails)
+            .where((e) => !_dismissed.contains(_dismissKey(e)))
+            .toList();
         widget.selection.syncVisibleIds(grouped.map((e) => e.id).toList());
 
         final threadCounts = _threadCounts();
@@ -151,6 +197,7 @@ class _InboxScreenState extends State<InboxScreen> {
           );
         }
 
+        final swipeEnabled = AppSettingsController.instance.swipeDeleteEnabled;
         final itemCount = grouped.length + (_loadingMore ? 1 : 0);
         return RefreshIndicator(
           onRefresh: _refresh,
@@ -175,7 +222,7 @@ class _InboxScreenState extends State<InboxScreen> {
                 );
               }
               final email = grouped[index];
-              return MailListItem(
+              final row = MailListItem(
                 key: ValueKey(email.id),
                 email: email,
                 selected:
@@ -187,6 +234,27 @@ class _InboxScreenState extends State<InboxScreen> {
                 threadCount: threadCounts[email.threadId],
                 onTap: () => _onMailTap(email),
                 onAvatarTap: () => widget.selection.toggle(email.id),
+              );
+              // Swipe-to-delete (Kaydırarak sil). Disabled while selection
+              // mode is active so the horizontal gesture never fights avatar
+              // selection, and while the user turned it off in settings.
+              return Dismissible(
+                key: ValueKey('dismiss-${_dismissKey(email)}'),
+                direction: swipeEnabled && !widget.selection.isActive
+                    ? DismissDirection.endToStart
+                    : DismissDirection.none,
+                onDismissed: (_) => _swipeDelete(email),
+                background: Container(
+                  color: const Color(0xFFE57373),
+                  alignment: Alignment.centerRight,
+                  padding: const EdgeInsets.only(right: 24),
+                  child: const Icon(
+                    LucideIcons.trash2,
+                    size: 20,
+                    color: Colors.white,
+                  ),
+                ),
+                child: row,
               );
             },
           ),

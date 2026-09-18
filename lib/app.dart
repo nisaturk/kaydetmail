@@ -3,6 +3,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../config/app_config.dart';
 import '../services/session_store.dart';
+import '../state/app_settings_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'theme/app_theme.dart';
@@ -44,6 +45,9 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   void initState() {
     super.initState();
+    // Persisted server base URL loads before any screen reads it. The future
+    // API repository will read the same controller value.
+    AppSettingsController.instance.loadServerAddress();
     _check();
   }
 

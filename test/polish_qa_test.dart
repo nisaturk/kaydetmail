@@ -189,11 +189,18 @@ void main() {
       await _login(tester);
       await _openSettings(tester);
 
-      await tester.tap(find.byType(SwitchListTile));
+      await tester.tap(find.widgetWithText(SwitchListTile, 'Bildirimler'));
       await tester.pumpAndSettle();
       expect(AppSettingsController.instance.notificationsEnabled, isFalse);
 
-      await tester.ensureVisible(find.text('Her saat'));
+      await tester.scrollUntilVisible(
+        find.text('Her saat'),
+        150,
+        scrollable: find.descendant(
+          of: find.byKey(const Key('settings-list')),
+          matching: find.byType(Scrollable),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Her saat'));
       await tester.pumpAndSettle();
