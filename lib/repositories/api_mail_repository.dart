@@ -9,6 +9,7 @@ import '../services/api_client.dart';
 import '../services/api_exception.dart';
 import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
+import '../services/local_mail_flags_store.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
 
@@ -31,6 +32,10 @@ class ApiMailRepository extends MailRepository {
   final Map<String, MailFolder> _folderTypeById = {};
   final Map<MailFolder, List<Email>> _emails = {};
   final Map<MailFolder, int> _pages = {};
+  LocalMailFlagsStore? _flagsStore;
+  Set<String> _pinnedIds = {};
+  Set<String> _repliedIds = {};
+  Set<String> _forwardedIds = {};
 
   static ApiAuthService _createAuthService() {
     final tokenStore = TokenStore();
@@ -65,6 +70,10 @@ class ApiMailRepository extends MailRepository {
     await _authService.logout();
     _account = null;
     _loggedIn = false;
+    _flagsStore = null;
+    _pinnedIds = {};
+    _repliedIds = {};
+    _forwardedIds = {};
     notifyListeners();
   }
 
@@ -137,13 +146,31 @@ class ApiMailRepository extends MailRepository {
     _account = account;
     _loggedIn = true;
     try {
+      final flags = LocalMailFlagsStore(account.id);
+      _pinnedIds = await flags.readPinned();
+      _repliedIds = await flags.readReplied();
+      _forwardedIds = await flags.readForwarded();
+      _flagsStore = flags;
       await _loadMailbox();
     } catch (_) {
       _account = null;
       _loggedIn = false;
+      _flagsStore = null;
+      _pinnedIds = {};
+      _repliedIds = {};
+      _forwardedIds = {};
       rethrow;
     }
   }
+
+  /// Overlays the locally-persisted pin/reply/forward flags onto a mail
+  /// freshly mapped from the API — the server has no concept of any of the
+  /// three, so every fetch would otherwise reset them.
+  Email _stampLocalFlags(Email email) => email.copyWith(
+    isPinned: _pinnedIds.contains(email.id),
+    isReplied: _repliedIds.contains(email.id),
+    isForwarded: _forwardedIds.contains(email.id),
+  );
 
   @override
   Future<void> removeAccount(String accountId) => _notImplemented();
@@ -267,9 +294,26 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  static bool _highlighted(Email e) => e.isPinned || e.isStarred;
+
+  /// [MailFolder.pinned] is virtual — "Yıldızlılar" surfaces every pinned or
+  /// starred mail regardless of its real folder — so it's built by scanning
+  /// every cached bucket rather than a fetched one. Every folder additionally
+  /// floats highlighted mails above the rest, newest-first within each
+  /// group, matching [MailRepository.getEmailsInFolder]'s documented order.
   @override
-  List<Email> getEmailsInFolder(MailFolder folder) =>
-      List.unmodifiable(_emails[folder] ?? const []);
+  List<Email> getEmailsInFolder(MailFolder folder) {
+    final result = folder == MailFolder.pinned
+        ? _emails.values.expand((list) => list).where(_highlighted).toList()
+        : List<Email>.of(_emails[folder] ?? const []);
+    result.sort((a, b) {
+      final ha = _highlighted(a);
+      final hb = _highlighted(b);
+      if (ha != hb) return ha ? -1 : 1;
+      return b.timestamp.compareTo(a.timestamp);
+    });
+    return List.unmodifiable(result);
+  }
 
   @override
   List<Email> getAllEmails() =>
@@ -287,7 +331,10 @@ class ApiMailRepository extends MailRepository {
     );
     final current = _emails.putIfAbsent(folder, () => <Email>[]);
     final known = current.map((email) => email.id).toSet();
-    final fresh = result.items.where((email) => known.add(email.id)).toList();
+    final fresh = result.items
+        .where((email) => known.add(email.id))
+        .map(_stampLocalFlags)
+        .toList();
     current.addAll(fresh);
     _pages[folder] = result.page;
     notifyListeners();
@@ -304,7 +351,11 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<Email?> getEmail(String id) async {
     try {
-      return await _mailService.getMail(id, resolveFolder: _resolveFolder);
+      final email = await _mailService.getMail(
+        id,
+        resolveFolder: _resolveFolder,
+      );
+      return _stampLocalFlags(email);
     } on ApiException catch (error) {
       if (error.code == 'mail_not_found' || error.status == 404) return null;
       rethrow;
@@ -394,8 +445,27 @@ class ApiMailRepository extends MailRepository {
     (succeeded) => _replaceMany(succeeded, (e) => e.copyWith(isRead: false)),
   );
 
+  /// Pinning never reaches the network — see [LocalMailFlagsStore]. Pinning
+  /// beyond [MailRepository.maxPinnedMails] is silently capped; unpinning
+  /// always applies.
   @override
-  Future<void> setPinned(List<String> ids, bool pinned) => _notImplemented();
+  Future<void> setPinned(List<String> ids, bool pinned) async {
+    if (ids.isEmpty) return;
+    final store = _flagsStore;
+    if (store == null) return;
+    if (pinned) {
+      var free = MailRepository.maxPinnedMails - _pinnedIds.length;
+      for (final id in ids) {
+        if (free <= 0) break;
+        if (_pinnedIds.add(id)) free--;
+      }
+    } else {
+      _pinnedIds.removeAll(ids);
+    }
+    await store.writePinned(_pinnedIds);
+    _replaceMany(ids, (e) => e.copyWith(isPinned: _pinnedIds.contains(e.id)));
+    notifyListeners();
+  }
 
   /// No bulk star/unstar endpoint exists, so each id is a separate request.
   @override
@@ -408,11 +478,36 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  /// Marks that the user opened the reply screen. The "replied" flag itself
+  /// is local-only (see [LocalMailFlagsStore]), but opening a reply also
+  /// reads the mail, which the API *does* track — so that half goes through
+  /// the real `read` action instead of being faked locally.
   @override
-  Future<void> markAsReplied(List<String> ids) => _notImplemented();
+  Future<void> markAsReplied(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final store = _flagsStore;
+    if (store == null) return;
+    await markAsRead(ids);
+    _repliedIds.addAll(ids);
+    await store.writeReplied(_repliedIds);
+    _replaceMany(ids, (e) => e.copyWith(isReplied: true));
+    notifyListeners();
+  }
 
+  /// Marks that the user opened the forward screen — same split as
+  /// [markAsReplied]: "forwarded" is local-only, the resulting read state
+  /// goes through the real `read` action.
   @override
-  Future<void> markAsForwarded(List<String> ids) => _notImplemented();
+  Future<void> markAsForwarded(List<String> ids) async {
+    if (ids.isEmpty) return;
+    final store = _flagsStore;
+    if (store == null) return;
+    await markAsRead(ids);
+    _forwardedIds.addAll(ids);
+    await store.writeForwarded(_forwardedIds);
+    _replaceMany(ids, (e) => e.copyWith(isForwarded: true));
+    notifyListeners();
+  }
 
   @override
   List<MailLabel> getLabels() => _notImplemented();
