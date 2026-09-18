@@ -28,6 +28,7 @@ class ApiMailRepository extends MailRepository {
   MailAccount? _account;
   bool _loggedIn = false;
   final Map<MailFolder, String> _folderIds = {};
+  final Map<String, MailFolder> _folderTypeById = {};
   final Map<MailFolder, List<Email>> _emails = {};
   final Map<MailFolder, int> _pages = {};
 
@@ -111,9 +112,7 @@ class ApiMailRepository extends MailRepository {
       email: email,
       provider: provider,
     );
-    _account = account;
-    _loggedIn = true;
-    await _loadMailbox();
+    await _activateAccount(account);
     return _account!;
   }
 
@@ -125,10 +124,25 @@ class ApiMailRepository extends MailRepository {
       displayName: request.displayName,
       provider: AccountProvider.other,
     );
+    await _activateAccount(account);
+    return _account!;
+  }
+
+  /// Sets [account] as signed-in and loads its mailbox. Rolls the account
+  /// state back on failure so a mailbox-load error (e.g. a transient network
+  /// failure right after a successful login) never leaves the repository
+  /// reporting `isLoggedIn == true` behind a login/restore failure shown to
+  /// the user.
+  Future<void> _activateAccount(MailAccount account) async {
     _account = account;
     _loggedIn = true;
-    await _loadMailbox();
-    return _account!;
+    try {
+      await _loadMailbox();
+    } catch (_) {
+      _account = null;
+      _loggedIn = false;
+      rethrow;
+    }
   }
 
   @override
@@ -146,18 +160,18 @@ class ApiMailRepository extends MailRepository {
     if (accessToken == null || refreshToken == null || accountId == null) {
       throw StateError('Secure API session is unavailable.');
     }
-    _account = MailAccount(
+    final account = MailAccount(
       id: accountId,
       email: email,
       provider: AccountProvider.inferFromEmail(email),
     );
-    _loggedIn = true;
-    await _loadMailbox();
+    await _activateAccount(account);
   }
 
   Future<void> _loadMailbox() async {
     final folders = await _mailService.getFolders();
     _folderIds.clear();
+    _folderTypeById.clear();
     for (final folder in folders) {
       final logical = switch (folder.type.toLowerCase()) {
         'inbox' => MailFolder.inbox,
@@ -169,10 +183,19 @@ class ApiMailRepository extends MailRepository {
         'archive' => MailFolder.archive,
         _ => null,
       };
-      if (logical != null) _folderIds[logical] = folder.id;
+      if (logical != null) {
+        _folderIds[logical] = folder.id;
+        _folderTypeById[folder.id] = logical;
+      }
     }
     notifyListeners();
   }
+
+  /// Maps a raw API folder id back to our logical [MailFolder]. Custom
+  /// server folders we don't track locally fall back to inbox, matching the
+  /// filter already applied in [_loadMailbox].
+  MailFolder _resolveFolder(String folderId) =>
+      _folderTypeById[folderId] ?? MailFolder.inbox;
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) =>
@@ -187,7 +210,11 @@ class ApiMailRepository extends MailRepository {
     final folderId = _folderIds[folder];
     if (folderId == null) return const [];
     final page = (_pages[folder] ?? 0) + 1;
-    final result = await _mailService.getMails(folderId: folderId, page: page);
+    final result = await _mailService.getMails(
+      folderId: folderId,
+      page: page,
+      resolveFolder: _resolveFolder,
+    );
     final current = _emails.putIfAbsent(folder, () => <Email>[]);
     final known = current.map((email) => email.id).toSet();
     final fresh = result.items.where((email) => known.add(email.id)).toList();
@@ -207,7 +234,7 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<Email?> getEmail(String id) async {
     try {
-      return await _mailService.getMail(id);
+      return await _mailService.getMail(id, resolveFolder: _resolveFolder);
     } on ApiException catch (error) {
       if (error.code == 'mail_not_found' || error.status == 404) return null;
       rethrow;

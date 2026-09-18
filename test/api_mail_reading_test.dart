@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:kaydetmail/models/mail_account.dart';
+import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/token_store.dart';
@@ -94,6 +95,7 @@ void main() {
       folderId: 'folder-1',
       page: 1,
       pageSize: 20,
+      resolveFolder: (id) => id == 'folder-1' ? MailFolder.inbox : MailFolder.archive,
     );
 
     expect(uri.path, '/api/mails');
@@ -105,6 +107,7 @@ void main() {
     expect(page.items.single.id, 'mail-1');
     expect(page.items.single.senderEmail, 'sender@example.com');
     expect(page.items.single.isRead, isTrue);
+    expect(page.items.single.folder, MailFolder.inbox);
   });
 
   test('GET mail detail maps body and participants', () async {
@@ -133,13 +136,17 @@ void main() {
       ),
     );
 
-    final email = await service.getMail('mail-1');
+    final email = await service.getMail(
+      'mail-1',
+      resolveFolder: (id) => id == 'folder-1' ? MailFolder.inbox : MailFolder.archive,
+    );
 
     expect(email.id, 'mail-1');
     expect(email.bodyText, 'Message body');
     expect(email.senderName, 'Sender');
     expect(email.recipients, ['person@example.com']);
     expect(email.isStarred, isTrue);
+    expect(email.folder, MailFolder.inbox);
   });
 }
 

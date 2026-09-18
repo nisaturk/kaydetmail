@@ -1,5 +1,6 @@
 import '../models/email.dart';
 import '../models/mail_account.dart';
+import '../models/mail_folder.dart';
 import 'api_client.dart';
 
 class ApiMailService {
@@ -33,52 +34,69 @@ class ApiMailService {
 
   Future<MailListPage> getMails({
     required String folderId,
+    required MailFolder Function(String folderId) resolveFolder,
     int page = 1,
     int pageSize = 20,
   }) async {
-    final path =
-        '/api/mails?folderId=${Uri.encodeQueryComponent(folderId)}'
-        '&page=$page&pageSize=$pageSize';
+    final path = _buildQuery('/api/mails', {
+      'folderId': folderId,
+      'page': '$page',
+      'pageSize': '$pageSize',
+    });
     final body = await _client.get(path);
     final items = body['items'] as List;
     return MailListPage(
-      items: items.map((item) => _mapMail(item)).toList(),
+      items: items
+          .map((item) => _mapMail(item as Map<String, dynamic>, resolveFolder))
+          .toList(),
       page: body['page'] as int,
       pageSize: body['pageSize'] as int,
       total: body['total'] as int,
     );
   }
 
-  Future<Email> getMail(String id) async {
+  Future<Email> getMail(
+    String id, {
+    required MailFolder Function(String folderId) resolveFolder,
+  }) async {
     final body = await _client.get('/api/mails/$id');
-    return _mapMailDetail(body);
+    return _mapMailDetail(body, resolveFolder);
   }
 
   Future<List<Email>> search({
     required String query,
+    required MailFolder Function(String folderId) resolveFolder,
     String? folderId,
     int page = 1,
     int pageSize = 20,
   }) async {
-    final queryParams = <String, String>{
+    final path = _buildQuery('/api/search', {
       'q': query,
-      'page': page.toString(),
-      'pageSize': pageSize.toString(),
-    };
-    if (folderId != null) queryParams['folderId'] = folderId;
-    final uriPath =
-        '/api/search?${queryParams.entries.map((e) => '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}').join('&')}';
-    final body = await _client.get(uriPath);
+      'page': '$page',
+      'pageSize': '$pageSize',
+      'folderId': ?folderId,
+    });
+    final body = await _client.get(path);
     final items = body['items'] as List;
-    return MailListPage(
-      items: items.map((item) => _mapMail(item)).toList(),
-      page: body['page'] as int,
-      pageSize: body['pageSize'] as int,
-      total: body['total'] as int,
-    ).items;
+    return items
+        .map((item) => _mapMail(item as Map<String, dynamic>, resolveFolder))
+        .toList();
   }
 
-  Email _mapMail(Map<String, dynamic> item) => Email(
+  String _buildQuery(String path, Map<String, String> params) {
+    final query = params.entries
+        .map(
+          (e) =>
+              '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+        )
+        .join('&');
+    return '$path?$query';
+  }
+
+  Email _mapMail(
+    Map<String, dynamic> item,
+    MailFolder Function(String folderId) resolveFolder,
+  ) => Email(
     id: item['id'] as String,
     senderName: item['fromDisplayName'] as String? ?? '',
     senderEmail: item['fromAddress'] as String,
@@ -86,15 +104,19 @@ class ApiMailService {
         ? [item['toAddress'] as String]
         : const [],
     subject: item['subject'] as String,
-    bodyText: item.containsKey('bodyText') ? item['bodyText'] as String : '',
+    bodyText: item['bodyText'] as String? ?? '',
     timestamp:
         DateTime.tryParse(item['receivedAt'] as String) ?? DateTime.now(),
     isRead: item['isRead'] as bool? ?? false,
     isStarred: item['flagged'] as bool? ?? false,
     accountId: item['accountId'] as String? ?? '',
+    folder: resolveFolder(item['folderId'] as String),
   );
 
-  Email _mapMailDetail(Map<String, dynamic> item) {
+  Email _mapMailDetail(
+    Map<String, dynamic> item,
+    MailFolder Function(String folderId) resolveFolder,
+  ) {
     final fromList =
         (item['from'] as List?)?.cast<Map<String, dynamic>>().toList() ?? [];
     final toList =
@@ -115,6 +137,7 @@ class ApiMailService {
       isRead: item['isRead'] as bool? ?? false,
       isStarred: item['flagged'] as bool? ?? false,
       accountId: item['accountId'] as String? ?? '',
+      folder: resolveFolder(item['folderId'] as String),
     );
   }
 }
