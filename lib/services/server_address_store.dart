@@ -12,7 +12,7 @@ class ServerAddressStore {
 
   /// Development default, kept in one place. Change it here and every reader
   /// picks it up.
-  static const String defaultBaseUrl = 'http://localhost:8080';
+  static const String defaultBaseUrl = 'http://localhost:5071';
 
   /// Normalizes a raw server address: trims whitespace, strips trailing
   /// slashes and requires a valid absolute http/https URL. Throws
