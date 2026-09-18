@@ -6,6 +6,8 @@ import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
+import '../services/api_exception.dart';
+import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
@@ -16,12 +18,18 @@ import 'mail_repository.dart';
 /// documentation/endpoints are available, implement each method here (mapping
 /// the API JSON to our models) WITHOUT touching the UI.
 class ApiMailRepository extends MailRepository {
-  ApiMailRepository({ApiAuthService? authService})
-    : _authService = authService ?? _createAuthService();
+  ApiMailRepository({ApiAuthService? authService, ApiMailService? mailService})
+    : _authService = authService ?? _createAuthService() {
+    _mailService = mailService ?? ApiMailService(_authService.client);
+  }
 
   final ApiAuthService _authService;
+  late final ApiMailService _mailService;
   MailAccount? _account;
   bool _loggedIn = false;
+  final Map<MailFolder, String> _folderIds = {};
+  final Map<MailFolder, List<Email>> _emails = {};
+  final Map<MailFolder, int> _pages = {};
 
   static ApiAuthService _createAuthService() {
     final tokenStore = TokenStore();
@@ -105,8 +113,8 @@ class ApiMailRepository extends MailRepository {
     );
     _account = account;
     _loggedIn = true;
-    notifyListeners();
-    return account;
+    await _loadMailbox();
+    return _account!;
   }
 
   Future<MailAccount> connectManual(ManualConnectionRequest request) async {
@@ -119,15 +127,16 @@ class ApiMailRepository extends MailRepository {
     );
     _account = account;
     _loggedIn = true;
-    notifyListeners();
-    return account;
+    await _loadMailbox();
+    return _account!;
   }
 
   @override
   Future<void> removeAccount(String accountId) => _notImplemented();
 
   @override
-  MailAccount? getAccount(String accountId) => _notImplemented();
+  MailAccount? getAccount(String accountId) =>
+      _account?.id == accountId ? _account : null;
 
   @override
   Future<void> restoreSession(String email) async {
@@ -143,23 +152,67 @@ class ApiMailRepository extends MailRepository {
       provider: AccountProvider.inferFromEmail(email),
     );
     _loggedIn = true;
+    await _loadMailbox();
+  }
+
+  Future<void> _loadMailbox() async {
+    final folders = await _mailService.getFolders();
+    _folderIds.clear();
+    for (final folder in folders) {
+      final logical = switch (folder.type.toLowerCase()) {
+        'inbox' => MailFolder.inbox,
+        'sent' => MailFolder.sent,
+        'drafts' => MailFolder.drafts,
+        'trash' => MailFolder.trash,
+        'junk' => MailFolder.spam,
+        'spam' => MailFolder.spam,
+        'archive' => MailFolder.archive,
+        _ => null,
+      };
+      if (logical != null) _folderIds[logical] = folder.id;
+    }
     notifyListeners();
   }
 
   @override
-  List<Email> getEmailsInFolder(MailFolder folder) => _notImplemented();
+  List<Email> getEmailsInFolder(MailFolder folder) =>
+      List.unmodifiable(_emails[folder] ?? const []);
 
   @override
-  List<Email> getAllEmails() => _notImplemented();
+  List<Email> getAllEmails() =>
+      _emails.values.expand((items) => items).toList(growable: false);
 
   @override
-  Future<List<Email>> loadMoreEmails(MailFolder folder) => _notImplemented();
+  Future<List<Email>> loadMoreEmails(MailFolder folder) async {
+    final folderId = _folderIds[folder];
+    if (folderId == null) return const [];
+    final page = (_pages[folder] ?? 0) + 1;
+    final result = await _mailService.getMails(folderId: folderId, page: page);
+    final current = _emails.putIfAbsent(folder, () => <Email>[]);
+    final known = current.map((email) => email.id).toSet();
+    final fresh = result.items.where((email) => known.add(email.id)).toList();
+    current.addAll(fresh);
+    _pages[folder] = result.page;
+    notifyListeners();
+    return List.unmodifiable(fresh);
+  }
 
   @override
-  Future<void> refreshEmails(MailFolder folder) => _notImplemented();
+  Future<void> refreshEmails(MailFolder folder) async {
+    _pages[folder] = 0;
+    _emails[folder] = [];
+    await loadMoreEmails(folder);
+  }
 
   @override
-  Future<Email?> getEmail(String id) => _notImplemented();
+  Future<Email?> getEmail(String id) async {
+    try {
+      return await _mailService.getMail(id);
+    } on ApiException catch (error) {
+      if (error.code == 'mail_not_found' || error.status == 404) return null;
+      rethrow;
+    }
+  }
 
   @override
   List<Email> getThreadEmails(String threadId) => _notImplemented();
