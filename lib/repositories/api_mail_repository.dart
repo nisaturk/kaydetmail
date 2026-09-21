@@ -46,6 +46,7 @@ class ApiMailRepository extends MailRepository {
   LocalMailFlagsStore? _flagsStore;
   Set<String> _pinnedIds = {};
   final Set<String> _starredIds = {};
+  final Map<String, int> _serverThreadSizes = {};
   Set<String> _repliedIds = {};
   Set<String> _forwardedIds = {};
 
@@ -122,6 +123,7 @@ class ApiMailRepository extends MailRepository {
     _flagsStore = null;
     _pinnedIds = {};
     _starredIds.clear();
+    _serverThreadSizes.clear();
     _repliedIds = {};
     _forwardedIds = {};
     _labels = [];
@@ -276,6 +278,7 @@ class ApiMailRepository extends MailRepository {
       );
       await _loadMailbox();
       await _seedStarred();
+      unawaited(_seedThreadSizes());
       _account = await accountFuture ?? _account;
       // Cached mail is already on screen; quietly bring it up to date.
       if (hydrated) {
@@ -751,6 +754,21 @@ class ApiMailRepository extends MailRepository {
     }
     thread.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return List.unmodifiable(thread);
+  }
+
+  @override
+  int serverThreadSize(String threadId) => _serverThreadSizes[threadId] ?? 0;
+
+  /// Best-effort: message counts per conversation, so an inbox row shows the
+  /// whole thread even when the replies live in an unloaded folder.
+  Future<void> _seedThreadSizes() async {
+    try {
+      final page = await _mailService.getConversations(pageSize: 100);
+      for (final c in page.items) {
+        _serverThreadSizes[c.id] = c.messageCount;
+      }
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Server-side conversation list (`GET /api/conversations`) for views that
