@@ -56,14 +56,17 @@ class ApiMailService {
         .map(
           (item) => MailSession(
             id: item['id'] as String,
-            deviceIdentifier: item['deviceIdentifier'] as String,
-            createdAt: DateTime.parse(item['createdAt'] as String),
-            lastUsedAt: DateTime.parse(item['lastUsedAt'] as String),
-            expiresAt: DateTime.parse(item['expiresAt'] as String),
+            deviceIdentifier: (item['deviceIdentifier'] as String?) ?? '—',
+            createdAt: _date(item['createdAt']),
+            lastUsedAt: _date(item['lastUsedAt'] ?? item['createdAt']),
+            expiresAt: _date(item['expiresAt']),
           ),
         )
         .toList();
   }
+
+  static DateTime _date(Object? v) =>
+      DateTime.tryParse('${v ?? ''}') ?? DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<void> deleteSession(String sessionId) =>
       _client.delete('/api/account/sessions/${Uri.encodeComponent(sessionId)}');

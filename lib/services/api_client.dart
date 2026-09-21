@@ -27,7 +27,10 @@ class ApiClient {
       authenticated: authenticated,
     );
     if (response.body.isEmpty) return const [];
-    return jsonDecode(response.body) as List<dynamic>;
+    final decoded = jsonDecode(response.body);
+    // Tolerate the `{ items: [...] }` envelope some endpoints use.
+    if (decoded is Map<String, dynamic>) return decoded['items'] as List;
+    return decoded as List<dynamic>;
   }
 
   Future<Map<String, dynamic>> postJson(
