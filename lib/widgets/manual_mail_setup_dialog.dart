@@ -33,13 +33,9 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
   void initState() {
     super.initState();
     final domain = widget.email.trim().split('@').lastOrNull ?? '';
-    _imapHost = TextEditingController(
-      text: domain.isEmpty ? '' : 'imap.$domain',
-    );
+    _imapHost = TextEditingController(text: domain.isEmpty ? '' : 'imap.$domain');
     _imapPort = TextEditingController(text: '993');
-    _smtpHost = TextEditingController(
-      text: domain.isEmpty ? '' : 'smtp.$domain',
-    );
+    _smtpHost = TextEditingController(text: domain.isEmpty ? '' : 'smtp.$domain');
     _smtpPort = TextEditingController(text: '587');
   }
 
@@ -65,14 +61,11 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
   }
 
   String? _requiredHost(String? value) =>
-      (value == null || value.trim().isEmpty)
-      ? 'Sunucu adresi zorunludur'
-      : null;
+      (value == null || value.trim().isEmpty) ? 'Sunucu adresi zorunludur' : null;
 
   String? _validPort(String? value) {
     final port = int.tryParse(value?.trim() ?? '');
-    if (port == null || port <= 0 || port > 65535)
-      return 'Geçerli bir port girin';
+    if (port == null || port <= 0 || port > 65535) return 'Geçerli bir port girin';
     return null;
   }
 
