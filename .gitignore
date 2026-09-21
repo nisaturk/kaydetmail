@@ -48,3 +48,11 @@ app.*.map.json
 .widget_preview/
 
 hatalar.txt
+
+# local tooling / notes
+.opencode/
+.serena/
+CLAUDE.md
+docs/backend-istek-listesi.md
+docs/backendden-geldi/
+docs/superpowers/
