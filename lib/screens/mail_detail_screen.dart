@@ -90,7 +90,10 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       final first = !_opened;
       setState(() {
         _email = loaded;
-        _thread = _mergeThread(loaded, _thread);
+        _thread = _mergeThread(loaded, [
+          ..._thread,
+          ..._repo.getThreadEmails(loaded.threadId),
+        ]);
         _loading = false;
         _loadError = null;
       });
@@ -156,7 +159,13 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       // The user may have navigated to another mail meanwhile — only merge
       // into the mail this fetch started for.
       if (_email?.id != email.id) return;
-      final merged = _mergeThread(email, fetched);
+      // The server conversation can lag behind replies sent from this app
+      // (only a local copy exists until the next sync), so keep those too.
+      final merged = _mergeThread(email, [
+        ...fetched,
+        ..._repo.getThreadEmails(email.threadId),
+      ]);
+      debugPrint('Thread ${email.threadId}: ${merged.length} messages');
       if (!_sameIds(merged, _thread)) {
         setState(() => _thread = merged);
         _scrollToNewest();
