@@ -130,6 +130,37 @@ class ApiMailService {
     '/api/mails/${Uri.encodeComponent(mailId)}/attachments/${Uri.encodeComponent(attachmentId)}',
   );
 
+  /// Registers (or upserts — same token twice just updates) this device for
+  /// FCM pushes (`POST /api/devices`, `201`). Safe to call on every launch.
+  Future<DeviceRegistration> registerDevice({
+    required String token,
+    required String platform,
+    required String appVersion,
+    required String locale,
+  }) async {
+    final body = await _client.postJson('/api/devices', {
+      'token': token,
+      'platform': platform,
+      'appVersion': appVersion,
+      'locale': locale,
+    });
+    DateTime? optionalDate(dynamic raw) =>
+        raw is String ? DateTime.tryParse(raw) : null;
+    return DeviceRegistration(
+      id: body['id'] as String,
+      platform: body['platform'] as String? ?? platform,
+      appVersion: body['appVersion'] as String? ?? appVersion,
+      locale: body['locale'] as String? ?? locale,
+      registeredAt: optionalDate(body['registeredAt']),
+      lastSeenAt: optionalDate(body['lastSeenAt']),
+    );
+  }
+
+  /// Removes this device's push registration (`DELETE /api/devices/{id}`,
+  /// `204`) — called on logout and when notifications are disabled.
+  Future<void> unregisterDevice(String id) =>
+      _client.delete('/api/devices/${Uri.encodeComponent(id)}');
+
   /// Lists server-side conversations (`GET /api/conversations`) newest-first.
   /// Same `{ items, page, pageSize, total }` envelope as the mail list.
   Future<ConversationListPage> getConversations({
@@ -673,6 +704,25 @@ class ApiConversation {
   final String id;
   final String subject;
   final List<String> messageIds;
+}
+
+/// One FCM device registration from `POST /api/devices` (`201`).
+class DeviceRegistration {
+  const DeviceRegistration({
+    required this.id,
+    required this.platform,
+    required this.appVersion,
+    required this.locale,
+    this.registeredAt,
+    this.lastSeenAt,
+  });
+
+  final String id;
+  final String platform;
+  final String appVersion;
+  final String locale;
+  final DateTime? registeredAt;
+  final DateTime? lastSeenAt;
 }
 
 class ApiMailFolder {

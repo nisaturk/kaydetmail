@@ -76,6 +76,15 @@ abstract class MailRepository extends ChangeNotifier {
   /// session and the loaded mailbox — only the credentials are replaced.
   Future<void> reconnect({required String password});
 
+  /// Registers this device for FCM pushes (upsert — safe on every launch).
+  /// The API implementation remembers the registration id to remove it on
+  /// [logout]; the mock has no server, so this is a no-op.
+  Future<void> registerCurrentDevice({
+    required String fcmToken,
+    required String appVersion,
+    required String locale,
+  });
+
   /// Email address of the currently signed-in user.
   String get currentUser;
 

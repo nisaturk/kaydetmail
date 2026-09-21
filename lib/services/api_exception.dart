@@ -74,6 +74,20 @@ class ApiException implements Exception {
     'idempotency_conflict' => 'Gönderim tekrar denensin.',
     'recipient_required' => 'En az bir alıcı yazmalısınız.',
     'invalid_recipient' => 'Alıcı adresi geçersiz.',
+    'invalid_email' => 'Geçersiz e-posta adresi.',
+    'invalid_mail_header' => 'E-posta başlıkları geçersiz.',
+    'message_not_constructible' => 'E-posta oluşturulamadı.',
+    'manual_setup_invalid' => 'Sunucu ayarları geçersiz.',
+    'discovery_invalid' => 'Sunucu keşfi geçersiz. Tekrar deneyin.',
+    'oauth_provider_not_configured' =>
+      'Bu giriş yöntemi sunucuda ayarlı değil.',
+    'oauth_redirect_uri_invalid' => 'Yönlendirme adresi geçersiz.',
+    'oauth_state_invalid' => 'Oturum doğrulaması geçersiz. Tekrar deneyin.',
+    'oauth_code_exchange_failed' => 'Sağlayıcı girişi reddetti.',
+    'oauth_refresh_lock_unavailable' =>
+      'Sunucu meşgul. Birazdan tekrar deneyin.',
+    'draft_delete_failed' => 'Taslak silinemedi. Tekrar deneyin.',
+    'session_revoked' => 'Oturum zaten kapatılmış.',
     'body_required' => 'E-posta gövdesi boş olamaz.',
     'body_too_large' => 'E-posta gövdesi çok büyük.',
     'attachment_too_large' ||

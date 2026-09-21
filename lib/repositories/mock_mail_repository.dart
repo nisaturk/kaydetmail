@@ -163,6 +163,16 @@ class MockMailRepository extends MailRepository {
   }
 
   @override
+  Future<void> registerCurrentDevice({
+    required String fcmToken,
+    required String appVersion,
+    required String locale,
+  }) async {
+    // No server in mock mode — nothing to register with.
+    await _delay();
+  }
+
+  @override
   Future<List<MailSession>> getSessions() async {
     await _delay();
     return List.unmodifiable(_sessions);

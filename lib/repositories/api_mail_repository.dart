@@ -1,6 +1,6 @@
 import 'dart:math';
-import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/email.dart';
@@ -36,6 +36,7 @@ class ApiMailRepository extends MailRepository {
   final Map<String, MailFolder> _folderTypeById = {};
   final Map<MailFolder, List<Email>> _emails = {};
   final Map<MailFolder, int> _pages = {};
+  String? _deviceId;
   LocalMailFlagsStore? _flagsStore;
   Set<String> _pinnedIds = {};
   Set<String> _repliedIds = {};
@@ -99,6 +100,17 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> logout() async {
+    // Drop the push registration first (best-effort — a failure here must
+    // never block signing out), then revoke the session as before.
+    final deviceId = _deviceId;
+    _deviceId = null;
+    if (deviceId != null) {
+      try {
+        await _mailService.unregisterDevice(deviceId);
+      } catch (_) {
+        // Logout still proceeds; the server registration expires on its own.
+      }
+    }
     await _authService.logout();
     _account = null;
     _loggedIn = false;
@@ -117,6 +129,24 @@ class ApiMailRepository extends MailRepository {
     final account = await _mailService.reconnect(password: password);
     _account = account;
     notifyListeners();
+  }
+
+  /// Upserts this device's push registration and remembers the id for
+  /// [logout]. The platform name follows the documented values (`android`,
+  /// `ios`, …) in lowercase.
+  @override
+  Future<void> registerCurrentDevice({
+    required String fcmToken,
+    required String appVersion,
+    required String locale,
+  }) async {
+    final registration = await _mailService.registerDevice(
+      token: fcmToken,
+      platform: defaultTargetPlatform.name.toLowerCase(),
+      appVersion: appVersion,
+      locale: locale,
+    );
+    _deviceId = registration.id;
   }
 
   @override

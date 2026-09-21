@@ -7,7 +7,9 @@ import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/services/api_auth_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_exception.dart';
+import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
+import 'package:kaydetmail/services/push_service.dart';
 import 'package:kaydetmail/services/server_address_store.dart';
 import 'package:kaydetmail/services/token_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -501,4 +503,146 @@ void main() {
       expect(AccountProvider.fromBackend('Custom'), AccountProvider.other);
     });
   });
+
+  group('Devices', () {
+    test('Given FCM token When registerDevice is called Then upsert body is sent and registration parsed', () async {
+      SharedPreferences.setMockInitialValues({});
+      late String path;
+      late Map<String, dynamic> body;
+      final service = ApiMailService(
+        _clientForDevices((request) async {
+          path = request.url.path;
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'id': 'dev-1',
+              'platform': 'android',
+              'appVersion': '1.4.0',
+              'locale': 'tr-TR',
+              'registeredAt': '2026-09-18T08:00:00Z',
+            }),
+            201,
+          );
+        }),
+      );
+
+      final dev = await service.registerDevice(
+        token: 'fcm-t',
+        platform: 'android',
+        appVersion: '1.4.0',
+        locale: 'tr-TR',
+      );
+
+      expect(path, '/api/devices');
+      expect(body['token'], 'fcm-t');
+      expect(dev.id, 'dev-1');
+      expect(dev.platform, 'android');
+    });
+
+    test('Given device id When unregisterDevice is called Then DELETE hits the device path', () async {
+      SharedPreferences.setMockInitialValues({});
+      late String path;
+      late String method;
+      final service = ApiMailService(
+        _clientForDevices((request) async {
+          path = request.url.path;
+          method = request.method;
+          return http.Response('', 204);
+        }),
+      );
+
+      await service.unregisterDevice('dev-1');
+
+      expect(method, 'DELETE');
+      expect(path, '/api/devices/dev-1');
+    });
+  });
+
+  group('Rate limiting', () {
+    test('Given 429 on a GET When retried Then it succeeds without surfacing the error', () async {
+      SharedPreferences.setMockInitialValues({});
+      final store = TokenStore(storage: MemoryTokenStorage());
+      var calls = 0;
+      final client = ApiClient(
+        tokenStore: store,
+        httpClient: MockClient((_) async {
+          calls++;
+          if (calls == 1) return http.Response('', 429);
+          return http.Response('{"ok":true}', 200);
+        }),
+      );
+
+      final body = await client.get('/api/account', authenticated: false);
+
+      expect(body['ok'], isTrue);
+      expect(calls, 2);
+    });
+
+    test(
+      'Given 429 on a POST When sent Then it throws immediately without retry',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final store = TokenStore(storage: MemoryTokenStorage());
+        var calls = 0;
+        final client = ApiClient(
+          tokenStore: store,
+          httpClient: MockClient((_) async {
+            calls++;
+            return http.Response('', 429);
+          }),
+        );
+
+        await expectLater(
+          client.post('/api/account/sessions/x'),
+          throwsA(isA<ApiException>().having((e) => e.status, 'status', 429)),
+        );
+        expect(calls, 1);
+      },
+    );
+  });
+
+  group('Push handling', () {
+    test('Given new_mail data When handled Then the mail is fetched by id, never read from the payload', () async {
+      final fetched = <String>[];
+      await handlePushData(const {
+        'type': 'new_mail',
+        'mailId': 'm-1',
+      }, fetchMail: (id) async => fetched.add(id));
+
+      expect(fetched, ['m-1']);
+    });
+
+    test(
+      'Given reauthentication push When handled Then the reauth callback fires',
+      () async {
+        var reauthCalls = 0;
+        await handlePushData(
+          const {'type': 'account_reauthentication_required'},
+          fetchMail: (_) async {},
+          onAccountReauth: () async => reauthCalls++,
+        );
+
+        expect(reauthCalls, 1);
+      },
+    );
+
+    test(
+      'Given mail without id When handled Then nothing is fetched',
+      () async {
+        var calls = 0;
+        await handlePushData(const {
+          'type': 'new_mail',
+        }, fetchMail: (_) async => calls++);
+
+        expect(calls, 0);
+      },
+    );
+  });
 }
+
+ApiClient _clientForDevices(
+  Future<http.Response> Function(http.Request) handler,
+) => ApiClient(
+  tokenStore: TokenStore(storage: MemoryTokenStorage()),
+  httpClient: MockClient(handler),
+);
