@@ -4,6 +4,7 @@ import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
+import '../utils/html_to_text.dart';
 import 'api_client.dart';
 
 class ApiMailService {
@@ -83,8 +84,37 @@ class ApiMailService {
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
   }) async {
-    final body = await _client.get('/api/mails/$id');
+    final body = await _client.get('/api/mails/${Uri.encodeComponent(id)}');
     return _mapMailDetail(body, resolveFolder);
+  }
+
+  /// Loads a conversation via `GET /api/conversations/{id}`.
+  ///
+  /// The response carries message *summaries* (`messages[]` with ids, no
+  /// bodies), so callers fetch each message via [getMail] for full content.
+  /// A codeless 404 means the conversation does not exist (see the error
+  /// table) and surfaces as an [ApiException] for the caller to handle.
+  Future<ApiConversation> getConversation(String id) async {
+    final body = await _client.get(
+      '/api/conversations/${Uri.encodeComponent(id)}',
+    );
+    final raw = body['messages'];
+    final messageIds = <String>[];
+    if (raw is List) {
+      for (final entry in raw) {
+        if (entry is Map<String, dynamic>) {
+          final mid = entry['id'] as String?;
+          if (mid != null && mid.isNotEmpty && !messageIds.contains(mid)) {
+            messageIds.add(mid);
+          }
+        }
+      }
+    }
+    return ApiConversation(
+      id: body['id'] as String? ?? id,
+      subject: body['subject'] as String? ?? '',
+      messageIds: messageIds,
+    );
   }
 
   /// One of the nine fixed single-mail actions documented for
@@ -312,11 +342,11 @@ class ApiMailService {
   );
 
   /// Participant lists arrive either as address strings or as
-  /// `{ address, displayName }` objects — accept both.
+  /// `{ address, displayName }` objects — accept both, tolerate anything.
   static List<String> _addresses(dynamic value) {
-    final list = value as List? ?? const [];
+    if (value is! List) return const [];
     return [
-      for (final entry in list)
+      for (final entry in value)
         if (entry is String && entry.isNotEmpty)
           entry
         else if (entry is Map<String, dynamic> &&
@@ -325,26 +355,60 @@ class ApiMailService {
     ];
   }
 
+  /// First parseable timestamp out of the documented date fields, falling
+  /// back to now so a malformed/missing date never breaks the whole mail.
+  static DateTime _parseDate(Map<String, dynamic> item) {
+    for (final key in ['receivedAt', 'sentAt', 'internalDate']) {
+      final raw = item[key] as String?;
+      final parsed = raw == null ? null : DateTime.tryParse(raw);
+      if (parsed != null) return parsed;
+    }
+    return DateTime.now();
+  }
+
+  /// Prefers `bodyText`; falls back to a *safe* plain-text rendering of
+  /// `body.html` for HTML-only messages (no WebView, no remote content).
+  /// Never returns null — worst case an empty body, never a crash.
+  static String _resolveBodyText(
+    Map<String, dynamic> item,
+    Map<String, dynamic>? body,
+  ) {
+    final raw = item['bodyText'] as String?;
+    if (raw != null && raw.trim().isNotEmpty) return raw;
+    final html = body?['html'] as String?;
+    if (html != null && html.trim().isNotEmpty) return htmlToPlainText(html);
+    return '';
+  }
+
   Email _mapMailDetail(
     Map<String, dynamic> item,
     MailFolder Function(String folderId) resolveFolder,
   ) {
-    final fromList = _addresses(item['from']);
+    final fromRaw = item['from'] is List ? item['from'] as List : const [];
+    final fromList = _addresses(fromRaw);
     final fromNames = [
-      for (final entry in (item['from'] as List? ?? const []))
+      for (final entry in fromRaw)
         if (entry is Map<String, dynamic>)
           entry['displayName'] as String? ?? '',
     ];
-    final attachments = (item['attachments'] as List? ?? const [])
-        .whereType<Map<String, dynamic>>()
-        .map(
-          (a) => Attachment(
-            name: a['fileName'] as String? ?? 'ek',
-            sizeBytes: (a['sizeBytes'] as num?)?.toInt() ?? 0,
-            mimeType: a['contentType'] as String?,
-          ),
-        )
-        .toList();
+    final rawAttachments = item['attachments'];
+    final attachments = rawAttachments is List
+        ? rawAttachments
+              .whereType<Map<String, dynamic>>()
+              .map(
+                (a) => Attachment(
+                  id: a['id'] as String?,
+                  name: a['fileName'] as String? ?? 'ek',
+                  sizeBytes: (a['sizeBytes'] as num?)?.toInt() ?? 0,
+                  mimeType: a['contentType'] as String?,
+                ),
+              )
+              .toList()
+        : const <Attachment>[];
+    final body = item['body'] is Map<String, dynamic>
+        ? item['body'] as Map<String, dynamic>
+        : null;
+    final inReplyTo = item['inReplyToMessageId'] as String?;
     return Email(
       id: item['id'] as String,
       senderName: fromNames.isNotEmpty ? fromNames.first : '',
@@ -353,18 +417,33 @@ class ApiMailService {
       cc: _addresses(item['cc']),
       bcc: _addresses(item['bcc']),
       subject: item['subject'] as String? ?? '',
-      bodyText: item['bodyText'] as String? ?? '',
-      timestamp:
-          DateTime.tryParse(item['receivedAt'] as String) ?? DateTime.now(),
+      bodyText: _resolveBodyText(item, body),
+      hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
+      timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
       isStarred: item['flagged'] as bool? ?? false,
       accountId: item['accountId'] as String? ?? '',
       folder: resolveFolder(item['folderId'] as String),
       threadId: item['conversationId'] as String? ?? '',
-      inReplyToId: item['inReplyToMessageId'] as String?,
+      inReplyToId: inReplyTo == null || inReplyTo.isEmpty ? null : inReplyTo,
       attachments: attachments,
     );
   }
+}
+
+/// A server-side conversation from `GET /api/conversations/{id}`: the
+/// subject plus its message ids. Messages arrive as summaries without
+/// bodies — fetch each one via [ApiMailService.getMail] for full content.
+class ApiConversation {
+  const ApiConversation({
+    required this.id,
+    required this.subject,
+    required this.messageIds,
+  });
+
+  final String id;
+  final String subject;
+  final List<String> messageIds;
 }
 
 class ApiMailFolder {

@@ -6,11 +6,16 @@ import 'mail_folder.dart';
 @immutable
 class Attachment {
   const Attachment({
+    this.id,
     required this.name,
     required this.sizeBytes,
     this.mimeType,
     this.bytes,
   });
+
+  /// Server-side attachment id (`GET /api/mails/{mailId}/attachments/{id}`).
+  /// Null for locally picked or mock/seed attachments.
+  final String? id;
 
   final String name;
   final int sizeBytes;
@@ -54,6 +59,7 @@ class Email {
     this.bcc = const [],
     required this.subject,
     required this.bodyText,
+    this.hasRemoteContent = false,
     required this.timestamp,
     this.isRead = false,
     this.isPinned = false,
@@ -79,6 +85,13 @@ class Email {
 
   final String subject;
   final String bodyText;
+
+  /// Whether the original HTML body references remote content (tracking
+  /// pixels, remote images, …). Remote resources are never fetched
+  /// automatically; this flag only preserves the server's signal for a
+  /// future "load remote content" prompt.
+  final bool hasRemoteContent;
+
   final DateTime timestamp;
   final bool isRead;
   final bool isPinned;
@@ -134,6 +147,7 @@ class Email {
     List<String>? bcc,
     String? subject,
     String? bodyText,
+    bool? hasRemoteContent,
     DateTime? timestamp,
     bool? isRead,
     bool? isPinned,
@@ -156,6 +170,7 @@ class Email {
       bcc: bcc ?? this.bcc,
       subject: subject ?? this.subject,
       bodyText: bodyText ?? this.bodyText,
+      hasRemoteContent: hasRemoteContent ?? this.hasRemoteContent,
       timestamp: timestamp ?? this.timestamp,
       isRead: isRead ?? this.isRead,
       isPinned: isPinned ?? this.isPinned,

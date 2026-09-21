@@ -10,14 +10,25 @@ class ApiException implements Exception {
   });
 
   factory ApiException.fromResponse(int status, String body) {
-    final decoded = body.isEmpty ? null : jsonDecode(body);
-    final details = decoded is Map<String, dynamic>
-        ? decoded
-        : const <String, dynamic>{};
+    // Error bodies are Problem Details JSON per contract, but a
+    // protocol-violating (non-JSON) body must still surface as an
+    // ApiException — never as a raw FormatException from the UI's path.
+    Map<String, dynamic> details;
+    try {
+      final decoded = body.isEmpty ? null : jsonDecode(body);
+      details = decoded is Map<String, dynamic>
+          ? decoded
+          : const <String, dynamic>{};
+    } catch (_) {
+      details = const <String, dynamic>{};
+    }
+    final fallbackTitle = details.isEmpty && body.isNotEmpty
+        ? body.substring(0, body.length > 120 ? 120 : body.length)
+        : null;
     return ApiException(
       status: status,
       code: details['code'] as String?,
-      title: details['title'] as String?,
+      title: details['title'] as String? ?? fallbackTitle,
       correlationId: details['correlationId'] as String?,
       details: details,
     );

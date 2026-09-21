@@ -146,7 +146,19 @@ abstract class MailRepository extends ChangeNotifier {
   /// Every mail belonging to the same conversation, oldest first.
   /// Grouped by [threadId] — never by subject/account, which can coincide
   /// across unrelated conversations.
+  ///
+  /// This is the synchronously available snapshot (in-memory cache). Remote
+  /// conversations load through [fetchThreadEmails].
   List<Email> getThreadEmails(String threadId);
+
+  /// Asynchronously loads the full conversation for [threadId], oldest
+  /// first, with complete message bodies.
+  ///
+  /// The mock answers from its in-memory list. The API implementation
+  /// fetches the conversation and then each message's full detail. Callers
+  /// must treat a failure as "enrichment unavailable" and keep whatever
+  /// mail they already show — never blank the screen because of it.
+  Future<List<Email>> fetchThreadEmails(String threadId);
 
   // --- Writing ------------------------------------------------------
 

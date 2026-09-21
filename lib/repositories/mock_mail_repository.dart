@@ -348,6 +348,14 @@ class MockMailRepository extends MailRepository {
     return List.unmodifiable(thread);
   }
 
+  @override
+  Future<List<Email>> fetchThreadEmails(String threadId) async {
+    // In-memory mock: same data as the synchronous snapshot, no network —
+    // and deliberately no artificial delay, so enrichment settles together
+    // with the main load instead of leaving a trailing timer behind.
+    return getThreadEmails(threadId);
+  }
+
   /// Finds an account by email address (case-insensitive). Account ids are
   /// opaque — never pass an email to [getAccount].
   MailAccount? _accountForEmail(String email) {

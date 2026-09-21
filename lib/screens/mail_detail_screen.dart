@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -6,6 +8,7 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
+import '../services/api_exception.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../widgets/label_picker_sheet.dart';
@@ -34,9 +37,22 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   Email? _email;
   List<Email> _thread = const [];
   final Set<String> _collapsed = {};
+
+  /// Messages the user explicitly expanded/collapsed — thread enrichment
+  /// never overrides those choices when it merges in more messages.
+  final Set<String> _userToggled = {};
   bool _threadInit = false;
   bool _loading = true;
   bool _opened = false;
+
+  /// Why the main mail load failed, when it did and nothing is shown yet.
+  /// Null means "not found" rather than a transport error.
+  Object? _loadError;
+
+  /// Guards thread enrichment: `<mailId>@<threadId>` currently loading vs.
+  /// already loaded, so listener re-runs never stack or repeat fetches.
+  String? _enrichingKey;
+  String? _enrichedKey;
 
   @override
   void initState() {
@@ -51,31 +67,105 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     super.dispose();
   }
 
+  /// Mail-first loading: the opened mail renders as soon as its own detail
+  /// response arrives. Thread enrichment follows asynchronously and can only
+  /// *add* messages — it never replaces or blanks the loaded mail.
+  ///
+  /// Listener-safe: a failed refresh keeps the already-shown mail instead
+  /// of clearing it; the spinner only shows on the very first load and on
+  /// explicit retry.
   Future<void> _reload() async {
-    final email = await _repo.getEmail(widget.emailId);
-    final thread = email == null ? const <Email>[] : _threadFor(email);
+    Email? email;
+    Object? error;
+    try {
+      email = await _repo.getEmail(widget.emailId);
+    } catch (e) {
+      error = e;
+    }
     if (!mounted) return;
-    setState(() {
-      _email = email;
-      _thread = thread;
-      _loading = false;
-    });
-    _initCollapsed();
+    if (email != null) {
+      final loaded = email;
+      final first = !_opened;
+      setState(() {
+        _email = loaded;
+        _thread = _mergeThread(loaded, _thread);
+        _loading = false;
+        _loadError = null;
+      });
+      _initCollapsed();
 
-    // A freshly opened mail becomes read — but only on the very first load.
-    // Later reloads (pin, mark-as-unread) must not silently flip it back.
-    if (email != null && !_opened) {
-      _opened = true;
-      if (!email.isRead) {
-        await _repo.markAsRead([email.id]);
+      // A freshly opened mail becomes read — but only on the very first
+      // load. Later reloads (pin, mark-as-unread) must not silently flip
+      // it back.
+      if (first) {
+        _opened = true;
+        if (!loaded.isRead) {
+          await _repo.markAsRead([loaded.id]);
+        }
       }
+      _maybeEnrichThread(loaded);
+    } else if (_email == null) {
+      // Nothing shown yet: surface not-found vs. transport error.
+      if (error != null) debugPrint('Mail detail load failed: $error');
+      setState(() {
+        _loading = false;
+        _loadError = error;
+      });
+    } else if (error != null) {
+      // Refresh failed but the loaded mail stays on screen.
+      debugPrint('Mail detail refresh failed: $error');
     }
   }
 
-  /// The conversation sorted oldest-first. Data is fetched from the
-  /// repository, not just reconstructed, so shared [threadId]s (even across
-  /// folders) join up; single threads are just themselves.
-  List<Email> _threadFor(Email email) => _repo.getThreadEmails(email.threadId);
+  /// The opened mail plus the already-known thread messages, deduplicated
+  /// and sorted oldest-first. The opened mail is always present, so a
+  /// thread fetch can never remove what the user opened.
+  static List<Email> _mergeThread(Email email, List<Email> others) {
+    final byId = {for (final message in others) message.id: message};
+    byId[email.id] = email;
+    final merged = byId.values.toList()
+      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return List.unmodifiable(merged);
+  }
+
+  static bool _sameIds(List<Email> a, List<Email> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id) return false;
+    }
+    return true;
+  }
+
+  /// Kicks off conversation enrichment once per mail+thread. A failure only
+  /// keeps the already-rendered single mail — the screen never blanks and
+  /// the spinner never returns.
+  void _maybeEnrichThread(Email email) {
+    if (email.threadId.isEmpty) return;
+    final key = '${email.id}@${email.threadId}';
+    if (key == _enrichedKey || key == _enrichingKey) return;
+    _enrichingKey = key;
+    unawaited(_enrichThread(email, key));
+  }
+
+  Future<void> _enrichThread(Email email, String key) async {
+    try {
+      final fetched = await _repo.fetchThreadEmails(email.threadId);
+      if (!mounted) return;
+      // The user may have navigated to another mail meanwhile — only merge
+      // into the mail this fetch started for.
+      if (_email?.id != email.id) return;
+      final merged = _mergeThread(email, fetched);
+      if (!_sameIds(merged, _thread)) {
+        setState(() => _thread = merged);
+        _collapseAllButNewest();
+      }
+      _enrichedKey = key;
+    } catch (e) {
+      debugPrint('Thread enrichment failed for ${email.threadId}: $e');
+    } finally {
+      if (_enrichingKey == key) _enrichingKey = null;
+    }
+  }
 
   /// Older messages collapse on first load; the newest stays expanded. Mails
   /// that arrive later (e.g. a reply created from this thread) are naturally
@@ -92,9 +182,33 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   }
 
   void _toggleMessage(String id) {
+    _userToggled.add(id);
     setState(() {
       if (!_collapsed.remove(id)) _collapsed.add(id);
     });
+  }
+
+  /// Collapses every message but the newest, leaving messages the user
+  /// explicitly toggled alone. Used when enrichment merges in messages
+  /// that arrived after the first render.
+  void _collapseAllButNewest() {
+    if (_thread.length < 2) return;
+    final newest = _thread.last.id;
+    setState(() {
+      _collapsed.addAll(
+        _thread
+            .map((e) => e.id)
+            .where((id) => id != newest && !_userToggled.contains(id)),
+      );
+    });
+  }
+
+  Future<void> _retry() async {
+    setState(() {
+      _loading = true;
+      _loadError = null;
+    });
+    await _reload();
   }
 
   /// Shows the pin-limit notice when no slot is left. Returns true when the
@@ -258,10 +372,46 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
     final email = _email;
     if (email == null) {
-      return const Center(
-        child: Text(
-          'Bu e-posta artık mevcut değil.',
-          style: TextStyle(fontSize: 15, color: AppTheme.secondaryText),
+      // The mail genuinely isn't there (null without an error), or the
+      // detail request itself failed — the two get different messages and
+      // only a failure offers a retry.
+      final error = _loadError;
+      if (error == null) {
+        return const Center(
+          child: Text(
+            'Bu e-posta artık mevcut değil.',
+            style: TextStyle(fontSize: 15, color: AppTheme.secondaryText),
+          ),
+        );
+      }
+      final message = error is ApiException
+          ? error.userMessage
+          : 'E-posta yüklenemedi. Lütfen tekrar deneyin.';
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 32),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Icon(
+                LucideIcons.cloudOff,
+                size: 40,
+                color: AppTheme.secondaryText,
+              ),
+              const SizedBox(height: 12),
+              Text(
+                message,
+                textAlign: TextAlign.center,
+                style: const TextStyle(fontSize: 15, color: Colors.black),
+              ),
+              const SizedBox(height: 12),
+              TextButton.icon(
+                onPressed: _retry,
+                icon: const Icon(LucideIcons.refreshCw, size: 18),
+                label: const Text('Tekrar dene'),
+              ),
+            ],
+          ),
         ),
       );
     }

@@ -438,19 +438,75 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<Email?> getEmail(String id) async {
     try {
-      final email = await _mailService.getMail(
-        id,
-        resolveFolder: _resolveFolder,
+      final email = _stampLocalFlags(
+        await _mailService.getMail(id, resolveFolder: _resolveFolder),
       );
-      return _stampLocalFlags(email);
+      _upsertDetail(email);
+      return email;
     } on ApiException catch (error) {
       if (error.code == 'mail_not_found' || error.status == 404) return null;
       rethrow;
     }
   }
 
+  /// Stores a full detail object in the in-memory cache without notifying:
+  /// replaces the cached copy in whichever bucket holds it, or files it
+  /// under its own folder when unknown. Never creates duplicates, so a
+  /// detail fetch never corrupts the folder lists.
+  void _upsertDetail(Email email) {
+    for (final folder in _emails.keys.toList()) {
+      final list = _emails[folder]!;
+      final index = list.indexWhere((e) => e.id == email.id);
+      if (index >= 0) {
+        _emails[folder] = [...list]..[index] = email;
+        return;
+      }
+    }
+    _emails.putIfAbsent(email.folder, () => <Email>[]).insert(0, email);
+  }
+
+  /// Synchronously available snapshot of the cache — whatever detail fetches
+  /// have enriched so far. Remote conversations load via [fetchThreadEmails].
   @override
-  List<Email> getThreadEmails(String threadId) => _notImplemented();
+  List<Email> getThreadEmails(String threadId) {
+    if (threadId.isEmpty) return const [];
+    final thread = <Email>[];
+    for (final list in _emails.values) {
+      thread.addAll(list.where((e) => e.threadId == threadId));
+    }
+    thread.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return List.unmodifiable(thread);
+  }
+
+  /// Loads the full server conversation: conversation → message ids →
+  /// one detail fetch per message. Each message is fetched independently —
+  /// one unreadable message is skipped while the rest still load. The
+  /// result is deduplicated and sorted oldest → newest. A conversation-level
+  /// failure propagates so the caller can keep its already-loaded mail.
+  @override
+  Future<List<Email>> fetchThreadEmails(String threadId) async {
+    if (threadId.isEmpty) return const [];
+    final conversation = await _mailService.getConversation(threadId);
+    final results = await Future.wait(
+      conversation.messageIds.map((id) async {
+        try {
+          return await _mailService.getMail(id, resolveFolder: _resolveFolder);
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    final seen = <String>{};
+    final thread = <Email>[];
+    for (final mail in results) {
+      if (mail == null || !seen.add(mail.id)) continue;
+      final stamped = _stampLocalFlags(mail);
+      thread.add(stamped);
+      _upsertDetail(stamped);
+    }
+    thread.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    return List.unmodifiable(thread);
+  }
 
   @override
   Future<Email> sendEmail({

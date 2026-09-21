@@ -17,7 +17,7 @@ class AppConfig {
 
   static const bool useMockApi = bool.fromEnvironment(
     'USE_MOCK_API',
-    defaultValue: true,
+    defaultValue: false,
   );
 
   static MailRepository? _mailRepository;
@@ -32,5 +32,11 @@ class AppConfig {
   static void resetForTest() {
     _mailRepository = null;
     SessionStore.resetForTest();
+  }
+
+  /// Lets widget tests drive screens with a stubbed repository.
+  @visibleForTesting
+  static set mailRepositoryForTest(MailRepository repository) {
+    _mailRepository = repository;
   }
 }
