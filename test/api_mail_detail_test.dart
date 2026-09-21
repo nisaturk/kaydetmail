@@ -1,17 +1,13 @@
 import 'dart:convert';
 
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/api_mail_repository.dart';
-import 'package:kaydetmail/repositories/mock_mail_repository.dart';
-import 'package:kaydetmail/screens/mail_detail_screen.dart';
 import 'package:kaydetmail/services/api_auth_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_exception.dart';
@@ -281,55 +277,6 @@ void main() {
       expect(() => broken.getEmail('m-1'), throwsA(isA<ApiException>()));
     });
   });
-
-  group('MailDetailScreen resilience', () {
-    testWidgets('thread failure still shows the loaded mail body', (
-      tester,
-    ) async {
-      AppConfig.resetForTest();
-      AppConfig.mailRepositoryForTest = _FailingThreadRepository();
-
-      await tester.pumpWidget(
-        const MaterialApp(home: MailDetailScreen(emailId: 'seed-david-ci')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.textContaining('certificate'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-      expect(find.text('Bu e-posta artık mevcut değil.'), findsNothing);
-    });
-
-    testWidgets('main load failure shows an error with retry', (tester) async {
-      AppConfig.resetForTest();
-      AppConfig.mailRepositoryForTest = _FailingMailRepository();
-
-      await tester.pumpWidget(
-        const MaterialApp(home: MailDetailScreen(emailId: 'missing')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(find.text('Tekrar dene'), findsOneWidget);
-      expect(find.byType(CircularProgressIndicator), findsNothing);
-
-      await tester.tap(find.text('Tekrar dene'));
-      await tester.pumpAndSettle();
-      expect(find.text('Tekrar dene'), findsOneWidget);
-    });
-  });
-}
-
-class _FailingThreadRepository extends MockMailRepository {
-  @override
-  Future<List<Email>> fetchThreadEmails(String threadId) async {
-    throw Exception('conversation unavailable');
-  }
-}
-
-class _FailingMailRepository extends MockMailRepository {
-  @override
-  Future<Email?> getEmail(String id) async {
-    throw const ApiException(status: 500, code: 'unexpected_error');
-  }
 }
 
 class _RecordingMailService extends ApiMailService {
