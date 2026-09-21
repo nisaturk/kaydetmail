@@ -234,8 +234,9 @@ void main() {
 
       final thread = await repo.fetchThreadEmails('conv-1');
 
-      expect(thread.map((e) => e.id), ['m-old', 'm-new']);
-      expect(thread.map((e) => e.bodyText), ['old body', 'new body']);
+      // m-bad's detail fetch fails, so its summary is kept instead.
+      expect(thread.map((e) => e.id), ['m-old', 'm-new', 'm-bad']);
+      expect(thread.map((e) => e.bodyText), ['old body', 'new body', 'bad body']);
     });
 
     test('fetchThreadEmails propagates a conversation-level failure', () async {
@@ -296,11 +297,28 @@ class _RecordingMailService extends ApiMailService {
 
 class _ThreadMailService extends _RecordingMailService {
   @override
-  Future<ApiConversation> getConversation(String id) async =>
+  Future<ApiConversation> getConversationWithBodies(String id) async =>
       const ApiConversation(
         id: 'conv-1',
         subject: 'T',
-        messageIds: ['m-new', 'm-old', 'm-new', 'm-bad'],
+        messageIds: ['m-new', 'm-old', 'm-bad'],
+        messages: [
+          {'id': 'm-new', 'folderId': 'f', 'hasAttachments': true},
+          {
+            'id': 'm-old',
+            'folderId': 'f',
+            'bodyText': 'old body',
+            'receivedAt': '2026-01-01T00:00:00Z',
+          },
+          {'id': 'm-new', 'folderId': 'f', 'hasAttachments': true},
+          {
+            'id': 'm-bad',
+            'folderId': 'f',
+            'bodyText': 'bad body',
+            'hasAttachments': true,
+            'receivedAt': '2026-01-03T00:00:00Z',
+          },
+        ],
       );
 
   @override
@@ -330,7 +348,7 @@ class _ThreadMailService extends _RecordingMailService {
 
 class _BrokenConversationService extends _RecordingMailService {
   @override
-  Future<ApiConversation> getConversation(String id) async {
+  Future<ApiConversation> getConversationWithBodies(String id) async {
     throw const ApiException(status: 503, code: 'sync_queue_full');
   }
 }

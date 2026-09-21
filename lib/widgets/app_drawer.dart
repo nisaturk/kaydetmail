@@ -123,12 +123,11 @@ class AppDrawer extends StatelessWidget {
   }
 
   int _badgeCount(MailRepository repo, MailFolder folder) {
-    final emails = repo.getEmailsInFolder(folder);
     switch (folder) {
       case MailFolder.inbox:
       case MailFolder.drafts:
       case MailFolder.spam:
-        return emails.where((e) => !e.isRead).length;
+        return repo.unreadCount(folder);
       case MailFolder.sent:
       case MailFolder.pinned:
       case MailFolder.trash:

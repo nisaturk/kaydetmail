@@ -449,7 +449,9 @@ class ApiMailRepository extends MailRepository {
     final folders = await _mailService.getFolders();
     _folderIds.clear();
     _folderTypeById.clear();
+    _serverUnread.clear();
     for (final folder in folders) {
+      if (!folder.isAvailable) continue;
       final logical = switch (folder.type.toLowerCase()) {
         'inbox' => MailFolder.inbox,
         'sent' => MailFolder.sent,
@@ -463,9 +465,31 @@ class ApiMailRepository extends MailRepository {
       if (logical != null) {
         _folderIds[logical] = folder.id;
         _folderTypeById[folder.id] = logical;
+        final unread = folder.unreadCount;
+        if (unread != null) _serverUnread[logical] = unread;
       }
     }
     notifyListeners();
+  }
+
+  final Map<MailFolder, int> _serverUnread = {};
+
+  @override
+  int unreadCount(MailFolder folder) =>
+      _serverUnread[folder] ?? super.unreadCount(folder);
+
+  /// Best-effort re-read of server counts after a mutation.
+  Future<void> _refreshCounts() async {
+    try {
+      final folders = await _mailService.getFolders();
+      for (final f in folders) {
+        final logical = _folderTypeById[f.id];
+        if (logical != null && f.unreadCount != null) {
+          _serverUnread[logical] = f.unreadCount!;
+        }
+      }
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// List endpoints omit star state, so ask the search endpoint for every
@@ -575,6 +599,7 @@ class ApiMailRepository extends MailRepository {
         .toList();
     apply(succeeded);
     notifyListeners();
+    unawaited(_refreshCounts());
   }
 
   static bool _highlighted(Email e) => e.isPinned || e.isStarred;
@@ -781,21 +806,28 @@ class ApiMailRepository extends MailRepository {
     int pageSize = 50,
   }) => _mailService.getConversations(page: page, pageSize: pageSize);
 
-  /// Loads the full server conversation: conversation → message ids →
-  /// one detail fetch per message. Each message is fetched independently —
-  /// one unreadable message is skipped while the rest still load. The
+  /// Loads the full server conversation in one `?include=body` request; only
+  /// messages with attachments get a detail fetch (recipients + attachment
+  /// list). An unreadable detail falls back to the summary. The
   /// result is deduplicated and sorted oldest → newest. A conversation-level
   /// failure propagates so the caller can keep its already-loaded mail.
   @override
   Future<List<Email>> fetchThreadEmails(String threadId) async {
     if (threadId.isEmpty) return const [];
-    final conversation = await _mailService.getConversation(threadId);
+    final conversation = await _mailService.getConversationWithBodies(threadId);
     final results = await Future.wait(
-      conversation.messageIds.map((id) async {
+      conversation.messages.map((raw) async {
+        final id = raw['id'] as String?;
+        if (id == null || id.isEmpty) return null;
+        final summary = _mailService.mapConversationMessage({
+          ...raw,
+          'conversationId': threadId,
+        }, _resolveFolder);
+        if (raw['hasAttachments'] != true) return summary;
         try {
           return await _mailService.getMail(id, resolveFolder: _resolveFolder);
         } catch (_) {
-          return null;
+          return summary;
         }
       }),
     );
