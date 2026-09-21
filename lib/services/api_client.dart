@@ -144,7 +144,14 @@ class ApiClient {
       if (response.statusCode != 429 || attempt >= delays.length) {
         return response;
       }
-      await Future<void>.delayed(delays[attempt]);
+      // Prefer the server's Retry-After (seconds), capped so a bad value
+      // can't stall the UI.
+      final hinted = int.tryParse(response.headers['retry-after'] ?? '');
+      await Future<void>.delayed(
+        hinted == null
+            ? delays[attempt]
+            : Duration(seconds: hinted.clamp(1, 10)),
+      );
       attempt++;
     }
   }

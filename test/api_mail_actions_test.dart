@@ -158,7 +158,7 @@ void main() {
       },
     );
 
-    test('moveToFolder restores a trashed mail via the single restore action, not bulk move', () async {
+    test('moveToFolder restores a trashed mail via bulk restore, not bulk move', () async {
       final mailService = _RecordingMailService(
         folders: [
           _folder('folder-inbox', 'Inbox'),
@@ -175,13 +175,13 @@ void main() {
 
       await repo.moveToFolder(['mail-1'], MailFolder.inbox);
 
-      expect(mailService.singleActionCalls, ['mail-1:restore']);
-      expect(mailService.bulkActionCalls, isEmpty);
+      expect(mailService.singleActionCalls, isEmpty);
+      expect(mailService.bulkActionCalls.single, startsWith('restore'));
       expect(repo.getEmailsInFolder(MailFolder.trash), isEmpty);
       expect(repo.getEmailsInFolder(MailFolder.inbox).single.id, 'mail-1');
     });
 
-    test('setStarred issues one action per id (no bulk star endpoint) and updates the cache', () async {
+    test('setStarred uses one bulk star request and updates the cache', () async {
       final mailService = _RecordingMailService(
         folders: [_folder('folder-inbox', 'Inbox')],
         pagesByFolderId: {
@@ -195,7 +195,8 @@ void main() {
 
       await repo.setStarred(['mail-1', 'mail-2'], true);
 
-      expect(mailService.singleActionCalls, ['mail-1:star', 'mail-2:star']);
+      expect(mailService.singleActionCalls, isEmpty);
+      expect(mailService.bulkActionCalls.single, startsWith('star'));
       final inbox = repo.getEmailsInFolder(MailFolder.inbox);
       expect(inbox.every((e) => e.isStarred), isTrue);
     });
