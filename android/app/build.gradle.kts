@@ -6,7 +6,8 @@ plugins {
 
 android {
     namespace = "com.example.kaydetmail"
-    compileSdk = flutter.compileSdkVersion
+    // receive_sharing_intent requires 37; flutter's default is 36.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

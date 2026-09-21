@@ -21,6 +21,10 @@ class AppConfig {
     defaultValue: false,
   );
 
+  /// Push (FCM) stays off until Firebase is configured — see
+  /// `docs/push-notifications.md`. Enable with `--dart-define=PUSH_ENABLED=true`.
+  static const bool pushEnabled = bool.fromEnvironment('PUSH_ENABLED');
+
   static MailRepository? _mailRepository;
 
   /// The single repository instance shared by the whole app.
