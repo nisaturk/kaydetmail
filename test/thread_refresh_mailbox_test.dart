@@ -240,28 +240,22 @@ void main() {
 
       // One subject for the whole conversation.
       expect(find.text('Re: Design review: onboarding flow'), findsOneWidget);
-      // Three messages, distinct senders; Alice appears twice.
-      expect(find.text('Alice Johnson'), findsNWidgets(2));
-      expect(find.text('Ben'), findsOneWidget);
-      // Only the newest is expanded: a fragment past its preview shows. The
-      // older two are collapsed — match beyond the preview text.
+      // Chat bubbles: every message body is visible without expanding.
+      expect(
+        find.textContaining('Could you look at the first-run wizard'),
+        findsOneWidget,
+      );
       expect(
         find.textContaining('I also want your take on the signup state'),
         findsOneWidget,
       );
       expect(
-        find.textContaining('Could you look at the first-run wizard'),
-        findsNothing,
-      );
-      expect(
         find.textContaining('Otherwise looks great. Ship it.'),
-        findsNothing,
+        findsOneWidget,
       );
     });
 
-    testWidgets('conversation messages collapse and expand individually', (
-      tester,
-    ) async {
+    testWidgets('tapping a bubble opens that full message', (tester) async {
       await _login(tester);
       await tester.scrollUntilVisible(
         find.text('Re: Design review: onboarding flow'),
@@ -273,21 +267,11 @@ void main() {
       await tester.pump(const Duration(milliseconds: 800));
       await tester.pumpAndSettle();
 
-      // Expand the oldest message (Ben's reply): its full tail appears.
-      await tester.tap(find.text('Ben'));
+      // Bubbles carry no recipient header; the full-message sheet does.
+      expect(find.textContaining('Alıcı:'), findsNothing);
+      await tester.tap(find.textContaining('Otherwise looks great. Ship it.'));
       await tester.pumpAndSettle();
-      expect(
-        find.textContaining('Otherwise looks great. Ship it.'),
-        findsOneWidget,
-      );
-
-      // Collapse it again.
-      await tester.tap(find.text('Ben'));
-      await tester.pumpAndSettle();
-      expect(
-        find.textContaining('Otherwise looks great. Ship it.'),
-        findsNothing,
-      );
+      expect(find.textContaining('Alıcı:'), findsOneWidget);
     });
   });
 

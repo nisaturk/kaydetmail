@@ -2,7 +2,6 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:share_plus/share_plus.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
@@ -12,17 +11,19 @@ import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
+import '../widgets/chat_thread.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
+import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 
 /// Full view of a mail — and, when it belongs to a conversation, the whole
-/// thread stacked oldest-first with collapsible messages.
+/// thread as chat bubbles, oldest first.
 ///
 /// Opening a mail marks it as read. Pin and read/unread state change through
 /// the repository and are reflected immediately because the screen listens to
 /// it. A single-message thread renders the plain detail view; a multi-message
-/// conversation renders one row per message, older ones collapsed.
+/// conversation renders a chat, and tapping a bubble opens that full mail.
 class MailDetailScreen extends StatefulWidget {
   const MailDetailScreen({super.key, required this.emailId});
 
@@ -37,12 +38,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
   Email? _email;
   List<Email> _thread = const [];
-  final Set<String> _collapsed = {};
+  final _scroll = ScrollController();
 
-  /// Messages the user explicitly expanded/collapsed — thread enrichment
-  /// never overrides those choices when it merges in more messages.
-  final Set<String> _userToggled = {};
-  bool _threadInit = false;
+  /// Thread length last scrolled to, so the chat jumps to the newest message
+  /// only when messages were added — not on every pin/read notification.
+  int _scrolledCount = 0;
   bool _loading = true;
   bool _opened = false;
 
@@ -65,6 +65,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   @override
   void dispose() {
     _repo.removeListener(_reload);
+    _scroll.dispose();
     super.dispose();
   }
 
@@ -93,7 +94,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         _loading = false;
         _loadError = null;
       });
-      _initCollapsed();
+      _scrollToNewest();
 
       // A freshly opened mail becomes read — but only on the very first
       // load. Later reloads (pin, mark-as-unread) must not silently flip
@@ -158,7 +159,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       final merged = _mergeThread(email, fetched);
       if (!_sameIds(merged, _thread)) {
         setState(() => _thread = merged);
-        _collapseAllButNewest();
+        _scrollToNewest();
       }
       _enrichedKey = key;
     } catch (e) {
@@ -168,40 +169,38 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
-  /// Older messages collapse on first load; the newest stays expanded. Mails
-  /// that arrive later (e.g. a reply created from this thread) are naturally
-  /// expanded because they were never collapsed.
-  void _initCollapsed() {
-    if (_threadInit) return;
-    _threadInit = true;
-    if (_thread.length < 2) return;
-    setState(() {
-      _collapsed.addAll(
-        _thread.sublist(0, _thread.length - 1).map((e) => e.id),
-      );
+  /// The conversation reads oldest-first like a chat, so land on the newest
+  /// message whenever the thread grows.
+  void _scrollToNewest() {
+    if (_thread.length < 2 || _thread.length == _scrolledCount) return;
+    _scrolledCount = _thread.length;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scroll.hasClients) {
+        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+      }
     });
   }
 
-  void _toggleMessage(String id) {
-    _userToggled.add(id);
-    setState(() {
-      if (!_collapsed.remove(id)) _collapsed.add(id);
-    });
-  }
+  bool _isOwn(Email email) => _repo.accounts.any(
+    (a) => a.email.toLowerCase() == email.senderEmail.toLowerCase(),
+  );
 
-  /// Collapses every message but the newest, leaving messages the user
-  /// explicitly toggled alone. Used when enrichment merges in messages
-  /// that arrived after the first render.
-  void _collapseAllButNewest() {
-    if (_thread.length < 2) return;
-    final newest = _thread.last.id;
-    setState(() {
-      _collapsed.addAll(
-        _thread
-            .map((e) => e.id)
-            .where((id) => id != newest && !_userToggled.contains(id)),
-      );
-    });
+  void _openMessage(Email email) {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (_) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.75,
+        maxChildSize: 0.95,
+        builder: (_, controller) => SingleChildScrollView(
+          controller: controller,
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+          child: _SingleMessage(email: email, labels: _labelsFor(email)),
+        ),
+      ),
+    );
   }
 
   Future<void> _retry() async {
@@ -427,6 +426,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
 
     return SingleChildScrollView(
+      controller: _scroll,
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -442,15 +442,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           ),
           const SizedBox(height: 12),
           const Divider(),
-          if (_thread.length > 1) ...[
-            for (final message in _thread.reversed)
-              _ThreadMessage(
-                email: message,
-                labels: _labelsFor(message),
-                expanded: !_collapsed.contains(message.id),
-                onToggle: () => _toggleMessage(message.id),
-              ),
-          ] else
+          if (_thread.length > 1)
+            ChatThread(messages: _thread, isOwn: _isOwn, onOpen: _openMessage)
+          else
             _SingleMessage(email: email, labels: _labelsFor(email)),
         ],
       ),
@@ -566,160 +560,6 @@ class _SingleMessage extends StatelessWidget {
   String recipientText(List<String> recipients) => recipients.join(', ');
 }
 
-/// One collapsible message inside a conversation stack.
-///
-/// The header always shows the sender, address, timestamp and recipients; a
-/// compact preview appears while collapsed. Expanded, the full body, labels
-/// and attachments follow under a divider.
-class _ThreadMessage extends StatelessWidget {
-  const _ThreadMessage({
-    required this.email,
-    required this.labels,
-    required this.expanded,
-    required this.onToggle,
-  });
-
-  final Email email;
-  final List<MailLabel> labels;
-  final bool expanded;
-  final VoidCallback onToggle;
-
-  @override
-  Widget build(BuildContext context) {
-    String recipientText(List<String> recipients) => recipients.join(', ');
-    return InkWell(
-      onTap: onToggle,
-      child: Container(
-        decoration: const BoxDecoration(
-          border: Border(bottom: BorderSide(color: AppTheme.border)),
-        ),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                MailAvatar(
-                  identity: email.senderEmail,
-                  displayName: email.senderName,
-                  size: 36,
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              email.senderName,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: const TextStyle(
-                                fontSize: 14.5,
-                                fontWeight: FontWeight.w700,
-                                color: Colors.black,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Icon(
-                            expanded
-                                ? LucideIcons.chevronUp
-                                : LucideIcons.chevronDown,
-                            size: 16,
-                            color: AppTheme.tertiaryText,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        email.senderEmail,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          color: AppTheme.secondaryText,
-                        ),
-                      ),
-                      if (email.recipients.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        _RecipientLine(
-                          label: 'Alıcı: ',
-                          addresses: recipientText(email.recipients),
-                        ),
-                      ],
-                      if (email.cc.isNotEmpty) ...[
-                        const SizedBox(height: 2),
-                        _RecipientLine(
-                          label: 'Cc: ',
-                          addresses: recipientText(email.cc),
-                        ),
-                      ],
-                      const SizedBox(height: 4),
-                      Text(
-                        formatMailDateFull(email.timestamp),
-                        style: const TextStyle(
-                          fontSize: 12.5,
-                          color: AppTheme.secondaryText,
-                        ),
-                      ),
-                      if (!expanded) ...[
-                        const SizedBox(height: 6),
-                        Text(
-                          email.preview,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 13,
-                            color: AppTheme.secondaryText,
-                            height: 1.3,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ],
-            ),
-            if (expanded) ...[
-              const SizedBox(height: 12),
-              if (labels.isNotEmpty) ...[
-                _LabelChips(labels: labels),
-                const SizedBox(height: 10),
-              ],
-              if (email.attachments.isNotEmpty) ...[
-                const Text(
-                  'Ekler',
-                  style: TextStyle(
-                    fontSize: 12.5,
-                    fontWeight: FontWeight.w600,
-                    color: AppTheme.secondaryText,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                for (final attachment in email.attachments)
-                  _AttachmentTile(mailId: email.id, attachment: attachment),
-                const SizedBox(height: 4),
-              ],
-              SelectableText(
-                email.bodyText,
-                style: const TextStyle(
-                  fontSize: 14.5,
-                  height: 1.6,
-                  color: AppTheme.bodyText,
-                ),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-}
-
 class _RecipientLine extends StatelessWidget {
   const _RecipientLine({required this.label, required this.addresses});
 
@@ -775,67 +615,21 @@ class _LabelChips extends StatelessWidget {
   }
 }
 
-class _AttachmentTile extends StatefulWidget {
+class _AttachmentTile extends StatelessWidget {
   const _AttachmentTile({required this.mailId, required this.attachment});
 
   final String mailId;
   final Attachment attachment;
 
   @override
-  State<_AttachmentTile> createState() => _AttachmentTileState();
-}
-
-class _AttachmentTileState extends State<_AttachmentTile> {
-  bool _downloading = false;
-
-  Future<void> _downloadAndShare() async {
-    if (_downloading) return;
-    setState(() => _downloading = true);
-    try {
-      final bytes = await AppConfig.mailRepository.downloadAttachment(
-        widget.mailId,
-        widget.attachment,
-      );
-      if (!mounted) return;
-      if (bytes.isEmpty) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('Ek indirilemedi.')));
-        return;
-      }
-      await SharePlus.instance.share(
-        ShareParams(
-          files: [
-            XFile.fromData(
-              bytes,
-              name: widget.attachment.name,
-              mimeType: widget.attachment.mimeType,
-            ),
-          ],
-          text: widget.attachment.name,
-        ),
-      );
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            error.status == 404 ? 'Ek bulunamadı.' : error.userMessage,
-          ),
-        ),
-      );
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('Ek indirilemedi.')));
-    } finally {
-      if (mounted) setState(() => _downloading = false);
-    }
-  }
-
-  @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: _downloadAndShare,
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) =>
+              AttachmentPreviewScreen(mailId: mailId, attachment: attachment),
+        ),
+      ),
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -849,26 +643,19 @@ class _AttachmentTileState extends State<_AttachmentTile> {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                widget.attachment.name,
+                attachment.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 14, color: Colors.black),
               ),
             ),
-            if (_downloading)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else
-              Text(
-                widget.attachment.sizeLabel,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: AppTheme.secondaryText,
-                ),
+            Text(
+              attachment.sizeLabel,
+              style: const TextStyle(
+                fontSize: 13,
+                color: AppTheme.secondaryText,
               ),
+            ),
           ],
         ),
       ),
