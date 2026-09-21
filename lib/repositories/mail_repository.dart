@@ -182,6 +182,10 @@ abstract class MailRepository extends ChangeNotifier {
   /// conversations load through [fetchThreadEmails].
   List<Email> getThreadEmails(String threadId);
 
+  /// Message count of a conversation as known by the backend, which can be
+  /// larger than what is loaded locally (e.g. replies still in Sent).
+  int serverThreadSize(String threadId) => 0;
+
   /// Asynchronously loads the full conversation for [threadId], oldest
   /// first, with complete message bodies.
   ///

@@ -1,3 +1,4 @@
+import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -263,7 +264,10 @@ class _InboxScreenState extends State<InboxScreen> {
                 accountLabel: showAccount
                     ? accountEmail[email.accountId]
                     : null,
-                threadCount: threadCounts[email.threadId],
+                threadCount: max(
+                  threadCounts[email.threadId] ?? 0,
+                  _repo.serverThreadSize(email.threadId),
+                ),
                 onTap: () => _onMailTap(email),
                 onLongPress: () => widget.selection.toggle(email.id),
               );

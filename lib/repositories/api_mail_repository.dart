@@ -45,6 +45,8 @@ class ApiMailRepository extends MailRepository {
   String? _deviceId;
   LocalMailFlagsStore? _flagsStore;
   Set<String> _pinnedIds = {};
+  final Set<String> _starredIds = {};
+  final Map<String, int> _serverThreadSizes = {};
   Set<String> _repliedIds = {};
   Set<String> _forwardedIds = {};
 
@@ -120,6 +122,8 @@ class ApiMailRepository extends MailRepository {
     _loggedIn = false;
     _flagsStore = null;
     _pinnedIds = {};
+    _starredIds.clear();
+    _serverThreadSizes.clear();
     _repliedIds = {};
     _forwardedIds = {};
     _labels = [];
@@ -253,6 +257,7 @@ class ApiMailRepository extends MailRepository {
       _pinnedIds = await flags.readPinned();
       _repliedIds = await flags.readReplied();
       _forwardedIds = await flags.readForwarded();
+      await flags.seedDefaultLabels();
       _labels = [
         for (final d in await flags.readLabelDefs())
           MailLabel(
@@ -273,6 +278,8 @@ class ApiMailRepository extends MailRepository {
         onError: (_) => null,
       );
       await _loadMailbox();
+      await _seedStarred();
+      unawaited(_seedThreadSizes());
       _account = await accountFuture ?? _account;
       // Cached mail is already on screen; quietly bring it up to date.
       if (hydrated) {
@@ -283,6 +290,7 @@ class ApiMailRepository extends MailRepository {
       _loggedIn = false;
       _flagsStore = null;
       _pinnedIds = {};
+      _starredIds.clear();
       _repliedIds = {};
       _forwardedIds = {};
       _labels = [];
@@ -373,6 +381,9 @@ class ApiMailRepository extends MailRepository {
   /// freshly mapped from the API — the server has no concept of any of the
   /// three, so every fetch would otherwise reset them.
   Email _stampLocalFlags(Email email) => email.copyWith(
+    // List responses carry no star state, so a fetched mail must never
+    // clear a star we already know about.
+    isStarred: email.isStarred || _starredIds.contains(email.id),
     isPinned: _pinnedIds.contains(email.id),
     isReplied: email.isReplied || _repliedIds.contains(email.id),
     isForwarded: _forwardedIds.contains(email.id),
@@ -390,6 +401,7 @@ class ApiMailRepository extends MailRepository {
     _loggedIn = false;
     _flagsStore = null;
     _pinnedIds = {};
+    _starredIds.clear();
     _repliedIds = {};
     _forwardedIds = {};
     _labels = [];
@@ -454,6 +466,31 @@ class ApiMailRepository extends MailRepository {
       }
     }
     notifyListeners();
+  }
+
+  /// List endpoints omit star state, so ask the search endpoint for every
+  /// flagged mail once and remember the ids. Missing mails are added to their
+  /// folder so "Yıldızlılar" is complete even before those folders paginate.
+  /// Best-effort: failure just leaves stars to detail loads.
+  Future<void> _seedStarred() async {
+    try {
+      final flagged = await _mailService.search(
+        query: '',
+        flagged: true,
+        pageSize: 100,
+        resolveFolder: _resolveFolder,
+      );
+      _starredIds
+        ..clear()
+        ..addAll(flagged.map((e) => e.id));
+      for (final mail in flagged) {
+        final list = _emails.putIfAbsent(mail.folder, () => <Email>[]);
+        if (list.every((e) => e.id != mail.id)) {
+          list.add(_stampLocalFlags(mail));
+        }
+      }
+      _replaceMany(_starredIds, (e) => e.copyWith(isStarred: true));
+    } catch (_) {}
   }
 
   /// Maps a raw API folder id back to our logical [MailFolder]. Custom
@@ -718,6 +755,21 @@ class ApiMailRepository extends MailRepository {
     }
     thread.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     return List.unmodifiable(thread);
+  }
+
+  @override
+  int serverThreadSize(String threadId) => _serverThreadSizes[threadId] ?? 0;
+
+  /// Best-effort: message counts per conversation, so an inbox row shows the
+  /// whole thread even when the replies live in an unloaded folder.
+  Future<void> _seedThreadSizes() async {
+    try {
+      final page = await _mailService.getConversations(pageSize: 100);
+      for (final c in page.items) {
+        _serverThreadSizes[c.id] = c.messageCount;
+      }
+      notifyListeners();
+    } catch (_) {}
   }
 
   /// Server-side conversation list (`GET /api/conversations`) for views that
@@ -1094,6 +1146,7 @@ class ApiMailRepository extends MailRepository {
     for (final id in ids) {
       await _mailService.mailAction(id, starred ? 'star' : 'unstar');
     }
+    starred ? _starredIds.addAll(ids) : _starredIds.removeAll(ids);
     _replaceMany(ids, (e) => e.copyWith(isStarred: starred));
     notifyListeners();
   }

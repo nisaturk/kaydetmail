@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../services/session_store.dart';
+import '../services/share_intake.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/mail_threads.dart';
@@ -33,8 +34,19 @@ class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
 
+  late final ShareIntake _shareIntake = ShareIntake(
+    () => mounted ? context : null,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _shareIntake.start();
+  }
+
   @override
   void dispose() {
+    _shareIntake.dispose();
     _selection.dispose();
     super.dispose();
   }
@@ -198,6 +210,51 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  Future<void> _actionSpam() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) {
+      _selection.exit();
+      return;
+    }
+    final previous = previousFoldersOf(_repo, ids);
+    await _repo.moveToFolder(ids, MailFolder.spam);
+    _selection.exit();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${ids.length} e-posta spam kutusuna taşındı'),
+        action: SnackBarAction(
+          label: 'Geri al',
+          onPressed: () => restorePreviousFolders(_repo, previous),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _actionStar() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return;
+    final byId = {for (final e in _repo.getAllEmails()) e.id: e};
+    // All starred already -> unstar; otherwise star everything.
+    final allStarred = ids.every((id) => byId[id]?.isStarred ?? false);
+    await _repo.setStarred(ids, !allStarred);
+    _selection.exit();
+  }
+
+  /// Marks read unless every selected message is already read.
+  Future<void> _actionToggleRead() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return;
+    final byId = {for (final e in _repo.getAllEmails()) e.id: e};
+    final anyUnread = ids.any((id) => !(byId[id]?.isRead ?? true));
+    if (anyUnread) {
+      await _repo.markAsRead(ids);
+    } else {
+      await _repo.markAsUnread(ids);
+    }
+    _selection.exit();
+  }
+
   Future<void> _actionLabel() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
@@ -283,9 +340,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Compact selection toolbar: cancel, count, select-all, then only the
-  /// three conversation-level bulk actions (Sil, Arşivle, Etiketle).
-  /// Single-message actions (read/star/pin/move) stay out of here.
+  /// Selection toolbar: cancel + count on the left; Sil, Okundu/Okunmadı and
+  /// Arşivle inline; Yıldızla, Spam'e gönder, Etiketle and Tümünü seç in the
+  /// overflow menu.
   PreferredSizeWidget _buildSelectionAppBar() {
     return AppBar(
       leading: IconButton(
@@ -303,18 +360,36 @@ class _HomeScreenState extends State<HomeScreen> {
           icon: const Icon(LucideIcons.trash2),
         ),
         IconButton(
+          onPressed: _actionToggleRead,
+          tooltip: 'Okundu/Okunmadı işaretle',
+          icon: const Icon(LucideIcons.mailOpen),
+        ),
+        IconButton(
           onPressed: _actionArchive,
           tooltip: 'Arşivle',
           icon: const Icon(LucideIcons.archive),
         ),
-        IconButton(
-          onPressed: _actionLabel,
-          tooltip: 'Etiketle',
-          icon: const Icon(LucideIcons.tag),
-        ),
-        TextButton(
-          onPressed: _selection.selectAllVisible,
-          child: const Text('Tümünü seç'),
+        PopupMenuButton<String>(
+          tooltip: 'Diğer',
+          icon: const Icon(LucideIcons.ellipsisVertical),
+          onSelected: (v) {
+            switch (v) {
+              case 'star':
+                _actionStar();
+              case 'spam':
+                _actionSpam();
+              case 'label':
+                _actionLabel();
+              case 'all':
+                _selection.selectAllVisible();
+            }
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'star', child: Text('Yıldızla')),
+            PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
+            PopupMenuItem(value: 'label', child: Text('Etiketle')),
+            PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
+          ],
         ),
       ],
     );
