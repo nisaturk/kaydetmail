@@ -77,6 +77,24 @@ class LocalMailFlagsStore {
     stmt.close();
   });
 
+  static const defaultLabels = [
+    {'id': 'label-default-work', 'name': 'İş', 'color': 0xFF3E7CB1},
+    {'id': 'label-default-personal', 'name': 'Kişisel', 'color': 0xFF2E8B6E},
+    {'id': 'label-default-finance', 'name': 'Finans', 'color': 0xFFC77D2E},
+    {'id': 'label-default-shopping', 'name': 'Alışveriş', 'color': 0xFF8E7CC3},
+    {'id': 'label-default-travel', 'name': 'Seyahat', 'color': 0xFF1B998B},
+  ];
+
+  /// Gives a fresh account the default labels exactly once. They are ordinary
+  /// labels afterwards (editable, deletable) and are never re-added, so a
+  /// deletion sticks. Accounts that already have labels are left untouched.
+  Future<void> seedDefaultLabels() async {
+    final seeded = await _read('labels_seeded');
+    if (seeded.isNotEmpty) return;
+    if ((await readLabelDefs()).isEmpty) await writeLabelDefs(defaultLabels);
+    _write('labels_seeded', {'1'});
+  }
+
   Future<Map<String, List<String>>> readLabelMap() async {
     final map = <String, List<String>>{};
     for (final r in _db.select(

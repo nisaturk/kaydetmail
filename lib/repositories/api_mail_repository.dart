@@ -257,6 +257,7 @@ class ApiMailRepository extends MailRepository {
       _pinnedIds = await flags.readPinned();
       _repliedIds = await flags.readReplied();
       _forwardedIds = await flags.readForwarded();
+      await flags.seedDefaultLabels();
       _labels = [
         for (final d in await flags.readLabelDefs())
           MailLabel(

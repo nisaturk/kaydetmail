@@ -8,6 +8,15 @@ import 'package:shared_preferences/shared_preferences.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
+  test('default labels seed once and deletions stick', () async {
+    final store = LocalMailFlagsStore('a', MailCache.inMemory());
+    await store.seedDefaultLabels();
+    expect((await store.readLabelDefs()).length, 5);
+    await store.writeLabelDefs([]);
+    await store.seedDefaultLabels();
+    expect(await store.readLabelDefs(), isEmpty);
+  });
+
   test('flags and labels persist per account in SQLite', () async {
     final cache = MailCache.inMemory();
     final a = LocalMailFlagsStore('a', cache);
