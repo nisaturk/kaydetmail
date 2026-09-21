@@ -82,6 +82,7 @@ class ApiException implements Exception {
     'sync_queue_full' => 'Eşitleme kuyruğu dolu. Birazdan tekrar deneyin.',
     'mail_account_needs_reauthentication' ||
     'credential_missing' => 'Hesap yeniden bağlanmayı istiyor.',
+    'unsupported_authentication_method' => 'Bu giriş yöntemi desteklenmiyor.',
     'unexpected_error' => 'Beklenmeyen bir hata oluştu.',
     _ => title ?? 'İstek tamamlanamadı.',
   };

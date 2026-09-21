@@ -7,6 +7,7 @@ import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
 import '../utils/html_to_text.dart';
+import 'api_auth_service.dart';
 import 'api_client.dart';
 
 class ApiMailService {
@@ -16,12 +17,34 @@ class ApiMailService {
 
   Future<MailAccount> getAccount() async {
     final body = await _client.get('/api/account');
-    return MailAccount(
-      id: body['id'] as String,
-      email: body['emailAddress'] as String,
-      displayName: body['displayName'] as String?,
-      provider: AccountProvider.fromBackend(body['provider'] as String),
-    );
+    return _mapAccount(body);
+  }
+
+  MailAccount _mapAccount(Map<String, dynamic> body) => MailAccount(
+    id: body['id'] as String,
+    email: body['emailAddress'] as String,
+    displayName: body['displayName'] as String?,
+    provider: AccountProvider.fromBackend(body['provider'] as String),
+    status: MailAccountStatus.fromBackend(body['status'] as String?),
+  );
+
+  /// Re-authenticates the signed-in account after its stored credentials
+  /// stopped working (`mail_account_needs_reauthentication`). `imap`/`smtp`
+  /// are optional — omitted servers keep their current settings, only the
+  /// credentials are replaced. Answers with the same `AccountResponse` shape
+  /// as [getAccount]. Reconnect is Bearer-authenticated; a brand-new device
+  /// without a token uses `POST /api/accounts/login` instead — never this.
+  Future<MailAccount> reconnect({
+    required String password,
+    ManualMailServer? imap,
+    ManualMailServer? smtp,
+  }) async {
+    final body = await _client.postJson('/api/account/reconnect', {
+      'authentication': {'type': 'Password', 'password': password},
+      if (imap != null) 'imap': imap.toJson(),
+      if (smtp != null) 'smtp': smtp.toJson(),
+    });
+    return _mapAccount(body);
   }
 
   /// Permanently deletes the connected account and all its cached mail.

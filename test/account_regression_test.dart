@@ -1,7 +1,17 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
+import 'package:http/testing.dart';
 import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
+import 'package:kaydetmail/models/mail_account.dart';
+import 'package:kaydetmail/repositories/mock_mail_repository.dart';
+import 'package:kaydetmail/screens/login_screen.dart';
+import 'package:kaydetmail/services/api_client.dart';
+import 'package:kaydetmail/services/api_mail_service.dart';
+import 'package:kaydetmail/services/token_store.dart';
 import 'package:kaydetmail/widgets/mail_list_item.dart';
 
 /// Widget-level account + regression tests (spec §21 items 28–35 and the
@@ -258,4 +268,92 @@ void main() {
       expect(find.text('İş'), findsOneWidget);
     });
   });
+
+  group('account reconnect', () {
+    test('reconnect posts only authentication when servers omitted', () async {
+      late Map<String, dynamic> body;
+      late String path;
+      final service = ApiMailService(
+        _apiClient((request) async {
+          path = request.url.path;
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response(
+            jsonEncode({
+              'id': 'a',
+              'emailAddress': 'p@x.com',
+              'displayName': '',
+              'provider': 'Custom',
+              'status': 'Active',
+            }),
+            200,
+          );
+        }),
+      );
+
+      final account = await service.reconnect(password: 'yeni-sifre');
+
+      expect(path, '/api/account/reconnect');
+      expect(body.keys, contains('authentication'));
+      expect(body.containsKey('imap'), isFalse);
+      expect(body.containsKey('smtp'), isFalse);
+      expect(account.status, MailAccountStatus.active);
+    });
+
+    test('reconnect maps NeedsReauthentication status', () async {
+      final service = ApiMailService(
+        _apiClient(
+          (_) async => http.Response(
+            jsonEncode({
+              'id': 'a',
+              'emailAddress': 'p@x.com',
+              'displayName': '',
+              'provider': 'Custom',
+              'status': 'NeedsReauthentication',
+            }),
+            200,
+          ),
+        ),
+      );
+
+      final account = await service.reconnect(password: 'x');
+
+      expect(account.status, MailAccountStatus.needsReauthentication);
+    });
+
+    testWidgets('login reconnect mode asks for the password only', (
+      tester,
+    ) async {
+      AppConfig.mailRepositoryForTest = MockMailRepository();
+
+      await tester.pumpWidget(
+        const MaterialApp(
+          home: LoginScreen(reconnect: true, initialEmail: 'me@kaydet.app'),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('me@kaydet.app'), findsOneWidget);
+      expect(find.text('Yeniden Bağlan'), findsOneWidget);
+      expect(find.byKey(const Key('password-field')), findsOneWidget);
+    });
+  });
+}
+
+ApiClient _apiClient(Future<http.Response> Function(http.Request) handler) =>
+    ApiClient(
+      tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+      httpClient: MockClient(handler),
+    );
+
+class _MemoryTokenStorage implements TokenStorage {
+  final Map<String, String> _values = {};
+
+  @override
+  Future<void> delete(String key) async => _values.remove(key);
+
+  @override
+  Future<String?> read(String key) async => _values[key];
+
+  @override
+  Future<void> write(String key, String value) async => _values[key] = value;
 }

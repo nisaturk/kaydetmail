@@ -109,6 +109,16 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  /// Replaces the stored credentials via `POST /api/account/reconnect` and
+  /// refreshes the cached account view. The session, flags and loaded mailbox
+  /// survive — only the credentials change.
+  @override
+  Future<void> reconnect({required String password}) async {
+    final account = await _mailService.reconnect(password: password);
+    _account = account;
+    notifyListeners();
+  }
+
   @override
   String get currentUser => _account?.email ?? '';
 
@@ -206,6 +216,14 @@ class ApiMailRepository extends MailRepository {
       _repliedIds = await flags.readReplied();
       _forwardedIds = await flags.readForwarded();
       _flagsStore = flags;
+      // Best-effort: enrich the token-derived account with the server view
+      // (displayName, provider, status). A failed read never fails the login
+      // itself — the token-derived account stays.
+      try {
+        _account = await _mailService.getAccount();
+      } catch (_) {
+        // Keep the token-derived account.
+      }
       await _loadMailbox();
     } catch (_) {
       _account = null;

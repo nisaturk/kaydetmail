@@ -16,8 +16,21 @@ import 'home_screen.dart';
 /// confirms the account being signed into and asks for the password.
 ///
 /// Authentication is mocked while `AppConfig.useMockApi` is true.
+///
+/// Reconnect mode (`reconnect: true` with [initialEmail]) reuses the same
+/// password step to repair stale credentials (`POST /api/account/reconnect`)
+/// instead of signing in — the session survives, only the password is
+/// replaced. The login flow itself switches to this mode when the server
+/// reports `mail_account_needs_reauthentication`/`credential_missing`.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  const LoginScreen({super.key, this.reconnect = false, this.initialEmail});
+
+  /// When true, the screen opens directly on the password step and submits
+  /// to `MailRepository.reconnect` instead of `login`.
+  final bool reconnect;
+
+  /// Prefilled account address for reconnect mode.
+  final String? initialEmail;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -36,6 +49,24 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
   bool _loading = false;
   int _page = _emailPage;
+  bool _reconnect = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _reconnect = widget.reconnect;
+    final initialEmail = widget.initialEmail?.trim() ?? '';
+    if (_reconnect && initialEmail.isNotEmpty) {
+      _emailController.text = initialEmail;
+      _page = _passwordPage;
+      // The PageView builds on the email page; slide over once laid out.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pageController.hasClients) {
+          _pageController.jumpToPage(_passwordPage);
+        }
+      });
+    }
+  }
 
   static final RegExp _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
@@ -75,6 +106,20 @@ class _LoginScreenState extends State<LoginScreen> {
     setState(() => _loading = true);
 
     try {
+      if (_reconnect) {
+        await AppConfig.mailRepository.reconnect(
+          password: _passwordController.text,
+        );
+        if (!mounted) return;
+        setState(() => _loading = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Hesap yeniden bağlandı.')),
+        );
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const HomeScreen()),
+        );
+        return;
+      }
       final ok = await AppConfig.mailRepository.login(
         email: _emailController.text.trim(),
         password: _passwordController.text,
@@ -97,6 +142,20 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
+      // The account exists but its stored credentials stopped working —
+      // stay on this screen and switch it into reconnect mode instead of a
+      // dead-end error (reconnect is Bearer-authenticated, login is not).
+      if (!(_reconnect) &&
+          (e.code == 'mail_account_needs_reauthentication' ||
+              e.code == 'credential_missing')) {
+        setState(() {
+          _loading = false;
+          _reconnect = true;
+        });
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(e.userMessage)));
+        return;
+      }
       // Automatic discovery couldn't find the IMAP/SMTP servers for this
       // domain — offer manual entry instead of a dead-end error.
       if (e.code == 'mail_discovery_failed' &&
@@ -255,8 +314,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      const Text(
-                        'Şu hesapla oturum açıyorsunuz',
+                      Text(
+                        _reconnect
+                            ? 'Şu hesabı yeniden bağlıyorsunuz'
+                            : 'Şu hesapla oturum açıyorsunuz',
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 13,
@@ -324,7 +385,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: Colors.white,
                         ),
                       )
-                    : const Text('Giriş Yap'),
+                    : Text(_reconnect ? 'Yeniden Bağlan' : 'Giriş Yap'),
               ),
             ],
           ),

@@ -157,6 +157,12 @@ class MockMailRepository extends MailRepository {
   }
 
   @override
+  Future<void> reconnect({required String password}) async {
+    // No stored credentials in mock mode — nothing to replace.
+    await _delay();
+  }
+
+  @override
   Future<List<MailSession>> getSessions() async {
     await _delay();
     return List.unmodifiable(_sessions);

@@ -71,6 +71,11 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<void> logout();
 
+  /// Re-authenticates the signed-in account after its stored credentials
+  /// stopped working (`mail_account_needs_reauthentication`). Keeps the
+  /// session and the loaded mailbox — only the credentials are replaced.
+  Future<void> reconnect({required String password});
+
   /// Email address of the currently signed-in user.
   String get currentUser;
 

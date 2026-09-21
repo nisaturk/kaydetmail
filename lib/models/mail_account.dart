@@ -41,6 +41,25 @@ enum AccountProvider {
   }
 }
 
+/// Backend account state (`GET /api/account` → `status`).
+///
+/// `needsReauthentication` means the stored credentials no longer work —
+/// route the user to the reconnect flow (`POST /api/account/reconnect`).
+/// `disabled` locks everything out until the account is removed server-side.
+enum MailAccountStatus {
+  active,
+  needsReauthentication,
+  connectionError,
+  disabled;
+
+  static MailAccountStatus fromBackend(String? value) => switch (value) {
+    'NeedsReauthentication' => MailAccountStatus.needsReauthentication,
+    'ConnectionError' => MailAccountStatus.connectionError,
+    'Disabled' => MailAccountStatus.disabled,
+    _ => MailAccountStatus.active,
+  };
+}
+
 /// One connected mailbox account.
 ///
 /// Identity comes from the backend. Mock mode explicitly derives an id when
@@ -53,12 +72,14 @@ class MailAccount {
     required this.email,
     this.displayName,
     this.provider = AccountProvider.other,
+    this.status = MailAccountStatus.active,
   });
 
   final String id;
   final String email;
   final String? displayName;
   final AccountProvider provider;
+  final MailAccountStatus status;
 
   String get label => displayName ?? email;
 }
