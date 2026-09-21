@@ -539,12 +539,15 @@ class ApiMailService {
     return '$path?$query';
   }
 
+  static String? _nonEmpty(Object? v) => v is String && v.isNotEmpty ? v : null;
+
   Email _mapMail(
     Map<String, dynamic> item,
     MailFolder Function(String folderId) resolveFolder,
   ) => Email(
     id: item['id'] as String,
-    senderName: item['fromDisplayName'] as String? ?? '',
+    senderName:
+        _nonEmpty(item['fromDisplayName']) ?? item['fromAddress'] as String,
     senderEmail: item['fromAddress'] as String,
     recipients: (item['toAddress'] as String?) != null
         ? [item['toAddress'] as String]
@@ -632,7 +635,9 @@ class ApiMailService {
     final inReplyTo = item['inReplyToMessageId'] as String?;
     return Email(
       id: item['id'] as String,
-      senderName: fromNames.isNotEmpty ? fromNames.first : '',
+      senderName: fromNames.isNotEmpty && fromNames.first.isNotEmpty
+          ? fromNames.first
+          : (fromList.isNotEmpty ? fromList.first : ''),
       senderEmail: fromList.isNotEmpty ? fromList.first : '',
       recipients: _addresses(item['to']),
       cc: _addresses(item['cc']),
@@ -643,6 +648,7 @@ class ApiMailService {
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
       isStarred: item['flagged'] as bool? ?? false,
+      isReplied: item['answered'] as bool? ?? false,
       accountId: item['accountId'] as String? ?? '',
       folder: resolveFolder(item['folderId'] as String),
       threadId: item['conversationId'] as String? ?? '',

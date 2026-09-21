@@ -1,35 +1,145 @@
-import 'package:shared_preferences/shared_preferences.dart';
+import 'dart:convert';
 
-/// Persists mail flags the backend has no concept of.
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sqlite3/sqlite3.dart';
+
+import 'mail_cache.dart';
+
+/// Persists mail state the backend has no concept of, in the on-device
+/// SQLite database ([MailCache]).
 ///
 /// Pinning is a purely client-side favoriting feature — the API never sees
 /// it. "Replied"/"forwarded" mark the moment the user opened the reply/
-/// forward compose screen, not a delivered server-side state, and no mail
-/// response in the API schema carries an equivalent field. Both are kept
-/// locally, scoped per account so switching accounts never leaks one
-/// inbox's flags into another's.
+/// forward compose screen, and labels are user-defined tags; no API response
+/// carries an equivalent. Everything is scoped per account so switching
+/// accounts never leaks one inbox's state into another's.
 class LocalMailFlagsStore {
-  LocalMailFlagsStore(this._accountId);
+  LocalMailFlagsStore(this._accountId, MailCache cache) : _db = cache.db;
 
   final String _accountId;
+  final Database _db;
 
-  String _key(String flag) => 'kaydet.local_flags.$_accountId.$flag';
+  Future<Set<String>> _read(String kind) async => {
+    for (final r in _db.select(
+      'SELECT mail_id FROM flags WHERE account_id = ? AND kind = ?',
+      [_accountId, kind],
+    ))
+      r['mail_id'] as String,
+  };
 
-  Future<Set<String>> _read(String flag) async {
-    final prefs = await SharedPreferences.getInstance();
-    return (prefs.getStringList(_key(flag)) ?? const []).toSet();
-  }
+  void _write(String kind, Set<String> ids) => _tx(() {
+    _db.execute('DELETE FROM flags WHERE account_id = ? AND kind = ?', [
+      _accountId,
+      kind,
+    ]);
+    final stmt = _db.prepare('INSERT INTO flags VALUES (?, ?, ?)');
+    for (final id in ids) {
+      stmt.execute([_accountId, kind, id]);
+    }
+    stmt.close();
+  });
 
-  Future<void> _write(String flag, Set<String> ids) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setStringList(_key(flag), ids.toList());
+  void _tx(void Function() body) {
+    _db.execute('BEGIN');
+    try {
+      body();
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
   }
 
   Future<Set<String>> readPinned() => _read('pinned');
   Future<Set<String>> readReplied() => _read('replied');
   Future<Set<String>> readForwarded() => _read('forwarded');
 
-  Future<void> writePinned(Set<String> ids) => _write('pinned', ids);
-  Future<void> writeReplied(Set<String> ids) => _write('replied', ids);
-  Future<void> writeForwarded(Set<String> ids) => _write('forwarded', ids);
+  Future<void> writePinned(Set<String> ids) async => _write('pinned', ids);
+  Future<void> writeReplied(Set<String> ids) async => _write('replied', ids);
+  Future<void> writeForwarded(Set<String> ids) async =>
+      _write('forwarded', ids);
+
+  Future<List<Map<String, dynamic>>> readLabelDefs() async => [
+    for (final r in _db.select(
+      'SELECT id, name, color FROM labels WHERE account_id = ? ORDER BY sort',
+      [_accountId],
+    ))
+      {'id': r['id'], 'name': r['name'], 'color': r['color']},
+  ];
+
+  Future<void> writeLabelDefs(List<Map<String, dynamic>> defs) async => _tx(() {
+    _db.execute('DELETE FROM labels WHERE account_id = ?', [_accountId]);
+    final stmt = _db.prepare('INSERT INTO labels VALUES (?, ?, ?, ?, ?)');
+    for (var i = 0; i < defs.length; i++) {
+      final d = defs[i];
+      stmt.execute([_accountId, d['id'], d['name'], d['color'], i]);
+    }
+    stmt.close();
+  });
+
+  Future<Map<String, List<String>>> readLabelMap() async {
+    final map = <String, List<String>>{};
+    for (final r in _db.select(
+      'SELECT mail_id, label_id FROM mail_labels WHERE account_id = ?',
+      [_accountId],
+    )) {
+      (map[r['mail_id'] as String] ??= []).add(r['label_id'] as String);
+    }
+    return map;
+  }
+
+  Future<void> writeLabelMap(Map<String, List<String>> map) async => _tx(() {
+    _db.execute('DELETE FROM mail_labels WHERE account_id = ?', [_accountId]);
+    final stmt = _db.prepare('INSERT INTO mail_labels VALUES (?, ?, ?)');
+    for (final e in map.entries) {
+      for (final label in e.value) {
+        stmt.execute([_accountId, e.key, label]);
+      }
+    }
+    stmt.close();
+  });
+
+  /// One-time import of the SharedPreferences storage this class used before
+  /// SQLite. Runs only while the account has no SQLite state yet, and removes
+  /// the old keys afterwards.
+  Future<void> migrateLegacyPrefs() async {
+    final has = _db.select(
+      'SELECT 1 FROM flags WHERE account_id = ? '
+      'UNION SELECT 1 FROM labels WHERE account_id = ? LIMIT 1',
+      [_accountId, _accountId],
+    );
+    final prefs = await SharedPreferences.getInstance();
+    String key(String f) => 'kaydet.local_flags.$_accountId.$f';
+    final legacy = [
+      'pinned',
+      'replied',
+      'forwarded',
+      'label_defs',
+      'label_map',
+    ].where((f) => prefs.containsKey(key(f))).toList();
+    if (legacy.isEmpty) return;
+    if (has.isEmpty) {
+      for (final kind in ['pinned', 'replied', 'forwarded']) {
+        final ids = prefs.getStringList(key(kind));
+        if (ids != null) _write(kind, ids.toSet());
+      }
+      final defs = prefs.getString(key('label_defs'));
+      if (defs != null) {
+        await writeLabelDefs(
+          (jsonDecode(defs) as List).cast<Map<String, dynamic>>(),
+        );
+      }
+      final map = prefs.getString(key('label_map'));
+      if (map != null) {
+        await writeLabelMap(
+          (jsonDecode(map) as Map<String, dynamic>).map(
+            (k, v) => MapEntry(k, (v as List).cast<String>()),
+          ),
+        );
+      }
+    }
+    for (final f in legacy) {
+      await prefs.remove(key(f));
+    }
+  }
 }

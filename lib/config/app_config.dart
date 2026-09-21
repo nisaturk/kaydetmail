@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import '../repositories/api_mail_repository.dart';
 import '../repositories/mail_repository.dart';
 import '../repositories/mock_mail_repository.dart';
+import '../services/mail_cache.dart';
 import '../services/session_store.dart';
 
 /// Central place that decides where the app gets its data.
@@ -25,7 +26,7 @@ class AppConfig {
   /// The single repository instance shared by the whole app.
   static MailRepository get mailRepository => _mailRepository ??= (useMockApi
       ? MockMailRepository()
-      : ApiMailRepository());
+      : ApiMailRepository(openCache: MailCache.open));
 
   /// Lets widget tests start from a fresh repository instance.
   @visibleForTesting

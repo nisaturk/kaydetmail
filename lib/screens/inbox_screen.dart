@@ -340,17 +340,26 @@ class _InboxScreenState extends State<InboxScreen> {
   /// Messages per conversation in the current mailbox scope (account or
   /// unified), across folders — so an inbox row can say its thread holds
   /// messages that also live in Sent.
+  List<Email>? _countsSource;
+  String? _countsAccount;
+  Map<String, int> _counts = const {};
+
   Map<String, int> _threadCounts() {
     final active = _repo.activeAccountId;
-    final all = active == null
-        ? _repo.getAllEmails()
-        : _repo.getAllEmails().where((e) => e.accountId == active).toList();
+    final source = _repo.getAllEmails();
+    // The repository hands back the same list until something changes.
+    if (identical(source, _countsSource) && active == _countsAccount) {
+      return _counts;
+    }
     final counts = <String, int>{};
-    for (final email in all) {
+    for (final email in source) {
       if (email.threadId.isEmpty) continue;
+      if (active != null && email.accountId != active) continue;
       counts[email.threadId] = (counts[email.threadId] ?? 0) + 1;
     }
-    return counts;
+    _countsSource = source;
+    _countsAccount = active;
+    return _counts = counts;
   }
 }
 
