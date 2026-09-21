@@ -80,6 +80,8 @@ class ApiMailService {
             mailAccountId: item['mailAccountId'] as String,
             name: item['name'] as String,
             type: item['folderType'] as String,
+            unreadCount: (item['unreadCount'] as num?)?.toInt(),
+            isAvailable: item['isAvailable'] as bool? ?? true,
           ),
         )
         .toList();
@@ -214,6 +216,21 @@ class ApiMailService {
     final body = await _client.get(
       '/api/conversations/${Uri.encodeComponent(id)}',
     );
+    return _mapConversationDetail(id, body);
+  }
+
+  /// One request for the whole thread (`?include=body`): each message already
+  /// carries `bodyText`/`body`. Summaries lack recipients and the attachment
+  /// list, so [ApiConversation.messages] holds the raw entries and callers
+  /// only re-fetch [getMail] for those with attachments.
+  Future<ApiConversation> getConversationWithBodies(String id) async {
+    final body = await _client.get(
+      '/api/conversations/${Uri.encodeComponent(id)}?include=body',
+    );
+    return _mapConversationDetail(id, body);
+  }
+
+  ApiConversation _mapConversationDetail(String id, Map<String, dynamic> body) {
     final raw = body['messages'];
     final messageIds = <String>[];
     if (raw is List) {
@@ -230,6 +247,7 @@ class ApiMailService {
       id: body['id'] as String? ?? id,
       subject: body['subject'] as String? ?? '',
       messageIds: messageIds,
+      messages: [if (raw is List) ...raw.whereType<Map<String, dynamic>>()],
     );
   }
 
@@ -613,6 +631,32 @@ class ApiMailService {
     return '';
   }
 
+  /// Maps one `include=body` conversation message. No recipients/attachment
+  /// list in this shape — see [getConversationWithBodies].
+  Email mapConversationMessage(
+    Map<String, dynamic> item,
+    MailFolder Function(String folderId) resolveFolder,
+  ) {
+    final address = item['fromAddress'] as String? ?? '';
+    final name = item['fromDisplayName'] as String? ?? '';
+    final body = item['body'] is Map<String, dynamic>
+        ? item['body'] as Map<String, dynamic>
+        : null;
+    return Email(
+      id: item['id'] as String,
+      senderName: name.isNotEmpty ? name : address,
+      senderEmail: address,
+      recipients: const [],
+      subject: item['subject'] as String? ?? '',
+      bodyText: _resolveBodyText(item, body),
+      hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
+      timestamp: _parseDate(item),
+      isRead: item['isRead'] as bool? ?? false,
+      folder: resolveFolder(item['folderId'] as String),
+      threadId: item['conversationId'] as String? ?? '',
+    );
+  }
+
   Email _mapMailDetail(
     Map<String, dynamic> item,
     MailFolder Function(String folderId) resolveFolder,
@@ -714,11 +758,13 @@ class ApiConversation {
     required this.id,
     required this.subject,
     required this.messageIds,
+    this.messages = const [],
   });
 
   final String id;
   final String subject;
   final List<String> messageIds;
+  final List<Map<String, dynamic>> messages;
 }
 
 /// One FCM device registration from `POST /api/devices` (`201`).
@@ -746,12 +792,20 @@ class ApiMailFolder {
     required this.mailAccountId,
     required this.name,
     required this.type,
+    this.unreadCount,
+    this.isAvailable = true,
   });
 
   final String id;
   final String mailAccountId;
   final String name;
   final String type;
+
+  /// Server-side count (deleted mails excluded); null when the backend omits it.
+  final int? unreadCount;
+
+  /// `false` means the folder was deleted on the mail server — hide it.
+  final bool isAvailable;
 }
 
 /// Per-item outcome from `POST /api/mails/bulk/{action}`.

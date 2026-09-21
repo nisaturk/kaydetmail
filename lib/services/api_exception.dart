@@ -97,6 +97,11 @@ class ApiException implements Exception {
     'mail_account_needs_reauthentication' ||
     'credential_missing' => 'Hesap yeniden bağlanmayı istiyor.',
     'unsupported_authentication_method' => 'Bu giriş yöntemi desteklenmiyor.',
+    'mail_smtp_authentication_failed' => 'SMTP şifresi reddedildi.',
+    'provider_disabled' ||
+    'provider_new_accounts_disabled' ||
+    'provider_existing_accounts_disabled' ||
+    'authentication_method_disabled' => 'Bu giriş şu an desteklenmiyor.',
     'unexpected_error' => 'Beklenmeyen bir hata oluştu.',
     _ => title ?? 'İstek tamamlanamadı.',
   };

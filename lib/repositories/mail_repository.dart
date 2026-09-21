@@ -144,6 +144,10 @@ abstract class MailRepository extends ChangeNotifier {
   /// newest first. Powers unified search across accounts.
   List<Email> getAllEmails();
 
+  /// Unread badge for [folder]; implementations may prefer a server count.
+  int unreadCount(MailFolder folder) =>
+      getEmailsInFolder(folder).where((e) => !e.isRead).length;
+
   /// Fetches/appends the next page of emails for [folder].
   ///
   /// Used for infinite scrolling; should never duplicate previously returned
