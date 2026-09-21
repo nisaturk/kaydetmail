@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../services/session_store.dart';
+import '../services/share_intake.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/mail_threads.dart';
@@ -33,8 +34,19 @@ class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
 
+  late final ShareIntake _shareIntake = ShareIntake(
+    () => mounted ? context : null,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _shareIntake.start();
+  }
+
   @override
   void dispose() {
+    _shareIntake.dispose();
     _selection.dispose();
     super.dispose();
   }
