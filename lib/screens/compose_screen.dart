@@ -364,11 +364,47 @@ class _ComposeScreenState extends State<ComposeScreen> {
                     children: [
                       _fromRow(),
                       const Divider(indent: 0, endIndent: 0, height: 1),
+                      // Gmail-style disclosure: hidden Cc/Bcc are revealed
+                      // through the small chevron at the far right of the
+                      // Kime row. Entered values live in the controllers,
+                      // so revealing a field never erases its content. Once
+                      // both are visible the chevron disappears.
                       _fieldRow(
                         label: 'Kime',
                         controller: _toController,
                         focusNode: _toFocus,
                         fieldKey: const Key('to-field'),
+                        trailing: (!_ccExpanded || !_bccExpanded)
+                            ? PopupMenuButton<String>(
+                                key: const Key('cc-bcc-menu'),
+                                tooltip: 'Cc / Bcc ekle',
+                                padding: EdgeInsets.zero,
+                                icon: const Icon(
+                                  LucideIcons.chevronDown,
+                                  size: 18,
+                                  color: AppTheme.secondaryText,
+                                ),
+                                onSelected: (value) => setState(() {
+                                  if (value == 'Cc') {
+                                    _ccExpanded = true;
+                                  } else {
+                                    _bccExpanded = true;
+                                  }
+                                }),
+                                itemBuilder: (context) => [
+                                  if (!_ccExpanded)
+                                    const PopupMenuItem(
+                                      value: 'Cc',
+                                      child: Text('Cc'),
+                                    ),
+                                  if (!_bccExpanded)
+                                    const PopupMenuItem(
+                                      value: 'Bcc',
+                                      child: Text('Bcc'),
+                                    ),
+                                ],
+                              )
+                            : const SizedBox.shrink(),
                       ),
                       if (_ccExpanded)
                         _fieldRow(
@@ -381,50 +417,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           label: 'Bcc',
                           controller: _bccController,
                           fieldKey: const Key('bcc-field'),
-                        ),
-                      // Compact overflow: hidden Cc/Bcc are revealed through
-                      // this menu. Entered values live in the controllers, so
-                      // revealing a field never erases its content.
-                      if (!_ccExpanded || !_bccExpanded)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: PopupMenuButton<String>(
-                              key: const Key('cc-bcc-menu'),
-                              tooltip: 'Cc / Bcc ekle',
-                              onSelected: (value) => setState(() {
-                                if (value == 'Cc') {
-                                  _ccExpanded = true;
-                                } else {
-                                  _bccExpanded = true;
-                                }
-                              }),
-                              itemBuilder: (context) => [
-                                if (!_ccExpanded)
-                                  const PopupMenuItem(
-                                    value: 'Cc',
-                                    child: Text('Cc'),
-                                  ),
-                                if (!_bccExpanded)
-                                  const PopupMenuItem(
-                                    value: 'Bcc',
-                                    child: Text('Bcc'),
-                                  ),
-                              ],
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(vertical: 10),
-                                child: Text(
-                                  '+ Cc / Bcc',
-                                  style: TextStyle(
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w600,
-                                    color: AppTheme.secondaryText,
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ),
                         ),
                       const Divider(indent: 0, endIndent: 0),
                       _fieldRow(
@@ -482,6 +474,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     required TextEditingController controller,
     FocusNode? focusNode,
     Key? fieldKey,
+    Widget trailing = const SizedBox.shrink(),
   }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
@@ -505,103 +498,86 @@ class _ComposeScreenState extends State<ComposeScreen> {
             style: const TextStyle(fontSize: 15, color: Colors.black),
           ),
         ),
+        trailing,
       ],
     );
   }
 
+  /// Gmail-style sender row: the account is shown plainly, and only the
+  /// small chevron at the far right opens a compact anchored popup — never
+  /// a bottom sheet. With a single account there is nothing to choose, so
+  /// the chevron is hidden.
   Widget _fromRow() {
     final accounts = _repo.accounts;
     final selected =
         _fromAccount ?? (accounts.isNotEmpty ? accounts.first.email : '');
-    return InkWell(
+    return Padding(
       key: const Key('from-field'),
-      onTap: accounts.length < 2 ? null : _pickFromAccount,
-      borderRadius: BorderRadius.circular(4),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            const SizedBox(
-              width: _labelWidth,
-              child: Text(
-                'Kimden',
-                maxLines: 1,
-                overflow: TextOverflow.clip,
-                style: _labelStyle,
-              ),
+      padding: const EdgeInsets.symmetric(vertical: 12),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          const SizedBox(
+            width: _labelWidth,
+            child: Text(
+              'Kimden',
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: _labelStyle,
             ),
-            Expanded(
-              child: Text(
-                selected,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 15, color: Colors.black),
-              ),
+          ),
+          Expanded(
+            child: Text(
+              selected,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 15, color: Colors.black),
             ),
-            if (accounts.length > 1)
-              const Icon(
+          ),
+          if (accounts.length > 1)
+            PopupMenuButton<String>(
+              key: const Key('from-account-menu'),
+              tooltip: 'Hesap seç',
+              padding: EdgeInsets.zero,
+              icon: const Icon(
                 LucideIcons.chevronDown,
                 size: 18,
                 color: AppTheme.secondaryText,
               ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _pickFromAccount() async {
-    final accounts = _repo.accounts;
-    final picked = await showModalBottomSheet<String>(
-      context: context,
-      builder: (ctx) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Padding(
-              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-              child: Align(
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  'Kimden',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-                ),
-              ),
+              onSelected: (picked) => setState(() => _fromAccount = picked),
+              itemBuilder: (context) => [
+                for (final account in accounts)
+                  PopupMenuItem(
+                    key: ValueKey('from-${account.email}'),
+                    value: account.email,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            account.email,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ),
+                        if (account.email == _fromAccount)
+                          const Padding(
+                            padding: EdgeInsets.only(left: 12),
+                            child: Icon(
+                              LucideIcons.check,
+                              size: 18,
+                              color: Colors.black,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
             ),
-            for (final account in accounts)
-              ListTile(
-                key: ValueKey('from-${account.email}'),
-                leading: Icon(
-                  account.email == _fromAccount
-                      ? LucideIcons.circleCheckBig
-                      : LucideIcons.circle,
-                  size: 20,
-                  color: account.email == _fromAccount
-                      ? Colors.black
-                      : AppTheme.tertiaryText,
-                ),
-                title: Text(
-                  account.email,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontSize: 15),
-                ),
-                subtitle: account.displayName == null
-                    ? null
-                    : Text(
-                        account.displayName!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                onTap: () => Navigator.of(ctx).pop(account.email),
-              ),
-            const SizedBox(height: 8),
-          ],
-        ),
+        ],
       ),
     );
-    if (picked != null && mounted) setState(() => _fromAccount = picked);
   }
 
   Widget _buildBottomBar() {

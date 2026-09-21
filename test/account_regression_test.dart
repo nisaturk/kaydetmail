@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
-import 'package:kaydetmail/widgets/mail_avatar.dart';
+import 'package:kaydetmail/widgets/mail_list_item.dart';
 
 /// Widget-level account + regression tests (spec §21 items 28–35 and the
 /// UI flows): drawer → Hesaplar → add → switch → unified, star/pin
@@ -197,7 +197,7 @@ void main() {
       await tester.pumpAndSettle();
       await _goUnified(tester);
 
-      await tester.longPress(find.byType(MailAvatar).first);
+      await tester.longPress(find.byType(MailListItem).first);
       await tester.pump();
       expect(find.textContaining('seçili'), findsOneWidget);
 
@@ -209,7 +209,7 @@ void main() {
       expect(find.text('Invoice #4821 for March'), findsOneWidget);
     });
 
-    testWidgets('compose Kimden picker lists the connected accounts', (
+    testWidgets('compose Kimden disclosure lists the connected accounts', (
       tester,
     ) async {
       await _login(tester);
@@ -219,11 +219,21 @@ void main() {
 
       await tester.tap(find.byTooltip('Yeni E-posta'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const Key('from-field')));
+
+      // The row shows the current account (Outlook was just connected);
+      // only the small chevron opens the compact popup — never a sheet.
+      expect(find.text('nisa@outlook.com'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('from-account-menu')));
       await tester.pumpAndSettle();
 
-      expect(find.text('me@kaydet.app'), findsWidgets);
+      expect(find.text('me@kaydet.app'), findsOneWidget);
       expect(find.text('nisa@outlook.com'), findsWidgets);
+      expect(find.byType(BottomSheet), findsNothing);
+
+      // Selecting the other account updates the row immediately.
+      await tester.tap(find.text('me@kaydet.app'));
+      await tester.pumpAndSettle();
+      expect(find.text('me@kaydet.app'), findsOneWidget);
     });
 
     testWidgets('settings still opens with labels and toggles', (tester) async {

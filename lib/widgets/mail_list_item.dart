@@ -9,6 +9,11 @@ import 'mail_avatar.dart';
 /// One row in the mail list: avatar on the left, sender + subject + preview
 /// on the right.
 ///
+/// A tap anywhere on the row opens the mail; a long press anywhere on the
+/// row enters selection mode. The avatar is purely visual (it shows a check
+/// while [selected]) — there is deliberately no separate avatar gesture, so
+/// the two never compete in the gesture arena.
+///
 /// Unread mails use stronger typography over a very slightly darker
 /// background; the row structure is identical either way. Pinned mails show
 /// a pin icon and mails with attachments show a paperclip. While [selected]
@@ -18,8 +23,7 @@ class MailListItem extends StatelessWidget {
     super.key,
     required this.email,
     this.onTap,
-    this.onAvatarTap,
-    this.onAvatarLongPress,
+    this.onLongPress,
     this.selected = false,
     this.accountLabel,
     this.threadCount,
@@ -27,8 +31,7 @@ class MailListItem extends StatelessWidget {
 
   final Email email;
   final VoidCallback? onTap;
-  final VoidCallback? onAvatarTap;
-  final VoidCallback? onAvatarLongPress;
+  final VoidCallback? onLongPress;
   final bool selected;
 
   /// Originating mailbox shown as a tiny tertiary line (unified inbox only).
@@ -49,20 +52,16 @@ class MailListItem extends StatelessWidget {
           : (email.isRead ? null : AppTheme.unreadBackground),
       child: InkWell(
         onTap: onTap,
+        onLongPress: onLongPress,
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              GestureDetector(
-                onTap: onAvatarTap,
-                onLongPress: onAvatarLongPress,
-                behavior: HitTestBehavior.opaque,
-                child: MailAvatar(
-                  identity: email.senderEmail,
-                  displayName: email.senderName,
-                  selected: selected,
-                ),
+              MailAvatar(
+                identity: email.senderEmail,
+                displayName: email.senderName,
+                selected: selected,
               ),
               const SizedBox(width: 12),
               Expanded(

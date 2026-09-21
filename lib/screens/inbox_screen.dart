@@ -148,13 +148,8 @@ class _InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  /// A plain tap on the avatar never enters selection mode — only a long
-  /// press does. While selection mode is active, tapping toggles the row.
-  void _onAvatarTap(Email email) {
-    if (widget.selection.isActive) widget.selection.toggle(email.id);
-  }
-
-  void _onAvatarLongPress(Email email) => widget.selection.toggle(email.id);
+  /// A long press anywhere on the row enters selection mode (the row's
+  /// InkWell owns the gesture; the avatar is purely visual).
 
   /// Swiping a row moves the entire conversation: left to Trash, right to
   /// Archive. Every message's original folder is remembered so one Undo
@@ -263,8 +258,7 @@ class _InboxScreenState extends State<InboxScreen> {
                     : null,
                 threadCount: threadCounts[email.threadId],
                 onTap: () => _onMailTap(email),
-                onAvatarTap: () => _onAvatarTap(email),
-                onAvatarLongPress: () => _onAvatarLongPress(email),
+                onLongPress: () => widget.selection.toggle(email.id),
               );
               // Swipe left to delete, swipe right to archive (Kaydırarak
               // sil). Disabled while selection mode is active so the

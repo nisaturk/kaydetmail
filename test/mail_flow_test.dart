@@ -5,6 +5,7 @@ import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/widgets/mail_avatar.dart';
+import 'package:kaydetmail/widgets/mail_list_item.dart';
 
 Future<void> _login(WidgetTester tester) async {
   await tester.pumpWidget(const KaydetApp());
@@ -27,19 +28,24 @@ void main() {
   ) async {
     await _login(tester);
 
+    // The avatar is part of the row: tapping it opens the mail like any
+    // other row tap — but it never enters selection mode.
     await tester.tap(find.byType(MailAvatar).first);
-    await tester.pump();
-
+    await tester.pumpAndSettle();
     expect(find.textContaining('seçili'), findsNothing);
+
+    await tester.tap(find.byTooltip('Geri'));
+    await tester.pumpAndSettle();
     expect(find.text('Gelen Kutusu'), findsOneWidget);
+    expect(find.text('1 seçili'), findsNothing);
   });
 
   testWidgets(
-    'long-pressing an avatar enters selection mode with a top toolbar',
+    'long-pressing the subject enters selection mode with a top toolbar',
     (tester) async {
       await _login(tester);
 
-      await tester.longPress(find.byType(MailAvatar).first);
+      await tester.longPress(find.text('Fixing the CI pipeline').first);
       await tester.pump();
 
       expect(find.text('1 seçili'), findsOneWidget);
@@ -67,10 +73,37 @@ void main() {
     },
   );
 
+  testWidgets('long-pressing the sender name enters selection mode', (
+    tester,
+  ) async {
+    await _login(tester);
+
+    await tester.longPress(find.text('David Chen').first);
+    await tester.pump();
+
+    expect(find.text('1 seçili'), findsOneWidget);
+
+    await tester.tap(find.byTooltip('Seçimi iptal et'));
+    await tester.pump();
+    expect(find.text('1 seçili'), findsNothing);
+  });
+
+  testWidgets('long-pressing anywhere on the row enters selection mode', (
+    tester,
+  ) async {
+    await _login(tester);
+
+    // The row center lands on the body/subject area, far from the avatar.
+    await tester.longPress(find.byType(MailListItem).first);
+    await tester.pump();
+
+    expect(find.text('1 seçili'), findsOneWidget);
+  });
+
   testWidgets('select all selects every visible mail', (tester) async {
     await _login(tester);
 
-    await tester.longPress(find.byType(MailAvatar).first);
+    await tester.longPress(find.byType(MailListItem).first);
     await tester.pump();
     await tester.tap(find.text('Tümünü seç'));
     await tester.pump();
@@ -128,8 +161,8 @@ void main() {
         .getEmailsInFolder(MailFolder.trash)
         .length;
 
-    // Enter selection mode with a long press.
-    await tester.longPress(find.byType(MailAvatar).first);
+    // Enter selection mode with a long press on the row.
+    await tester.longPress(find.byType(MailListItem).first);
     await tester.pump();
     expect(find.text('1 seçili'), findsOneWidget);
 
@@ -164,7 +197,7 @@ void main() {
   ) async {
     await _login(tester);
 
-    await tester.longPress(find.byType(MailAvatar).first);
+    await tester.longPress(find.byType(MailListItem).first);
     await tester.pump();
     expect(find.text('1 seçili'), findsOneWidget);
 

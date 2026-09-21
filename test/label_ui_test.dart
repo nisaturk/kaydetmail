@@ -4,7 +4,7 @@ import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
-import 'package:kaydetmail/widgets/mail_avatar.dart';
+import 'package:kaydetmail/widgets/mail_list_item.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 Future<void> _login(WidgetTester tester) async {
@@ -257,9 +257,9 @@ void main() {
     ) async {
       await _login(tester);
 
-      // Select a row via avatar long-press; Etiketle lives in the top
-      // selection toolbar now.
-      await tester.longPress(find.byType(MailAvatar).first);
+      // Select a row via a long press on the whole row; Etiketle lives in
+      // the top selection toolbar now.
+      await tester.longPress(find.byType(MailListItem).first);
       await tester.pump();
       expect(find.text('1 seçili'), findsOneWidget);
 

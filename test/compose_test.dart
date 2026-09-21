@@ -138,49 +138,130 @@ void main() {
     expect(find.text('Yeni E-posta'), findsNothing);
   });
 
-  testWidgets('cc and bcc stay hidden until requested from the menu', (
-    tester,
-  ) async {
-    await _openCompose(tester);
+  group('kimden disclosure', () {
+    testWidgets('single account shows the address with no picker', (
+      tester,
+    ) async {
+      await _openCompose(tester);
 
-    expect(find.byKey(const Key('to-field')), findsOneWidget);
-    expect(find.byKey(const Key('cc-field')), findsNothing);
-    expect(find.byKey(const Key('bcc-field')), findsNothing);
-    expect(find.byType(TextField), findsNWidgets(3)); // to, subject, body
-    expect(find.byKey(const Key('cc-bcc-menu')), findsOneWidget);
+      expect(find.byKey(const Key('from-field')), findsOneWidget);
+      expect(find.byKey(const Key('from-account-menu')), findsNothing);
+    });
+
+    testWidgets('chevron opens a compact popup and switches accounts', (
+      tester,
+    ) async {
+      await tester.runAsync(
+        () => AppConfig.mailRepository.connectAccount(
+          email: 'work@company.com',
+          password: 'secret123',
+        ),
+      );
+      await _openCompose(tester);
+
+      expect(find.byKey(const Key('from-account-menu')), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('from-account-menu')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.text('nisa@kaydet.com'), findsOneWidget);
+
+      await tester.tap(find.text('nisa@kaydet.com'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(BottomSheet), findsNothing);
+      expect(find.text('nisa@kaydet.com'), findsOneWidget);
+    });
   });
 
-  testWidgets('menu reveals cc and bcc without losing entered values', (
-    tester,
-  ) async {
-    await _openCompose(tester);
+  group('kime cc/bcc disclosure', () {
+    testWidgets('cc and bcc stay hidden behind the kime arrow', (tester) async {
+      await _openCompose(tester);
 
-    await tester.tap(find.byKey(const Key('cc-bcc-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Cc'));
-    await tester.pumpAndSettle();
+      expect(find.byKey(const Key('to-field')), findsOneWidget);
+      expect(find.byKey(const Key('cc-field')), findsNothing);
+      expect(find.byKey(const Key('bcc-field')), findsNothing);
+      expect(find.byType(TextField), findsNWidgets(3)); // to, subject, body
+      expect(find.byKey(const Key('cc-bcc-menu')), findsOneWidget);
+      expect(find.text('+ Cc / Bcc'), findsNothing);
+    });
 
-    expect(find.byKey(const Key('cc-field')), findsOneWidget);
-    expect(find.byKey(const Key('bcc-field')), findsNothing);
+    testWidgets('arrow menu reveals cc then bcc', (tester) async {
+      await _openCompose(tester);
 
-    await tester.enterText(find.byKey(const Key('cc-field')), 'cc@example.com');
-    await tester.pump();
+      await tester.tap(find.byKey(const Key('cc-bcc-menu')));
+      await tester.pumpAndSettle();
+      expect(find.text('Cc'), findsOneWidget);
+      expect(find.text('Bcc'), findsOneWidget);
+      await tester.tap(find.text('Cc'));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const Key('cc-bcc-menu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Bcc'));
-    await tester.pumpAndSettle();
+      expect(find.byKey(const Key('cc-field')), findsOneWidget);
+      expect(find.byKey(const Key('bcc-field')), findsNothing);
+      // The arrow stays while Bcc is still hidden.
+      expect(find.byKey(const Key('cc-bcc-menu')), findsOneWidget);
 
-    expect(find.byKey(const Key('cc-field')), findsOneWidget);
-    expect(find.byKey(const Key('bcc-field')), findsOneWidget);
-    // Revealing Bcc must not erase the Cc content.
-    expect(
-      tester
-          .widget<TextField>(find.byKey(const Key('cc-field')))
-          .controller!
-          .text,
-      'cc@example.com',
-    );
+      await tester.tap(find.byKey(const Key('cc-bcc-menu')));
+      await tester.pumpAndSettle();
+      // Cc is visible now, so only Bcc is offered in the popup.
+      final menuItems = find.byType(PopupMenuItem<String>);
+      expect(menuItems, findsOneWidget);
+      expect(
+        find.descendant(of: menuItems, matching: find.text('Cc')),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: menuItems, matching: find.text('Bcc')),
+        findsOneWidget,
+      );
+      await tester.tap(find.text('Bcc'));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const Key('cc-field')), findsOneWidget);
+      expect(find.byKey(const Key('bcc-field')), findsOneWidget);
+      // Nothing left to reveal — the arrow disappears.
+      expect(find.byKey(const Key('cc-bcc-menu')), findsNothing);
+    });
+
+    testWidgets('entered cc/bcc values survive menu toggling', (tester) async {
+      await _openCompose(tester);
+
+      await tester.tap(find.byKey(const Key('cc-bcc-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cc'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('cc-field')),
+        'cc@example.com',
+      );
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('cc-bcc-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bcc'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('bcc-field')),
+        'bcc@example.com',
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('cc-field')))
+            .controller!
+            .text,
+        'cc@example.com',
+      );
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('bcc-field')))
+            .controller!
+            .text,
+        'bcc@example.com',
+      );
+    });
   });
 
   testWidgets('long filenames do not overflow on a narrow screen', (
