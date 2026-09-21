@@ -306,6 +306,15 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         actions: [
           if (_email != null)
             IconButton(
+              onPressed: _toggleStar,
+              tooltip: _email!.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
+              icon: Icon(
+                _email!.isStarred ? Icons.star : LucideIcons.star,
+                color: _email!.isStarred ? Colors.amber : null,
+              ),
+            ),
+          if (_email != null)
+            IconButton(
               onPressed: _reply,
               tooltip: 'Yanıtla',
               icon: const Icon(LucideIcons.reply),
