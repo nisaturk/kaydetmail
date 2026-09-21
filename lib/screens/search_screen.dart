@@ -12,9 +12,10 @@ import 'mail_detail_screen.dart';
 /// Always spans ALL connected accounts (the unified set), regardless of which
 /// mailbox is active — a search must find the mail wherever it lives. A
 /// compact label filter row sits directly under the search field, so results
-/// can be scoped to one label without leaving the screen. No API is involved;
-/// the future backend can replace this screen's internals without touching the
-/// rest of the app.
+/// can be scoped to one label without leaving the screen. This stays over
+/// loaded mail; the full server corpus (including unloaded mail and the
+/// isRead/flagged/hasAttachment filters) is reachable via
+/// `ApiMailRepository.searchServer`.
 class SearchScreen extends StatefulWidget {
   const SearchScreen({super.key});
 

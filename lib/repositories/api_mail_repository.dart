@@ -746,6 +746,42 @@ class ApiMailRepository extends MailRepository {
   Future<ComposePrefill> getComposePrefill(String sourceMailId, String kind) =>
       _mailService.getComposePrefill(sourceMailId, kind);
 
+  /// Server-side full-text + filtered search (`GET /api/search`) over cached
+  /// server mail — reaches mail not yet loaded into the local buckets. The
+  /// sync in-screen search ([MailRepository.searchEmails]) stays client-side
+  /// over loaded mail; callers needing the full corpus use this instead.
+  Future<List<Email>> searchServer({
+    required String query,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    final results = await _mailService.search(
+      query: query,
+      resolveFolder: _resolveFolder,
+      folderId: folderId,
+      conversationId: conversationId,
+      from: from,
+      to: to,
+      fromDate: fromDate,
+      toDate: toDate,
+      isRead: isRead,
+      flagged: flagged,
+      hasAttachment: hasAttachment,
+      page: page,
+      pageSize: pageSize,
+    );
+    return results.map(_stampLocalFlags).toList();
+  }
+
   /// A client-generated UUID v4 for the `Idempotency-Key` header — stable
   /// per send attempt so a network-timeout retry never double-sends.
   String _newIdempotencyKey() {

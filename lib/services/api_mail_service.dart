@@ -62,11 +62,17 @@ class ApiMailService {
     required MailFolder Function(String folderId) resolveFolder,
     int page = 1,
     int pageSize = 20,
+    bool? isRead,
+    bool? hasAttachments,
+    String? search,
   }) async {
     final path = _buildQuery('/api/mails', {
       'folderId': folderId,
       'page': '$page',
       'pageSize': '$pageSize',
+      'isRead': isRead?.toString(),
+      'hasAttachments': hasAttachments?.toString(),
+      'search': search,
     });
     final body = await _client.get(path);
     final items = body['items'] as List;
@@ -176,10 +182,21 @@ class ApiMailService {
         .toList();
   }
 
+  /// Full-text + filtered search over cached server mail. All filters are
+  /// optional and AND-ed. Note the singular `hasAttachment` — `/mails` uses
+  /// the plural `hasAttachments`.
   Future<List<Email>> search({
     required String query,
     required MailFolder Function(String folderId) resolveFolder,
     String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
     int page = 1,
     int pageSize = 20,
   }) async {
@@ -187,7 +204,15 @@ class ApiMailService {
       'q': query,
       'page': '$page',
       'pageSize': '$pageSize',
-      'folderId': ?folderId,
+      'folderId': folderId,
+      'conversationId': conversationId,
+      'from': from,
+      'to': to,
+      'fromDate': fromDate?.toUtc().toIso8601String(),
+      'toDate': toDate?.toUtc().toIso8601String(),
+      'isRead': isRead?.toString(),
+      'flagged': flagged?.toString(),
+      'hasAttachment': hasAttachment?.toString(),
     });
     final body = await _client.get(path);
     final items = body['items'] as List;
@@ -395,11 +420,13 @@ class ApiMailService {
         ),
   ];
 
-  String _buildQuery(String path, Map<String, String> params) {
+  /// Null-valued entries are dropped so unset filters never reach the wire.
+  String _buildQuery(String path, Map<String, String?> params) {
     final query = params.entries
+        .where((e) => e.value != null && e.value!.isNotEmpty)
         .map(
           (e) =>
-              '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value)}',
+              '${Uri.encodeQueryComponent(e.key)}=${Uri.encodeQueryComponent(e.value!)}',
         )
         .join('&');
     return '$path?$query';

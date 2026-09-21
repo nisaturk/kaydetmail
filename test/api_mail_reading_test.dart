@@ -95,7 +95,8 @@ void main() {
       folderId: 'folder-1',
       page: 1,
       pageSize: 20,
-      resolveFolder: (id) => id == 'folder-1' ? MailFolder.inbox : MailFolder.archive,
+      resolveFolder: (id) =>
+          id == 'folder-1' ? MailFolder.inbox : MailFolder.archive,
     );
 
     expect(uri.path, '/api/mails');
@@ -138,7 +139,8 @@ void main() {
 
     final email = await service.getMail(
       'mail-1',
-      resolveFolder: (id) => id == 'folder-1' ? MailFolder.inbox : MailFolder.archive,
+      resolveFolder: (id) =>
+          id == 'folder-1' ? MailFolder.inbox : MailFolder.archive,
     );
 
     expect(email.id, 'mail-1');
@@ -147,6 +149,89 @@ void main() {
     expect(email.recipients, ['person@example.com']);
     expect(email.isStarred, isTrue);
     expect(email.folder, MailFolder.inbox);
+  });
+
+  test('GET mails forwards isRead/hasAttachments/search filters', () async {
+    late Uri uri;
+    final service = ApiMailService(
+      _client((request) async {
+        uri = request.url;
+        return http.Response(
+          jsonEncode({'items': [], 'page': 1, 'pageSize': 20, 'total': 0}),
+          200,
+        );
+      }),
+    );
+
+    await service.getMails(
+      folderId: 'folder-1',
+      resolveFolder: (_) => MailFolder.inbox,
+      isRead: false,
+      hasAttachments: true,
+      search: 'fatura',
+    );
+
+    expect(uri.queryParameters['isRead'], 'false');
+    expect(uri.queryParameters['hasAttachments'], 'true');
+    expect(uri.queryParameters['search'], 'fatura');
+  });
+
+  test(
+    'search sends full filter set with correct hasAttachment name',
+    () async {
+      late Uri uri;
+      final service = ApiMailService(
+        _client((request) async {
+          uri = request.url;
+          return http.Response(
+            jsonEncode({'items': [], 'page': 1, 'pageSize': 20, 'total': 0}),
+            200,
+          );
+        }),
+      );
+
+      await service.search(
+        query: 'fatura',
+        resolveFolder: (_) => MailFolder.inbox,
+        from: 'a@x.com',
+        isRead: false,
+        flagged: true,
+        hasAttachment: true,
+      );
+
+      expect(uri.path, '/api/search');
+      expect(uri.queryParameters['q'], 'fatura');
+      // /search uses the singular name — /mails uses hasAttachments (plural).
+      expect(uri.queryParameters['hasAttachment'], 'true');
+      expect(uri.queryParameters['flagged'], 'true');
+      expect(uri.queryParameters['from'], 'a@x.com');
+      expect(uri.queryParameters['isRead'], 'false');
+    },
+  );
+
+  test('search serializes dates as UTC ISO-8601 and drops nulls', () async {
+    late Uri uri;
+    final service = ApiMailService(
+      _client((request) async {
+        uri = request.url;
+        return http.Response(
+          jsonEncode({'items': [], 'page': 1, 'pageSize': 20, 'total': 0}),
+          200,
+        );
+      }),
+    );
+
+    await service.search(
+      query: 'x',
+      resolveFolder: (_) => MailFolder.inbox,
+      fromDate: DateTime.utc(2026, 9, 1, 12),
+      toDate: DateTime.utc(2026, 9, 18, 12),
+    );
+
+    expect(uri.queryParameters['fromDate'], '2026-09-01T12:00:00.000Z');
+    expect(uri.queryParameters['toDate'], '2026-09-18T12:00:00.000Z');
+    expect(uri.queryParameters.containsKey('from'), isFalse);
+    expect(uri.queryParameters.containsKey('flagged'), isFalse);
   });
 }
 

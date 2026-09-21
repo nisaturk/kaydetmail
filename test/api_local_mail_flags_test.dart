@@ -217,6 +217,9 @@ class _RecordingMailService extends ApiMailService {
     required MailFolder Function(String folderId) resolveFolder,
     int page = 1,
     int pageSize = 20,
+    bool? isRead,
+    bool? hasAttachments,
+    String? search,
   }) async =>
       pagesByFolderId[folderId] ??
       MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
