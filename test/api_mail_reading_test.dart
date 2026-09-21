@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -232,6 +233,24 @@ void main() {
     expect(uri.queryParameters['toDate'], '2026-09-18T12:00:00.000Z');
     expect(uri.queryParameters.containsKey('from'), isFalse);
     expect(uri.queryParameters.containsKey('flagged'), isFalse);
+  });
+
+  test('downloadAttachment streams raw bytes with encoded ids', () async {
+    late String path;
+    final service = ApiMailService(
+      ApiClient(
+        tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+        httpClient: MockClient((request) async {
+          path = request.url.path;
+          return http.Response.bytes([1, 2, 3], 200);
+        }),
+      ),
+    );
+
+    final bytes = await service.downloadAttachment('m-1', 'a-1');
+
+    expect(path, '/api/mails/m-1/attachments/a-1');
+    expect(bytes, Uint8List.fromList([1, 2, 3]));
   });
 }
 

@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -344,6 +345,15 @@ class MockMailRepository extends MailRepository {
       if (e.id == id) return e;
     }
     return null;
+  }
+
+  @override
+  Future<Uint8List> downloadAttachment(
+    String mailId,
+    Attachment attachment,
+  ) async {
+    await _delay();
+    return attachment.bytes ?? Uint8List(0);
   }
 
   @override

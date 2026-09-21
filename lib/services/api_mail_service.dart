@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:http/http.dart' as http;
 
 import '../models/email.dart';
@@ -93,6 +95,17 @@ class ApiMailService {
     final body = await _client.get('/api/mails/${Uri.encodeComponent(id)}');
     return _mapMailDetail(body, resolveFolder);
   }
+
+  /// Downloads one attachment's raw bytes
+  /// (`GET /api/mails/{mailId}/attachments/{attachmentId}` — not JSON, hence
+  /// the byte-streaming client call). 404 means the attachment is gone or
+  /// belongs to another mail/account.
+  Future<Uint8List> downloadAttachment(
+    String mailId,
+    String attachmentId,
+  ) => _client.getBytes(
+    '/api/mails/${Uri.encodeComponent(mailId)}/attachments/${Uri.encodeComponent(attachmentId)}',
+  );
 
   /// Loads a conversation via `GET /api/conversations/{id}`.
   ///

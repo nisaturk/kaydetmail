@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:flutter/material.dart';
 
 import '../models/email.dart';
@@ -150,6 +152,13 @@ abstract class MailRepository extends ChangeNotifier {
   Future<void> syncFolder(MailFolder folder);
 
   Future<Email?> getEmail(String id);
+
+  /// Downloads one attachment's raw bytes for sharing/saving.
+  ///
+  /// The API implementation streams
+  /// `GET /api/mails/{mailId}/attachments/{attachmentId}` (404 when the
+  /// attachment is gone); the mock returns the locally picked bytes, if any.
+  Future<Uint8List> downloadAttachment(String mailId, Attachment attachment);
 
   /// Every mail belonging to the same conversation, oldest first.
   /// Grouped by [threadId] — never by subject/account, which can coincide

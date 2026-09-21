@@ -1,4 +1,5 @@
 import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
@@ -481,6 +482,19 @@ class ApiMailRepository extends MailRepository {
       if (error.code == 'mail_not_found' || error.status == 404) return null;
       rethrow;
     }
+  }
+
+  @override
+  Future<Uint8List> downloadAttachment(
+    String mailId,
+    Attachment attachment,
+  ) async {
+    // Locally picked attachments carry no server id — there is nothing to
+    // download; hand back the bytes we already hold.
+    if (attachment.id == null || attachment.id!.isEmpty) {
+      return attachment.bytes ?? Uint8List(0);
+    }
+    return _mailService.downloadAttachment(mailId, attachment.id!);
   }
 
   /// Stores a full detail object in the in-memory cache without notifying:

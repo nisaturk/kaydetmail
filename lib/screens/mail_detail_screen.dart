@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:share_plus/share_plus.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
@@ -537,7 +538,7 @@ class _SingleMessage extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           for (final attachment in email.attachments)
-            _AttachmentTile(attachment: attachment),
+            _AttachmentTile(mailId: email.id, attachment: attachment),
         ],
         const Divider(height: 32),
         const SizedBox(height: 4),
@@ -691,7 +692,7 @@ class _ThreadMessage extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 for (final attachment in email.attachments)
-                  _AttachmentTile(attachment: attachment),
+                  _AttachmentTile(mailId: email.id, attachment: attachment),
                 const SizedBox(height: 4),
               ],
               SelectableText(
@@ -765,21 +766,67 @@ class _LabelChips extends StatelessWidget {
   }
 }
 
-class _AttachmentTile extends StatelessWidget {
-  const _AttachmentTile({required this.attachment});
+class _AttachmentTile extends StatefulWidget {
+  const _AttachmentTile({required this.mailId, required this.attachment});
 
+  final String mailId;
   final Attachment attachment;
+
+  @override
+  State<_AttachmentTile> createState() => _AttachmentTileState();
+}
+
+class _AttachmentTileState extends State<_AttachmentTile> {
+  bool _downloading = false;
+
+  Future<void> _downloadAndShare() async {
+    if (_downloading) return;
+    setState(() => _downloading = true);
+    try {
+      final bytes = await AppConfig.mailRepository.downloadAttachment(
+        widget.mailId,
+        widget.attachment,
+      );
+      if (!mounted) return;
+      if (bytes.isEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(const SnackBar(content: Text('Ek indirilemedi.')));
+        return;
+      }
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [
+            XFile.fromData(
+              bytes,
+              name: widget.attachment.name,
+              mimeType: widget.attachment.mimeType,
+            ),
+          ],
+          text: widget.attachment.name,
+        ),
+      );
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            error.status == 404 ? 'Ek bulunamadı.' : error.userMessage,
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('Ek indirilemedi.')));
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: () {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${attachment.name} indiriliyor (simülasyon)…'),
-          ),
-        );
-      },
+      onTap: _downloadAndShare,
       borderRadius: BorderRadius.circular(8),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 8),
@@ -793,19 +840,26 @@ class _AttachmentTile extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                attachment.name,
+                widget.attachment.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: const TextStyle(fontSize: 14, color: Colors.black),
               ),
             ),
-            Text(
-              attachment.sizeLabel,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppTheme.secondaryText,
+            if (_downloading)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else
+              Text(
+                widget.attachment.sizeLabel,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: AppTheme.secondaryText,
+                ),
               ),
-            ),
           ],
         ),
       ),
