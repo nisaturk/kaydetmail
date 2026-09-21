@@ -544,6 +544,15 @@ class ApiMailRepository extends MailRepository {
     return List.unmodifiable(thread);
   }
 
+  /// Server-side conversation list (`GET /api/conversations`) for views that
+  /// need subject-level metadata. Thread bodies still resolve through
+  /// [fetchThreadEmails], which already prefers the server conversation and
+  /// falls back to the local `threadId` grouping when it is unavailable.
+  Future<ConversationListPage> getConversations({
+    int page = 1,
+    int pageSize = 50,
+  }) => _mailService.getConversations(page: page, pageSize: pageSize);
+
   /// Loads the full server conversation: conversation → message ids →
   /// one detail fetch per message. Each message is fetched independently —
   /// one unreadable message is skipped while the rest still load. The

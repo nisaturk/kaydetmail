@@ -235,6 +235,43 @@ void main() {
     expect(uri.queryParameters.containsKey('flagged'), isFalse);
   });
 
+  test('getConversations parses messageCount/unreadCount envelope', () async {
+    late Uri uri;
+    final service = ApiMailService(
+      _client((request) async {
+        uri = request.url;
+        return http.Response(
+          jsonEncode({
+            'items': [
+              {
+                'id': 'c-1',
+                'subject': 'T',
+                'participants': ['a@x.com'],
+                'messageCount': 3,
+                'unreadCount': 1,
+                'hasAttachments': false,
+                'startedAt': '2026-09-18T08:00:00Z',
+                'lastMessageAt': '2026-09-18T09:00:00Z',
+              },
+            ],
+            'page': 1,
+            'pageSize': 50,
+            'total': 1,
+          }),
+          200,
+        );
+      }),
+    );
+
+    final page = await service.getConversations();
+
+    expect(uri.path, '/api/conversations');
+    expect(page.items.single.messageCount, 3);
+    expect(page.items.single.unreadCount, 1);
+    expect(page.items.single.subject, 'T');
+    expect(page.total, 1);
+  });
+
   test('downloadAttachment streams raw bytes with encoded ids', () async {
     late String path;
     final service = ApiMailService(

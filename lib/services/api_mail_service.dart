@@ -130,6 +130,46 @@ class ApiMailService {
     '/api/mails/${Uri.encodeComponent(mailId)}/attachments/${Uri.encodeComponent(attachmentId)}',
   );
 
+  /// Lists server-side conversations (`GET /api/conversations`) newest-first.
+  /// Same `{ items, page, pageSize, total }` envelope as the mail list.
+  Future<ConversationListPage> getConversations({
+    int page = 1,
+    int pageSize = 50,
+  }) async {
+    final path = _buildQuery('/api/conversations', {
+      'page': '$page',
+      'pageSize': '$pageSize',
+    });
+    final body = await _client.get(path);
+    final items = body['items'] as List;
+    return ConversationListPage(
+      items: items
+          .map((item) => _mapConversation(item as Map<String, dynamic>))
+          .toList(),
+      page: body['page'] as int,
+      pageSize: body['pageSize'] as int,
+      total: body['total'] as int,
+    );
+  }
+
+  static ConversationSummary _mapConversation(Map<String, dynamic> item) {
+    DateTime? optionalDate(dynamic raw) =>
+        raw is String ? DateTime.tryParse(raw) : null;
+    return ConversationSummary(
+      id: item['id'] as String,
+      subject: item['subject'] as String? ?? '',
+      participants: [
+        for (final p in (item['participants'] as List? ?? const []))
+          if (p is String && p.isNotEmpty) p,
+      ],
+      messageCount: (item['messageCount'] as num?)?.toInt() ?? 0,
+      unreadCount: (item['unreadCount'] as num?)?.toInt() ?? 0,
+      hasAttachments: item['hasAttachments'] as bool? ?? false,
+      startedAt: optionalDate(item['startedAt']),
+      lastMessageAt: optionalDate(item['lastMessageAt']),
+    );
+  }
+
   /// Loads a conversation via `GET /api/conversations/{id}`.
   ///
   /// The response carries message *summaries* (`messages[]` with ids, no
@@ -579,6 +619,45 @@ class ApiMailService {
       attachments: attachments,
     );
   }
+}
+
+/// One row from `GET /api/conversations`: subject-level metadata only, no
+/// message bodies. [ApiConversation.messageIds] (via [getConversation]) plus
+/// one [getMail] per message resolves the full thread.
+class ConversationSummary {
+  const ConversationSummary({
+    required this.id,
+    required this.subject,
+    required this.participants,
+    required this.messageCount,
+    required this.unreadCount,
+    required this.hasAttachments,
+    this.startedAt,
+    this.lastMessageAt,
+  });
+
+  final String id;
+  final String subject;
+  final List<String> participants;
+  final int messageCount;
+  final int unreadCount;
+  final bool hasAttachments;
+  final DateTime? startedAt;
+  final DateTime? lastMessageAt;
+}
+
+class ConversationListPage {
+  ConversationListPage({
+    required this.items,
+    required this.page,
+    required this.pageSize,
+    required this.total,
+  });
+
+  final List<ConversationSummary> items;
+  final int page;
+  final int pageSize;
+  final int total;
 }
 
 /// A server-side conversation from `GET /api/conversations/{id}`: the
