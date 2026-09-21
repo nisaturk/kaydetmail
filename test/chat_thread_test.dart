@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
+import 'package:kaydetmail/repositories/mock_mail_repository.dart';
+import 'package:kaydetmail/screens/mail_detail_screen.dart';
 import 'package:kaydetmail/widgets/chat_thread.dart';
 
 Email _mail(String id, String from, DateTime at, String body) => Email(
@@ -76,4 +79,28 @@ void main() {
     await tester.tap(find.text('Tamam.'));
     expect(opened, ['1']);
   });
+
+  testWidgets('detail shows a chat even when the server thread lacks local '
+      'replies', (tester) async {
+    AppConfig.resetForTest();
+    AppConfig.mailRepositoryForTest = _LaggingServerRepository();
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: MailDetailScreen(emailId: 'seed-alice-onboarding'),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 1600));
+    await tester.pumpAndSettle();
+    // Ben's reply exists only in the local cache.
+    expect(
+      find.textContaining('Otherwise looks great. Ship it.'),
+      findsOneWidget,
+    );
+  });
+}
+
+/// Server conversation returns nothing; replies live only in the local cache.
+class _LaggingServerRepository extends MockMailRepository {
+  @override
+  Future<List<Email>> fetchThreadEmails(String threadId) async => const [];
 }
