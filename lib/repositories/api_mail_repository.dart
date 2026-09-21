@@ -664,6 +664,54 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  /// Sends a draft via `POST /api/drafts/{id}/send`. A fresh
+  /// `Idempotency-Key` per attempt makes a network-timeout retry safe. Never
+  /// retries `delivery_unknown` automatically — the [ApiException] propagates
+  /// so the UI can say "check Sent". `draftRemoved == false` still counts as
+  /// sent (spec §5): the draft just stays in the Drafts bucket.
+  Future<Email?> sendDraft(String draftId) async {
+    final draft = _findCached(draftId);
+    final result = await _mailService.sendDraft(
+      draftId,
+      idempotencyKey: _newIdempotencyKey(),
+    );
+    if (!result.sent) return null;
+    if (result.draftRemoved) {
+      _emails[MailFolder.drafts]?.removeWhere((e) => e.id == draftId);
+    }
+    final echo =
+        (draft ??
+                Email(
+                  id: draftId,
+                  senderName: _account?.displayName ?? '',
+                  senderEmail: _account?.email ?? '',
+                  recipients: const [],
+                  subject: '',
+                  bodyText: '',
+                  timestamp: DateTime.now(),
+                  folder: MailFolder.sent,
+                  accountId: _account?.id ?? '',
+                ))
+            .copyWith(folder: MailFolder.sent, timestamp: DateTime.now());
+    _emails.putIfAbsent(MailFolder.sent, () => <Email>[]).insert(0, echo);
+    notifyListeners();
+    return echo;
+  }
+
+  Email? _findCached(String id) {
+    for (final list in _emails.values) {
+      for (final email in list) {
+        if (email.id == id) return email;
+      }
+    }
+    return null;
+  }
+
+  /// Prefill data for the reply/reply-all/forward screen (see
+  /// [ApiMailService.getComposePrefill]).
+  Future<ComposePrefill> getComposePrefill(String sourceMailId, String kind) =>
+      _mailService.getComposePrefill(sourceMailId, kind);
+
   /// A client-generated UUID v4 for the `Idempotency-Key` header — stable
   /// per send attempt so a network-timeout retry never double-sends.
   String _newIdempotencyKey() {

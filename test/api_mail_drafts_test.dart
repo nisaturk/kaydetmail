@@ -158,6 +158,98 @@ void main() {
     });
   });
 
+  group('ApiMailService draft send + compose prefill', () {
+    test(
+      'sendDraft posts bodyless with Idempotency-Key and parses draftRemoved',
+      () async {
+        late http.Request sent;
+        final service = ApiMailService(
+          _client((request) async {
+            sent = request;
+            return http.Response(
+              jsonEncode({
+                'sent': true,
+                'sentCopySaved': true,
+                'draftRemoved': true,
+              }),
+              200,
+            );
+          }),
+        );
+
+        final res = await service.sendDraft('d-1', idempotencyKey: 'k-1');
+
+        expect(sent.method, 'POST');
+        expect(sent.url.path, '/api/drafts/d-1/send');
+        expect(sent.headers['Idempotency-Key'], 'k-1');
+        expect(res.sent, isTrue);
+        expect(res.draftRemoved, isTrue);
+      },
+    );
+
+    test(
+      'compose prefill returns suggested subject and reply chain ids',
+      () async {
+        final service = ApiMailService(
+          _client(
+            (_) async => http.Response(
+              jsonEncode({
+                'sourceMailId': 'm-1',
+                'to': [
+                  {'address': 'a@x.com', 'displayName': ''},
+                ],
+                'cc': [],
+                'suggestedSubject': 'Re: T',
+                'inReplyToMessageId': 'mid',
+                'references': 'mid',
+                'originalFrom': 'a@x.com',
+                'originalDate': '2026-09-18T08:00:00Z',
+                'originalSubject': 'T',
+                'attachments': [],
+              }),
+              200,
+            ),
+          ),
+        );
+
+        final p = await service.getComposePrefill('m-1', 'reply');
+
+        expect(p.suggestedSubject, 'Re: T');
+        expect(p.inReplyToMessageId, 'mid');
+        expect(p.to, ['a@x.com']);
+      },
+    );
+
+    test('compose prefill rejects unknown kind', () async {
+      final service = ApiMailService(
+        _client((_) async => http.Response('{}', 200)),
+      );
+
+      expect(
+        () => service.getComposePrefill('m-1', 'bogus'),
+        throwsArgumentError,
+      );
+    });
+  });
+
+  group('ApiMailRepository draft send', () {
+    test('sendDraft drops the draft and echoes to Sent', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _loggedInRepository(mailService);
+
+      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+      expect(
+        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+        contains('draft-old'),
+      );
+
+      await repo.sendDraft('draft-old');
+
+      expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+      expect(repo.getEmailsInFolder(MailFolder.sent), isNotEmpty);
+    });
+  });
+
   group('draft error messages', () {
     test('branch on code, not title', () {
       expect(
@@ -241,6 +333,16 @@ class _RecordingMailService extends ApiMailService {
   Future<void> deleteDraft(String id) async {
     deletedDraftIds.add(id);
   }
+
+  @override
+  Future<SendDraftResult> sendDraft(
+    String id, {
+    required String idempotencyKey,
+  }) async => const SendDraftResult(
+    sent: true,
+    sentCopySaved: true,
+    draftRemoved: true,
+  );
 }
 
 /// Reads every no-filename multipart part named [field], in order.

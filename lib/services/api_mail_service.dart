@@ -246,6 +246,69 @@ class ApiMailService {
     );
   }
 
+  /// Sends a draft as-is via `POST /api/drafts/{id}/send` (no body).
+  /// [idempotencyKey] must be stable across retries of the same attempt.
+  /// `draftRemoved == false` still means "sent" — the mail went out but the
+  /// draft copy could not be deleted (spec §5). `delivery_unknown` is never
+  /// retried here; the caller surfaces "check Sent" instead.
+  Future<SendDraftResult> sendDraft(
+    String id, {
+    required String idempotencyKey,
+  }) async {
+    final body = await _client.postWithHeaders(
+      '/api/drafts/${Uri.encodeComponent(id)}/send',
+      {'Idempotency-Key': idempotencyKey},
+    );
+    return SendDraftResult(
+      sent: body['sent'] as bool? ?? false,
+      sentCopySaved: body['sentCopySaved'] as bool? ?? false,
+      draftRemoved: body['draftRemoved'] as bool? ?? true,
+      warning: body['warning'] as String?,
+    );
+  }
+
+  /// Prefills the reply/reply-all/forward screen via
+  /// `GET /api/mails/{id}/compose/{reply|reply-all|forward}`. The server owns
+  /// the `In-Reply-To`/`References` chain — the client only forwards
+  /// `replySourceMailId` when sending. Unknown [kind] is an [ArgumentError]
+  /// (never a server 404 we manufactured ourselves).
+  Future<ComposePrefill> getComposePrefill(
+    String sourceMailId,
+    String kind,
+  ) async {
+    if (kind != 'reply' && kind != 'reply-all' && kind != 'forward') {
+      throw ArgumentError('Unknown compose kind: $kind');
+    }
+    final body = await _client.get(
+      '/api/mails/${Uri.encodeComponent(sourceMailId)}/compose/$kind',
+    );
+    final rawAttachments = body['attachments'];
+    return ComposePrefill(
+      sourceMailId: body['sourceMailId'] as String? ?? sourceMailId,
+      to: _addresses(body['to']),
+      cc: _addresses(body['cc']),
+      suggestedSubject: body['suggestedSubject'] as String? ?? '',
+      inReplyToMessageId: body['inReplyToMessageId'] as String?,
+      references: body['references'] as String?,
+      originalFrom: body['originalFrom'] as String?,
+      originalDate: _optionalDate(body['originalDate']),
+      originalSubject: body['originalSubject'] as String?,
+      attachments: rawAttachments is List
+          ? rawAttachments
+                .whereType<Map<String, dynamic>>()
+                .map(
+                  (a) => Attachment(
+                    id: a['id'] as String?,
+                    name: a['fileName'] as String? ?? 'ek',
+                    sizeBytes: (a['sizeBytes'] as num?)?.toInt() ?? 0,
+                    mimeType: a['contentType'] as String?,
+                  ),
+                )
+                .toList()
+          : const <Attachment>[],
+    );
+  }
+
   /// Sends a mail directly via `POST /api/mails/send`. [idempotencyKey]
   /// must be stable across retries of the same send attempt.
   Future<SendResult> sendMail({
@@ -359,12 +422,14 @@ class ApiMailService {
   /// back to now so a malformed/missing date never breaks the whole mail.
   static DateTime _parseDate(Map<String, dynamic> item) {
     for (final key in ['receivedAt', 'sentAt', 'internalDate']) {
-      final raw = item[key] as String?;
-      final parsed = raw == null ? null : DateTime.tryParse(raw);
+      final parsed = _optionalDate(item[key]);
       if (parsed != null) return parsed;
     }
     return DateTime.now();
   }
+
+  static DateTime? _optionalDate(dynamic raw) =>
+      raw is String ? DateTime.tryParse(raw) : null;
 
   /// Prefers `bodyText`; falls back to a *safe* plain-text rendering of
   /// `body.html` for HTML-only messages (no WebView, no remote content).
@@ -489,6 +554,55 @@ class DraftResult {
   /// still pending server-side.
   final String? mailId;
   final String? warning;
+}
+
+/// Result of `POST /api/drafts/{id}/send`.
+class SendDraftResult {
+  const SendDraftResult({
+    required this.sent,
+    required this.sentCopySaved,
+    required this.draftRemoved,
+    this.warning,
+  });
+
+  final bool sent;
+  final bool sentCopySaved;
+
+  /// False means the mail went out but the draft copy survived — still show
+  /// "sent", never an error (spec §5).
+  final bool draftRemoved;
+  final String? warning;
+}
+
+/// Prefill data for the reply/reply-all/forward screen from
+/// `GET /api/mails/{id}/compose/{kind}`.
+class ComposePrefill {
+  const ComposePrefill({
+    required this.sourceMailId,
+    required this.to,
+    required this.cc,
+    required this.suggestedSubject,
+    this.inReplyToMessageId,
+    this.references,
+    this.originalFrom,
+    this.originalDate,
+    this.originalSubject,
+    this.attachments = const [],
+  });
+
+  final String sourceMailId;
+  final List<String> to;
+  final List<String> cc;
+  final String suggestedSubject;
+  final String? inReplyToMessageId;
+  final String? references;
+  final String? originalFrom;
+  final DateTime? originalDate;
+  final String? originalSubject;
+
+  /// Source mail's attachments (forward only) — re-upload their content when
+  /// sending; the server does not carry the bytes over by itself.
+  final List<Attachment> attachments;
 }
 
 /// Result of `POST /api/mails/send`.
