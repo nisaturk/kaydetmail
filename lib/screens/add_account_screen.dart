@@ -4,12 +4,8 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 
-/// Mock account-connection flow: enter the address and password, connect.
-///
-/// No real OAuth happens here — [AppConfig.mailRepository] runs a
-/// [MockAccountConnection] that validates the address and provisions a mock
-/// mailbox. Swapping in real Google/Microsoft/IMAP connections later only
-/// changes the repository's connection object, not this screen.
+/// Account-connection flow: enter the address and password, connect through
+/// [AppConfig.mailRepository].
 class AddAccountScreen extends StatefulWidget {
   const AddAccountScreen({super.key});
 

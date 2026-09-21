@@ -15,8 +15,6 @@ import 'home_screen.dart';
 /// step and back. Step 1 shows branding plus only the email field; step 2
 /// confirms the account being signed into and asks for the password.
 ///
-/// Authentication is mocked while `AppConfig.useMockApi` is true.
-///
 /// Reconnect mode (`reconnect: true` with [initialEmail]) reuses the same
 /// password step to repair stale credentials (`POST /api/account/reconnect`)
 /// instead of signing in — the session survives, only the password is

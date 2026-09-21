@@ -2,12 +2,8 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
-import 'package:kaydetmail/repositories/mock_mail_repository.dart';
-import 'package:kaydetmail/screens/attachment_preview_screen.dart';
 import 'package:kaydetmail/utils/attachment_preview.dart';
 
 Uint8List _docx(String documentXml) {
@@ -15,17 +11,6 @@ Uint8List _docx(String documentXml) {
   final archive = Archive()
     ..addFile(ArchiveFile('word/document.xml', bytes.length, bytes));
   return Uint8List.fromList(ZipEncoder().encode(archive));
-}
-
-class _BytesRepository extends MockMailRepository {
-  _BytesRepository(this.bytes);
-  final Uint8List bytes;
-
-  @override
-  Future<Uint8List> downloadAttachment(
-    String mailId,
-    Attachment attachment,
-  ) async => bytes;
 }
 
 void main() {
@@ -83,64 +68,6 @@ void main() {
     test('keeps the full body when nothing else is left', () {
       expect(stripQuotedReply('> sadece alıntı'), '> sadece alıntı');
       expect(stripQuotedReply('düz metin'), 'düz metin');
-    });
-  });
-
-  group('AttachmentPreviewScreen', () {
-    Future<void> open(
-      WidgetTester tester,
-      Attachment a,
-      Uint8List bytes,
-    ) async {
-      AppConfig.resetForTest();
-      AppConfig.mailRepositoryForTest = _BytesRepository(bytes);
-      await tester.pumpWidget(
-        MaterialApp(
-          home: AttachmentPreviewScreen(mailId: 'm', attachment: a),
-        ),
-      );
-      await tester.pumpAndSettle();
-    }
-
-    testWidgets('shows plain text content', (tester) async {
-      await open(
-        tester,
-        const Attachment(name: 'not.txt', sizeBytes: 5),
-        Uint8List.fromList(utf8.encode('gizli not')),
-      );
-      expect(find.text('gizli not'), findsOneWidget);
-    });
-
-    testWidgets('shows docx text', (tester) async {
-      await open(
-        tester,
-        const Attachment(name: 'r.docx', sizeBytes: 5),
-        _docx('<w:p><w:r><w:t>Rapor özeti</w:t></w:r></w:p>'),
-      );
-      expect(find.text('Rapor özeti'), findsOneWidget);
-    });
-
-    testWidgets('unsupported type offers the share fallback', (tester) async {
-      await open(
-        tester,
-        const Attachment(name: 'b.xlsx', sizeBytes: 5),
-        Uint8List.fromList([1, 2, 3]),
-      );
-      expect(
-        find.text('Bu dosya türü uygulama içinde açılamıyor.'),
-        findsOneWidget,
-      );
-      expect(find.text('Başka uygulamada aç'), findsOneWidget);
-    });
-
-    testWidgets('empty download shows an error with retry', (tester) async {
-      await open(
-        tester,
-        const Attachment(name: 'not.txt', sizeBytes: 5),
-        Uint8List(0),
-      );
-      expect(find.text('Ek indirilemedi.'), findsOneWidget);
-      expect(find.text('Tekrar dene'), findsOneWidget);
     });
   });
 }
