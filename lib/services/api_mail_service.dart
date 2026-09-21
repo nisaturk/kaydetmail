@@ -129,6 +129,28 @@ class ApiMailService {
     {'folderId': folderId},
   );
 
+  /// Copies a single mail into an arbitrary target folder (the original
+  /// stays where it is).
+  Future<void> copyMail(String id, String folderId) => _client.postJson(
+    '/api/mails/${Uri.encodeComponent(id)}/copy',
+    {'folderId': folderId},
+  );
+
+  /// Re-discovers the server-side folder tree (`202 Accepted` +
+  /// `{ folders: N }`). The result applies asynchronously — re-fetch with
+  /// [getFolders] afterwards. Returns the reported folder count (`0` when
+  /// the 202 carries no body).
+  Future<int> refreshFolders() async {
+    final body = await _client.postJson('/api/folders/refresh', {});
+    return (body['folders'] as num?)?.toInt() ?? 0;
+  }
+
+  /// Queues a sync of one folder by raw API folder id (`202 Accepted`, no
+  /// body, no completion notification — re-fetch the list afterwards, or wait
+  /// for an FCM `new_mail`). Ideal for pull-to-refresh.
+  Future<void> syncFolderId(String folderId) =>
+      _client.post('/api/folders/${Uri.encodeComponent(folderId)}/sync');
+
   /// Applies [action] (read, unread, archive, trash, or move) to every id in
   /// [mailIds] in one request. Each mail is processed independently server
   /// side — read the per-item [BulkActionResult.success] rather than

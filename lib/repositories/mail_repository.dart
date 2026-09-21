@@ -141,6 +141,14 @@ abstract class MailRepository extends ChangeNotifier {
   /// notifies listeners so the UI re-reads the current snapshot.
   Future<void> refreshEmails(MailFolder folder);
 
+  /// Triggers a server-side sync of [folder] before the next [refreshEmails].
+  ///
+  /// The API implementation queues a sync job (no completion notification);
+  /// the mock has no server, so this is a no-op round-trip. Failures (e.g. a
+  /// full sync queue) are for the caller to swallow — the refresh that
+  /// follows still shows the current snapshot.
+  Future<void> syncFolder(MailFolder folder);
+
   Future<Email?> getEmail(String id);
 
   /// Every mail belonging to the same conversation, oldest first.

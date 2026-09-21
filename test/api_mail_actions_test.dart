@@ -18,21 +18,24 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ApiMailService actions', () {
-    test('mailAction sends a bodyless POST to /api/mails/{id}/{action}', () async {
-      late http.Request sent;
-      final service = ApiMailService(
-        _client((request) async {
-          sent = request;
-          return http.Response('', 204);
-        }),
-      );
+    test(
+      'mailAction sends a bodyless POST to /api/mails/{id}/{action}',
+      () async {
+        late http.Request sent;
+        final service = ApiMailService(
+          _client((request) async {
+            sent = request;
+            return http.Response('', 204);
+          }),
+        );
 
-      await service.mailAction('mail-1', 'star');
+        await service.mailAction('mail-1', 'star');
 
-      expect(sent.url.path, '/api/mails/mail-1/star');
-      expect(sent.method, 'POST');
-      expect(sent.body, isEmpty);
-    });
+        expect(sent.url.path, '/api/mails/mail-1/star');
+        expect(sent.method, 'POST');
+        expect(sent.body, isEmpty);
+      },
+    );
 
     test('moveMail POSTs the target folderId', () async {
       late Map<String, dynamic> body;
@@ -48,44 +51,44 @@ void main() {
       expect(body, {'folderId': 'folder-9'});
     });
 
-    test('bulkAction sends mailIds/folderId and parses per-item results', () async {
-      late String path;
-      late Map<String, dynamic> body;
-      final service = ApiMailService(
-        _client((request) async {
-          path = request.url.path;
-          body = jsonDecode(request.body) as Map<String, dynamic>;
-          return http.Response(
-            jsonEncode({
-              'results': [
-                {'mailId': 'mail-1', 'success': true, 'code': null},
-                {
-                  'mailId': 'mail-2',
-                  'success': false,
-                  'code': 'mail_not_found',
-                },
-              ],
-            }),
-            200,
-          );
-        }),
-      );
+    test(
+      'bulkAction sends mailIds/folderId and parses per-item results',
+      () async {
+        late String path;
+        late Map<String, dynamic> body;
+        final service = ApiMailService(
+          _client((request) async {
+            path = request.url.path;
+            body = jsonDecode(request.body) as Map<String, dynamic>;
+            return http.Response(
+              jsonEncode({
+                'results': [
+                  {'mailId': 'mail-1', 'success': true, 'code': null},
+                  {
+                    'mailId': 'mail-2',
+                    'success': false,
+                    'code': 'mail_not_found',
+                  },
+                ],
+              }),
+              200,
+            );
+          }),
+        );
 
-      final results = await service.bulkAction(
-        'trash',
-        ['mail-1', 'mail-2'],
-      );
+        final results = await service.bulkAction('trash', ['mail-1', 'mail-2']);
 
-      expect(path, '/api/mails/bulk/trash');
-      expect(body, {
-        'mailIds': ['mail-1', 'mail-2'],
-        'folderId': null,
-      });
-      expect(results[0].mailId, 'mail-1');
-      expect(results[0].success, isTrue);
-      expect(results[1].success, isFalse);
-      expect(results[1].code, 'mail_not_found');
-    });
+        expect(path, '/api/mails/bulk/trash');
+        expect(body, {
+          'mailIds': ['mail-1', 'mail-2'],
+          'folderId': null,
+        });
+        expect(results[0].mailId, 'mail-1');
+        expect(results[0].success, isTrue);
+        expect(results[1].success, isFalse);
+        expect(results[1].code, 'mail_not_found');
+      },
+    );
   });
 
   group('ApiMailRepository actions', () {
@@ -99,8 +102,9 @@ void main() {
           ]),
         },
       );
-      mailService.bulkResultsOverride = (action, ids) =>
-          ids.map((id) => BulkActionResult(mailId: id, success: id == 'mail-1')).toList();
+      mailService.bulkResultsOverride = (action, ids) => ids
+          .map((id) => BulkActionResult(mailId: id, success: id == 'mail-1'))
+          .toList();
       final repo = await _repositoryWithLoadedInbox(mailService);
 
       await repo.markAsRead(['mail-1', 'mail-2']);
@@ -133,23 +137,26 @@ void main() {
       );
     });
 
-    test('moveToFolder archives a live mail via the bulk archive action', () async {
-      final mailService = _RecordingMailService(
-        folders: [
-          _folder('folder-inbox', 'Inbox'),
-          _folder('folder-archive', 'Archive'),
-        ],
-        pagesByFolderId: {
-          'folder-inbox': _page([_mailJson('mail-1', 'folder-inbox')]),
-        },
-      );
-      final repo = await _repositoryWithLoadedInbox(mailService);
+    test(
+      'moveToFolder archives a live mail via the bulk archive action',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-archive', 'Archive'),
+          ],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1', 'folder-inbox')]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
 
-      await repo.moveToFolder(['mail-1'], MailFolder.archive);
+        await repo.moveToFolder(['mail-1'], MailFolder.archive);
 
-      expect(mailService.bulkActionCalls, ['archive:mail-1:null']);
-      expect(repo.getEmailsInFolder(MailFolder.archive).single.id, 'mail-1');
-    });
+        expect(mailService.bulkActionCalls, ['archive:mail-1:null']);
+        expect(repo.getEmailsInFolder(MailFolder.archive).single.id, 'mail-1');
+      },
+    );
 
     test('moveToFolder restores a trashed mail via the single restore action, not bulk move', () async {
       final mailService = _RecordingMailService(
@@ -188,12 +195,66 @@ void main() {
 
       await repo.setStarred(['mail-1', 'mail-2'], true);
 
-      expect(mailService.singleActionCalls, [
-        'mail-1:star',
-        'mail-2:star',
-      ]);
+      expect(mailService.singleActionCalls, ['mail-1:star', 'mail-2:star']);
       final inbox = repo.getEmailsInFolder(MailFolder.inbox);
       expect(inbox.every((e) => e.isStarred), isTrue);
+    });
+
+    test('syncFolder resolves the folder id; unknown folders throw', () async {
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-1', 'folder-inbox')]),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
+
+      await repo.syncFolder(MailFolder.inbox);
+      expect(mailService.syncedFolderIds, ['folder-inbox']);
+
+      expect(() => repo.syncFolder(MailFolder.sent), throwsArgumentError);
+    });
+  });
+  group('ApiMailService copy + folder sync', () {
+    test('copyMail POSTs the target folderId', () async {
+      late String path;
+      late Map<String, dynamic> body;
+      final service = ApiMailService(
+        _client((request) async {
+          path = request.url.path;
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response('', 204);
+        }),
+      );
+
+      await service.copyMail('m-1', 'f-9');
+
+      expect(path, '/api/mails/m-1/copy');
+      expect(body, {'folderId': 'f-9'});
+    });
+
+    test('refreshFolders returns the reported folder count', () async {
+      final service = ApiMailService(
+        _client((_) async => http.Response(jsonEncode({'folders': 7}), 202)),
+      );
+
+      expect(await service.refreshFolders(), 7);
+    });
+
+    test('syncFolderId POSTs a bodyless folder sync', () async {
+      late http.Request sent;
+      final service = ApiMailService(
+        _client((request) async {
+          sent = request;
+          return http.Response('', 202);
+        }),
+      );
+
+      await service.syncFolderId('f-1');
+
+      expect(sent.method, 'POST');
+      expect(sent.url.path, '/api/folders/f-1/sync');
+      expect(sent.body, isEmpty);
     });
   });
 }
@@ -250,11 +311,7 @@ Map<String, dynamic> _mailJson(String id, String folderId) => {
 };
 
 MailListPage _page(List<Map<String, dynamic>> items) => MailListPage(
-  items: items
-      .map(
-        (item) => _mapMailForTest(item),
-      )
-      .toList(),
+  items: items.map((item) => _mapMailForTest(item)).toList(),
   page: 1,
   pageSize: 20,
   total: items.length,
@@ -282,15 +339,14 @@ Email _mapMailForTest(Map<String, dynamic> item) {
 }
 
 class _RecordingMailService extends ApiMailService {
-  _RecordingMailService({
-    required this.folders,
-    required this.pagesByFolderId,
-  }) : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
+  _RecordingMailService({required this.folders, required this.pagesByFolderId})
+    : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
 
   final List<Map<String, dynamic>> folders;
   final Map<String, MailListPage> pagesByFolderId;
   final List<String> bulkActionCalls = [];
   final List<String> singleActionCalls = [];
+  final List<String> syncedFolderIds = [];
   List<BulkActionResult> Function(String action, List<String> ids)?
   bulkResultsOverride;
 
@@ -324,6 +380,19 @@ class _RecordingMailService extends ApiMailService {
   @override
   Future<void> moveMail(String id, String folderId) async {
     singleActionCalls.add('$id:move:$folderId');
+  }
+
+  @override
+  Future<void> copyMail(String id, String folderId) async {
+    singleActionCalls.add('$id:copy:$folderId');
+  }
+
+  @override
+  Future<int> refreshFolders() async => folders.length;
+
+  @override
+  Future<void> syncFolderId(String folderId) async {
+    syncedFolderIds.add(folderId);
   }
 
   @override

@@ -435,6 +435,40 @@ class ApiMailRepository extends MailRepository {
     await loadMoreEmails(folder);
   }
 
+  /// Copies cached mails into [folder] server-side, then reloads that folder
+  /// so the new copies reconcile with real server ids.
+  Future<void> copyMails(List<String> ids, MailFolder folder) async {
+    if (ids.isEmpty) return;
+    final folderId = _folderIds[folder];
+    if (folderId == null) {
+      throw ArgumentError('Unknown target folder for this account: $folder');
+    }
+    for (final id in ids) {
+      await _mailService.copyMail(id, folderId);
+    }
+    await refreshEmails(folder);
+  }
+
+  /// Re-discovers the server folder tree, then re-resolves the local folder
+  /// mapping. Returns the server-reported folder count.
+  Future<int> refreshFolders() async {
+    final count = await _mailService.refreshFolders();
+    await _loadMailbox();
+    return count;
+  }
+
+  /// Triggers a server sync of [folder] (pull-to-refresh). No completion
+  /// notification exists — callers re-fetch the list afterwards (spec §2).
+  /// Unknown folders throw [ArgumentError], matching [moveToFolder].
+  @override
+  Future<void> syncFolder(MailFolder folder) async {
+    final folderId = _folderIds[folder];
+    if (folderId == null) {
+      throw ArgumentError('Unknown folder for this account: $folder');
+    }
+    await _mailService.syncFolderId(folderId);
+  }
+
   @override
   Future<Email?> getEmail(String id) async {
     try {

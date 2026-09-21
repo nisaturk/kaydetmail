@@ -94,8 +94,15 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   Future<void> _refresh() async {
-    // Repository-level refresh: simulates the sync, leaves read/star/pin/
-    // folder state and the already-loaded page untouched, never duplicates.
+    // Server sync first (a no-op in mock mode; sync-queue pressure is
+    // swallowed — there is no completion notification, the reload below is
+    // what actually shows new mail), then reload the list. Read/star/pin/
+    // folder state and the already-loaded page stay untouched.
+    try {
+      await _repo.syncFolder(widget.folder);
+    } catch (_) {
+      // Fall through to the reload — the current snapshot still shows.
+    }
     await _repo.refreshEmails(widget.folder);
   }
 

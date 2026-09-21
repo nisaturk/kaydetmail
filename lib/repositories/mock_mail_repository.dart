@@ -332,6 +332,12 @@ class MockMailRepository extends MailRepository {
   }
 
   @override
+  Future<void> syncFolder(MailFolder folder) async {
+    // No server in mock mode — same round-trip shape, nothing to trigger.
+    await _delay();
+  }
+
+  @override
   Future<Email?> getEmail(String id) async {
     await _delay();
     for (final e in _emails) {
