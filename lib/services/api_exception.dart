@@ -44,6 +44,34 @@ class ApiException implements Exception {
     'mail_tls_failed' ||
     'mail_server_unreachable' =>
       'Posta sunucusuna ulaşılamadı. Tekrar deneyin.',
+    'mail_not_found' || 'draft_not_found' => 'E-posta bulunamadı.',
+    'mail_not_draft' => 'Bu taslak artık geçerli değil.',
+    'drafts_folder_unavailable' ||
+    'trash_folder_unavailable' ||
+    'mail_folder_not_found' => 'Posta klasörü kullanılamıyor.',
+    'mail_operation_not_supported' =>
+      'Bu işlem bu e-posta için desteklenmiyor.',
+    'mail_operation_conflict' ||
+    'mailbox_changed' => 'Posta kutusu değişti. Yenileyip tekrar deneyin.',
+    'mail_move_failed' => 'E-posta taşınamadı. Tekrar deneyin.',
+    'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
+    'delivery_unknown' =>
+      'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',
+    'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',
+    'idempotency_key_required' ||
+    'idempotency_key_too_long' ||
+    'idempotency_conflict' => 'Gönderim tekrar denensin.',
+    'recipient_required' => 'En az bir alıcı yazmalısınız.',
+    'invalid_recipient' => 'Alıcı adresi geçersiz.',
+    'body_required' => 'E-posta gövdesi boş olamaz.',
+    'body_too_large' => 'E-posta gövdesi çok büyük.',
+    'attachment_too_large' ||
+    'too_many_attachments' => 'Ek dosya sınırı aşıldı.',
+    'mail_folder_unavailable' => 'Klasör sunucudan kaldırılmış.',
+    'sync_queue_full' => 'Eşitleme kuyruğu dolu. Birazdan tekrar deneyin.',
+    'mail_account_needs_reauthentication' ||
+    'credential_missing' => 'Hesap yeniden bağlanmayı istiyor.',
+    'unexpected_error' => 'Beklenmeyen bir hata oluştu.',
     _ => title ?? 'İstek tamamlanamadı.',
   };
 

@@ -163,6 +163,12 @@ abstract class MailRepository extends ChangeNotifier {
     String? inReplyToId,
   });
 
+  /// Creates a new draft, or — when [draftId] is given — updates the
+  /// existing draft in place instead of creating a duplicate.
+  ///
+  /// The backend may assign a NEW id on update (`PUT /drafts/{id}` returns a
+  /// fresh `mailId`); the returned draft carries the id callers must use from
+  /// then on. Mock mode keeps the same id.
   Future<Email> saveDraft({
     required List<String> to,
     List<String> cc = const [],
@@ -174,7 +180,11 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? draftId,
   });
+
+  /// Deletes a draft. Unknown ids are ignored.
+  Future<void> deleteDraft(String draftId);
 
   /// Moves the given mails to Trash (does not delete them permanently).
   Future<void> moveToTrash(List<String> ids);

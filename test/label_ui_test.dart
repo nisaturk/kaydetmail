@@ -257,12 +257,13 @@ void main() {
     ) async {
       await _login(tester);
 
-      // Select a row via avatar tap.
-      await tester.tap(find.byType(MailAvatar).first);
+      // Select a row via avatar long-press; Etiketle lives in the top
+      // selection toolbar now.
+      await tester.longPress(find.byType(MailAvatar).first);
       await tester.pump();
       expect(find.text('1 seçili'), findsOneWidget);
 
-      await tester.tap(find.text('Etiketle'));
+      await tester.tap(find.byTooltip('Etiketle'));
       await tester.pumpAndSettle();
       expect(find.text('Etiketler'), findsOneWidget);
       await tester.tap(find.widgetWithText(CheckboxListTile, 'Seyahat'));

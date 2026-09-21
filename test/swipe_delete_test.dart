@@ -21,9 +21,17 @@ Future<void> _login(WidgetTester tester) async {
 /// Swipes a row left far enough to trigger Dismissible.
 Future<void> _swipeLeft(WidgetTester tester, Finder target) async {
   await tester.drag(target, const Offset(-600, 0));
-  // Finish the dismiss + resize animation (onDismissed fires here).
+  // Finish the dismiss animation (confirmDismiss fires here).
   await tester.pumpAndSettle();
-  // Let the repository's trash-move latency elapse so the undo snackbar shows.
+  // Let the repository's move latency elapse so the undo snackbar shows.
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pumpAndSettle();
+}
+
+/// Swipes a row right far enough to trigger Dismissible.
+Future<void> _swipeRight(WidgetTester tester, Finder target) async {
+  await tester.drag(target, const Offset(600, 0));
+  await tester.pumpAndSettle();
   await tester.pump(const Duration(milliseconds: 400));
   await tester.pumpAndSettle();
 }
@@ -54,7 +62,10 @@ Future<void> _disableSwipe(WidgetTester tester) async {
 }
 
 void main() {
-  setUp(() => AppConfig.resetForTest());
+  setUp(() {
+    AppConfig.resetForTest();
+    AppSettingsController.resetForTest();
+  });
 
   group('swipe-to-delete', () {
     testWidgets('swiping a standalone mail moves it to trash with undo', (
@@ -70,7 +81,7 @@ void main() {
       await _swipeLeft(tester, find.text(target.subject));
 
       // Moved to trash; the row disappears; user is offered undo.
-      expect(find.text('E-posta çöp kutusuna taşındı.'), findsOneWidget);
+      expect(find.text('1 e-posta silindi'), findsOneWidget);
       expect(find.text('Geri al'), findsOneWidget);
       expect(find.text(target.subject), findsNothing);
       expect(
@@ -159,6 +170,113 @@ void main() {
       expect(
         repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
         contains(target.id),
+      );
+    });
+  });
+
+  group('swipe-to-archive', () {
+    testWidgets('swiping right archives with undo and does not delete', (
+      tester,
+    ) async {
+      await _login(tester);
+      final repo = AppConfig.mailRepository;
+      final target = repo.getEmailsInFolder(MailFolder.inbox).first;
+
+      await tester.scrollUntilVisible(find.text(target.subject), 200);
+      await tester.pumpAndSettle();
+      await _swipeRight(tester, find.text(target.subject));
+
+      expect(find.text('1 e-posta arşivlendi'), findsOneWidget);
+      expect(find.text('Geri al'), findsOneWidget);
+      expect(find.text(target.subject), findsNothing);
+      expect(
+        repo.getEmailsInFolder(MailFolder.archive).map((e) => e.id),
+        contains(target.id),
+      );
+      // Right swipe archives — it must not delete.
+      expect(
+        repo.getEmailsInFolder(MailFolder.trash).map((e) => e.id),
+        isNot(contains(target.id)),
+      );
+
+      await tester.tap(find.text('Geri al'));
+      await tester.pumpAndSettle();
+      expect(
+        repo.getEmailsInFolder(target.folder).map((e) => e.id),
+        contains(target.id),
+      );
+      expect(find.text(target.subject), findsOneWidget);
+    });
+
+    testWidgets('swiping left does not archive', (tester) async {
+      await _login(tester);
+      final repo = AppConfig.mailRepository;
+      final target = repo.getEmailsInFolder(MailFolder.inbox).first;
+
+      await tester.scrollUntilVisible(find.text(target.subject), 200);
+      await tester.pumpAndSettle();
+      await _swipeLeft(tester, find.text(target.subject));
+
+      expect(find.text('1 e-posta silindi'), findsOneWidget);
+      expect(
+        repo.getEmailsInFolder(MailFolder.archive).map((e) => e.id),
+        isNot(contains(target.id)),
+      );
+    });
+
+    testWidgets('swiping a conversation right archives every member', (
+      tester,
+    ) async {
+      await _login(tester);
+      final repo = AppConfig.mailRepository;
+      final thread = repo.getThreadEmails('thread-onboarding');
+      expect(thread.length, greaterThan(1));
+
+      await tester.scrollUntilVisible(
+        find.text('Re: Design review: onboarding flow'),
+        200,
+      );
+      await tester.pumpAndSettle();
+      await _swipeRight(
+        tester,
+        find.text('Re: Design review: onboarding flow'),
+      );
+
+      expect(find.text('Re: Design review: onboarding flow'), findsNothing);
+      expect(
+        repo
+            .getThreadEmails('thread-onboarding')
+            .every((e) => e.folder == MailFolder.archive),
+        isTrue,
+      );
+
+      // One Undo restores every member to its previous folder.
+      await tester.tap(find.text('Geri al'));
+      await tester.pumpAndSettle();
+      final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+      final sent = repo.getEmailsInFolder(MailFolder.sent);
+      expect(inbox.map((e) => e.id), contains('seed-alice-onboarding'));
+      expect(sent.map((e) => e.id), contains('seed-sent-onboarding'));
+    });
+
+    testWidgets('swipe off: dragging right also leaves the row in place', (
+      tester,
+    ) async {
+      await _login(tester);
+      final repo = AppConfig.mailRepository;
+      await _disableSwipe(tester);
+
+      final target = repo.getEmailsInFolder(MailFolder.inbox).first;
+      await tester.scrollUntilVisible(find.text(target.subject), 200);
+      await tester.pumpAndSettle();
+
+      await tester.drag(find.text(target.subject), const Offset(600, 0));
+      await tester.pumpAndSettle();
+
+      expect(find.text(target.subject), findsOneWidget);
+      expect(
+        repo.getEmailsInFolder(MailFolder.archive).map((e) => e.id),
+        isNot(contains(target.id)),
       );
     });
   });

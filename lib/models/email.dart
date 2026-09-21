@@ -91,11 +91,11 @@ class Email {
   final List<String> labelIds;
   final List<Attachment> attachments;
 
-  /// Id of the [MailAccount] that owns this mail (the lowercase account
-  /// email). Empty means "unassigned" — repositories stamp it on ingest.
-  /// Never duplicated across accounts: one mail object lives in exactly one
-  /// account, so starring/reading/deleting it in the unified inbox affects
-  /// only the originating account.
+  /// Opaque id of the [MailAccount] that owns this mail — the backend
+  /// `mailAccountId`, never the email address. Empty means "unassigned" —
+  /// repositories stamp it on ingest. Never duplicated across accounts: one
+  /// mail object lives in exactly one account, so starring/reading/deleting
+  /// it in the unified inbox affects only the originating account.
   final String accountId;
 
   /// Stable conversation identifier shared by every mail that belongs to the

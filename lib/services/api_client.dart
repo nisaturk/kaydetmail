@@ -74,6 +74,39 @@ class ApiClient {
     return _decodeObject(response.body);
   }
 
+  /// Same as [multipart] but with the PUT method — `PUT /api/drafts/{id}`
+  /// replaces a draft server-side.
+  Future<Map<String, dynamic>> multipartPut(
+    String path, {
+    required Map<String, String> fields,
+    List<http.MultipartFile> files = const [],
+    Map<String, String> headers = const {},
+  }) async {
+    final response = await _sendWithRefresh(() async {
+      final request = http.MultipartRequest('PUT', await _uri(path));
+      request.fields.addAll(fields);
+      request.files.addAll(files);
+      request.headers.addAll(headers);
+      return request;
+    }, authenticated: true);
+    return _decodeObject(response.body);
+  }
+
+  /// Bodiless POST with extra headers — used by endpoints that require e.g.
+  /// an `Idempotency-Key` without a JSON body.
+  Future<Map<String, dynamic>> postWithHeaders(
+    String path,
+    Map<String, String> headers, {
+    bool authenticated = true,
+  }) async {
+    final response = await _sendWithRefresh(() async {
+      final request = http.Request('POST', await _uri(path));
+      request.headers.addAll(headers);
+      return request;
+    }, authenticated: authenticated);
+    return _decodeObject(response.body);
+  }
+
   Future<Map<String, dynamic>> _jsonRequest(
     String method,
     String path, {
@@ -91,16 +124,41 @@ class ApiClient {
     return _decodeObject(response.body);
   }
 
+  /// Short exponential backoff for the documented rate limit (`429` is
+  /// bodiless): only idempotent GETs retry automatically, max 3 attempts.
+  Future<http.Response> _sendIdempotent(
+    Future<http.BaseRequest> Function() createRequest, {
+    required String? accessToken,
+  }) async {
+    const delays = [Duration(seconds: 1), Duration(seconds: 2)];
+    var attempt = 0;
+    while (true) {
+      final response = await _send(
+        await createRequest(),
+        accessToken: accessToken,
+        throwErrors: false,
+      );
+      if (response.statusCode != 429 || attempt >= delays.length) {
+        return response;
+      }
+      await Future<void>.delayed(delays[attempt]);
+      attempt++;
+    }
+  }
+
   Future<http.Response> _sendWithRefresh(
     Future<http.BaseRequest> Function() createRequest, {
     required bool authenticated,
   }) async {
     final sentToken = authenticated ? await tokenStore.readAccessToken() : null;
-    var response = await _send(
-      await createRequest(),
-      accessToken: sentToken,
-      throwErrors: false,
-    );
+    // Peek at the method to decide about 429 retries — MultipartRequests
+    // report POST/PUT, plain Requests report their own method.
+    final probe = await createRequest();
+    final isGet = probe.method == 'GET';
+    Future<http.Response> sendOnce(String? token) async => isGet
+        ? _sendIdempotent(createRequest, accessToken: token)
+        : _send(await createRequest(), accessToken: token, throwErrors: false);
+    var response = await sendOnce(sentToken);
     if (!authenticated || response.statusCode != 401) {
       if (response.statusCode >= 400) {
         throw ApiException.fromResponse(response.statusCode, response.body);

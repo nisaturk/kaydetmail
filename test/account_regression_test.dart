@@ -197,11 +197,12 @@ void main() {
       await tester.pumpAndSettle();
       await _goUnified(tester);
 
-      await tester.tap(find.byType(MailAvatar).first);
+      await tester.longPress(find.byType(MailAvatar).first);
       await tester.pump();
       expect(find.textContaining('seçili'), findsOneWidget);
 
-      await tester.tap(find.text('Sil'));
+      await tester.tap(find.byTooltip('Sil'));
+      await tester.pump(const Duration(milliseconds: 500));
       await tester.pumpAndSettle();
 
       // The other mailbox is intact.

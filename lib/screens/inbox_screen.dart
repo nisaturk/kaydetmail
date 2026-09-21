@@ -8,14 +8,17 @@ import '../repositories/mail_repository.dart';
 import '../state/app_settings_controller.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/mail_threads.dart';
 import '../widgets/mail_list_item.dart';
+import 'compose_screen.dart';
 import 'mail_detail_screen.dart';
 
 /// Mail list for a single folder with infinite scrolling.
 ///
 /// Loading, empty, error and retry states are handled explicitly, even though
 /// the mock data source succeeds almost always — the same code will drive the
-/// real API later. Selection mode is entered by tapping a mail avatar.
+/// real API later. Selection mode is entered by long-pressing a mail avatar;
+/// swiping a row left deletes it, swiping right archives it.
 class InboxScreen extends StatefulWidget {
   const InboxScreen({super.key, required this.folder, required this.selection});
 
@@ -118,6 +121,26 @@ class _InboxScreenState extends State<InboxScreen> {
   void _onMailTap(Email email) {
     if (widget.selection.isActive) {
       widget.selection.toggle(email.id);
+    } else if (email.folder == MailFolder.drafts) {
+      // Drafts open in the editor with every field populated; ordinary
+      // messages keep opening the read-only detail view.
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ComposeScreen(
+            composeTitle: 'Taslağı Düzenle',
+            editingDraftId: email.id,
+            initialFrom: _repo.getAccount(email.accountId)?.email,
+            initialTo: email.recipients.join(', '),
+            initialCc: email.cc.join(', '),
+            initialBcc: email.bcc.join(', '),
+            initialSubject: email.subject,
+            initialBody: email.bodyText,
+            initialAttachments: email.attachments,
+            initialThreadId: email.threadId.isEmpty ? null : email.threadId,
+            inReplyToId: email.inReplyToId,
+          ),
+        ),
+      );
     } else {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: email.id)),
@@ -125,37 +148,44 @@ class _InboxScreenState extends State<InboxScreen> {
     }
   }
 
-  /// Swiping a row moves the entire conversation to Trash. Every message's
-  /// original folder is remembered so one Undo can restore each of them.
-  void _swipeDelete(Email representative) {
-    final thread = representative.threadId.isEmpty
-        ? [representative]
-        : _repo.getThreadEmails(representative.threadId);
-    if (thread.isEmpty) return;
-    final ids = thread.map((e) => e.id).toList();
-    final previousFolders = {for (final e in thread) e.id: e.folder};
+  /// A plain tap on the avatar never enters selection mode — only a long
+  /// press does. While selection mode is active, tapping toggles the row.
+  void _onAvatarTap(Email email) {
+    if (widget.selection.isActive) widget.selection.toggle(email.id);
+  }
+
+  void _onAvatarLongPress(Email email) => widget.selection.toggle(email.id);
+
+  /// Swiping a row moves the entire conversation: left to Trash, right to
+  /// Archive. Every message's original folder is remembered so one Undo
+  /// restores each of them; all other state (labels, read/star/pin,
+  /// attachments, …) is preserved because only the folder is swapped.
+  Future<void> _swipeMove(Email representative, {required bool archive}) {
+    final ids = expandThreadIds(_repo, [representative.id]);
+    if (ids.isEmpty) return Future.value();
+    final previousFolders = previousFoldersOf(_repo, ids);
     final undoKey = _dismissKey(representative);
     setState(() => _dismissed.add(undoKey));
-    _repo.moveToTrash(ids).then((_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('E-posta çöp kutusuna taşındı.'),
-          action: SnackBarAction(
-            label: 'Geri al',
-            onPressed: () {
-              for (final entry in previousFolders.entries) {
-                // Restores every message to its exact previous folder; all
-                // other properties (labels, read/star/pin, attachments, …)
-                // are preserved because moveToFolder only swaps the folder.
-                _repo.moveToFolder([entry.key], entry.value);
-              }
-              if (mounted) setState(() => _dismissed.remove(undoKey));
-            },
-          ),
-        ),
-      );
-    });
+    return (archive
+            ? _repo.moveToFolder(ids, MailFolder.archive)
+            : _repo.moveToTrash(ids))
+        .then((_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                '${ids.length} e-posta ${archive ? 'arşivlendi' : 'silindi'}',
+              ),
+              action: SnackBarAction(
+                label: 'Geri al',
+                onPressed: () {
+                  restorePreviousFolders(_repo, previousFolders);
+                  if (mounted) setState(() => _dismissed.remove(undoKey));
+                },
+              ),
+            ),
+          );
+        });
   }
 
   @override
@@ -233,25 +263,56 @@ class _InboxScreenState extends State<InboxScreen> {
                     : null,
                 threadCount: threadCounts[email.threadId],
                 onTap: () => _onMailTap(email),
-                onAvatarTap: () => widget.selection.toggle(email.id),
+                onAvatarTap: () => _onAvatarTap(email),
+                onAvatarLongPress: () => _onAvatarLongPress(email),
               );
-              // Swipe-to-delete (Kaydırarak sil). Disabled while selection
-              // mode is active so the horizontal gesture never fights avatar
-              // selection, and while the user turned it off in settings.
+              // Swipe left to delete, swipe right to archive (Kaydırarak
+              // sil). Disabled while selection mode is active so the
+              // horizontal gesture never fights selection, and while the
+              // user turned it off in settings.
               return Dismissible(
                 key: ValueKey('dismiss-${_dismissKey(email)}'),
                 direction: swipeEnabled && !widget.selection.isActive
-                    ? DismissDirection.endToStart
+                    ? DismissDirection.horizontal
                     : DismissDirection.none,
-                onDismissed: (_) => _swipeDelete(email),
+                confirmDismiss: (direction) async {
+                  await _swipeMove(
+                    email,
+                    archive: direction == DismissDirection.startToEnd,
+                  );
+                  return false;
+                },
                 background: Container(
+                  color: const Color(0xFF9E9E9E),
+                  alignment: Alignment.centerLeft,
+                  padding: const EdgeInsets.only(left: 24),
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(LucideIcons.archive, size: 20, color: Colors.white),
+                      SizedBox(width: 8),
+                      Text(
+                        'Arşivle',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                    ],
+                  ),
+                ),
+                secondaryBackground: Container(
                   color: const Color(0xFFE57373),
                   alignment: Alignment.centerRight,
                   padding: const EdgeInsets.only(right: 24),
-                  child: const Icon(
-                    LucideIcons.trash2,
-                    size: 20,
-                    color: Colors.white,
+                  child: const Row(
+                    mainAxisSize: MainAxisSize.min,
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      Text(
+                        'Sil',
+                        style: TextStyle(color: Colors.white, fontSize: 14),
+                      ),
+                      SizedBox(width: 8),
+                      Icon(LucideIcons.trash2, size: 20, color: Colors.white),
+                    ],
                   ),
                 ),
                 child: row,

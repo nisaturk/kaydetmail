@@ -19,6 +19,7 @@ class MailListItem extends StatelessWidget {
     required this.email,
     this.onTap,
     this.onAvatarTap,
+    this.onAvatarLongPress,
     this.selected = false,
     this.accountLabel,
     this.threadCount,
@@ -27,6 +28,7 @@ class MailListItem extends StatelessWidget {
   final Email email;
   final VoidCallback? onTap;
   final VoidCallback? onAvatarTap;
+  final VoidCallback? onAvatarLongPress;
   final bool selected;
 
   /// Originating mailbox shown as a tiny tertiary line (unified inbox only).
@@ -54,6 +56,7 @@ class MailListItem extends StatelessWidget {
             children: [
               GestureDetector(
                 onTap: onAvatarTap,
+                onLongPress: onAvatarLongPress,
                 behavior: HitTestBehavior.opaque,
                 child: MailAvatar(
                   identity: email.senderEmail,

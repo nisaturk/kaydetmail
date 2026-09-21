@@ -7,6 +7,7 @@ import '../repositories/mail_repository.dart';
 import '../services/session_store.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/mail_threads.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
 import 'accounts_screen.dart';
@@ -18,8 +19,8 @@ import 'settings_screen.dart';
 
 /// The main mail interface: a drawer to switch folders plus the mail list.
 ///
-/// When selection mode is active the app bar switches to a selection toolbar
-/// and a bottom action bar appears. A FAB opens the compose screen when
+/// When selection mode is active the app bar switches to a compact selection
+/// toolbar (Sil, Arşivle, Etiketle). A FAB opens the compose screen when
 /// selection mode is off.
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -150,22 +151,55 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   // ── Bulk actions ──────────────────────────────────────────────────────
+  //
+  // Selected rows stand for whole conversations, so every operation expands
+  // them to all member messages first. Delete/archive confirm with a compact
+  // SnackBar whose Undo restores each message to its exact previous folder.
 
   Future<void> _actionDelete() async {
-    await _repo.moveToTrash(_selection.selectedIds.toList());
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) {
+      _selection.exit();
+      return;
+    }
+    final previous = previousFoldersOf(_repo, ids);
+    await _repo.moveToTrash(ids);
     _selection.exit();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${ids.length} e-posta silindi'),
+        action: SnackBarAction(
+          label: 'Geri al',
+          onPressed: () => restorePreviousFolders(_repo, previous),
+        ),
+      ),
+    );
   }
 
   Future<void> _actionArchive() async {
-    await _repo.moveToFolder(
-      _selection.selectedIds.toList(),
-      MailFolder.archive,
-    );
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) {
+      _selection.exit();
+      return;
+    }
+    final previous = previousFoldersOf(_repo, ids);
+    await _repo.moveToFolder(ids, MailFolder.archive);
     _selection.exit();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('${ids.length} e-posta arşivlendi'),
+        action: SnackBarAction(
+          label: 'Geri al',
+          onPressed: () => restorePreviousFolders(_repo, previous),
+        ),
+      ),
+    );
   }
 
   Future<void> _actionLabel() async {
-    final ids = _selection.selectedIds.toList();
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
     // Shared picker with the mail detail screen, so labeling never forks into
     // two implementations.
@@ -198,9 +232,6 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Yeni E-posta',
                   child: const Icon(LucideIcons.mailPlus),
                 ),
-          bottomNavigationBar: _selection.isActive
-              ? _buildBulkActionBar()
-              : null,
           body: KeyedSubtree(
             key: ValueKey(_folder),
             child: InboxScreen(folder: _folder, selection: _selection),
@@ -252,6 +283,9 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
+  /// Compact selection toolbar: cancel, count, select-all, then only the
+  /// three conversation-level bulk actions (Sil, Arşivle, Etiketle).
+  /// Single-message actions (read/star/pin/move) stay out of here.
   PreferredSizeWidget _buildSelectionAppBar() {
     return AppBar(
       leading: IconButton(
@@ -263,82 +297,26 @@ class _HomeScreenState extends State<HomeScreen> {
         _selection.count == 1 ? '1 seçili' : '${_selection.count} seçili',
       ),
       actions: [
+        IconButton(
+          onPressed: _actionDelete,
+          tooltip: 'Sil',
+          icon: const Icon(LucideIcons.trash2),
+        ),
+        IconButton(
+          onPressed: _actionArchive,
+          tooltip: 'Arşivle',
+          icon: const Icon(LucideIcons.archive),
+        ),
+        IconButton(
+          onPressed: _actionLabel,
+          tooltip: 'Etiketle',
+          icon: const Icon(LucideIcons.tag),
+        ),
         TextButton(
           onPressed: _selection.selectAllVisible,
           child: const Text('Tümünü seç'),
         ),
       ],
-    );
-  }
-
-  Widget _buildBulkActionBar() {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: AppTheme.border)),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 6),
-      child: SafeArea(
-        top: false,
-        child: SizedBox(
-          height: 56,
-          child: ListView(
-            scrollDirection: Axis.horizontal,
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            children: [
-              _ActionBtn(
-                icon: LucideIcons.trash2,
-                label: 'Sil',
-                onTap: _actionDelete,
-              ),
-              _ActionBtn(
-                icon: LucideIcons.archive,
-                label: 'Arşivle',
-                onTap: _actionArchive,
-              ),
-              _ActionBtn(
-                icon: LucideIcons.tag,
-                label: 'Etiketle',
-                onTap: _actionLabel,
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _ActionBtn extends StatelessWidget {
-  const _ActionBtn({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return InkWell(
-      onTap: onTap,
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 4),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, size: 20, color: Colors.black),
-            const SizedBox(height: 4),
-            Text(
-              label,
-              style: const TextStyle(fontSize: 12, color: Colors.black),
-            ),
-          ],
-        ),
-      ),
     );
   }
 }

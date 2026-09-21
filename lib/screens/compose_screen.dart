@@ -37,20 +37,26 @@ const _flatBodyDecoration = InputDecoration(
   hintStyle: TextStyle(color: AppTheme.tertiaryText),
 );
 
-/// Compose a new mail (or reply/forward — same screen).
+/// Compose a new mail (or reply/forward/edit-draft — same screen).
 ///
-/// Supports To, CC, BCC (expandable), Subject, Body and local file
-/// attachments. Inside a scrolled column so nothing overflows when the
-/// keyboard is open or the screen is narrow. The mic button appends simulated
-/// voice text. Smart-back saves a draft when content exists.
+/// Cc/Bcc stay hidden behind a compact menu until requested. When
+/// [editingDraftId] is set the screen edits that draft: fields are prefilled,
+/// saving updates it in place (no duplicate) and sending removes it from
+/// Drafts. Inside a scrolled column so nothing overflows when the keyboard is
+/// open or the screen is narrow. The mic button appends simulated voice text.
+/// Smart-back saves a draft when content exists.
 class ComposeScreen extends StatefulWidget {
   const ComposeScreen({
     super.key,
     this.pickAttachments,
     this.initialFrom,
     this.initialTo = '',
+    this.initialCc = '',
+    this.initialBcc = '',
     this.initialSubject = '',
     this.initialBody = '',
+    this.initialAttachments = const [],
+    this.editingDraftId,
     this.composeTitle,
     this.initialThreadId,
     this.inReplyToId,
@@ -61,8 +67,14 @@ class ComposeScreen extends StatefulWidget {
 
   final String? initialFrom;
   final String initialTo;
+  final String initialCc;
+  final String initialBcc;
   final String initialSubject;
   final String initialBody;
+  final List<Attachment> initialAttachments;
+
+  /// Id of the draft being edited, or null for a new mail/reply/forward.
+  final String? editingDraftId;
   final String? composeTitle;
 
   /// When replying: the conversation this message continues. Null/empty means
@@ -98,8 +110,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
   void initState() {
     super.initState();
     _toController.text = widget.initialTo;
+    _ccController.text = widget.initialCc;
+    _bccController.text = widget.initialBcc;
     _subjectController.text = widget.initialSubject;
     _bodyController.text = widget.initialBody;
+    // Fields that already carry content start visible so nothing is lost;
+    // empty ones stay hidden behind the Cc/Bcc menu.
+    _ccExpanded = widget.initialCc.trim().isNotEmpty;
+    _bccExpanded = widget.initialBcc.trim().isNotEmpty;
+    _attachments.addAll(widget.initialAttachments);
     final accounts = _repo.accounts;
     if (widget.initialFrom != null &&
         accounts.any((a) => a.email == widget.initialFrom)) {
@@ -165,6 +184,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
         false;
   }
 
+  List<String> _splitAddresses(TextEditingController controller) => controller
+      .text
+      .split(',')
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .toList();
+
   Future<void> _send() async {
     final to = _toController.text.trim();
     if (to.isEmpty) {
@@ -179,27 +205,25 @@ class _ComposeScreenState extends State<ComposeScreen> {
     try {
       await _repo.sendEmail(
         from: _fromAccount,
-        to: to
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
-        cc: _ccController.text
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
-        bcc: _bccController.text
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
+        to: _splitAddresses(_toController),
+        cc: _splitAddresses(_ccController),
+        bcc: _splitAddresses(_bccController),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,
       );
+      // A sent draft leaves Drafts — the sent copy lives in Sent now.
+      final draftId = widget.editingDraftId;
+      if (draftId != null) {
+        try {
+          await _repo.deleteDraft(draftId);
+        } catch (_) {
+          // The mail is already sent; a stale draft row is harmless next
+          // to that and reconciles on the next refresh.
+        }
+      }
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context)
@@ -224,26 +248,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
     try {
       await _repo.saveDraft(
         from: _fromAccount,
-        to: to
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
-        cc: _ccController.text
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
-        bcc: _bccController.text
-            .split(',')
-            .map((e) => e.trim())
-            .where((e) => e.isNotEmpty)
-            .toList(),
+        to: _splitAddresses(_toController),
+        cc: _splitAddresses(_ccController),
+        bcc: _splitAddresses(_bccController),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,
+        // Editing a draft updates it in place — never a duplicate.
+        draftId: widget.editingDraftId,
       );
     } catch (_) {
       // Silently fail — mock never throws.
@@ -313,7 +327,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
               if (shouldPop && mounted) nav.pop();
             },
           ),
-          title: Text(widget.composeTitle ?? 'Yeni E-posta'),
+          title: Text(
+            widget.composeTitle ??
+                (widget.editingDraftId != null
+                    ? 'Taslağı Düzenle'
+                    : 'Yeni E-posta'),
+          ),
           actions: [
             if (_sending)
               const Padding(
@@ -363,27 +382,48 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           controller: _bccController,
                           fieldKey: const Key('bcc-field'),
                         ),
+                      // Compact overflow: hidden Cc/Bcc are revealed through
+                      // this menu. Entered values live in the controllers, so
+                      // revealing a field never erases its content.
                       if (!_ccExpanded || !_bccExpanded)
                         Padding(
                           padding: const EdgeInsets.only(left: 4),
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              if (!_ccExpanded)
-                                _expandChip(
-                                  label: 'Cc',
-                                  onTap: () =>
-                                      setState(() => _ccExpanded = true),
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: PopupMenuButton<String>(
+                              key: const Key('cc-bcc-menu'),
+                              tooltip: 'Cc / Bcc ekle',
+                              onSelected: (value) => setState(() {
+                                if (value == 'Cc') {
+                                  _ccExpanded = true;
+                                } else {
+                                  _bccExpanded = true;
+                                }
+                              }),
+                              itemBuilder: (context) => [
+                                if (!_ccExpanded)
+                                  const PopupMenuItem(
+                                    value: 'Cc',
+                                    child: Text('Cc'),
+                                  ),
+                                if (!_bccExpanded)
+                                  const PopupMenuItem(
+                                    value: 'Bcc',
+                                    child: Text('Bcc'),
+                                  ),
+                              ],
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(vertical: 10),
+                                child: Text(
+                                  '+ Cc / Bcc',
+                                  style: TextStyle(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w600,
+                                    color: AppTheme.secondaryText,
+                                  ),
                                 ),
-                              if (!_ccExpanded && !_bccExpanded)
-                                const SizedBox(width: 8),
-                              if (!_bccExpanded)
-                                _expandChip(
-                                  label: 'Bcc',
-                                  onTap: () =>
-                                      setState(() => _bccExpanded = true),
-                                ),
-                            ],
+                              ),
+                            ),
                           ),
                         ),
                       const Divider(indent: 0, endIndent: 0),
@@ -562,23 +602,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
       ),
     );
     if (picked != null && mounted) setState(() => _fromAccount = picked);
-  }
-
-  Widget _expandChip({required String label, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Text(
-          '+ $label',
-          style: const TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            color: AppTheme.secondaryText,
-          ),
-        ),
-      ),
-    );
   }
 
   Widget _buildBottomBar() {

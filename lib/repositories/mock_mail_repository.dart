@@ -212,7 +212,7 @@ class MockMailRepository extends MailRepository {
     required String password,
   }) async {
     final normalized = email.trim();
-    final existing = getAccount(normalized);
+    final existing = _accountForEmail(normalized);
     if (existing != null) {
       await setActiveAccount(existing.id);
       return existing;
@@ -348,14 +348,25 @@ class MockMailRepository extends MailRepository {
     return List.unmodifiable(thread);
   }
 
+  /// Finds an account by email address (case-insensitive). Account ids are
+  /// opaque — never pass an email to [getAccount].
+  MailAccount? _accountForEmail(String email) {
+    final normalized = email.trim().toLowerCase();
+    for (final account in _accounts) {
+      if (account.email.trim().toLowerCase() == normalized) return account;
+    }
+    return null;
+  }
+
   /// Which account a composed mail belongs to: explicit id first, then the
   /// sender address, then the active mailbox, then the first account.
   String _resolveAccountId(String? fromAccountId, String? from) {
     if (fromAccountId != null && getAccount(fromAccountId) != null) {
       return getAccount(fromAccountId)!.id;
     }
-    if (from != null && getAccount(from) != null) {
-      return getAccount(from)!.id;
+    if (from != null) {
+      final byEmail = _accountForEmail(from);
+      if (byEmail != null) return byEmail.id;
     }
     if (_activeAccountId != null) return _activeAccountId!;
     return _accounts.first.id;
@@ -444,8 +455,27 @@ class MockMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? draftId,
   }) async {
     await _delay();
+    // Editing an existing draft updates it in place — same id, no duplicate.
+    if (draftId != null) {
+      final index = _emails.indexWhere((e) => e.id == draftId);
+      if (index >= 0) {
+        final current = _emails[index];
+        _emails[index] = current.copyWith(
+          recipients: to,
+          cc: cc,
+          bcc: bcc,
+          subject: subject,
+          bodyText: body,
+          attachments: attachments,
+          folder: MailFolder.drafts,
+        );
+        notifyListeners();
+        return _emails[index];
+      }
+    }
     final email = _createFromCompose(
       to: to,
       cc: cc,
@@ -461,6 +491,13 @@ class MockMailRepository extends MailRepository {
     );
     notifyListeners();
     return email;
+  }
+
+  @override
+  Future<void> deleteDraft(String draftId) async {
+    await _delay();
+    _emails.removeWhere((e) => e.id == draftId);
+    notifyListeners();
   }
 
   @override

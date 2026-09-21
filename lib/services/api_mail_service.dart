@@ -94,10 +94,10 @@ class ApiMailService {
       _client.post('/api/mails/${Uri.encodeComponent(id)}/$action');
 
   /// Moves a single mail into an arbitrary target folder.
-  Future<void> moveMail(String id, String folderId) =>
-      _client.postJson('/api/mails/${Uri.encodeComponent(id)}/move', {
-        'folderId': folderId,
-      });
+  Future<void> moveMail(String id, String folderId) => _client.postJson(
+    '/api/mails/${Uri.encodeComponent(id)}/move',
+    {'folderId': folderId},
+  );
 
   /// Applies [action] (read, unread, archive, trash, or move) to every id in
   /// [mailIds] in one request. Each mail is processed independently server
@@ -144,6 +144,49 @@ class ApiMailService {
         .toList();
   }
 
+  /// Reads a draft via `GET /api/drafts/{id}` — same shape as
+  /// `GET /api/mails/{id}` (`MailDetailResponse`).
+  Future<Email> getDraft(
+    String id, {
+    required MailFolder Function(String folderId) resolveFolder,
+  }) async {
+    final body = await _client.get('/api/drafts/${Uri.encodeComponent(id)}');
+    return _mapMailDetail(body, resolveFolder);
+  }
+
+  /// Replaces a draft via `PUT /api/drafts/{id}` (IMAP drafts cannot be
+  /// edited in place — the server deletes and re-APPENDs). Returns a NEW
+  /// `mailId`; the old id is invalid afterwards (`422 mail_not_draft`).
+  Future<DraftResult> updateDraft(
+    String id, {
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+  }) async {
+    final body = await _client.multipartPut(
+      '/api/drafts/${Uri.encodeComponent(id)}',
+      fields: _composeFields(
+        subject: subject,
+        bodyText: bodyText,
+        replySourceMailId: replySourceMailId,
+      ),
+      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+    );
+    return DraftResult(
+      created: body['created'] as bool? ?? false,
+      mailId: body['mailId'] as String?,
+      warning: body['warning'] as String?,
+    );
+  }
+
+  /// Deletes a draft via `DELETE /api/drafts/{id}` (`204`).
+  Future<void> deleteDraft(String id) =>
+      _client.delete('/api/drafts/${Uri.encodeComponent(id)}');
+
   /// Creates a draft via `POST /api/drafts` (IMAP `APPEND`). Returns the
   /// real server-assigned mail id.
   Future<DraftResult> createDraft({
@@ -157,7 +200,11 @@ class ApiMailService {
   }) async {
     final body = await _client.multipart(
       '/api/drafts',
-      fields: _composeFields(subject: subject, bodyText: bodyText, replySourceMailId: replySourceMailId),
+      fields: _composeFields(
+        subject: subject,
+        bodyText: bodyText,
+        replySourceMailId: replySourceMailId,
+      ),
       files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
     );
     return DraftResult(
@@ -183,7 +230,11 @@ class ApiMailService {
   }) async {
     final body = await _client.multipart(
       '/api/mails/send',
-      fields: _composeFields(subject: subject, bodyText: bodyText, replySourceMailId: replySourceMailId),
+      fields: _composeFields(
+        subject: subject,
+        bodyText: bodyText,
+        replySourceMailId: replySourceMailId,
+      ),
       files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
       headers: {'Idempotency-Key': idempotencyKey},
     );
@@ -257,26 +308,51 @@ class ApiMailService {
     isStarred: item['flagged'] as bool? ?? false,
     accountId: item['accountId'] as String? ?? '',
     folder: resolveFolder(item['folderId'] as String),
+    threadId: item['conversationId'] as String? ?? '',
   );
+
+  /// Participant lists arrive either as address strings or as
+  /// `{ address, displayName }` objects — accept both.
+  static List<String> _addresses(dynamic value) {
+    final list = value as List? ?? const [];
+    return [
+      for (final entry in list)
+        if (entry is String && entry.isNotEmpty)
+          entry
+        else if (entry is Map<String, dynamic> &&
+            (entry['address'] as String?)?.isNotEmpty == true)
+          entry['address'] as String,
+    ];
+  }
 
   Email _mapMailDetail(
     Map<String, dynamic> item,
     MailFolder Function(String folderId) resolveFolder,
   ) {
-    final fromList =
-        (item['from'] as List?)?.cast<Map<String, dynamic>>().toList() ?? [];
-    final toList =
-        (item['to'] as List?)?.cast<Map<String, dynamic>>().toList() ?? [];
+    final fromList = _addresses(item['from']);
+    final fromNames = [
+      for (final entry in (item['from'] as List? ?? const []))
+        if (entry is Map<String, dynamic>)
+          entry['displayName'] as String? ?? '',
+    ];
+    final attachments = (item['attachments'] as List? ?? const [])
+        .whereType<Map<String, dynamic>>()
+        .map(
+          (a) => Attachment(
+            name: a['fileName'] as String? ?? 'ek',
+            sizeBytes: (a['sizeBytes'] as num?)?.toInt() ?? 0,
+            mimeType: a['contentType'] as String?,
+          ),
+        )
+        .toList();
     return Email(
       id: item['id'] as String,
-      senderName: fromList.isNotEmpty
-          ? fromList.first['displayName'] as String? ?? ''
-          : '',
-      senderEmail: fromList.isNotEmpty
-          ? fromList.first['address'] as String
-          : '',
-      recipients: toList.map((e) => e['address'] as String).toList(),
-      subject: item['subject'] as String,
+      senderName: fromNames.isNotEmpty ? fromNames.first : '',
+      senderEmail: fromList.isNotEmpty ? fromList.first : '',
+      recipients: _addresses(item['to']),
+      cc: _addresses(item['cc']),
+      bcc: _addresses(item['bcc']),
+      subject: item['subject'] as String? ?? '',
       bodyText: item['bodyText'] as String? ?? '',
       timestamp:
           DateTime.tryParse(item['receivedAt'] as String) ?? DateTime.now(),
@@ -284,6 +360,9 @@ class ApiMailService {
       isStarred: item['flagged'] as bool? ?? false,
       accountId: item['accountId'] as String? ?? '',
       folder: resolveFolder(item['folderId'] as String),
+      threadId: item['conversationId'] as String? ?? '',
+      inReplyToId: item['inReplyToMessageId'] as String?,
+      attachments: attachments,
     );
   }
 }

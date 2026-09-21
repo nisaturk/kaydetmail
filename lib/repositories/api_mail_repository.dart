@@ -92,8 +92,9 @@ class ApiMailRepository extends MailRepository {
   /// The backend only accepts two (port, security) pairings per protocol —
   /// 993/465 implicit TLS, 143/587 STARTTLS — anything else is rejected
   /// server-side as `mail_server_unsafe`.
-  MailSecurity _securityForPort(int port) =>
-      (port == 993 || port == 465) ? MailSecurity.sslOnConnect : MailSecurity.startTls;
+  MailSecurity _securityForPort(int port) => (port == 993 || port == 465)
+      ? MailSecurity.sslOnConnect
+      : MailSecurity.startTls;
 
   @override
   Future<void> logout() async {
@@ -145,10 +146,8 @@ class ApiMailRepository extends MailRepository {
     final tokens = await _connectOrLogin(
       email: email,
       password: password,
-      connect: () => _authService.connect(
-        discoveryId: discoveryId,
-        password: password,
-      ),
+      connect: () =>
+          _authService.connect(discoveryId: discoveryId, password: password),
     );
     final account = MailAccount(
       id: tokens.mailAccountId,
@@ -264,9 +263,12 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<List<MailSession>> getSessions() async {
     final sessions = await _mailService.getSessions();
-    final myDeviceId = await _authService.deviceIdentifierProvider.getIdentifier();
+    final myDeviceId = await _authService.deviceIdentifierProvider
+        .getIdentifier();
     return sessions
-        .map((s) => s.copyWith(isCurrentDevice: s.deviceIdentifier == myDeviceId))
+        .map(
+          (s) => s.copyWith(isCurrentDevice: s.deviceIdentifier == myDeviceId),
+        )
         .toList();
   }
 
@@ -345,9 +347,15 @@ class ApiMailRepository extends MailRepository {
   /// Ids from [ids] whose cached copy currently lives in Trash or Spam —
   /// the only two folders `restore` is valid from.
   List<String> _idsInTrashOrSpam(Iterable<String> ids) {
-    final trashed = {for (final e in _emails[MailFolder.trash] ?? const []) e.id};
-    final spammed = {for (final e in _emails[MailFolder.spam] ?? const []) e.id};
-    return ids.where((id) => trashed.contains(id) || spammed.contains(id)).toList();
+    final trashed = {
+      for (final e in _emails[MailFolder.trash] ?? const []) e.id,
+    };
+    final spammed = {
+      for (final e in _emails[MailFolder.spam] ?? const []) e.id,
+    };
+    return ids
+        .where((id) => trashed.contains(id) || spammed.contains(id))
+        .toList();
   }
 
   /// Applies a bulk action and updates the local cache only for the ids the
@@ -507,7 +515,55 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? draftId,
   }) async {
+    // Editing an existing draft goes through PUT /drafts/{id}, which returns
+    // a NEW mailId — the old id is invalid afterwards, so the cache drops it
+    // and stores the draft under the new one instead of duplicating it.
+    if (draftId != null) {
+      final result = await _mailService.updateDraft(
+        draftId,
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        subject: subject,
+        bodyText: body,
+        attachments: attachments,
+        replySourceMailId: inReplyToId,
+      );
+      final newId = result.mailId ?? draftId;
+      final drafts = _emails.putIfAbsent(MailFolder.drafts, () => <Email>[]);
+      final oldIndex = drafts.indexWhere((e) => e.id == draftId);
+      final previous = oldIndex >= 0 ? drafts[oldIndex] : null;
+      final updated = Email(
+        id: newId,
+        senderName: _account?.displayName ?? previous?.senderName ?? '',
+        senderEmail: from ?? _account?.email ?? previous?.senderEmail ?? '',
+        recipients: to,
+        cc: cc,
+        bcc: bcc,
+        subject: subject,
+        bodyText: body,
+        timestamp: DateTime.now(),
+        isRead: true,
+        folder: MailFolder.drafts,
+        attachments: attachments,
+        accountId: _account?.id ?? previous?.accountId ?? '',
+        threadId: (threadId == null || threadId.isEmpty)
+            ? (previous?.threadId.isNotEmpty == true
+                  ? previous!.threadId
+                  : 't-$newId')
+            : threadId,
+        inReplyToId: inReplyToId ?? previous?.inReplyToId,
+      );
+      if (oldIndex >= 0) {
+        drafts[oldIndex] = updated;
+      } else {
+        drafts.insert(0, updated);
+      }
+      notifyListeners();
+      return updated;
+    }
     final result = await _mailService.createDraft(
       to: to,
       cc: cc,
@@ -520,7 +576,8 @@ class ApiMailRepository extends MailRepository {
     // Reconciliation can still be pending right after APPEND — fall back to
     // a local id so the draft is still usable; refreshEmails(drafts) will
     // reconcile it with the server's real id on the next sync.
-    final id = result.mailId ?? 'draft-${DateTime.now().microsecondsSinceEpoch}';
+    final id =
+        result.mailId ?? 'draft-${DateTime.now().microsecondsSinceEpoch}';
     final email = Email(
       id: id,
       senderName: _account?.displayName ?? '',
@@ -541,6 +598,14 @@ class ApiMailRepository extends MailRepository {
     _emails.putIfAbsent(MailFolder.drafts, () => <Email>[]).insert(0, email);
     notifyListeners();
     return email;
+  }
+
+  @override
+  Future<void> deleteDraft(String draftId) async {
+    await _mailService.deleteDraft(draftId);
+    final drafts = _emails[MailFolder.drafts];
+    drafts?.removeWhere((e) => e.id == draftId);
+    notifyListeners();
   }
 
   /// A client-generated UUID v4 for the `Idempotency-Key` header — stable
