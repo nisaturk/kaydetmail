@@ -11,6 +11,7 @@ import 'package:kaydetmail/services/api_auth_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
+import 'package:kaydetmail/services/mail_cache.dart';
 import 'package:kaydetmail/services/token_store.dart';
 
 void main() {
@@ -55,7 +56,8 @@ void main() {
           'folder-inbox': _page([_mailJson('mail-1')]),
         },
       );
-      final repo1 = await _repositoryWithLoadedInbox(mailService);
+      final db = MailCache.inMemory(); // the "disk" both launches share
+      final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
       await repo1.setPinned(['mail-1'], true);
       await repo1.markAsReplied(['mail-1']);
 
@@ -63,7 +65,7 @@ void main() {
       // from the fixture's static isRead:false — only the local-only flags
       // (pin/reply) are expected to survive that; isRead itself is real
       // server state and out of scope for this fixture.
-      final repo2 = await _repositoryWithLoadedInbox(mailService);
+      final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
       final email = repo2.getEmailsInFolder(MailFolder.inbox).single;
 
       expect(email.isPinned, isTrue);
@@ -124,8 +126,9 @@ void main() {
 }
 
 Future<ApiMailRepository> _repositoryWithLoadedInbox(
-  _RecordingMailService mailService,
-) async {
+  _RecordingMailService mailService, {
+  MailCache? cache,
+}) async {
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
     accessToken: 'access',
@@ -143,6 +146,7 @@ Future<ApiMailRepository> _repositoryWithLoadedInbox(
   final repo = ApiMailRepository(
     authService: authService,
     mailService: mailService,
+    openCache: cache == null ? null : () async => cache,
   );
   await repo.restoreSession('person@example.com');
   await repo.loadMoreEmails(MailFolder.inbox);

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -14,21 +15,26 @@ import '../services/api_exception.dart';
 import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
 import '../services/local_mail_flags_store.dart';
+import '../services/mail_cache.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
 
-/// Placeholder for the future real backend implementation.
-///
-/// All methods currently throw [UnimplementedError]. Once the backend
-/// documentation/endpoints are available, implement each method here (mapping
-/// the API JSON to our models) WITHOUT touching the UI.
+/// [MailRepository] backed by the real backend. Pins, replied/forwarded flags
+/// and labels have no API equivalent and are kept locally per account.
 class ApiMailRepository extends MailRepository {
-  ApiMailRepository({ApiAuthService? authService, ApiMailService? mailService})
-    : _authService = authService ?? _createAuthService() {
+  ApiMailRepository({
+    ApiAuthService? authService,
+    ApiMailService? mailService,
+    this._openCache,
+  }) : _authService = authService ?? _createAuthService() {
     _mailService = mailService ?? ApiMailService(_authService.client);
   }
 
   final ApiAuthService _authService;
+  final Future<MailCache> Function()? _openCache;
+  MailCache? _cache;
+  Timer? _persistTimer;
+  Map<String, Email> _persisted = {};
   late final ApiMailService _mailService;
   MailAccount? _account;
   bool _loggedIn = false;
@@ -50,9 +56,6 @@ class ApiMailRepository extends MailRepository {
       deviceIdentifierProvider: PersistentDeviceIdentifierProvider(),
     );
   }
-
-  Never _notImplemented() =>
-      throw UnimplementedError('This mail endpoint is not implemented yet.');
 
   @override
   Future<bool> login({
@@ -112,12 +115,15 @@ class ApiMailRepository extends MailRepository {
       }
     }
     await _authService.logout();
+    _dropCache(_account?.id);
     _account = null;
     _loggedIn = false;
     _flagsStore = null;
     _pinnedIds = {};
     _repliedIds = {};
     _forwardedIds = {};
+    _labels = [];
+    _labelMap = {};
     notifyListeners();
   }
 
@@ -241,20 +247,37 @@ class ApiMailRepository extends MailRepository {
     _account = account;
     _loggedIn = true;
     try {
-      final flags = LocalMailFlagsStore(account.id);
+      _cache ??= await _openCacheOrMemory();
+      final flags = LocalMailFlagsStore(account.id, _cache!);
+      await flags.migrateLegacyPrefs();
       _pinnedIds = await flags.readPinned();
       _repliedIds = await flags.readReplied();
       _forwardedIds = await flags.readForwarded();
+      _labels = [
+        for (final d in await flags.readLabelDefs())
+          MailLabel(
+            id: d['id'] as String,
+            name: d['name'] as String,
+            color: Color(d['color'] as int),
+          ),
+      ];
+      _labelMap = await flags.readLabelMap();
       _flagsStore = flags;
+      final hydrated = await _hydrateFromCache(account.id);
       // Best-effort: enrich the token-derived account with the server view
       // (displayName, provider, status). A failed read never fails the login
       // itself — the token-derived account stays.
-      try {
-        _account = await _mailService.getAccount();
-      } catch (_) {
-        // Keep the token-derived account.
-      }
+      // Independent requests: run them concurrently to save a round trip.
+      final accountFuture = _mailService.getAccount().then<MailAccount?>(
+        (a) => a,
+        onError: (_) => null,
+      );
       await _loadMailbox();
+      _account = await accountFuture ?? _account;
+      // Cached mail is already on screen; quietly bring it up to date.
+      if (hydrated) {
+        unawaited(refreshEmails(MailFolder.inbox).catchError((_) {}));
+      }
     } catch (_) {
       _account = null;
       _loggedIn = false;
@@ -262,8 +285,88 @@ class ApiMailRepository extends MailRepository {
       _pinnedIds = {};
       _repliedIds = {};
       _forwardedIds = {};
+      _labels = [];
+      _labelMap = {};
       rethrow;
     }
+  }
+
+  /// SQLite is also the home of pins and labels, so a failure to open it must
+  /// not break login: fall back to an in-memory database (nothing persists).
+  Future<MailCache> _openCacheOrMemory() async {
+    try {
+      return await _openCache?.call() ?? MailCache.inMemory();
+    } catch (_) {
+      return MailCache.inMemory();
+    }
+  }
+
+  /// Paints the last known mailbox from SQLite before any network call.
+  /// Best-effort: a missing or corrupt cache just means a normal cold load.
+  Future<bool> _hydrateFromCache(String accountId) async {
+    try {
+      _persisted = {};
+      final cached = _cache?.load(accountId) ?? const <Email>[];
+      if (cached.isEmpty) return false;
+      _emails.clear();
+      _pages.clear();
+      for (final email in cached) {
+        _emails
+            .putIfAbsent(email.folder, () => <Email>[])
+            .add(_stampLocalFlags(email));
+      }
+      for (final list in _emails.values) {
+        list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  // ponytail: whole-mailbox rewrite (<= ~100 rows/folder) debounced on every
+  // change; switch to per-row upserts if mailboxes or write rates grow.
+  @override
+  void notifyListeners() {
+    _touch();
+    super.notifyListeners();
+    final cache = _cache;
+    final accountId = _account?.id;
+    if (cache == null || accountId == null) return;
+    _persistTimer?.cancel();
+    _persistTimer = Timer(const Duration(milliseconds: 800), () {
+      try {
+        // Emails are immutable, so identity tells us what changed.
+        final current = <String, Email>{
+          for (final e in _emails.entries)
+            if (e.key != MailFolder.pinned)
+              for (final m in e.value.take(100)) m.id: m,
+        };
+        final changed = [
+          for (final m in current.values)
+            if (!identical(_persisted[m.id], m)) m,
+        ];
+        final removed = _persisted.keys.where((id) => !current.containsKey(id));
+        if (changed.isNotEmpty || removed.isNotEmpty) {
+          cache.apply(accountId, changed, removed.toList());
+          _persisted = current;
+        }
+      } catch (_) {
+        // Cache is an optimization; never surface its failures.
+      }
+    });
+  }
+
+  void _dropCache(String? accountId) {
+    _persistTimer?.cancel();
+    _persisted = {};
+    if (accountId != null) {
+      try {
+        _cache?.clear(accountId);
+      } catch (_) {}
+    }
+    _emails.clear();
+    _pages.clear();
   }
 
   /// Overlays the locally-persisted pin/reply/forward flags onto a mail
@@ -271,8 +374,9 @@ class ApiMailRepository extends MailRepository {
   /// three, so every fetch would otherwise reset them.
   Email _stampLocalFlags(Email email) => email.copyWith(
     isPinned: _pinnedIds.contains(email.id),
-    isReplied: _repliedIds.contains(email.id),
+    isReplied: email.isReplied || _repliedIds.contains(email.id),
     isForwarded: _forwardedIds.contains(email.id),
+    labelIds: _labelMap[email.id] ?? const [],
   );
 
   @override
@@ -280,12 +384,16 @@ class ApiMailRepository extends MailRepository {
     if (_account?.id != accountId) return;
     await _mailService.deleteAccount();
     await _authService.tokenStore.clear();
+    _cache?.forgetAccount(accountId);
+    _dropCache(_account?.id);
     _account = null;
     _loggedIn = false;
     _flagsStore = null;
     _pinnedIds = {};
     _repliedIds = {};
     _forwardedIds = {};
+    _labels = [];
+    _labelMap = {};
     notifyListeners();
   }
 
@@ -359,6 +467,7 @@ class ApiMailRepository extends MailRepository {
   void _replaceMany(Iterable<String> ids, Email Function(Email) update) {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
+    _touch();
     for (final folder in _emails.keys.toList()) {
       final list = _emails[folder]!;
       _emails[folder] = [
@@ -374,6 +483,7 @@ class ApiMailRepository extends MailRepository {
   void _moveMany(Iterable<String> ids, MailFolder targetFolder) {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
+    _touch();
     final moved = <Email>[];
     for (final folder in _emails.keys.toList()) {
       if (folder == targetFolder) continue;
@@ -438,7 +548,19 @@ class ApiMailRepository extends MailRepository {
   /// floats highlighted mails above the rest, newest-first within each
   /// group, matching [MailRepository.getEmailsInFolder]'s documented order.
   @override
-  List<Email> getEmailsInFolder(MailFolder folder) {
+  List<Email> getEmailsInFolder(MailFolder folder) =>
+      _folderViews[folder] ??= _buildFolderView(folder);
+
+  // Sorted views are rebuilt lazily, once per change, instead of on every
+  // widget rebuild. Anything that mutates [_emails] must call [_touch].
+  final Map<MailFolder, List<Email>> _folderViews = {};
+  List<Email>? _allView;
+  void _touch() {
+    _folderViews.clear();
+    _allView = null;
+  }
+
+  List<Email> _buildFolderView(MailFolder folder) {
     final result = folder == MailFolder.pinned
         ? _emails.values.expand((list) => list).where(_highlighted).toList()
         : List<Email>.of(_emails[folder] ?? const []);
@@ -452,8 +574,9 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  List<Email> getAllEmails() =>
-      _emails.values.expand((items) => items).toList(growable: false);
+  List<Email> getAllEmails() => _allView ??= _emails.values
+      .expand((items) => items)
+      .toList(growable: false);
 
   @override
   Future<List<Email>> loadMoreEmails(MailFolder folder) async {
@@ -479,9 +602,31 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> refreshEmails(MailFolder folder) async {
-    _pages[folder] = 0;
-    _emails[folder] = [];
-    await loadMoreEmails(folder);
+    final folderId = _folderIds[folder];
+    if (folderId == null) return;
+    // Fetch first, swap after: the current list stays on screen meanwhile.
+    final result = await _mailService.getMails(
+      folderId: folderId,
+      page: 1,
+      resolveFolder: _resolveFolder,
+    );
+    final old = {for (final e in _emails[folder] ?? const <Email>[]) e.id: e};
+    _emails[folder] = [
+      for (final e in result.items)
+        // List items carry no body or star state; keep what we already know.
+        _stampLocalFlags(
+          old[e.id] == null
+              ? e
+              : e.copyWith(
+                  bodyText: old[e.id]!.bodyText.isEmpty
+                      ? e.bodyText
+                      : old[e.id]!.bodyText,
+                  isStarred: old[e.id]!.isStarred,
+                ),
+        ),
+    ];
+    _pages[folder] = result.page;
+    notifyListeners();
   }
 
   /// Copies cached mails into [folder] server-side, then reloads that folder
@@ -550,6 +695,7 @@ class ApiMailRepository extends MailRepository {
   /// under its own folder when unknown. Never creates duplicates, so a
   /// detail fetch never corrupts the folder lists.
   void _upsertDetail(Email email) {
+    _touch();
     for (final folder in _emails.keys.toList()) {
       final list = _emails[folder]!;
       final index = list.indexWhere((e) => e.id == email.id);
@@ -983,32 +1129,115 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  @override
-  List<MailLabel> getLabels() => _notImplemented();
+  // Labels are client-side only (the API has none); persisted per account.
+  List<MailLabel> _labels = [];
+  Map<String, List<String>> _labelMap = {};
+
+  static String _canonicalName(String name) =>
+      name.trim().replaceAll('İ', 'i').toLowerCase();
+
+  void _assertLabelNameIsFree(String name, {String? selfId}) {
+    final canonical = _canonicalName(name);
+    if (canonical.isEmpty) throw ArgumentError('Etiket adı boş olamaz.');
+    if (_labels.any(
+      (l) => l.id != selfId && _canonicalName(l.name) == canonical,
+    )) {
+      throw ArgumentError('Bu isimde bir etiket zaten var.');
+    }
+  }
+
+  Future<void> _persistLabels() async {
+    final store = _flagsStore;
+    if (store == null) return;
+    await store.writeLabelDefs([
+      for (final l in _labels)
+        {'id': l.id, 'name': l.name, 'color': l.color.toARGB32()},
+    ]);
+    await store.writeLabelMap(_labelMap);
+  }
+
+  void _restampLabels(Iterable<String> ids) => _replaceMany(
+    ids.toList(),
+    (e) => e.copyWith(labelIds: _labelMap[e.id] ?? const []),
+  );
 
   @override
-  Future<MailLabel> createLabel({required String name, required Color color}) =>
-      _notImplemented();
+  List<MailLabel> getLabels() => List.unmodifiable(_labels);
+
+  @override
+  Future<MailLabel> createLabel({
+    required String name,
+    required Color color,
+  }) async {
+    _assertLabelNameIsFree(name);
+    final label = MailLabel(
+      id: 'label-${DateTime.now().microsecondsSinceEpoch}',
+      name: name.trim(),
+      color: color,
+    );
+    _labels = [..._labels, label];
+    await _persistLabels();
+    notifyListeners();
+    return label;
+  }
 
   @override
   Future<void> updateLabel({
     required String id,
     required String name,
     required Color color,
-  }) => _notImplemented();
+  }) async {
+    final index = _labels.indexWhere((l) => l.id == id);
+    if (index < 0) return;
+    _assertLabelNameIsFree(name, selfId: id);
+    _labels = [..._labels]
+      ..[index] = MailLabel(id: id, name: name.trim(), color: color);
+    await _persistLabels();
+    notifyListeners();
+  }
 
   @override
-  Future<void> deleteLabel(String labelId) => _notImplemented();
+  Future<void> deleteLabel(String labelId) async {
+    if (!_labels.any((l) => l.id == labelId)) return;
+    _labels = _labels.where((l) => l.id != labelId).toList();
+    final touched = [
+      for (final e in _labelMap.entries)
+        if (e.value.contains(labelId)) e.key,
+    ];
+    for (final id in touched) {
+      _labelMap[id] = _labelMap[id]!.where((l) => l != labelId).toList();
+    }
+    await _persistLabels();
+    _restampLabels(touched);
+    notifyListeners();
+  }
 
   @override
   Future<void> addLabelsToEmails(
     List<String> emailIds,
     List<String> labelIds,
-  ) => _notImplemented();
+  ) async {
+    for (final id in emailIds) {
+      final cur = _labelMap[id] ?? const <String>[];
+      _labelMap[id] = [...cur, ...labelIds.where((l) => !cur.contains(l))];
+    }
+    await _persistLabels();
+    _restampLabels(emailIds);
+    notifyListeners();
+  }
 
   @override
   Future<void> removeLabelsFromEmails(
     List<String> emailIds,
     List<String> labelIds,
-  ) => _notImplemented();
+  ) async {
+    for (final id in emailIds) {
+      _labelMap[id] = (_labelMap[id] ?? const <String>[])
+          .where((l) => !labelIds.contains(l))
+          .toList();
+    }
+    await _persistLabels();
+    _restampLabels(emailIds);
+    notifyListeners();
+  }
 }

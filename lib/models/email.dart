@@ -121,9 +121,17 @@ class Email {
   /// this — [threadId] is the conversation identity. Pure provenance.
   final String? inReplyToId;
 
-  /// One-line preview derived from the body.
-  String get preview {
-    final compact = bodyText.replaceAll(RegExp(r'\s+'), ' ').trim();
+  static final _previewCache = Expando<String>('Email.preview');
+  static final _whitespace = RegExp(r'\s+');
+
+  /// One-line preview derived from the body. Computed once per instance:
+  /// list rows read it on every rebuild, and bodies can be large, so only
+  /// the head of the body is normalized.
+  String get preview => _previewCache[this] ??= _buildPreview();
+
+  String _buildPreview() {
+    final head = bodyText.length > 600 ? bodyText.substring(0, 600) : bodyText;
+    final compact = head.replaceAll(_whitespace, ' ').trim();
     if (compact.length <= 120) return compact;
     return '${compact.substring(0, 120).trimRight()}…';
   }
