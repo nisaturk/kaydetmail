@@ -4,11 +4,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
+import '../services/api_exception.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../widgets/server_address_dialog.dart';
+import 'accounts_screen.dart';
 import 'login_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
@@ -36,57 +38,119 @@ class SettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Index of categories (Gmail/Thunderbird style); each opens its own page.
     return Scaffold(
       appBar: AppBar(title: const Text('Ayarlar')),
-      body: ListenableBuilder(
-        listenable: Listenable.merge([
-          AppSettingsController.instance,
-          AppConfig.mailRepository,
-        ]),
-        builder: (context, _) {
-          // Section widgets must NOT be const: the list needs fresh widget
-          // instances every build, otherwise SliverChildListDelegate.update()
-          // sees identical const instances and keeps stale children (a changed
-          // server address or swipe toggle would never repaint).
-          return ListView(
-            key: const Key('settings-list'),
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            children: [
-              const _SectionHeader('Etiketler'),
-              _LabelsSection(),
-              const _SectionHeader('Sunucu'),
-              _ServerSection(),
-              const _SectionHeader('Bağlı Cihazlar'),
-              _SessionsSection(),
-              const _SectionHeader('Bildirimler'),
-              _NotificationsSection(),
-              const _SectionHeader('Senkronizasyon'),
-              _SyncSection(),
-              const _SectionHeader('Kaydırma'),
-              _SwipeSection(),
-            ],
-          );
-        },
+      body: ListView(
+        key: const Key('settings-list'),
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        children: [
+          _CategoryTile(
+            icon: LucideIcons.users,
+            title: 'Hesaplar',
+            subtitle: 'Bağlı posta hesapları',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const AccountsScreen()),
+            ),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.bell,
+            title: 'Bildirimler',
+            subtitle: 'Yeni e-posta bildirimleri',
+            page: (_) => [_NotificationsSection()],
+          ),
+          _CategoryTile(
+            icon: LucideIcons.refreshCw,
+            title: 'Senkronizasyon',
+            subtitle: 'Posta kutusunu güncelleme sıklığı',
+            page: (_) => [_SyncSection()],
+          ),
+          _CategoryTile(
+            icon: LucideIcons.tag,
+            title: 'Etiketler',
+            subtitle: 'Etiket oluştur, düzenle, sil',
+            page: (_) => [_LabelsSection()],
+          ),
+          _CategoryTile(
+            icon: LucideIcons.slidersHorizontal,
+            title: 'Genel',
+            subtitle: 'Kaydırma hareketleri',
+            page: (_) => [_SwipeSection()],
+          ),
+          _CategoryTile(
+            icon: LucideIcons.shieldCheck,
+            title: 'Güvenlik',
+            subtitle: 'Bağlı cihazlar ve oturumlar',
+            page: (_) => [_SessionsSection()],
+          ),
+          _CategoryTile(
+            icon: LucideIcons.server,
+            title: 'Sunucu',
+            subtitle: 'API sunucu adresi',
+            page: (_) => [_ServerSection()],
+          ),
+        ],
       ),
     );
   }
 }
 
-class _SectionHeader extends StatelessWidget {
-  const _SectionHeader(this.title);
+/// One row of the settings index. Either pushes [page] (section widgets shown
+/// on a titled sub-page) or runs a custom [onTap].
+class _CategoryTile extends StatelessWidget {
+  const _CategoryTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.page,
+    this.onTap,
+  });
 
+  final IconData icon;
   final String title;
+  final String subtitle;
+  final List<Widget> Function(BuildContext)? page;
+  final void Function(BuildContext)? onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 13,
-          fontWeight: FontWeight.w700,
-          color: AppTheme.secondaryText,
+    return ListTile(
+      leading: Icon(icon, size: 22, color: AppTheme.secondaryText),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: const Icon(LucideIcons.chevronRight, size: 18),
+      onTap: () {
+        if (onTap != null) return onTap!(context);
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => _SettingsPage(title: title, sections: page!),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _SettingsPage extends StatelessWidget {
+  const _SettingsPage({required this.title, required this.sections});
+
+  final String title;
+  final List<Widget> Function(BuildContext) sections;
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(title: Text(title)),
+      body: ListenableBuilder(
+        listenable: Listenable.merge([
+          AppSettingsController.instance,
+          AppConfig.mailRepository,
+        ]),
+        // Section widgets must NOT be const: fresh instances every build, or
+        // the list keeps stale children (a changed toggle would not repaint).
+        builder: (context, _) => ListView(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          children: sections(context),
         ),
       ),
     );
@@ -353,9 +417,13 @@ class _SessionsSectionState extends State<_SessionsSection> {
       final sessions = await AppConfig.mailRepository.getSessions();
       if (!mounted) return;
       setState(() => _sessions = sessions);
-    } catch (_) {
+    } catch (e) {
       if (!mounted) return;
-      setState(() => _error = 'Cihazlar yüklenemedi.');
+      setState(
+        () => _error = e is ApiException
+            ? 'Cihazlar yüklenemedi: ${e.userMessage}'
+            : 'Cihazlar yüklenemedi.',
+      );
     }
   }
 
@@ -522,7 +590,7 @@ class _NotificationsSection extends StatelessWidget {
     return SwitchListTile(
       dense: true,
       title: const Text('Bildirimler'),
-      subtitle: const Text('Simülasyon — gerçek bildirim henüz yok.'),
+      subtitle: const Text('Bu cihazda yeni e-posta bildirimlerini göster.'),
       value: settings.notificationsEnabled,
       activeThumbColor: Colors.black,
       onChanged: (v) => settings.notificationsEnabled = v,
