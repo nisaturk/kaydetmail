@@ -837,7 +837,7 @@ class ApiMailRepository extends MailRepository {
     // The endpoint confirms send/save outcome but never returns the created
     // mail — build the local copy from what we sent and echo it into the
     // Sent cache so the UI reflects it before the next refresh reconciles.
-    final id = 'sent-${DateTime.now().microsecondsSinceEpoch}';
+    final id = result.mailId ?? 'sent-${DateTime.now().microsecondsSinceEpoch}';
     final email = Email(
       id: id,
       senderName: _account?.displayName ?? '',
@@ -852,7 +852,9 @@ class ApiMailRepository extends MailRepository {
       folder: MailFolder.sent,
       attachments: attachments,
       accountId: _account?.id ?? '',
-      threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
+      threadId: (threadId == null || threadId.isEmpty)
+          ? (result.conversationId ?? 't-$id')
+          : threadId,
       inReplyToId: inReplyToId,
     );
     if (result.sentCopySaved) {
@@ -1072,9 +1074,8 @@ class ApiMailRepository extends MailRepository {
     (succeeded) => _moveMany(succeeded, MailFolder.trash),
   );
 
-  /// Mails currently in Trash/Spam go back through `restore` (the only
-  /// action that reverses those two, per mail — no bulk variant); everything
-  /// else moves via the bulk `move`/`archive` actions. Both branches can run
+  /// Mails currently in Trash/Spam go back through bulk `restore` (the only
+  /// action that reverses those two); everything else moves via the bulk `move`/`archive` actions. Both branches can run
   /// in the same call when [ids] mixes trashed and non-trashed mails (e.g. a
   /// multi-select spanning folders).
   @override
@@ -1086,10 +1087,11 @@ class ApiMailRepository extends MailRepository {
     }
 
     final restoring = _idsInTrashOrSpam(ids);
-    for (final id in restoring) {
-      await _mailService.mailAction(id, 'restore');
-    }
-    if (restoring.isNotEmpty) _moveMany(restoring, folder);
+    await _bulkAndApply(
+      'restore',
+      restoring.toList(),
+      (succeeded) => _moveMany(succeeded, folder),
+    );
 
     final rest = ids.where((id) => !restoring.contains(id)).toList();
     if (rest.isNotEmpty) {
@@ -1100,7 +1102,6 @@ class ApiMailRepository extends MailRepository {
         folderId: folder == MailFolder.archive ? null : folderId,
       );
     }
-    if (restoring.isNotEmpty) notifyListeners();
   }
 
   @override
@@ -1139,17 +1140,14 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  /// No bulk star/unstar endpoint exists, so each id is a separate request.
   @override
-  Future<void> setStarred(List<String> ids, bool starred) async {
-    if (ids.isEmpty) return;
-    for (final id in ids) {
-      await _mailService.mailAction(id, starred ? 'star' : 'unstar');
-    }
-    starred ? _starredIds.addAll(ids) : _starredIds.removeAll(ids);
-    _replaceMany(ids, (e) => e.copyWith(isStarred: starred));
-    notifyListeners();
-  }
+  Future<void> setStarred(List<String> ids, bool starred) =>
+      _bulkAndApply(starred ? 'star' : 'unstar', ids, (succeeded) {
+        starred
+            ? _starredIds.addAll(succeeded)
+            : _starredIds.removeAll(succeeded);
+        _replaceMany(succeeded, (e) => e.copyWith(isStarred: starred));
+      });
 
   /// Marks that the user opened the reply screen. The "replied" flag itself
   /// is local-only (see [LocalMailFlagsStore]), but opening a reply also

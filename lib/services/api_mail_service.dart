@@ -267,7 +267,8 @@ class ApiMailService {
   Future<void> syncFolderId(String folderId) =>
       _client.post('/api/folders/${Uri.encodeComponent(folderId)}/sync');
 
-  /// Applies [action] (read, unread, archive, trash, or move) to every id in
+  /// Applies [action] (read, unread, star, unstar, archive, trash, restore,
+  /// spam, not-spam, or move) to every id in
   /// [mailIds] in one request. Each mail is processed independently server
   /// side — read the per-item [BulkActionResult.success] rather than
   /// assuming the whole batch succeeded or failed together.
@@ -492,6 +493,8 @@ class ApiMailService {
       sent: body['sent'] as bool? ?? false,
       sentCopySaved: body['sentCopySaved'] as bool? ?? false,
       warning: body['warning'] as String?,
+      mailId: body['mailId'] as String?,
+      conversationId: body['conversationId'] as String?,
     );
   }
 
@@ -556,11 +559,14 @@ class ApiMailService {
         ? [item['toAddress'] as String]
         : const [],
     subject: item['subject'] as String,
-    bodyText: item['bodyText'] as String? ?? '',
+    // List items carry a ~120 char `snippet` instead of the full body; the
+    // detail fetch replaces it.
+    bodyText: item['bodyText'] as String? ?? item['snippet'] as String? ?? '',
     timestamp:
         DateTime.tryParse(item['receivedAt'] as String) ?? DateTime.now(),
     isRead: item['isRead'] as bool? ?? false,
     isStarred: item['flagged'] as bool? ?? false,
+    isReplied: item['answered'] as bool? ?? false,
     accountId: item['accountId'] as String? ?? '',
     folder: resolveFolder(item['folderId'] as String),
     threadId: item['conversationId'] as String? ?? '',
@@ -834,11 +840,18 @@ class SendResult {
     required this.sent,
     required this.sentCopySaved,
     this.warning,
+    this.mailId,
+    this.conversationId,
   });
 
   final bool sent;
   final bool sentCopySaved;
   final String? warning;
+
+  /// Sent-folder record of the mail; null when the copy wasn't saved or was
+  /// not found yet (also on idempotent replays).
+  final String? mailId;
+  final String? conversationId;
 }
 
 class MailListPage {
