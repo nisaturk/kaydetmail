@@ -222,6 +222,7 @@ class _InboxScreenState extends State<InboxScreen> {
         final accountEmail = showAccount
             ? {for (final a in _repo.accounts) a.id: a.email}
             : const <String, String>{};
+        final labelsById = {for (final l in _repo.getLabels()) l.id: l};
 
         if (grouped.isEmpty) {
           return RefreshIndicator(
@@ -264,6 +265,10 @@ class _InboxScreenState extends State<InboxScreen> {
                 accountLabel: showAccount
                     ? accountEmail[email.accountId]
                     : null,
+                labels: [
+                  for (final id in email.labelIds)
+                    if (labelsById[id] != null) labelsById[id]!,
+                ],
                 threadCount: max(
                   threadCounts[email.threadId] ?? 0,
                   _repo.serverThreadSize(email.threadId),
@@ -330,13 +335,15 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   /// Drops every mail whose thread already appeared earlier in the (newest
-  /// first) list, so a conversation occupies exactly one row.
+  /// first) list, so a conversation occupies exactly one row. The
+  /// representative's reply/forward badges are aggregated across the whole
+  /// thread — the newest message may not be the one the user replied to.
   List<Email> _groupByThread(List<Email> emails) {
     final seen = <String>{};
     final reps = <Email>[];
     for (final email in emails) {
       if (email.threadId.isNotEmpty && !seen.add(email.threadId)) continue;
-      reps.add(email);
+      reps.add(_repo.threadStatusOf(email));
     }
     return reps;
   }

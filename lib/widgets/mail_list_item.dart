@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/email.dart';
+import '../models/mail_label.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import 'mail_avatar.dart';
@@ -26,7 +27,9 @@ class MailListItem extends StatelessWidget {
     this.onLongPress,
     this.selected = false,
     this.accountLabel,
+    this.folderLabel,
     this.threadCount,
+    this.labels = const [],
   });
 
   final Email email;
@@ -38,13 +41,23 @@ class MailListItem extends StatelessWidget {
   /// Null hides the line so single-account lists stay exactly as before.
   final String? accountLabel;
 
+  /// Folder the mail lives in, shown alongside [accountLabel] on the same
+  /// tertiary line. Null hides it — folder-scoped lists (a single inbox
+  /// screen) already know their folder from context.
+  final String? folderLabel;
+
   /// Messages in the conversation this row represents. When > 1 the row
   /// aggregates the whole thread and a small `(n)` indicator appears.
   final int? threadCount;
 
+  /// Labels attached to this mail, shown as small colored chips so a
+  /// labeled mail is obvious without opening it.
+  final List<MailLabel> labels;
+
   @override
   Widget build(BuildContext context) {
     final time = formatMailTime(email.timestamp);
+    final meta = [?folderLabel, ?accountLabel].join(' · ');
 
     return Container(
       color: selected
@@ -121,11 +134,11 @@ class MailListItem extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 3),
-                    if (accountLabel != null)
+                    if (meta.isNotEmpty)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 2),
                         child: Text(
-                          accountLabel!,
+                          meta,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -176,6 +189,34 @@ class MailListItem extends StatelessWidget {
                         height: 1.3,
                       ),
                     ),
+                    if (labels.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Wrap(
+                        spacing: 6,
+                        runSpacing: 4,
+                        children: [
+                          for (final label in labels)
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: label.color.withValues(alpha: 0.15),
+                                borderRadius: BorderRadius.circular(20),
+                              ),
+                              child: Text(
+                                label.name,
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: label.color,
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               ),
