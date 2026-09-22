@@ -52,18 +52,22 @@ class PushService {
   /// account status is re-checked when the relevant screen reloads.
   static Stream<String> get onMailTapped => _mailTapped.stream;
 
-  /// Initializes Firebase, asks for notification permission, registers the
-  /// current FCM token and listens for foreground messages, token refreshes,
-  /// and notification taps. Never throws — callers (e.g. `main`) don't need
-  /// their own guard.
+  /// Initializes Firebase and routes a cold-start notification tap first —
+  /// that is the path a user is actively staring at, so it must not wait on
+  /// permission prompts or the device-registration network call. Foreground
+  /// message handling is wired next; permission + FCM token registration
+  /// (and its refresh listener) run last, fire-and-forget, in [_setUpToken].
+  /// Never throws — callers (e.g. `main`) don't need their own guard.
   static Future<void> initialize(MailRepository repository) async {
     try {
       if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       final messaging = FirebaseMessaging.instance;
-      await messaging.requestPermission();
-      await _register(messaging, repository);
-      messaging.onTokenRefresh.listen((_) => _register(messaging, repository));
+
+      FirebaseMessaging.onMessageOpenedApp.listen(_routeTap);
+      final initial = await messaging.getInitialMessage();
+      if (initial != null) _routeTap(initial);
+
       FirebaseMessaging.onMessage.listen(
         (message) => handlePushData(
           message.data.map((key, value) => MapEntry(key, '$value')),
@@ -76,9 +80,25 @@ class PushService {
           },
         ),
       );
-      FirebaseMessaging.onMessageOpenedApp.listen(_routeTap);
-      final initial = await messaging.getInitialMessage();
-      if (initial != null) _routeTap(initial);
+
+      unawaited(_setUpToken(messaging, repository));
+    } catch (_) {
+      debugPrint('PushService: push unavailable, running without FCM.');
+    }
+  }
+
+  /// Requests notification permission and registers the current FCM token,
+  /// then keeps registering on every refresh. Runs detached from
+  /// [initialize] so a slow permission prompt or `/api/devices` round trip
+  /// never delays routing a tapped notification.
+  static Future<void> _setUpToken(
+    FirebaseMessaging messaging,
+    MailRepository repository,
+  ) async {
+    try {
+      await messaging.requestPermission();
+      await _register(messaging, repository);
+      messaging.onTokenRefresh.listen((_) => _register(messaging, repository));
     } catch (_) {
       debugPrint('PushService: push unavailable, running without FCM.');
     }
