@@ -36,6 +36,12 @@
                 <data android:mimeType="*/*"/>
             </intent-filter>
         </activity>
+        <!-- FCM: icon used for background/killed-state system tray
+             notifications (foreground messages are routed through
+             PushService instead, see push_service.dart). -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_icon"
+            android:resource="@mipmap/ic_launcher" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

@@ -31,8 +31,9 @@ Future<void> handlePushData(
 }
 
 /// Firebase Cloud Messaging wiring: registers the device token on launch and
-/// on every refresh, and routes incoming data messages through
-/// [handlePushData].
+/// on every refresh, routes foreground data messages through
+/// [handlePushData], and turns a notification tap (or a cold start from one)
+/// into a mail id on [onMailTapped] for the UI layer to navigate with.
 ///
 /// Everything Firebase-flavored is best-effort and swallowed: without
 /// `google-services.json`/`GoogleService-Info.plist` (or with push disabled)
@@ -41,12 +42,24 @@ Future<void> handlePushData(
 class PushService {
   const PushService._();
 
+  static final StreamController<String> _mailTapped =
+      StreamController<String>.broadcast();
+
+  /// Emits a mail id whenever the user taps a push notification, or once on
+  /// launch if the app was cold-started from one. `new_mail` and
+  /// `mail_state_changed` are the only types that carry a `mailId`; taps on
+  /// the other two just foreground the app — no navigation needed since
+  /// account status is re-checked when the relevant screen reloads.
+  static Stream<String> get onMailTapped => _mailTapped.stream;
+
   /// Initializes Firebase, asks for notification permission, registers the
-  /// current FCM token and listens for foreground messages + token refreshes.
-  /// Never throws — callers (e.g. `main`) don't need their own guard.
+  /// current FCM token and listens for foreground messages, token refreshes,
+  /// and notification taps. Never throws — callers (e.g. `main`) don't need
+  /// their own guard.
   static Future<void> initialize(MailRepository repository) async {
     try {
-      await Firebase.initializeApp();
+      if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       final messaging = FirebaseMessaging.instance;
       await messaging.requestPermission();
       await _register(messaging, repository);
@@ -63,9 +76,17 @@ class PushService {
           },
         ),
       );
+      FirebaseMessaging.onMessageOpenedApp.listen(_routeTap);
+      final initial = await messaging.getInitialMessage();
+      if (initial != null) _routeTap(initial);
     } catch (_) {
       debugPrint('PushService: push unavailable, running without FCM.');
     }
+  }
+
+  static void _routeTap(RemoteMessage message) {
+    final mailId = message.data['mailId'];
+    if (mailId != null && mailId.isNotEmpty) _mailTapped.add(mailId);
   }
 
   static Future<void> _register(
@@ -86,4 +107,17 @@ class PushService {
       debugPrint('PushService: device registration skipped.');
     }
   }
+}
+
+/// Handles a push delivered while the app is backgrounded or terminated.
+///
+/// Runs in its own isolate — re-initializing Firebase here is required per
+/// the `firebase_messaging` contract, even though the app's own [Firebase]
+/// instance already did it. `new_mail`/`account_reauthentication_required`/
+/// `sync_error` all carry a `notification` block (see backend
+/// `FirebasePushNotificationService`), so Android's FCM SDK shows the system
+/// tray entry on its own; nothing else needs to happen here today.
+@pragma('vm:entry-point')
+Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
+  if (Firebase.apps.isEmpty) await Firebase.initializeApp();
 }
