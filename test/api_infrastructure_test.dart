@@ -71,20 +71,20 @@ void main() {
         final store = TokenStore(storage: MemoryTokenStorage());
 
         await store.save(
+          accountId: 'account-1',
           accessToken: 'access',
           refreshToken: 'refresh',
-          mailAccountId: 'account-1',
         );
 
-        expect(await store.readAccessToken(), 'access');
-        expect(await store.readRefreshToken(), 'refresh');
-        expect(await store.readMailAccountId(), 'account-1');
+        expect(await store.readAccessToken('account-1'), 'access');
+        expect(await store.readRefreshToken('account-1'), 'refresh');
+        expect(await store.readAccountIds(), ['account-1']);
 
-        await store.clear();
+        await store.clear('account-1');
 
-        expect(await store.readAccessToken(), isNull);
-        expect(await store.readRefreshToken(), isNull);
-        expect(await store.readMailAccountId(), isNull);
+        expect(await store.readAccessToken('account-1'), isNull);
+        expect(await store.readRefreshToken('account-1'), isNull);
+        expect(await store.readAccountIds(), isEmpty);
       },
     );
   });
@@ -122,13 +122,14 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final store = TokenStore(storage: MemoryTokenStorage());
       await store.save(
+        accountId: 'account-1',
         accessToken: 'access-1',
         refreshToken: 'refresh-1',
-        mailAccountId: 'account-1',
       );
       final headers = <String, String>{};
       final client = ApiClient(
         tokenStore: store,
+        accountId: 'account-1',
         httpClient: MockClient((request) async {
           headers.addAll(request.headers);
           return http.Response('{}', 200);
@@ -147,13 +148,14 @@ void main() {
         SharedPreferences.setMockInitialValues({});
         final store = TokenStore(storage: MemoryTokenStorage());
         await store.save(
+          accountId: 'account-1',
           accessToken: 'access-1',
           refreshToken: 'refresh-1',
-          mailAccountId: 'account-1',
         );
         final headers = <String, String>{};
         final client = ApiClient(
           tokenStore: store,
+          accountId: 'account-1',
           httpClient: MockClient((request) async {
             headers.addAll(request.headers);
             return http.Response('{}', 200);
@@ -172,14 +174,15 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final store = TokenStore(storage: MemoryTokenStorage());
       await store.save(
+        accountId: 'account-1',
         accessToken: 'old-access',
         refreshToken: 'old-refresh',
-        mailAccountId: 'account-1',
       );
       final authorizations = <String?>[];
       var refreshCalls = 0;
       final client = ApiClient(
         tokenStore: store,
+        accountId: 'account-1',
         httpClient: MockClient((request) async {
           if (request.url.path == '/api/auth/refresh') {
             refreshCalls++;
@@ -214,20 +217,21 @@ void main() {
       expect(response['ok'], isTrue);
       expect(refreshCalls, 1);
       expect(authorizations, ['Bearer old-access', 'Bearer new-access']);
-      expect(await store.readRefreshToken(), 'new-refresh');
+      expect(await store.readRefreshToken('account-1'), 'new-refresh');
     });
 
     test('Given concurrent 401s When they refresh Then only one refresh request is made', () async {
       SharedPreferences.setMockInitialValues({});
       final store = TokenStore(storage: MemoryTokenStorage());
       await store.save(
+        accountId: 'account-1',
         accessToken: 'old-access',
         refreshToken: 'old-refresh',
-        mailAccountId: 'account-1',
       );
       var refreshCalls = 0;
       final client = ApiClient(
         tokenStore: store,
+        accountId: 'account-1',
         httpClient: MockClient((request) async {
           if (request.url.path == '/api/auth/refresh') {
             refreshCalls++;
@@ -263,19 +267,20 @@ void main() {
       ]);
 
       expect(refreshCalls, 1);
-      expect(await store.readAccessToken(), 'new-access');
+      expect(await store.readAccessToken('account-1'), 'new-access');
     });
 
     test('Given invalid refresh token When refresh fails Then stored session is cleared', () async {
       SharedPreferences.setMockInitialValues({});
       final store = TokenStore(storage: MemoryTokenStorage());
       await store.save(
+        accountId: 'account-1',
         accessToken: 'old-access',
         refreshToken: 'bad-refresh',
-        mailAccountId: 'account-1',
       );
       final client = ApiClient(
         tokenStore: store,
+        accountId: 'account-1',
         httpClient: MockClient((request) async {
           if (request.url.path == '/api/auth/refresh') {
             return http.Response(
@@ -309,9 +314,9 @@ void main() {
           ),
         ),
       );
-      expect(await store.readAccessToken(), isNull);
-      expect(await store.readRefreshToken(), isNull);
-      expect(await store.readMailAccountId(), isNull);
+      expect(await store.readAccessToken('account-1'), isNull);
+      expect(await store.readRefreshToken('account-1'), isNull);
+      expect(await store.readAccountIds(), isEmpty);
     });
   });
 
@@ -385,9 +390,9 @@ void main() {
         'deviceIdentifier': 'device-1',
       });
       expect(response.mailAccountId, 'account-1');
-      expect(await tokenStore.readAccessToken(), 'access');
-      expect(await tokenStore.readRefreshToken(), 'refresh');
-      expect(await tokenStore.readMailAccountId(), 'account-1');
+      expect(await tokenStore.readAccessToken('account-1'), 'access');
+      expect(await tokenStore.readRefreshToken('account-1'), 'refresh');
+      expect(await tokenStore.readAccountIds(), ['account-1']);
     });
 
     test('Given manual settings When connectManual is called Then documented structure is sent', () async {
@@ -454,19 +459,21 @@ void main() {
       SharedPreferences.setMockInitialValues({});
       final tokenStore = TokenStore(storage: MemoryTokenStorage());
       await tokenStore.save(
+        accountId: 'account-1',
         accessToken: 'access',
         refreshToken: 'refresh',
-        mailAccountId: 'account-1',
       );
       late Map<String, dynamic> body;
+      final client = ApiClient(
+        tokenStore: tokenStore,
+        accountId: 'account-1',
+        httpClient: MockClient((request) async {
+          body = jsonDecode(request.body) as Map<String, dynamic>;
+          return http.Response('', 204);
+        }),
+      );
       final auth = ApiAuthService(
-        client: ApiClient(
-          tokenStore: tokenStore,
-          httpClient: MockClient((request) async {
-            body = jsonDecode(request.body) as Map<String, dynamic>;
-            return http.Response('', 204);
-          }),
-        ),
+        client: client,
         tokenStore: tokenStore,
         deviceIdentifierProvider: MemoryDeviceIdentifierProvider('device-1'),
       );
@@ -474,7 +481,7 @@ void main() {
       await auth.logout();
 
       expect(body, {'refreshToken': 'refresh'});
-      expect(await tokenStore.readAccessToken(), isNull);
+      expect(await tokenStore.readAccessToken('account-1'), isNull);
     });
   });
 
@@ -586,6 +593,7 @@ void main() {
         var calls = 0;
         final client = ApiClient(
           tokenStore: store,
+          accountId: 'account-1',
           httpClient: MockClient((_) async {
             calls++;
             return http.Response('', 429);
@@ -644,5 +652,6 @@ ApiClient _clientForDevices(
   Future<http.Response> Function(http.Request) handler,
 ) => ApiClient(
   tokenStore: TokenStore(storage: MemoryTokenStorage()),
+  accountId: 'account-1',
   httpClient: MockClient(handler),
 );

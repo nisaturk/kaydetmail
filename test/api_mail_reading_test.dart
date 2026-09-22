@@ -277,6 +277,7 @@ void main() {
     final service = ApiMailService(
       ApiClient(
         tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+        accountId: 'account-1',
         httpClient: MockClient((request) async {
           path = request.url.path;
           return http.Response.bytes([1, 2, 3], 200);
@@ -294,6 +295,7 @@ void main() {
 ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(
       tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+      accountId: 'account-1',
       httpClient: MockClient(handler),
     );
 

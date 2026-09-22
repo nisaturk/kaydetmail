@@ -271,9 +271,9 @@ Future<ApiMailRepository> _repositoryWithLoadedFolder(
   SharedPreferences.setMockInitialValues({});
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
+    accountId: 'account-1',
     accessToken: 'access',
     refreshToken: 'refresh',
-    mailAccountId: 'account-1',
   );
   final authService = ApiAuthService(
     client: ApiClient(
@@ -417,6 +417,7 @@ class _RecordingMailService extends ApiMailService {
 ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(
       tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+      accountId: 'account-1',
       httpClient: MockClient(handler),
     );
 
