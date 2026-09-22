@@ -110,6 +110,50 @@ void main() {
     expect(page.items.single.senderEmail, 'sender@example.com');
     expect(page.items.single.isRead, isTrue);
     expect(page.items.single.folder, MailFolder.inbox);
+    expect(page.items.single.hasAttachments, isFalse);
+  });
+
+  test('GET mails surfaces hasAttachments without needing full attachment metadata', () async {
+    // The list endpoint never sends per-attachment details (only the
+    // detail endpoint does) — just this boolean. Dropping it here is what
+    // made the paperclip icon disappear for mail the user hadn't opened
+    // yet, and reappear only after a detail fetch merged real attachments
+    // in — see ApiMailRepository._refreshEmailsFor.
+    final service = ApiMailService(
+      _client(
+        (_) async => http.Response(
+          jsonEncode({
+            'items': [
+              {
+                'id': 'mail-2',
+                'folderId': 'folder-1',
+                'subject': 'Has an attachment',
+                'fromAddress': 'sender@example.com',
+                'fromDisplayName': 'Sender',
+                'toAddress': 'person@example.com',
+                'isRead': false,
+                'hasAttachments': true,
+                'receivedAt': '2026-09-17T01:56:58Z',
+              },
+            ],
+            'page': 1,
+            'pageSize': 20,
+            'total': 1,
+          }),
+          200,
+        ),
+      ),
+    );
+
+    final page = await service.getMails(
+      folderId: 'folder-1',
+      page: 1,
+      pageSize: 20,
+      resolveFolder: (_) => MailFolder.inbox,
+    );
+
+    expect(page.items.single.hasAttachments, isTrue);
+    expect(page.items.single.attachments, isEmpty);
   });
 
   test('GET mail detail maps body and participants', () async {

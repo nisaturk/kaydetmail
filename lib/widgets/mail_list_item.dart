@@ -110,7 +110,8 @@ class MailListItem extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                         ],
-                        if (email.attachments.isNotEmpty) ...[
+                        if (email.attachments.isNotEmpty ||
+                            email.hasAttachments) ...[
                           Icon(
                             LucideIcons.paperclip,
                             size: 13,

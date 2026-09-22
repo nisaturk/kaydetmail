@@ -180,6 +180,7 @@ class MailCache {
     'accountId': e.accountId,
     'threadId': e.threadId,
     'inReplyToId': e.inReplyToId,
+    'hasAttachments': e.hasAttachments,
     'attachments': [
       for (final a in e.attachments)
         {'id': a.id, 'name': a.name, 'size': a.sizeBytes, 'mime': a.mimeType},
@@ -205,6 +206,7 @@ class MailCache {
     accountId: j['accountId'] as String,
     threadId: j['threadId'] as String,
     inReplyToId: j['inReplyToId'] as String?,
+    hasAttachments: j['hasAttachments'] as bool? ?? false,
     attachments: [
       for (final a in (j['attachments'] as List).cast<Map<String, dynamic>>())
         Attachment(

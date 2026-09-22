@@ -234,10 +234,7 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionStar() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
-    final byId = {for (final e in _repo.getAllEmails()) e.id: e};
-    // All starred already -> unstar; otherwise star everything.
-    final allStarred = ids.every((id) => byId[id]?.isStarred ?? false);
-    await _repo.setStarred(ids, !allStarred);
+    await _repo.setStarred(ids, !_selectionAllStarred);
     _selection.exit();
   }
 
@@ -245,14 +242,32 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionToggleRead() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
-    final byId = {for (final e in _repo.getAllEmails()) e.id: e};
-    final anyUnread = ids.any((id) => !(byId[id]?.isRead ?? true));
-    if (anyUnread) {
+    if (_selectionAnyUnread) {
       await _repo.markAsRead(ids);
     } else {
       await _repo.markAsUnread(ids);
     }
     _selection.exit();
+  }
+
+  /// True while any selected message (thread-expanded) is unread — drives
+  /// both [_actionToggleRead]'s decision and the toolbar button's
+  /// icon/tooltip, so the button always names the action it is about to
+  /// perform instead of a fixed label regardless of state.
+  bool get _selectionAnyUnread {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final byId = {for (final e in _repo.getAllEmails()) e.id: e};
+    return ids.any((id) => !(byId[id]?.isRead ?? true));
+  }
+
+  /// True when every selected message (thread-expanded) is already
+  /// starred — drives both [_actionStar] and the "Yıldızla"/"Yıldızı
+  /// kaldır" menu label, matching mail_detail_screen's per-mail toggle.
+  bool get _selectionAllStarred {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return false;
+    final byId = {for (final e in _repo.getAllEmails()) e.id: e};
+    return ids.every((id) => byId[id]?.isStarred ?? false);
   }
 
   Future<void> _actionLabel() async {
@@ -368,8 +383,12 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
         IconButton(
           onPressed: _actionToggleRead,
-          tooltip: 'Okundu/Okunmadı işaretle',
-          icon: const Icon(LucideIcons.mailOpen),
+          tooltip: _selectionAnyUnread
+              ? 'Okundu olarak işaretle'
+              : 'Okunmadı olarak işaretle',
+          icon: Icon(
+            _selectionAnyUnread ? LucideIcons.mailOpen : LucideIcons.mail,
+          ),
         ),
         IconButton(
           onPressed: _actionArchive,
@@ -391,11 +410,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 _selection.selectAllVisible();
             }
           },
-          itemBuilder: (_) => const [
-            PopupMenuItem(value: 'star', child: Text('Yıldızla')),
-            PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
-            PopupMenuItem(value: 'label', child: Text('Etiketle')),
-            PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
+          itemBuilder: (_) => [
+            PopupMenuItem(
+              value: 'star',
+              child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
+            ),
+            const PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
+            const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+            const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
           ],
         ),
       ],

@@ -1019,7 +1019,7 @@ class ApiMailRepository extends MailRepository {
     };
     _cancelReconnectRetry(session);
     session.offline = false;
-    session.emails[folder] = [
+    final refreshed = [
       for (final e in result.items)
         // List items carry no body or star state; keep what we already know.
         session.stampLocalFlags(
@@ -1033,7 +1033,18 @@ class ApiMailRepository extends MailRepository {
                 ),
         ),
     ];
-    session.pages[folder] = result.page;
+    // Refresh only re-fetches page 1. Mail paged in earlier via
+    // loadMoreEmails is still real and must not vanish just because this
+    // pass didn't re-verify it — losing it also breaks threadStatusOf's
+    // cross-message reply/forward aggregation for any thread whose
+    // answered/forwarded message lived past page 1.
+    final refreshedIds = refreshed.map((e) => e.id).toSet();
+    final stale = old.values
+        .where((e) => !refreshedIds.contains(e.id))
+        .map(session.stampLocalFlags);
+    session.emails[folder] = [...refreshed, ...stale]
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    session.pages[folder] = max(session.pages[folder] ?? 1, result.page);
     notifyListeners();
   }
 
