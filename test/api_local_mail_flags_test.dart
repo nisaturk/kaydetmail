@@ -131,9 +131,9 @@ Future<ApiMailRepository> _repositoryWithLoadedInbox(
 }) async {
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
+    accountId: 'account-1',
     accessToken: 'access',
     refreshToken: 'refresh',
-    mailAccountId: 'account-1',
   );
   final authService = ApiAuthService(
     client: ApiClient(

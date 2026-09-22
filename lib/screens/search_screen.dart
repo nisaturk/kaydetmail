@@ -94,6 +94,7 @@ class _SearchScreenState extends State<SearchScreen> {
                 final accountEmail = showAccount
                     ? {for (final a in _repo.accounts) a.id: a.email}
                     : const <String, String>{};
+                final labelsById = {for (final l in _repo.getLabels()) l.id: l};
 
                 return ListView.separated(
                   itemCount: results.length,
@@ -107,6 +108,11 @@ class _SearchScreenState extends State<SearchScreen> {
                       accountLabel: showAccount
                           ? accountEmail[email.accountId]
                           : null,
+                      folderLabel: email.folder.label,
+                      labels: [
+                        for (final id in email.labelIds)
+                          if (labelsById[id] != null) labelsById[id]!,
+                      ],
                       onTap: () {
                         Navigator.of(context).push(
                           MaterialPageRoute(

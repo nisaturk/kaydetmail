@@ -18,7 +18,7 @@ import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 
 /// Full view of a mail — and, when it belongs to a conversation, the whole
-/// thread as stacked, collapsible cards (Gmail-style), oldest first.
+/// thread as stacked, collapsible cards (Gmail-style), newest first.
 ///
 /// Opening a mail marks it as read. Pin and read/unread state change through
 /// the repository and are reflected immediately because the screen listens to
@@ -123,13 +123,13 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   }
 
   /// The opened mail plus the already-known thread messages, deduplicated
-  /// and sorted oldest-first. The opened mail is always present, so a
+  /// and sorted newest-first. The opened mail is always present, so a
   /// thread fetch can never remove what the user opened.
   static List<Email> _mergeThread(Email email, List<Email> others) {
     final byId = {for (final message in others) message.id: message};
     byId[email.id] = email;
     final merged = byId.values.toList()
-      ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return List.unmodifiable(merged);
   }
 
@@ -178,14 +178,14 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
-  /// The conversation reads oldest-first, so land on the newest
-  /// message whenever the thread grows.
+  /// The conversation reads newest-first, so land on the newest message
+  /// (the top) whenever the thread grows.
   void _scrollToNewest() {
     if (_thread.length < 2 || _thread.length == _scrolledCount) return;
     _scrolledCount = _thread.length;
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.maxScrollExtent);
+        _scroll.jumpTo(_scroll.position.minScrollExtent);
       }
     });
   }
@@ -652,7 +652,7 @@ class _AttachmentTile extends StatelessWidget {
   }
 }
 
-/// Conversation as stacked cards, oldest first. The newest message and the
+/// Conversation as stacked cards, newest first. The newest message and the
 /// one the user opened start expanded; the rest show a one-line preview.
 class _ThreadStack extends StatefulWidget {
   const _ThreadStack({
@@ -675,7 +675,7 @@ class _ThreadStackState extends State<_ThreadStack> {
 
   bool _expanded(Email m) {
     final byDefault =
-        m.id == widget.openedId || m.id == widget.messages.last.id;
+        m.id == widget.openedId || m.id == widget.messages.first.id;
     return byDefault != _toggled.contains(m.id);
   }
 

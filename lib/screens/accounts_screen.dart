@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/mail_account.dart';
 import '../repositories/mail_repository.dart';
+import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 import '../widgets/mail_avatar.dart';
@@ -48,6 +49,7 @@ class AccountsScreen extends StatelessWidget {
     if (confirmed != true || !context.mounted) return;
     try {
       await _repo.removeAccount(account.id);
+      await SessionStore.removeEmail(account.email);
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

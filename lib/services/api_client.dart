@@ -8,12 +8,33 @@ import 'server_address_store.dart';
 import 'token_store.dart';
 
 class ApiClient {
-  ApiClient({required this.tokenStore, http.Client? httpClient})
+  ApiClient({required this.tokenStore, this._accountId, http.Client? httpClient})
     : _httpClient = httpClient ?? http.Client();
 
   final TokenStore tokenStore;
   final http.Client _httpClient;
+  String? _accountId;
   Future<void>? _refreshing;
+
+  /// The account this client's authenticated requests read/write tokens
+  /// for. Null until a fresh connect/login response reveals it, or a
+  /// restore/switch binds an already-known account up front.
+  String? get accountId => _accountId;
+
+  /// Binds this client to [accountId] — called once a connect/login
+  /// response reveals a brand-new account's id, or immediately when
+  /// restoring/activating an already-known one.
+  void bindAccount(String accountId) => _accountId = accountId;
+
+  String get _boundAccountId {
+    final id = _accountId;
+    if (id == null) {
+      throw StateError(
+        'ApiClient made an authenticated request before bindAccount().',
+      );
+    }
+    return id;
+  }
 
   Future<Map<String, dynamic>> get(String path, {bool authenticated = true}) =>
       _jsonRequest('GET', path, authenticated: authenticated);
@@ -160,7 +181,9 @@ class ApiClient {
     Future<http.BaseRequest> Function() createRequest, {
     required bool authenticated,
   }) async {
-    final sentToken = authenticated ? await tokenStore.readAccessToken() : null;
+    final sentToken = authenticated
+        ? await tokenStore.readAccessToken(_boundAccountId)
+        : null;
     // Peek at the method to decide about 429 retries — MultipartRequests
     // report POST/PUT, plain Requests report their own method.
     final probe = await createRequest();
@@ -176,11 +199,11 @@ class ApiClient {
       return response;
     }
 
-    final currentToken = await tokenStore.readAccessToken();
+    final currentToken = await tokenStore.readAccessToken(_boundAccountId);
     if (currentToken == sentToken) await _refreshOnce();
     response = await _send(
       await createRequest(),
-      accessToken: await tokenStore.readAccessToken(),
+      accessToken: await tokenStore.readAccessToken(_boundAccountId),
     );
     return response;
   }
@@ -214,9 +237,10 @@ class ApiClient {
   }
 
   Future<void> _refresh() async {
-    final refreshToken = await tokenStore.readRefreshToken();
+    final accountId = _boundAccountId;
+    final refreshToken = await tokenStore.readRefreshToken(accountId);
     if (refreshToken == null) {
-      await tokenStore.clear();
+      await tokenStore.clear(accountId);
       throw const ApiException(
         status: 401,
         code: 'invalid_refresh_token',
@@ -230,12 +254,12 @@ class ApiClient {
       final response = await _send(request);
       final tokens = _decodeObject(response.body);
       await tokenStore.save(
+        accountId: accountId,
         accessToken: tokens['accessToken'] as String,
         refreshToken: tokens['refreshToken'] as String,
-        mailAccountId: tokens['mailAccountId'] as String,
       );
     } on ApiException catch (error) {
-      if (error.code == 'invalid_refresh_token') await tokenStore.clear();
+      if (error.code == 'invalid_refresh_token') await tokenStore.clear(accountId);
       rethrow;
     }
   }

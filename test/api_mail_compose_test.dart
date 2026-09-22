@@ -173,9 +173,9 @@ Future<ApiMailRepository> _loggedInRepository(
   SharedPreferences.setMockInitialValues({});
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
+    accountId: 'account-1',
     accessToken: 'access',
     refreshToken: 'refresh',
-    mailAccountId: 'account-1',
   );
   final authService = ApiAuthService(
     client: ApiClient(
@@ -253,6 +253,7 @@ Future<List<String>> _partValues(http.MultipartRequest request, String field) as
 ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(
       tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+      accountId: 'account-1',
       httpClient: MockClient(handler),
     );
 
@@ -260,6 +261,7 @@ ApiClient _multipartClient(
   Future<http.Response> Function(http.MultipartRequest) handler,
 ) => ApiClient(
   tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+  accountId: 'account-1',
   httpClient: MockClient.streaming((request, bodyStream) async {
     final response = await handler(request as http.MultipartRequest);
     return http.StreamedResponse(
