@@ -1,6 +1,6 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persists the login session (just the user email, mock-first).
+/// Persists the login session (just the user email).
 ///
 /// UI never touches SharedPreferences directly — it goes through here,
 /// and the repository itself never knows about this class.

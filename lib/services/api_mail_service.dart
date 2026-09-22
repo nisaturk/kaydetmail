@@ -531,7 +531,7 @@ class ApiMailService {
   /// single-valued per key, so each address goes in as a nameless text
   /// part instead, the same list `MultipartRequest` sends attachment files
   /// through. Attachments without picked file [Attachment.bytes]
-  /// (mock/seed data, or a picker that only returned metadata) are
+  /// (fetched from the server, or a picker that only returned metadata) are
   /// silently dropped — sent as metadata with no way to upload content.
   List<http.MultipartFile> _composeParts({
     required List<String> to,

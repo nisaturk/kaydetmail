@@ -260,7 +260,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
         draftId: widget.editingDraftId,
       );
     } catch (_) {
-      // Silently fail — mock never throws.
+      // Best-effort autosave: the user is already leaving the screen, so a
+      // failure here has nowhere useful to surface — swallow it.
     }
   }
 
@@ -308,9 +309,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   Widget build(BuildContext context) {
     return PopScope(
-      canPop: !_hasContent,
+      // Always intercept: content typed after the last build must still be
+      // caught, or back silently discards it.
+      canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
         if (!didPop) {
+          if (!_hasContent) return Navigator.of(context).pop();
           final nav = Navigator.of(context);
           final shouldPop = await _onWillPop();
           if (shouldPop && mounted) nav.pop();

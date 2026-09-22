@@ -46,10 +46,10 @@ class MailServerSettings {
 
 /// The single interface the UI depends on.
 ///
-/// The app is wired to either the mock or the API implementation through
-/// `AppConfig` — screens never branch on which one is in use. This class
-/// extends [ChangeNotifier] so screens can rebuild whenever the underlying
-/// store changes.
+/// `ApiMailRepository` is the only implementation; `AppConfig.mailRepository`
+/// is the shared singleton screens read — they never branch on which
+/// implementation is active. This class extends [ChangeNotifier] so screens
+/// can rebuild whenever the underlying store changes.
 abstract class MailRepository extends ChangeNotifier {
   /// Maximum number of mails that can be pinned at the same time.
   ///
@@ -61,8 +61,9 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Attempts to sign in. Returns `true` on success, `false` on failure.
   ///
-  /// The mock implementation accepts any well-formed credentials. The real
-  /// implementation (once the backend contract exists) will talk to the API.
+  /// Runs email discovery, then connects (or logs in, if already
+  /// registered) against the backend. Server settings from the login screen
+  /// switch to the manual IMAP/SMTP connection flow instead.
   Future<bool> login({
     required String email,
     required String password,
@@ -77,8 +78,8 @@ abstract class MailRepository extends ChangeNotifier {
   Future<void> reconnect({required String password});
 
   /// Registers this device for FCM pushes (upsert — safe on every launch).
-  /// The API implementation remembers the registration id to remove it on
-  /// [logout]; the mock has no server, so this is a no-op.
+  /// The registration id is remembered so it can be removed again on
+  /// [logout].
   Future<void> registerCurrentDevice({
     required String fcmToken,
     required String appVersion,
@@ -91,8 +92,7 @@ abstract class MailRepository extends ChangeNotifier {
   /// Whether a session is active. False before login / after logout.
   bool get isLoggedIn;
 
-  /// Locally represented sending accounts for the Compose "Kimden" picker.
-  /// Mock-first: no sync, no backend contract.
+  /// Sending accounts for the Compose "Kimden" picker.
   List<MailAccount> get accounts;
 
   /// Id of the account whose mailbox is currently shown, or `null` for the
@@ -103,9 +103,9 @@ abstract class MailRepository extends ChangeNotifier {
   /// Unknown ids are ignored so stray navigation never blanks the list.
   Future<void> setActiveAccount(String? accountId);
 
-  /// Connects a mailbox account (mock flow for now, OAuth later) and returns
-  /// it. Connecting an already-connected email re-selects it instead of
-  /// duplicating it. The password is only used to simulate the connection and
+  /// Connects a mailbox account and returns it. Connecting an
+  /// already-registered email falls back to logging into it instead of
+  /// registering a duplicate. The password authenticates the connection and
   /// is never stored.
   Future<MailAccount> connectAccount({
     required String email,
@@ -163,19 +163,18 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Triggers a server-side sync of [folder] before the next [refreshEmails].
   ///
-  /// The API implementation queues a sync job (no completion notification);
-  /// the mock has no server, so this is a no-op round-trip. Failures (e.g. a
-  /// full sync queue) are for the caller to swallow — the refresh that
-  /// follows still shows the current snapshot.
+  /// Queues a sync job on the backend (no completion notification).
+  /// Failures (e.g. a full sync queue) are for the caller to swallow — the
+  /// refresh that follows still shows the current snapshot.
   Future<void> syncFolder(MailFolder folder);
 
   Future<Email?> getEmail(String id);
 
   /// Downloads one attachment's raw bytes for sharing/saving.
   ///
-  /// The API implementation streams
-  /// `GET /api/mails/{mailId}/attachments/{attachmentId}` (404 when the
-  /// attachment is gone); the mock returns the locally picked bytes, if any.
+  /// Streams `GET /api/mails/{mailId}/attachments/{attachmentId}` (404 when
+  /// the attachment is gone). Attachments picked locally and not yet
+  /// uploaded carry no server id — those return the bytes already held.
   Future<Uint8List> downloadAttachment(String mailId, Attachment attachment);
 
   /// Every mail belonging to the same conversation, oldest first.
@@ -193,8 +192,7 @@ abstract class MailRepository extends ChangeNotifier {
   /// Asynchronously loads the full conversation for [threadId], oldest
   /// first, with complete message bodies.
   ///
-  /// The mock answers from its in-memory list. The API implementation
-  /// fetches the conversation and then each message's full detail. Callers
+  /// Fetches the conversation and then each message's full detail. Callers
   /// must treat a failure as "enrichment unavailable" and keep whatever
   /// mail they already show — never blank the screen because of it.
   Future<List<Email>> fetchThreadEmails(String threadId);
@@ -218,8 +216,8 @@ abstract class MailRepository extends ChangeNotifier {
   /// existing draft in place instead of creating a duplicate.
   ///
   /// The backend may assign a NEW id on update (`PUT /drafts/{id}` returns a
-  /// fresh `mailId`); the returned draft carries the id callers must use from
-  /// then on. Mock mode keeps the same id.
+  /// fresh `mailId`); the returned draft carries the id callers must use
+  /// from then on.
   Future<Email> saveDraft({
     required List<String> to,
     List<String> cc = const [],

@@ -16,10 +16,10 @@ import 'mail_detail_screen.dart';
 
 /// Mail list for a single folder with infinite scrolling.
 ///
-/// Loading, empty, error and retry states are handled explicitly, even though
-/// the mock data source succeeds almost always — the same code will drive the
-/// real API later. Selection mode is entered by long-pressing a mail avatar;
-/// swiping a row left deletes it, swiping right archives it.
+/// Loading, empty, error and retry states are handled explicitly since the
+/// backend can fail (network, auth, rate limits). Selection mode is entered
+/// by long-pressing a mail avatar; swiping a row left deletes it, swiping
+/// right archives it.
 class InboxScreen extends StatefulWidget {
   const InboxScreen({super.key, required this.folder, required this.selection});
 
@@ -95,10 +95,10 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   Future<void> _refresh() async {
-    // Server sync first (a no-op in mock mode; sync-queue pressure is
-    // swallowed — there is no completion notification, the reload below is
-    // what actually shows new mail), then reload the list. Read/star/pin/
-    // folder state and the already-loaded page stay untouched.
+    // Server sync first (sync-queue pressure is swallowed — there is no
+    // completion notification; the reload below is what actually shows new
+    // mail), then reload the list. Read/star/pin/folder state and the
+    // already-loaded page stay untouched.
     try {
       await _repo.syncFolder(widget.folder);
     } catch (_) {
