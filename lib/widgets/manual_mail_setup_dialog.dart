@@ -33,9 +33,15 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
   void initState() {
     super.initState();
     final domain = widget.email.trim().split('@').lastOrNull ?? '';
-    _imapHost = TextEditingController(text: domain.isEmpty ? '' : 'imap.$domain');
+    // Automatic discovery already tried `imap.$domain` / `smtp.$domain` (and
+    // SRV/autoconfig) before giving up — repeating that guess here just
+    // reproduces the same dead end. `mail.$domain` is the more common
+    // single-host fallback for domains without dedicated imap./smtp.
+    // subdomains, so default to it for both fields; the user can still
+    // override either one.
+    _imapHost = TextEditingController(text: domain.isEmpty ? '' : 'mail.$domain');
     _imapPort = TextEditingController(text: '993');
-    _smtpHost = TextEditingController(text: domain.isEmpty ? '' : 'smtp.$domain');
+    _smtpHost = TextEditingController(text: domain.isEmpty ? '' : 'mail.$domain');
     _smtpPort = TextEditingController(text: '587');
   }
 
