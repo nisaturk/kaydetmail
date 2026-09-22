@@ -170,7 +170,10 @@ class ApiAuthService {
   }
 
   Future<void> logout() async {
-    final refreshToken = await tokenStore.readRefreshToken();
+    final accountId = client.accountId;
+    final refreshToken = accountId == null
+        ? null
+        : await tokenStore.readRefreshToken(accountId);
     try {
       if (refreshToken != null) {
         await client.postJson('/api/auth/logout', {
@@ -178,15 +181,16 @@ class ApiAuthService {
         }, authenticated: false);
       }
     } finally {
-      await tokenStore.clear();
+      if (accountId != null) await tokenStore.clear(accountId);
     }
   }
 
   Future<TokenResponse> _save(TokenResponse response) async {
+    client.bindAccount(response.mailAccountId);
     await tokenStore.save(
+      accountId: response.mailAccountId,
       accessToken: response.accessToken,
       refreshToken: response.refreshToken,
-      mailAccountId: response.mailAccountId,
     );
     return response;
   }

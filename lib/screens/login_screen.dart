@@ -127,7 +127,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (!mounted) return;
 
       if (ok) {
-        await SessionStore.saveEmail(_emailController.text.trim());
+        await SessionStore.addEmail(_emailController.text.trim());
         if (!mounted) return;
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(builder: (_) => const HomeScreen()),

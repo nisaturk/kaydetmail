@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 
@@ -42,6 +43,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
         email: _emailController.text.trim(),
         password: _passwordController.text,
       );
+      await SessionStore.addEmail(account.email);
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context)
