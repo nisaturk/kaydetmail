@@ -84,7 +84,9 @@ class _LabelRow extends StatefulWidget {
 }
 
 class _LabelRowState extends State<_LabelRow> {
-  bool _applied = false;
+  // true: every selected mail has the label. false: none do. null: mixed
+  // (some do, some don't) — shown as the checkbox's indeterminate dash.
+  bool? _applied = false;
 
   @override
   void initState() {
@@ -99,16 +101,19 @@ class _LabelRowState extends State<_LabelRow> {
     super.dispose();
   }
 
-  bool _appliesToAllIn(List<Email> emails) {
+  bool? _stateAcross(List<Email> emails) {
     if (emails.isEmpty) return false;
-    return emails.every((e) => e.labelIds.contains(widget.labelId));
+    final hasLabel = emails.map((e) => e.labelIds.contains(widget.labelId));
+    if (hasLabel.every((applied) => applied)) return true;
+    if (hasLabel.every((applied) => !applied)) return false;
+    return null;
   }
 
-  bool _isApplied() {
+  bool? _isApplied() {
     final emails = widget.repo.getAllEmails().where(
       (e) => widget.emailIds.contains(e.id),
     );
-    return _appliesToAllIn(emails.toList());
+    return _stateAcross(emails.toList());
   }
 
   void _syncApplied() {
@@ -117,9 +122,13 @@ class _LabelRowState extends State<_LabelRow> {
     if (applied != _applied) setState(() => _applied = applied);
   }
 
-  void _toggle(bool value) async {
-    setState(() => _applied = value);
-    if (value) {
+  // Ignores the tapped-toward value Flutter's own tristate cycle would
+  // suggest (false → true → null) — a mixed selection should resolve to
+  // "apply to everyone", not "clear everyone", on the very next tap.
+  void _toggle() async {
+    final next = _applied != true;
+    setState(() => _applied = next);
+    if (next) {
       await widget.repo.addLabelsToEmails(widget.emailIds, [widget.labelId]);
     } else {
       await widget.repo.removeLabelsFromEmails(widget.emailIds, [
@@ -141,10 +150,9 @@ class _LabelRowState extends State<_LabelRow> {
     if (label == null) return const SizedBox.shrink();
     return CheckboxListTile(
       dense: true,
+      tristate: true,
       value: _applied,
-      onChanged: (value) {
-        if (value != null) _toggle(value);
-      },
+      onChanged: (_) => _toggle(),
       secondary: CircleAvatar(backgroundColor: label.color, radius: 8),
       title: Text(label.name),
     );
