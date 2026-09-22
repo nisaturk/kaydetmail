@@ -38,6 +38,7 @@ class ApiMailRepository extends MailRepository {
   late final ApiMailService _mailService;
   MailAccount? _account;
   bool _loggedIn = false;
+  bool _offline = false;
   final Map<MailFolder, String> _folderIds = {};
   final Map<String, MailFolder> _folderTypeById = {};
   final Map<MailFolder, List<Email>> _emails = {};
@@ -166,6 +167,9 @@ class ApiMailRepository extends MailRepository {
   bool get isLoggedIn => _loggedIn;
 
   @override
+  bool get isOffline => _offline;
+
+  @override
   List<MailAccount> get accounts => _account == null ? const [] : [_account!];
 
   @override
@@ -268,6 +272,7 @@ class ApiMailRepository extends MailRepository {
       ];
       _labelMap = await flags.readLabelMap();
       _flagsStore = flags;
+      _hydrateFolderMapFromCache(account.id);
       final hydrated = await _hydrateFromCache(account.id);
       // Best-effort: enrich the token-derived account with the server view
       // (displayName, provider, status). A failed read never fails the login
@@ -277,7 +282,19 @@ class ApiMailRepository extends MailRepository {
         (a) => a,
         onError: (_) => null,
       );
-      await _loadMailbox();
+      // A cached mailbox (mail and/or a previously-seen folder map) means
+      // there is something to show even if the backend is unreachable right
+      // now — that failure must not roll the whole login back. Nothing
+      // cached at all means there is nothing to fall back to, so a mailbox
+      // load failure there still fails the login as before.
+      final hasCachedMailbox = hydrated || _folderIds.isNotEmpty;
+      try {
+        await _loadMailbox();
+      } catch (_) {
+        if (!hasCachedMailbox) rethrow;
+        _offline = true;
+        notifyListeners();
+      }
       await _seedStarred();
       unawaited(_seedThreadSizes());
       _account = await accountFuture ?? _account;
@@ -288,6 +305,7 @@ class ApiMailRepository extends MailRepository {
     } catch (_) {
       _account = null;
       _loggedIn = false;
+      _offline = false;
       _flagsStore = null;
       _pinnedIds = {};
       _starredIds.clear();
@@ -306,6 +324,26 @@ class ApiMailRepository extends MailRepository {
       return await _openCache?.call() ?? MailCache.inMemory();
     } catch (_) {
       return MailCache.inMemory();
+    }
+  }
+
+  /// Restores the last-known server-folder-id -> [MailFolder] mapping so
+  /// cached mail stays actionable (open, move, sync) even before — or
+  /// without ever reaching — a successful [_loadMailbox] this session.
+  void _hydrateFolderMapFromCache(String accountId) {
+    final saved = _cache?.loadFolders(accountId) ?? const {};
+    if (saved.isEmpty) return;
+    _folderIds.clear();
+    _folderTypeById.clear();
+    for (final entry in saved.entries) {
+      MailFolder logical;
+      try {
+        logical = MailFolder.values.byName(entry.value);
+      } catch (_) {
+        continue;
+      }
+      _folderIds[logical] = entry.key;
+      _folderTypeById[entry.key] = logical;
     }
   }
 
@@ -469,7 +507,24 @@ class ApiMailRepository extends MailRepository {
         if (unread != null) _serverUnread[logical] = unread;
       }
     }
+    _offline = false;
+    _persistFolderMap();
     notifyListeners();
+  }
+
+  /// Best-effort: remembers the current folder map so [_hydrateFolderMapFromCache]
+  /// can restore it on a future offline cold start.
+  void _persistFolderMap() {
+    final cache = _cache;
+    final accountId = _account?.id;
+    if (cache == null || accountId == null) return;
+    try {
+      cache.saveFolders(accountId, {
+        for (final entry in _folderIds.entries) entry.value: entry.key.name,
+      });
+    } catch (_) {
+      // Cache is an optimization; never surface its failures.
+    }
   }
 
   final Map<MailFolder, int> _serverUnread = {};
@@ -658,6 +713,7 @@ class ApiMailRepository extends MailRepository {
         .toList();
     current.addAll(fresh);
     _pages[folder] = result.page;
+    _offline = false;
     notifyListeners();
     return List.unmodifiable(fresh);
   }
@@ -673,6 +729,7 @@ class ApiMailRepository extends MailRepository {
       resolveFolder: _resolveFolder,
     );
     final old = {for (final e in _emails[folder] ?? const <Email>[]) e.id: e};
+    _offline = false;
     _emails[folder] = [
       for (final e in result.items)
         // List items carry no body or star state; keep what we already know.
