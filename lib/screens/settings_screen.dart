@@ -4,11 +4,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
-import '../services/api_exception.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
+import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
 import 'login_screen.dart';
@@ -420,9 +420,7 @@ class _SessionsSectionState extends State<_SessionsSection> {
     } catch (e) {
       if (!mounted) return;
       setState(
-        () => _error = e is ApiException
-            ? 'Cihazlar yüklenemedi: ${e.userMessage}'
-            : 'Cihazlar yüklenemedi.',
+        () => _error = 'Cihazlar yüklenemedi: ${friendlyErrorMessage(e)}',
       );
     }
   }

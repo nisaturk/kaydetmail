@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_messages.dart';
 
 /// Account-connection flow: enter the address and password, connect through
 /// [AppConfig.mailRepository].
@@ -49,7 +50,9 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
       if (!mounted) return;
       setState(() {
         _connecting = false;
-        _error = '$e'.replaceFirst('Invalid argument(s): ', '');
+        _error = e is ArgumentError
+            ? '${e.message}'
+            : friendlyErrorMessage(e);
       });
     }
   }
