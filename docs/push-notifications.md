@@ -1,43 +1,72 @@
 # Push bildirimleri (FCM) kurulum rehberi
 
-Durum: Dart tarafı hazır (`lib/services/push_service.dart`), ama **varsayılan olarak kapalı**
-(`AppConfig.pushEnabled`). Firebase config dosyaları yok, Firebase projesi bağlı değil.
+Durum: Firebase projesi bağlı (`mail-client-37a01`, backend ile aynı proje), Android tarafı
+uçtan uca hazır ve **varsayılan olarak kapalı** (`AppConfig.pushEnabled`).
 
-Açmak için: `flutter run --dart-define=PUSH_ENABLED=true` (yukarıdaki adımlar bittikten sonra).
+Açmak için: `flutter run --dart-define=PUSH_ENABLED=true` — ya da Android Studio'da
+**"Kaydetmail (Profile + FCM)"** run configuration'ını seç (aşağıya bak).
 
 ## 1. Firebase projesi
-1. console.firebase.google.com → proje oluştur.
-2. Android uygulaması ekle (`com.example.kaydetmail`, yayın öncesi gerçek id ile değiştirin) →
-   `google-services.json` → `android/app/`.
-3. iOS uygulaması ekle (aynı bundle id) → `GoogleService-Info.plist` → Xcode ile `ios/Runner/`.
+Android uygulaması zaten eklendi: paket adı `com.example.kaydetmail`, app id
+`1:741294667910:android:66aeeb2c15cb493fc2f907`, proje `mail-client-37a01` (backend'in
+`secrets/mail-client-37a01-firebase-adminsdk-fbsvc-*.json`'ı ile aynı proje — backend zaten
+`Firebase__Enabled=true` ile bu projeye bağlı). Config dosyası `android/app/google-services.json`
+içinde — commit edilmez (bkz. `.gitignore`), yeniden üretmek gerekirse Firebase Console →
+Project settings → genel sekmesindeki Android uygulamasından ya da
+`dart pub global activate flutterfire_cli && flutterfire configure` ile indirilebilir.
 
-Kısa yol: `dart pub global activate flutterfire_cli && flutterfire configure`.
-`firebase_options.dart` oluşursa `Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform)`
-olarak güncelleyin.
+iOS henüz eklenmedi (Apple Developer hesabı + APNs Auth Key gerektirir, bu turda kapsam dışı).
+Gerekirse: iOS uygulaması ekle (aynı bundle id) → `GoogleService-Info.plist` → Xcode ile
+`ios/Runner/`.
 
-## 2. Android Gradle (config dosyası eklendikten SONRA)
-`google-services.json` yokken bu eklenirse build kırılır, bu yüzden henüz eklenmedi.
-- `android/settings.gradle.kts` plugins: `id("com.google.gms.google-services") version "4.4.2" apply false`
-- `android/app/build.gradle.kts` plugins: `id("com.google.gms.google-services")`
+## 2. Android Gradle
+Tamamlandı:
+- `android/settings.gradle.kts` → `id("com.google.gms.google-services") version "4.4.2" apply false`
+- `android/app/build.gradle.kts` → `id("com.google.gms.google-services")`
+- `android/app/google-services.json` mevcut.
+- `android/app/src/main/AndroidManifest.xml` → `POST_NOTIFICATIONS` izni (Android 13+) ve
+  arka plan/kapalı-uygulama bildirimleri için `default_notification_icon` meta-data'sı.
 
-`POST_NOTIFICATIONS` izni (Android 13+) manifest'e eklendi.
+`flutter build apk --profile --dart-define=PUSH_ENABLED=true` ile doğrulandı (Gradle assemble
+temiz, google-services eklentisi `google-services.json`'ı işliyor).
 
-## 3. iOS
+## 3. Android Studio profili
+`.idea/workspace.xml` içinde **"Kaydetmail (Profile + FCM)"** adında bir run configuration var:
+`flutter run --profile --dart-define=PUSH_ENABLED=true --dart-define=USE_MOCK_API=false`.
+Prod'a yakın (profile build — debug banner yok, gerçek performans) ve FCM açık şekilde
+çalışır. Gerçek cihazda test ederken sunucu adresini uygulama içi Ayarlar ekranından
+makinenin LAN IP'sine çevir (ör. `http://192.168.1.23:5071`) — `10.0.2.2` sadece Android
+emülatöründe host'a erişmek için işe yarar, fiziksel cihazdan görünmez.
+
+## 4. iOS
 - Apple Developer'da APNs Auth Key (.p8) oluştur → Firebase Console → Cloud Messaging'e yükle.
 - Xcode: Push Notifications + Background Modes → Remote notifications.
 - Gerçek cihaz gerekir (simülatörde push yok).
 
-## 4. Backend
+## 5. Backend
 - Cihaz token'ı `registerCurrentDevice` ile gönderilir (her açılışta upsert).
-- Backend, Firebase service account ile FCM'e mesaj atar. Bu anahtar uygulamaya konmaz.
+- Backend, Firebase service account ile FCM'e mesaj atar (`Firebase__Enabled=true`,
+  `secrets/mail-client-37a01-firebase-adminsdk-fbsvc-*.json`). Bu anahtar uygulamaya konmaz.
 - Payload yalnız id taşır (`type`, `mailId`); içerik `GET /api/mails/{id}` ile çekilir.
   Tipler: `new_mail`, `mail_state_changed`, `account_reauthentication_required`, `sync_error`.
+- `new_mail` / `account_reauthentication_required` / `sync_error` bir `notification` bloğu da
+  taşır — Android'in FCM SDK'sı uygulama arka plandayken/kapalıyken sistem bildirimini
+  kendisi gösterir, ekstra kod gerekmez. `mail_state_changed` yalnız `data` taşır (sessiz
+  senkron sinyali).
 
-## 5. Henüz yapılmayanlar
-- `FirebaseMessaging.onBackgroundMessage` handler'ı (şu an yalnız uygulama açıkken `onMessage`).
-- Data-only mesajda bildirim göstermek için `flutter_local_notifications` ya da backend'in
-  `notification` alanı da göndermesi.
-- Bildirime tıklayınca ilgili maile gitme (`onMessageOpenedApp` / `getInitialMessage`).
+## 6. Flutter tarafında tamamlananlar
+- `FirebaseMessaging.onBackgroundMessage` handler'ı kayıtlı (`firebaseMessagingBackgroundHandler`,
+  `lib/services/push_service.dart`) — arka planda/uygulama kapalıyken Firebase'i yeniden
+  başlatır, plugin sözleşmesi bunu ister.
+- Bildirime tıklayınca ilgili maile gitme: `FirebaseMessaging.onMessageOpenedApp` +
+  `getInitialMessage()` → `PushService.onMailTapped` stream'i → `app.dart` bunu dinleyip
+  `MailDetailScreen`'i `navigatorKey` üzerinden açıyor (soğuk başlangıç dahil).
+
+## 7. Henüz yapılmayanlar
+- `mail_state_changed` gibi data-only mesajlarda kullanıcıya görünür bir bildirim
+  göstermek isteniyorsa (`notification` bloğu yok) `flutter_local_notifications` eklenmeli —
+  şu an sessizce arka planda işleniyor, tıklanacak bir şey yok.
+- iOS: APNs anahtarı ve `GoogleService-Info.plist` henüz yok.
 
 ## Not: build hatası
 `receive_sharing_intent` Android SDK 37 ister; `compileSdk = 37` yapıldı. AGP 9.1.0 en fazla 36'yı
