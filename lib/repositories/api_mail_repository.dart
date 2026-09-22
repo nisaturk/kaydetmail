@@ -34,6 +34,7 @@ class ApiMailRepository extends MailRepository {
   final Future<MailCache> Function()? _openCache;
   MailCache? _cache;
   Timer? _persistTimer;
+  Timer? _reconnectTimer;
   Map<String, Email> _persisted = {};
   late final ApiMailService _mailService;
   MailAccount? _account;
@@ -108,15 +109,7 @@ class ApiMailRepository extends MailRepository {
   Future<void> logout() async {
     // Drop the push registration first (best-effort — a failure here must
     // never block signing out), then revoke the session as before.
-    final deviceId = _deviceId;
-    _deviceId = null;
-    if (deviceId != null) {
-      try {
-        await _mailService.unregisterDevice(deviceId);
-      } catch (_) {
-        // Logout still proceeds; the server registration expires on its own.
-      }
-    }
+    await unregisterDevice();
     await _authService.logout();
     _dropCache(_account?.id);
     _account = null;
@@ -129,7 +122,56 @@ class ApiMailRepository extends MailRepository {
     _forwardedIds = {};
     _labels = [];
     _labelMap = {};
+    _cancelReconnectRetry();
+    _offline = false;
     notifyListeners();
+  }
+
+  @override
+  Future<void> unregisterDevice() async {
+    final deviceId = _deviceId;
+    if (deviceId == null) return;
+    _deviceId = null;
+    try {
+      await _mailService.unregisterDevice(deviceId);
+    } catch (_) {
+      // Best-effort — the server registration expires on its own.
+    }
+  }
+
+  /// Starts polling the backend every 15s while offline; stops as soon as a
+  /// probe succeeds. Without this, `isOffline` (and the "Bağlantı yok"
+  /// banner) only clears the next time the user happens to trigger a
+  /// successful `refreshEmails`/`loadMoreEmails`/`_loadMailbox` call — e.g.
+  /// a manual pull-to-refresh or an app restart — even though the backend
+  /// may already be reachable again.
+  void _scheduleReconnectRetry() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _retryConnection();
+    });
+  }
+
+  void _cancelReconnectRetry() {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+  }
+
+  Future<void> _retryConnection() async {
+    if (!_offline) {
+      _cancelReconnectRetry();
+      return;
+    }
+    try {
+      await _loadMailbox();
+    } catch (_) {
+      return; // Still offline; the timer fires again on the next tick.
+    }
+    // Bring every already-loaded folder's mail up to date now that the
+    // backend is reachable again.
+    for (final folder in _emails.keys.toList()) {
+      unawaited(refreshEmails(folder).catchError((_) {}));
+    }
   }
 
   /// Replaces the stored credentials via `POST /api/account/reconnect` and
@@ -293,6 +335,7 @@ class ApiMailRepository extends MailRepository {
       } catch (_) {
         if (!hasCachedMailbox) rethrow;
         _offline = true;
+        _scheduleReconnectRetry();
         notifyListeners();
       }
       await _seedStarred();
@@ -305,6 +348,7 @@ class ApiMailRepository extends MailRepository {
     } catch (_) {
       _account = null;
       _loggedIn = false;
+      _cancelReconnectRetry();
       _offline = false;
       _flagsStore = null;
       _pinnedIds = {};
@@ -507,6 +551,7 @@ class ApiMailRepository extends MailRepository {
         if (unread != null) _serverUnread[logical] = unread;
       }
     }
+    _cancelReconnectRetry();
     _offline = false;
     _persistFolderMap();
     notifyListeners();
@@ -713,6 +758,7 @@ class ApiMailRepository extends MailRepository {
         .toList();
     current.addAll(fresh);
     _pages[folder] = result.page;
+    _cancelReconnectRetry();
     _offline = false;
     notifyListeners();
     return List.unmodifiable(fresh);
@@ -729,6 +775,7 @@ class ApiMailRepository extends MailRepository {
       resolveFolder: _resolveFolder,
     );
     final old = {for (final e in _emails[folder] ?? const <Email>[]) e.id: e};
+    _cancelReconnectRetry();
     _offline = false;
     _emails[folder] = [
       for (final e in result.items)

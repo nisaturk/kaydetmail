@@ -79,12 +79,18 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Registers this device for FCM pushes (upsert — safe on every launch).
   /// The registration id is remembered so it can be removed again on
-  /// [logout].
+  /// [logout] or [unregisterDevice].
   Future<void> registerCurrentDevice({
     required String fcmToken,
     required String appVersion,
     required String locale,
   });
+
+  /// Removes this device's push registration (e.g. the user turned
+  /// notifications off in Settings). Safe to call when nothing is
+  /// registered — a no-op then. Best-effort: a network failure is
+  /// swallowed since the server registration expires on its own.
+  Future<void> unregisterDevice();
 
   /// Email address of the currently signed-in user.
   String get currentUser;

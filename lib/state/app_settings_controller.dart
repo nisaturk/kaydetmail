@@ -1,26 +1,35 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
+import '../services/notification_settings_store.dart';
 import '../services/server_address_store.dart';
 
-/// Simulated synchronization interval.
+/// How often the mailbox refreshes itself in the background while the app
+/// is open. `manual` ([duration] null) means only pull-to-refresh, push
+/// notifications and app-open trigger a refresh.
 enum SyncInterval {
-  manual('Manuel'),
-  every5Minutes('Her 5 dakikada bir'),
-  every15Minutes('Her 15 dakikada bir'),
-  every30Minutes('Her 30 dakikada bir'),
-  everyHour('Her saat');
+  manual('Manuel', null),
+  every5Minutes('Her 5 dakikada bir', Duration(minutes: 5)),
+  every15Minutes('Her 15 dakikada bir', Duration(minutes: 15)),
+  every30Minutes('Her 30 dakikada bir', Duration(minutes: 30)),
+  everyHour('Her saat', Duration(hours: 1));
 
-  const SyncInterval(this.label);
+  const SyncInterval(this.label, this.duration);
 
   final String label;
+
+  /// Background refresh period, or null for [manual].
+  final Duration? duration;
 }
 
 /// App-level settings state.
 ///
-/// Notifications, sync interval and swipe-to-delete are simulated and stored
-/// only for the current session. The server base URL is the one real control
-/// switch to configure the future HTTP API, so it is persisted through
-/// [ServerAddressStore] and survives app restarts. Same ChangeNotifier +
+/// Swipe-to-delete and sync interval directly gate real inbox/refresh
+/// behavior (see [InboxScreen] and `_AuthGateState._rescheduleSync`).
+/// Notifications persists through [NotificationSettingsStore] and gates
+/// this device's push registration (see `PushService`). The server base
+/// URL is persisted through [ServerAddressStore]. Same ChangeNotifier +
 /// `ListenableBuilder` pattern as everywhere else.
 class AppSettingsController extends ChangeNotifier {
   AppSettingsController._();
@@ -45,6 +54,7 @@ class AppSettingsController extends ChangeNotifier {
     if (_notificationsEnabled == value) return;
     _notificationsEnabled = value;
     notifyListeners();
+    unawaited(NotificationSettingsStore.save(value));
   }
 
   set syncInterval(SyncInterval value) {
@@ -65,6 +75,15 @@ class AppSettingsController extends ChangeNotifier {
     final loaded = await ServerAddressStore.load();
     if (loaded == _serverBaseUrl) return;
     _serverBaseUrl = loaded;
+    notifyListeners();
+  }
+
+  /// Loads the persisted notifications preference at app startup, before
+  /// `PushService` decides whether to register this device for push.
+  Future<void> loadNotificationsEnabled() async {
+    final loaded = await NotificationSettingsStore.load();
+    if (loaded == _notificationsEnabled) return;
+    _notificationsEnabled = loaded;
     notifyListeners();
   }
 

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../config/app_config.dart';
+import '../models/mail_folder.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import 'screens/home_screen.dart';
@@ -52,6 +53,7 @@ class _AuthGate extends StatefulWidget {
 class _AuthGateState extends State<_AuthGate> {
   bool? _loggedIn;
   StreamSubscription<String>? _mailTapSub;
+  Timer? _syncTimer;
 
   @override
   void initState() {
@@ -59,6 +61,7 @@ class _AuthGateState extends State<_AuthGate> {
     // Persisted server base URL loads before any screen reads it. The future
     // API repository will read the same controller value.
     AppSettingsController.instance.loadServerAddress();
+    AppSettingsController.instance.addListener(_onSettingsChanged);
     _check();
     if (AppConfig.pushEnabled) {
       _mailTapSub = PushService.onMailTapped.listen(_openTappedMail);
@@ -68,6 +71,8 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   void dispose() {
     _mailTapSub?.cancel();
+    AppSettingsController.instance.removeListener(_onSettingsChanged);
+    _syncTimer?.cancel();
     super.dispose();
   }
 
@@ -90,6 +95,39 @@ class _AuthGateState extends State<_AuthGate> {
       }
     }
     setState(() => _loggedIn = email != null);
+    if (_loggedIn == true) _rescheduleSync();
+  }
+
+  /// The Settings "Senkronizasyon" section only ever changes
+  /// [AppSettingsController.syncInterval] while logged in, so this only
+  /// reschedules — it never needs to start a session on its own.
+  void _onSettingsChanged() {
+    if (_loggedIn == true) _rescheduleSync();
+  }
+
+  /// (Re)starts the background mailbox refresh at the configured interval.
+  /// `manual` cancels any running timer instead — pull-to-refresh, push
+  /// notifications and reopening the app remain the only triggers then.
+  void _rescheduleSync() {
+    _syncTimer?.cancel();
+    final interval = AppSettingsController.instance.syncInterval.duration;
+    if (interval == null) return;
+    _syncTimer = Timer.periodic(interval, (_) => _syncLoadedFolders());
+  }
+
+  /// Refreshes every folder that already has mail loaded — matches what
+  /// pull-to-refresh does per folder, just on a timer instead of a gesture.
+  Future<void> _syncLoadedFolders() async {
+    final repo = AppConfig.mailRepository;
+    for (final folder in MailFolder.values) {
+      if (repo.getEmailsInFolder(folder).isEmpty) continue;
+      try {
+        await repo.refreshEmails(folder);
+      } catch (_) {
+        // The next tick retries; a transient failure here is invisible to
+        // the user since the last snapshot stays on screen either way.
+      }
+    }
   }
 
   @override
