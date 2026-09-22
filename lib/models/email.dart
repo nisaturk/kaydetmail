@@ -70,6 +70,7 @@ class Email {
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
+    this.hasAttachments = false,
     this.accountId = '',
     this.threadId = '',
     this.inReplyToId,
@@ -104,6 +105,13 @@ class Email {
   /// Ids of the labels attached to this mail (see `MailLabel`).
   final List<String> labelIds;
   final List<Attachment> attachments;
+
+  /// Server-reported attachment presence (`hasAttachments` on both the list
+  /// and detail responses). List rows only ever get this flag — the full
+  /// [attachments] metadata is a detail-fetch-only field — so the paperclip
+  /// indicator must check this too, not just `attachments.isNotEmpty`,
+  /// otherwise it only shows for mail the user has already opened.
+  final bool hasAttachments;
 
   /// Opaque id of the [MailAccount] that owns this mail — the backend
   /// `mailAccountId`, never the email address. Empty means "unassigned" —
@@ -166,6 +174,7 @@ class Email {
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
+    bool? hasAttachments,
     String? accountId,
     String? threadId,
     String? inReplyToId,
@@ -189,6 +198,7 @@ class Email {
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,
+      hasAttachments: hasAttachments ?? this.hasAttachments,
       accountId: accountId ?? this.accountId,
       threadId: threadId ?? this.threadId,
       inReplyToId: inReplyToId ?? this.inReplyToId,

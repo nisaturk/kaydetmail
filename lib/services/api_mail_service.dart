@@ -585,6 +585,7 @@ class ApiMailService {
     isRead: item['isRead'] as bool? ?? false,
     isStarred: item['flagged'] as bool? ?? false,
     isReplied: item['answered'] as bool? ?? false,
+    hasAttachments: item['hasAttachments'] as bool? ?? false,
     accountId: item['accountId'] as String? ?? '',
     folder: resolveFolder(item['folderId'] as String),
     threadId: item['conversationId'] as String? ?? '',
@@ -707,6 +708,7 @@ class ApiMailService {
       threadId: item['conversationId'] as String? ?? '',
       inReplyToId: inReplyTo == null || inReplyTo.isEmpty ? null : inReplyTo,
       attachments: attachments,
+      hasAttachments: item['hasAttachments'] as bool? ?? attachments.isNotEmpty,
     );
   }
 }
