@@ -260,7 +260,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
         draftId: widget.editingDraftId,
       );
     } catch (_) {
-      // Silently fail — mock never throws.
+      // Best-effort autosave: the user is already leaving the screen, so a
+      // failure here has nowhere useful to surface — swallow it.
     }
   }
 

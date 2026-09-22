@@ -2,9 +2,10 @@ import 'package:flutter/foundation.dart';
 
 /// Which provider a connected account belongs to.
 ///
-/// Mock-first: inferred from the email domain (`gmail.com` → Google,
+/// Set from the backend when known ([fromBackend]); otherwise inferred from
+/// the email domain ([inferFromEmail]): `gmail.com` → Google,
 /// `outlook.com`/`hotmail.com`/`live.com` → Microsoft, anything else →
-/// Other/IMAP). Real OAuth connections will set this explicitly later.
+/// Other/IMAP.
 enum AccountProvider {
   google,
   microsoft,
@@ -62,9 +63,8 @@ enum MailAccountStatus {
 
 /// One connected mailbox account.
 ///
-/// Identity comes from the backend. Mock mode explicitly derives an id when
-/// it provisions its in-memory accounts. Whether an account is currently active
-/// is NOT stored here — the repository owns the active account id.
+/// Identity (`id`) comes from the backend. Whether an account is currently
+/// active is NOT stored here — the repository owns the active account id.
 @immutable
 class MailAccount {
   const MailAccount({

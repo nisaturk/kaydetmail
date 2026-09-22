@@ -14,16 +14,16 @@ class Attachment {
   });
 
   /// Server-side attachment id (`GET /api/mails/{mailId}/attachments/{id}`).
-  /// Null for locally picked or mock/seed attachments.
+  /// Null for attachments picked locally that haven't been uploaded yet.
   final String? id;
 
   final String name;
   final int sizeBytes;
   final String? mimeType;
 
-  /// File content, when picked from disk. Null for mock/seed attachments
-  /// (display-only) — [ApiMailRepository] needs this to actually upload the
-  /// file; without it the attachment is sent as metadata only.
+  /// File content, when picked from disk. Null for attachments fetched from
+  /// the server (display-only) — [ApiMailRepository] needs this to actually
+  /// upload the file; without it the attachment is sent as metadata only.
   final Uint8List? bytes;
 
   String get sizeLabel {
@@ -46,8 +46,9 @@ class Attachment {
 
 /// One mail message.
 ///
-/// Deliberately kept independent of any backend response shape so both the
-/// mock repository and the future API repository can map to/from it.
+/// Deliberately kept independent of any backend response shape so
+/// [ApiMailRepository] can map to/from it without leaking API details into
+/// the UI.
 @immutable
 class Email {
   const Email({
