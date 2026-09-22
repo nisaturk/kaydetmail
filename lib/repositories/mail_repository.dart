@@ -287,6 +287,26 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> labelIds,
   );
 
+  /// Aggregates isReplied/isForwarded across every message sharing
+  /// [representative]'s thread, so a thread's single list row reflects the
+  /// whole conversation instead of only whichever message happens to
+  /// represent it (the newest, which may not be the one the user actually
+  /// replied to or forwarded).
+  Email threadStatusOf(Email representative) {
+    if (representative.threadId.isEmpty) return representative;
+    final members = getThreadEmails(representative.threadId);
+    if (members.isEmpty) return representative;
+    final replied =
+        representative.isReplied || members.any((m) => m.isReplied);
+    final forwarded =
+        representative.isForwarded || members.any((m) => m.isForwarded);
+    if (replied == representative.isReplied &&
+        forwarded == representative.isForwarded) {
+      return representative;
+    }
+    return representative.copyWith(isReplied: replied, isForwarded: forwarded);
+  }
+
   // --- Search -------------------------------------------------------
 
   /// Conversations matching a client-side text [query] and an optional label
@@ -313,7 +333,7 @@ abstract class MailRepository extends ChangeNotifier {
       if (!seen.add(email.threadId)) continue;
       final candidates = getThreadEmails(email.threadId).where(matches).toList()
         ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      if (candidates.isNotEmpty) results.add(candidates.first);
+      if (candidates.isNotEmpty) results.add(threadStatusOf(candidates.first));
     }
     return results;
   }
