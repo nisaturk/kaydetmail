@@ -633,6 +633,8 @@ Query: `includeTrash=false` Çöp ve Spam klasörlerindeki mesajları dışarıd
 ## 7. Cihaz & push bildirimleri
 
 Firebase Cloud Messaging üzerinden çalışır. Uygulama açılışında ve token yenilendiğinde `POST /api/devices` çağır.
+Flutter tarafındaki Firebase/Gradle kurulumu, arka plan handler'ı ve bildirime tıklayınca
+maile gitme akışı için `docs/push-notifications.md`'ye bakın.
 
 ### `POST /api/devices`
 **Auth:** Bearer
