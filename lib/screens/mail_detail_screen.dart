@@ -10,20 +10,20 @@ import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../theme/app_theme.dart';
+import '../utils/attachment_preview.dart';
 import '../utils/date_format.dart';
-import '../widgets/chat_thread.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 
 /// Full view of a mail — and, when it belongs to a conversation, the whole
-/// thread as chat bubbles, oldest first.
+/// thread as stacked, collapsible cards (Gmail-style), oldest first.
 ///
 /// Opening a mail marks it as read. Pin and read/unread state change through
 /// the repository and are reflected immediately because the screen listens to
 /// it. A single-message thread renders the plain detail view; a multi-message
-/// conversation renders a chat, and tapping a bubble opens that full mail.
+/// conversation renders a card stack; tapping a card expands/collapses it.
 class MailDetailScreen extends StatefulWidget {
   const MailDetailScreen({super.key, required this.emailId});
 
@@ -178,7 +178,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
-  /// The conversation reads oldest-first like a chat, so land on the newest
+  /// The conversation reads oldest-first, so land on the newest
   /// message whenever the thread grows.
   void _scrollToNewest() {
     if (_thread.length < 2 || _thread.length == _scrolledCount) return;
@@ -188,28 +188,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         _scroll.jumpTo(_scroll.position.maxScrollExtent);
       }
     });
-  }
-
-  bool _isOwn(Email email) => _repo.accounts.any(
-    (a) => a.email.toLowerCase() == email.senderEmail.toLowerCase(),
-  );
-
-  void _openMessage(Email email) {
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      showDragHandle: true,
-      builder: (_) => DraggableScrollableSheet(
-        expand: false,
-        initialChildSize: 0.75,
-        maxChildSize: 0.95,
-        builder: (_, controller) => SingleChildScrollView(
-          controller: controller,
-          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-          child: _SingleMessage(email: email, labels: _labelsFor(email)),
-        ),
-      ),
-    );
   }
 
   Future<void> _retry() async {
@@ -452,7 +430,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           const SizedBox(height: 12),
           const Divider(),
           if (_thread.length > 1)
-            ChatThread(messages: _thread, isOwn: _isOwn, onOpen: _openMessage)
+            _ThreadStack(
+              messages: _thread,
+              openedId: email.id,
+              labelsFor: _labelsFor,
+            )
           else
             _SingleMessage(email: email, labels: _labelsFor(email)),
         ],
@@ -668,6 +650,117 @@ class _AttachmentTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+/// Conversation as stacked cards, oldest first. The newest message and the
+/// one the user opened start expanded; the rest show a one-line preview.
+class _ThreadStack extends StatefulWidget {
+  const _ThreadStack({
+    required this.messages,
+    required this.openedId,
+    required this.labelsFor,
+  });
+
+  final List<Email> messages;
+  final String openedId;
+  final List<MailLabel> Function(Email) labelsFor;
+
+  @override
+  State<_ThreadStack> createState() => _ThreadStackState();
+}
+
+class _ThreadStackState extends State<_ThreadStack> {
+  /// Ids the user toggled away from their default state.
+  final _toggled = <String>{};
+
+  bool _expanded(Email m) {
+    final byDefault =
+        m.id == widget.openedId || m.id == widget.messages.last.id;
+    return byDefault != _toggled.contains(m.id);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (final m in widget.messages)
+          Card(
+            elevation: 0,
+            margin: const EdgeInsets.only(top: 10),
+            shape: RoundedRectangleBorder(
+              side: const BorderSide(color: AppTheme.border),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            clipBehavior: Clip.antiAlias,
+            child: Column(
+              children: [
+                InkWell(
+                  onTap: () => setState(
+                    () => _toggled.contains(m.id)
+                        ? _toggled.remove(m.id)
+                        : _toggled.add(m.id),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        MailAvatar(
+                          identity: m.senderEmail,
+                          displayName: m.senderName,
+                          size: 32,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                m.senderName,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                              if (!_expanded(m))
+                                Text(
+                                  stripQuotedReply(m.bodyText)
+                                      .replaceAll('\n', ' '),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 13,
+                                    color: AppTheme.secondaryText,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
+                        Text(
+                          formatMailDateFull(m.timestamp),
+                          style: const TextStyle(
+                            fontSize: 12,
+                            color: AppTheme.secondaryText,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_expanded(m))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    child: _SingleMessage(
+                      email: m,
+                      labels: widget.labelsFor(m),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
