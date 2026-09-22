@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 import '../repositories/mail_repository.dart';
+import '../state/app_settings_controller.dart';
 
 /// Routes an FCM `data` payload to the matching API call.
 ///
@@ -45,6 +46,10 @@ class PushService {
   static final StreamController<String> _mailTapped =
       StreamController<String>.broadcast();
 
+  static FirebaseMessaging? _messaging;
+  static MailRepository? _repository;
+  static bool _settingsListenerAttached = false;
+
   /// Emits a mail id whenever the user taps a push notification, or once on
   /// launch if the app was cold-started from one. `new_mail` and
   /// `mail_state_changed` are the only types that carry a `mailId`; taps on
@@ -63,6 +68,8 @@ class PushService {
       if (Firebase.apps.isEmpty) await Firebase.initializeApp();
       FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
       final messaging = FirebaseMessaging.instance;
+      _messaging = messaging;
+      _repository = repository;
 
       FirebaseMessaging.onMessageOpenedApp.listen(_routeTap);
       final initial = await messaging.getInitialMessage();
@@ -81,26 +88,56 @@ class PushService {
         ),
       );
 
+      // The persisted "Bildirimler" toggle (Settings) must be known before
+      // deciding whether to register — otherwise a user who turned
+      // notifications off would get silently re-registered on every launch.
+      await AppSettingsController.instance.loadNotificationsEnabled();
+      if (!_settingsListenerAttached) {
+        AppSettingsController.instance.addListener(_onSettingsChanged);
+        _settingsListenerAttached = true;
+      }
+
       unawaited(_setUpToken(messaging, repository));
     } catch (_) {
       debugPrint('PushService: push unavailable, running without FCM.');
     }
   }
 
-  /// Requests notification permission and registers the current FCM token,
-  /// then keeps registering on every refresh. Runs detached from
-  /// [initialize] so a slow permission prompt or `/api/devices` round trip
-  /// never delays routing a tapped notification.
+  /// Requests notification permission, then registers the current FCM token
+  /// unless the user has turned notifications off in Settings. Keeps
+  /// registering on every token refresh. Runs detached from [initialize] so
+  /// a slow permission prompt or `/api/devices` round trip never delays
+  /// routing a tapped notification.
   static Future<void> _setUpToken(
     FirebaseMessaging messaging,
     MailRepository repository,
   ) async {
     try {
       await messaging.requestPermission();
-      await _register(messaging, repository);
-      messaging.onTokenRefresh.listen((_) => _register(messaging, repository));
+      if (AppSettingsController.instance.notificationsEnabled) {
+        await _register(messaging, repository);
+      }
+      messaging.onTokenRefresh.listen((_) {
+        if (AppSettingsController.instance.notificationsEnabled) {
+          _register(messaging, repository);
+        }
+      });
     } catch (_) {
       debugPrint('PushService: push unavailable, running without FCM.');
+    }
+  }
+
+  /// Reacts to the Settings screen's "Bildirimler" toggle: turning it off
+  /// unregisters this device (the server then stops sending it pushes);
+  /// turning it back on re-registers with a fresh token.
+  static void _onSettingsChanged() {
+    final messaging = _messaging;
+    final repository = _repository;
+    if (messaging == null || repository == null) return;
+    if (AppSettingsController.instance.notificationsEnabled) {
+      unawaited(_register(messaging, repository));
+    } else {
+      unawaited(repository.unregisterDevice());
     }
   }
 

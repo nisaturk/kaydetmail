@@ -59,6 +59,10 @@ class _Session {
   Timer? persistTimer;
   Map<String, Email> persisted = {};
 
+  // Polls the backend every 15s while [offline] until a probe succeeds —
+  // see [ApiMailRepository._scheduleReconnectRetry].
+  Timer? reconnectTimer;
+
   /// Maps a raw API folder id back to our logical [MailFolder]. Custom
   /// server folders we don't track locally fall back to inbox.
   MailFolder resolveFolder(String folderId) =>
@@ -197,23 +201,70 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<void> logout() async {
     for (final session in _sessions.values.toList()) {
-      final deviceId = session.deviceId;
-      if (deviceId != null) {
-        try {
-          await session.mailService.unregisterDevice(deviceId);
-        } catch (_) {
-          // Logout still proceeds; the server registration expires on its
-          // own.
-        }
-      }
+      await _unregisterDeviceFor(session);
       await session.authService.logout();
       session.persistTimer?.cancel();
+      _cancelReconnectRetry(session);
       _cache?.clear(session.account.id);
       _sessions.remove(session.account.id);
     }
     _activeAccountId = null;
     _touch();
     notifyListeners();
+  }
+
+  Future<void> _unregisterDeviceFor(_Session session) async {
+    final deviceId = session.deviceId;
+    if (deviceId == null) return;
+    session.deviceId = null;
+    try {
+      await session.mailService.unregisterDevice(deviceId);
+    } catch (_) {
+      // Best-effort — the server registration expires on its own.
+    }
+  }
+
+  /// Removes every connected account's push registration (e.g. the user
+  /// turned notifications off in Settings). Safe to call when nothing is
+  /// registered — a no-op then.
+  @override
+  Future<void> unregisterDevice() async {
+    await Future.wait(_sessions.values.map(_unregisterDeviceFor));
+  }
+
+  /// Starts polling the backend every 15s while [session] is offline; stops
+  /// as soon as a probe succeeds. Without this, `isOffline` (and the
+  /// "Bağlantı yok" banner) only clears the next time the user happens to
+  /// trigger a successful `refreshEmails`/`loadMoreEmails`/`_loadMailbox`
+  /// call for that account — e.g. a manual pull-to-refresh or an app
+  /// restart — even though the backend may already be reachable again.
+  void _scheduleReconnectRetry(_Session session) {
+    session.reconnectTimer?.cancel();
+    session.reconnectTimer = Timer.periodic(const Duration(seconds: 15), (_) {
+      _retryConnection(session);
+    });
+  }
+
+  void _cancelReconnectRetry(_Session session) {
+    session.reconnectTimer?.cancel();
+    session.reconnectTimer = null;
+  }
+
+  Future<void> _retryConnection(_Session session) async {
+    if (!session.offline) {
+      _cancelReconnectRetry(session);
+      return;
+    }
+    try {
+      await _loadMailbox(session);
+    } catch (_) {
+      return; // Still offline; the timer fires again on the next tick.
+    }
+    // Bring every already-loaded folder's mail up to date now that the
+    // backend is reachable again.
+    for (final folder in session.emails.keys.toList()) {
+      unawaited(_refreshEmailsFor(session, folder).catchError((_) {}));
+    }
   }
 
   /// Replaces the stored credentials via `POST /api/account/reconnect` for
@@ -424,6 +475,7 @@ class ApiMailRepository extends MailRepository {
       } catch (_) {
         if (!hasCachedMailbox) rethrow;
         session.offline = true;
+        _scheduleReconnectRetry(session);
         notifyListeners();
       }
       await _seedStarred(session);
@@ -436,6 +488,7 @@ class ApiMailRepository extends MailRepository {
       notifyListeners();
       return session.account;
     } catch (_) {
+      _cancelReconnectRetry(session);
       _sessions.remove(account.id);
       _touch();
       rethrow;
@@ -537,14 +590,9 @@ class ApiMailRepository extends MailRepository {
     if (session == null) return;
     await session.mailService.deleteAccount();
     await session.authService.tokenStore.clear(accountId);
-    final deviceId = session.deviceId;
-    if (deviceId != null) {
-      try {
-        await session.mailService.unregisterDevice(deviceId);
-      } catch (_) {}
-    }
+    await _unregisterDeviceFor(session);
     session.persistTimer?.cancel();
-    _cache?.forgetAccount(accountId);
+    _cancelReconnectRetry(session);
     _sessions.remove(accountId);
     if (_activeAccountId == accountId) _activeAccountId = null;
     _touch();
@@ -633,6 +681,7 @@ class ApiMailRepository extends MailRepository {
         if (unread != null) session.serverUnread[logical] = unread;
       }
     }
+    _cancelReconnectRetry(session);
     session.offline = false;
     _persistFolderMap(session);
     notifyListeners();
@@ -946,6 +995,7 @@ class ApiMailRepository extends MailRepository {
         .toList();
     current.addAll(fresh);
     session.pages[folder] = result.page;
+    _cancelReconnectRetry(session);
     session.offline = false;
     notifyListeners();
     return List.unmodifiable(fresh);
@@ -967,6 +1017,7 @@ class ApiMailRepository extends MailRepository {
     final old = {
       for (final e in session.emails[folder] ?? const <Email>[]) e.id: e,
     };
+    _cancelReconnectRetry(session);
     session.offline = false;
     session.emails[folder] = [
       for (final e in result.items)
