@@ -6,6 +6,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_messages.dart';
 
 /// Borderless field decoration shared by every compose input.
 ///
@@ -231,8 +232,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Gönderilemedi: $e')));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Gönderilemedi: ${friendlyErrorMessage(e)}')),
+        );
       }
     }
   }

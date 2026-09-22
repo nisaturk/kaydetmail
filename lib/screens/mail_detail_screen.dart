@@ -8,10 +8,10 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
-import '../services/api_exception.dart';
 import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
 import '../utils/date_format.dart';
+import '../utils/error_messages.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import 'attachment_preview_screen.dart';
@@ -380,9 +380,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           ),
         );
       }
-      final message = error is ApiException
-          ? error.userMessage
-          : 'E-posta yüklenemedi. Lütfen tekrar deneyin.';
+      final message = friendlyErrorMessage(error);
       return Center(
         child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 32),

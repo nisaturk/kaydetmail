@@ -92,6 +92,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// Whether a session is active. False before login / after logout.
   bool get isLoggedIn;
 
+  /// True when the last attempt to reach the backend for this account's
+  /// mailbox failed and the UI is showing a cached (possibly stale)
+  /// snapshot instead. Always false for implementations without a cache.
+  bool get isOffline => false;
+
   /// Sending accounts for the Compose "Kimden" picker.
   List<MailAccount> get accounts;
 

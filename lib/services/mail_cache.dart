@@ -44,6 +44,14 @@ class MailCache {
         account_id TEXT NOT NULL, mail_id TEXT NOT NULL, label_id TEXT NOT NULL,
         PRIMARY KEY (account_id, mail_id, label_id)
       )''');
+    // Server folder id -> logical MailFolder name, so the repository can
+    // still resolve folders (and thus act on cached mail) after a cold
+    // start with no network reachable yet.
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS folders (
+        account_id TEXT NOT NULL, folder_id TEXT NOT NULL, folder_type TEXT NOT NULL,
+        PRIMARY KEY (account_id, folder_id)
+      )''');
   }
 
   final Database _db;
@@ -117,9 +125,42 @@ class MailCache {
 
   /// Removes everything stored for a deleted account, user state included.
   void forgetAccount(String accountId) {
-    for (final table in ['mails', 'flags', 'labels', 'mail_labels']) {
+    for (final table in ['mails', 'flags', 'labels', 'mail_labels', 'folders']) {
       _db.execute('DELETE FROM $table WHERE account_id = ?', [accountId]);
     }
+  }
+
+  /// Replaces the stored folder map for [accountId] with [idToType]
+  /// (server folder id -> [MailFolder.name]).
+  void saveFolders(String accountId, Map<String, String> idToType) {
+    _db.execute('BEGIN');
+    try {
+      _db.execute('DELETE FROM folders WHERE account_id = ?', [accountId]);
+      final ins = _db.prepare(
+        'INSERT INTO folders VALUES (?, ?, ?)',
+      );
+      for (final entry in idToType.entries) {
+        ins.execute([accountId, entry.key, entry.value]);
+      }
+      ins.close();
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  /// The last-known folder map for [accountId] (server folder id ->
+  /// [MailFolder.name]), or empty when nothing was ever synced.
+  Map<String, String> loadFolders(String accountId) {
+    final rows = _db.select(
+      'SELECT folder_id, folder_type FROM folders WHERE account_id = ?',
+      [accountId],
+    );
+    return {
+      for (final row in rows)
+        row['folder_id'] as String: row['folder_type'] as String,
+    };
   }
 
   static Map<String, dynamic> _toJson(Email e) => {

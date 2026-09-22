@@ -289,9 +289,16 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Yeni E-posta',
                   child: const Icon(LucideIcons.mailPlus),
                 ),
-          body: KeyedSubtree(
-            key: ValueKey(_folder),
-            child: InboxScreen(folder: _folder, selection: _selection),
+          body: Column(
+            children: [
+              if (_repo.isOffline) const _OfflineBanner(),
+              Expanded(
+                child: KeyedSubtree(
+                  key: ValueKey(_folder),
+                  child: InboxScreen(folder: _folder, selection: _selection),
+                ),
+              ),
+            ],
           ),
         );
       },
@@ -392,6 +399,34 @@ class _HomeScreenState extends State<HomeScreen> {
           ],
         ),
       ],
+    );
+  }
+}
+
+/// Thin strip shown when the backend can't be reached and the mail list is
+/// falling back to the on-device cache. Non-blocking — the mailbox below
+/// stays fully usable, just possibly stale.
+class _OfflineBanner extends StatelessWidget {
+  const _OfflineBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      color: const Color(0xFFFFF3CD),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        children: [
+          const Icon(LucideIcons.cloudOff, size: 16, color: Color(0xFF8A6D00)),
+          const SizedBox(width: 8),
+          const Expanded(
+            child: Text(
+              'Bağlantı yok. Önbellekteki son postalar gösteriliyor.',
+              style: TextStyle(fontSize: 12.5, color: Color(0xFF8A6D00)),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

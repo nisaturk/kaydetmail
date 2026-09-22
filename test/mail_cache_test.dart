@@ -47,4 +47,24 @@ void main() {
     expect(cache.load('acc'), isEmpty);
     expect(cache.load('other').length, 1);
   });
+
+  test('round-trips the folder id -> type map, scoped by account', () {
+    final cache = MailCache.inMemory();
+    cache.saveFolders('acc', {'folder-1': 'inbox', 'folder-2': 'sent'});
+    cache.saveFolders('other', {'folder-9': 'trash'});
+
+    expect(cache.loadFolders('acc'), {
+      'folder-1': 'inbox',
+      'folder-2': 'sent',
+    });
+    expect(cache.loadFolders('other'), {'folder-9': 'trash'});
+
+    // Re-saving replaces the previous map instead of merging into it.
+    cache.saveFolders('acc', {'folder-3': 'archive'});
+    expect(cache.loadFolders('acc'), {'folder-3': 'archive'});
+
+    cache.forgetAccount('acc');
+    expect(cache.loadFolders('acc'), isEmpty);
+    expect(cache.loadFolders('other'), isNotEmpty);
+  });
 }
