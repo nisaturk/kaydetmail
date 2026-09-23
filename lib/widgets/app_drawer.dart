@@ -19,6 +19,7 @@ class AppDrawer extends StatelessWidget {
     required this.onLogout,
     required this.onOpenSettings,
     required this.onOpenAccounts,
+    required this.onOpenScheduledSends,
   });
 
   final MailFolder selectedFolder;
@@ -26,6 +27,7 @@ class AppDrawer extends StatelessWidget {
   final VoidCallback onLogout;
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenAccounts;
+  final VoidCallback onOpenScheduledSends;
 
   @override
   Widget build(BuildContext context) {
@@ -104,6 +106,11 @@ class AppDrawer extends StatelessWidget {
                     onTap: onOpenAccounts,
                   ),
                   _SectionTile(
+                    icon: LucideIcons.calendarClock,
+                    label: 'Zamanlanmış Gönderimler',
+                    onTap: onOpenScheduledSends,
+                  ),
+                  _SectionTile(
                     icon: LucideIcons.settings,
                     label: 'Ayarlar',
                     onTap: onOpenSettings,
@@ -133,6 +140,8 @@ class AppDrawer extends StatelessWidget {
       case MailFolder.trash:
       case MailFolder.archive:
         return 0;
+      case MailFolder.snoozed:
+        return repo.getEmailsInFolder(MailFolder.snoozed).length;
     }
   }
 }

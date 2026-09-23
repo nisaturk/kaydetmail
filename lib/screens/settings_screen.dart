@@ -12,6 +12,8 @@ import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
+import 'rules_settings_screen.dart';
+import 'signature_settings_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
 ///
@@ -94,16 +96,34 @@ class SettingsScreen extends StatelessWidget {
             page: (_) => [_LabelsSection()],
           ),
           _CategoryTile(
+            icon: LucideIcons.filter,
+            title: 'Kurallar',
+            subtitle: 'Gelen postayı otomatik taşı/etiketle',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const RulesSettingsScreen()),
+            ),
+          ),
+          _CategoryTile(
             icon: LucideIcons.slidersHorizontal,
             title: 'Genel',
             subtitle: 'Kaydırma hareketleri',
             page: (_) => [_SwipeSection()],
           ),
           _CategoryTile(
+            icon: LucideIcons.penLine,
+            title: 'İmza',
+            subtitle: 'Gönderdiğiniz e-postalara eklenir',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(
+                builder: (_) => const SignatureSettingsScreen(),
+              ),
+            ),
+          ),
+          _CategoryTile(
             icon: LucideIcons.shieldCheck,
             title: 'Güvenlik',
-            subtitle: 'Bağlı cihazlar ve oturumlar',
-            page: (_) => [_SessionsSection()],
+            subtitle: 'Uygulama kilidi, bağlı cihazlar ve oturumlar',
+            page: (_) => [_BiometricLockSection(), _SessionsSection()],
           ),
           _CategoryTile(
             icon: LucideIcons.server,
@@ -520,6 +540,27 @@ class _ServerSectionState extends State<_ServerSection> {
           onTap: checking ? null : _checkHealth,
         ),
       ],
+    );
+  }
+}
+
+/// Local biometric/device-credential app lock toggle — see
+/// `BiometricLockGate` for the actual enforcement.
+class _BiometricLockSection extends StatelessWidget {
+  const _BiometricLockSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return SwitchListTile(
+      dense: true,
+      title: const Text('Uygulama Kilidi'),
+      subtitle: const Text(
+        'Uygulamayı her açtığınızda ya da arka plandan döndüğünde parmak '
+        'izi/Face ID veya cihaz şifresi ister.',
+      ),
+      value: settings.biometricLockEnabled,
+      onChanged: (v) => settings.biometricLockEnabled = v,
     );
   }
 }

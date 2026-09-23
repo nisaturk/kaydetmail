@@ -17,6 +17,7 @@ import '../utils/mail_threads.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import '../widgets/permanent_delete_dialog.dart';
+import '../widgets/snooze_picker.dart';
 import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 
@@ -234,6 +235,22 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     await _repo.setStarred([email.id], !email.isStarred);
   }
 
+  /// Snoozed mail is hidden from every normal folder view until [until]
+  /// (see `ApiMailRepository._buildFolderView`) — purely client-side, no
+  /// backend involved (see `LocalMailFlagsStore`).
+  Future<void> _toggleSnooze() async {
+    final email = _email;
+    if (email == null) return;
+    if (_repo.snoozedUntilOf(email.id) != null) {
+      await _repo.setSnoozed([email.id], null);
+      return;
+    }
+    final until = await showSnoozePicker(context);
+    if (until == null || !mounted) return;
+    await _repo.setSnoozed([email.id], until);
+    if (mounted) await Navigator.of(context).maybePop();
+  }
+
   /// Moves the open mail back to the inbox. For a mail whose current
   /// folder is Trash or Spam, `MailRepository.moveToFolder` resolves this
   /// to the backend's restore action (the mail's original pre-trash/spam
@@ -417,6 +434,14 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               value: 'read',
               child: Text('Okundu olarak işaretle'),
             ),
+          PopupMenuItem(
+            value: 'snooze',
+            child: Text(
+              _repo.snoozedUntilOf(email.id) != null
+                  ? 'Ertelemeyi kaldır'
+                  : 'Ertele',
+            ),
+          ),
           if (email.folder == MailFolder.trash)
             const PopupMenuItem(
               value: 'delete_forever',
@@ -451,6 +476,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await _togglePin();
     } else if (action == 'star') {
       await _toggleStar();
+    } else if (action == 'snooze') {
+      await _toggleSnooze();
     } else if (action == 'label') {
       await showLabelPicker(context, emailIds: _conversationIds);
     } else if (action == 'unlabel') {

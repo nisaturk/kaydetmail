@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/email.dart';
+import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
@@ -60,6 +61,16 @@ class MailListItem extends StatelessWidget {
   /// labeled mail is obvious without opening it.
   final List<MailLabel> labels;
 
+  /// Inbox mail older than this with no reply yet gets a "Yanıt bekliyor"
+  /// nudge (Gmail-style) — purely a display hint computed from fields the
+  /// row already has, no repository access needed.
+  static const Duration _nudgeThreshold = Duration(days: 3);
+
+  bool get _needsReply =>
+      email.folder == MailFolder.inbox &&
+      !email.isReplied &&
+      DateTime.now().difference(email.timestamp) > _nudgeThreshold;
+
   String _semanticSummary() {
     final parts = <String>[
       email.senderName,
@@ -70,6 +81,7 @@ class MailListItem extends StatelessWidget {
     if (email.isPinned) parts.add('sabitlenmiş');
     if (email.isReplied) parts.add('yanıtlandı');
     if (email.isForwarded) parts.add('iletildi');
+    if (_needsReply) parts.add('yanıt bekliyor');
     if (email.attachments.isNotEmpty || email.hasAttachments) {
       parts.add('ek içeriyor');
     }
@@ -226,6 +238,27 @@ class MailListItem extends StatelessWidget {
                           height: 1.3,
                         ),
                       ),
+                      if (_needsReply) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(
+                              LucideIcons.clockAlert,
+                              size: 12,
+                              color: colors.destructive,
+                            ),
+                            const SizedBox(width: 4),
+                            Text(
+                              'Yanıt bekliyor',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                                color: colors.destructive,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
                       if (labels.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Wrap(

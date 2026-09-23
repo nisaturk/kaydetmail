@@ -130,6 +130,25 @@ class LocalMailFlagsStore {
     stmt.close();
   });
 
+  /// Snooze timestamps (mail id -> epoch millis it should reappear).
+  /// Purely client-side, same rationale as pin/replied/forwarded above.
+  Future<Map<String, int>> readSnoozed() async => {
+    for (final r in _db.select(
+      'SELECT mail_id, until_ms FROM snoozes WHERE account_id = ?',
+      [_accountId],
+    ))
+      r['mail_id'] as String: r['until_ms'] as int,
+  };
+
+  Future<void> writeSnoozed(Map<String, int> untilByMailId) async => _tx(() {
+    _db.execute('DELETE FROM snoozes WHERE account_id = ?', [_accountId]);
+    final stmt = _db.prepare('INSERT INTO snoozes VALUES (?, ?, ?)');
+    for (final entry in untilByMailId.entries) {
+      stmt.execute([_accountId, entry.key, entry.value]);
+    }
+    stmt.close();
+  });
+
   /// One-time import of the SharedPreferences storage this class used before
   /// SQLite. Runs only while the account has no SQLite state yet, and removes
   /// the old keys afterwards.

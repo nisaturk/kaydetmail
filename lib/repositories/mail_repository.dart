@@ -7,6 +7,7 @@ import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
+import '../models/scheduled_send.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -386,4 +387,44 @@ abstract class MailRepository extends ChangeNotifier {
     }
     return results;
   }
+
+  // --- Snooze (client-side only; see LocalMailFlagsStore) -----------
+
+  /// Hides mail from its normal folder view until [until] (UTC), when it
+  /// reappears where it already lives — same independence as pin/star.
+  /// `until: null` clears the snooze immediately. Never synced to the
+  /// backend or to other devices signed into the same account.
+  Future<void> setSnoozed(List<String> ids, DateTime? until);
+
+  /// The snooze deadline for [mailId], or null when it isn't snoozed (or
+  /// the snooze already elapsed).
+  DateTime? snoozedUntilOf(String mailId) => null;
+
+  // --- Scheduled send -------------------------------------------------
+
+  /// Queues [sendEmail]'s fields to send at [sendAt] (UTC) instead of now.
+  /// The backend owns the clock — this fires even if the app is closed.
+  Future<ScheduledSend> scheduleSend({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    required String body,
+    List<Attachment> attachments = const [],
+    String? from,
+    String? fromAccountId,
+    String? inReplyToId,
+    required DateTime sendAt,
+  });
+
+  /// Cancels a still-[ScheduledSendStatus.pending] scheduled send. Throws
+  /// if it already sent.
+  Future<void> cancelScheduledSend(String id);
+
+  /// Current snapshot of every scheduled send in the active mailbox scope,
+  /// soonest first. Populated by [refreshScheduledSends].
+  List<ScheduledSend> getScheduledSends() => const [];
+
+  /// Re-fetches the scheduled-send list from the backend.
+  Future<void> refreshScheduledSends() async {}
 }
