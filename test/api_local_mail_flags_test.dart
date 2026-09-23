@@ -105,8 +105,70 @@ void main() {
         expect(mailService.singleActionCalls, isEmpty);
       },
     );
-  });
 
+    test(
+      'markAsReplied marks every loaded thread member, not only the opened '
+      'message',
+      () async {
+        // Two messages in the same conversation; the user opens the reply
+        // screen from mail-1 but the inbox row representative could be
+        // either one depending on thread grouping — both must show replied.
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([
+              _mailJson('mail-1', threadId: 'thread-1'),
+              _mailJson('mail-2', threadId: 'thread-1'),
+            ]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+
+        await repo.markAsReplied(['mail-1']);
+
+        final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+        expect(inbox.every((e) => e.isReplied), isTrue);
+      },
+    );
+
+    test(
+      'replied/forwarded survive a fresh instance even when the originally '
+      'marked message in the thread is never reloaded',
+      () async {
+        // Regression for the audit bug where a thread's representative row
+        // sometimes didn't show the replied/forwarded icon: aggregation
+        // used to require the specific flagged message to be loaded into
+        // memory. Here only mail-2 is ever fetched in the second instance —
+        // mail-1 (the one actually marked) is not — yet mail-2 must still
+        // show both flags because they are tracked per-thread.
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([
+              _mailJson('mail-1', threadId: 'thread-1'),
+              _mailJson('mail-2', threadId: 'thread-1'),
+            ]),
+          },
+        );
+        final db = MailCache.inMemory();
+        final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
+        await repo1.markAsReplied(['mail-1']);
+        await repo1.markAsForwarded(['mail-1']);
+
+        final onlyMailTwo = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-2', threadId: 'thread-1')]),
+          },
+        );
+        final repo2 = await _repositoryWithLoadedInbox(onlyMailTwo, cache: db);
+        final mailTwo = repo2.getEmailsInFolder(MailFolder.inbox).single;
+
+        expect(mailTwo.isReplied, isTrue);
+        expect(mailTwo.isForwarded, isTrue);
+      },
+    );
+  });
   group('starred virtual folder', () {
     test(
       'shows only starred mail while pins only change folder order',
@@ -179,6 +241,7 @@ Map<String, dynamic> _folder(String id, String type) => {
 Map<String, dynamic> _mailJson(
   String id, {
   String receivedAt = '2026-09-17T01:56:58Z',
+  String threadId = '',
 }) => {
   'id': id,
   'subject': 'Subject $id',
@@ -188,6 +251,7 @@ Map<String, dynamic> _mailJson(
   'isRead': false,
   'hasAttachments': false,
   'receivedAt': receivedAt,
+  'conversationId': threadId,
 };
 
 MailListPage _page(List<Map<String, dynamic>> items) => MailListPage(
@@ -206,6 +270,7 @@ Email _mapMailForTest(Map<String, dynamic> item) => Email(
   bodyText: '',
   timestamp: DateTime.parse(item['receivedAt'] as String),
   isRead: item['isRead'] as bool,
+  threadId: item['conversationId'] as String? ?? '',
 );
 
 class _RecordingMailService extends ApiMailService {

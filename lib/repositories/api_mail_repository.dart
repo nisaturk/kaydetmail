@@ -51,6 +51,8 @@ class _Session {
   final Set<String> starredIds = {};
   Set<String> repliedIds = {};
   Set<String> forwardedIds = {};
+  Set<String> repliedThreadIds = {};
+  Set<String> forwardedThreadIds = {};
 
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
@@ -69,14 +71,39 @@ class _Session {
   MailFolder resolveFolder(String folderId) =>
       folderTypeById[folderId] ?? MailFolder.inbox;
 
+  /// Finds an already-loaded mail by id, regardless of which folder bucket
+  /// it currently sits in. Used to resolve a message's threadId when only
+  /// its id is known (e.g. [ApiMailRepository.markAsReplied]).
+  Email? findLoaded(String id) {
+    for (final list in emails.values) {
+      for (final email in list) {
+        if (email.id == id) return email;
+      }
+    }
+    return null;
+  }
+
   /// Overlays the locally-persisted pin/reply/forward/label flags onto a
   /// mail freshly mapped from the API — the server has no concept of any of
   /// them, so every fetch would otherwise reset them.
+  ///
+  /// Reply/forward also check the thread-level sets: the user marks these
+  /// by opening a specific message, but every message sharing its thread
+  /// should show the icon too, even when that specific message isn't
+  /// currently loaded into memory (e.g. it lives in a folder not yet
+  /// fetched this session) — see [ApiMailRepository.markAsReplied].
   Email stampLocalFlags(Email email) => email.copyWith(
     isStarred: email.isStarred || starredIds.contains(email.id),
     isPinned: pinnedIds.contains(email.id),
-    isReplied: email.isReplied || repliedIds.contains(email.id),
-    isForwarded: forwardedIds.contains(email.id),
+    isReplied:
+        email.isReplied ||
+        repliedIds.contains(email.id) ||
+        (email.threadId.isNotEmpty &&
+            repliedThreadIds.contains(email.threadId)),
+    isForwarded:
+        forwardedIds.contains(email.id) ||
+        (email.threadId.isNotEmpty &&
+            forwardedThreadIds.contains(email.threadId)),
     labelIds: labelMap[email.id] ?? const [],
   );
 }
@@ -472,6 +499,8 @@ class ApiMailRepository extends MailRepository {
       session.pinnedIds = await flags.readPinned();
       session.repliedIds = await flags.readReplied();
       session.forwardedIds = await flags.readForwarded();
+      session.repliedThreadIds = await flags.readRepliedThreads();
+      session.forwardedThreadIds = await flags.readForwardedThreads();
       await flags.seedDefaultLabels();
       session.labels = [
         for (final d in await flags.readLabelDefs())
@@ -800,6 +829,21 @@ class ApiMailRepository extends MailRepository {
       session.emails[folder] = [
         for (final email in list)
           idSet.contains(email.id) ? update(email) : email,
+      ];
+    }
+  }
+
+  /// Re-derives every loaded mail's local-only flags (pin/star/replied/
+  /// forwarded/labels) from [session]'s current sets. Used instead of
+  /// [_replaceMany] whenever a change can affect mail beyond the ids the
+  /// caller touched directly — e.g. marking one message replied also marks
+  /// every other loaded message in its thread via `repliedThreadIds`.
+  void _restampFlags(_Session session) {
+    _touch();
+    for (final folder in session.emails.keys.toList()) {
+      session.emails[folder] = [
+        for (final email in session.emails[folder]!)
+          session.stampLocalFlags(email),
       ];
     }
   }
@@ -1744,8 +1788,17 @@ class ApiMailRepository extends MailRepository {
       final store = session.flagsStore;
       if (store == null) continue;
       session.repliedIds.addAll(entry.value);
-      await store.writeReplied(session.repliedIds);
-      _replaceMany(session, entry.value, (e) => e.copyWith(isReplied: true));
+      for (final id in entry.value) {
+        final threadId = session.findLoaded(id)?.threadId;
+        if (threadId != null && threadId.isNotEmpty) {
+          session.repliedThreadIds.add(threadId);
+        }
+      }
+      await Future.wait([
+        store.writeReplied(session.repliedIds),
+        store.writeRepliedThreads(session.repliedThreadIds),
+      ]);
+      _restampFlags(session);
     }
     notifyListeners();
   }
@@ -1762,8 +1815,17 @@ class ApiMailRepository extends MailRepository {
       final store = session.flagsStore;
       if (store == null) continue;
       session.forwardedIds.addAll(entry.value);
-      await store.writeForwarded(session.forwardedIds);
-      _replaceMany(session, entry.value, (e) => e.copyWith(isForwarded: true));
+      for (final id in entry.value) {
+        final threadId = session.findLoaded(id)?.threadId;
+        if (threadId != null && threadId.isNotEmpty) {
+          session.forwardedThreadIds.add(threadId);
+        }
+      }
+      await Future.wait([
+        store.writeForwarded(session.forwardedIds),
+        store.writeForwardedThreads(session.forwardedThreadIds),
+      ]);
+      _restampFlags(session);
     }
     notifyListeners();
   }
