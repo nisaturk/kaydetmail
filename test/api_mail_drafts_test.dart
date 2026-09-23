@@ -167,6 +167,24 @@ void main() {
       },
     );
 
+    test(
+      'an update still reconciling drops the retired draft instead of '
+      'keeping its dead id',
+      () async {
+        final mailService = _PendingUpdateMailService();
+        final repo = await _loggedInRepository(mailService);
+        await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+
+        await repo.saveDraft(
+          to: ['a@x.com'],
+          subject: 'Taslak v2',
+          draftId: 'draft-old',
+        );
+
+        expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+      },
+    );
+
     test('deleteDraft removes the draft through the service', () async {
       final mailService = _RecordingMailService();
       final repo = await _loggedInRepository(mailService);
@@ -391,6 +409,21 @@ class _VersioningMailService extends _RecordingMailService {
     _retired.add(id);
     return DraftResult(created: false, mailId: 'draft-v${updatedIds.length}');
   }
+}
+
+/// `PUT /drafts/{id}` answering `reconciliationPending` with no `mailId`.
+class _PendingUpdateMailService extends _RecordingMailService {
+  @override
+  Future<DraftResult> updateDraft(
+    String id, {
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+  }) async => const DraftResult(created: false, mailId: null);
 }
 
 /// Reads every no-filename multipart part named [field], in order.

@@ -1564,6 +1564,21 @@ class ApiMailRepository extends MailRepository {
             : threadId,
         inReplyToId: inReplyToId ?? previous?.inReplyToId,
       );
+      if (result.mailId == null) {
+        // Reconciliation pending: the server stored the new copy and already
+        // retired the old one, but can't name the new id yet. Drop the stale
+        // row and pick the real one up once the Drafts sync lands.
+        if (oldIndex >= 0) drafts.removeAt(oldIndex);
+        _touch();
+        notifyListeners();
+        unawaited(
+          Future<void>.delayed(
+            const Duration(seconds: 3),
+            () => _refreshEmailsFor(session, MailFolder.drafts),
+          ).catchError((_) {}),
+        );
+        return updated;
+      }
       if (oldIndex >= 0) {
         drafts[oldIndex] = updated;
       } else {
