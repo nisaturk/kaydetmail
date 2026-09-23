@@ -316,6 +316,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success(ids.length)),
+          // A SnackBar with an action persists by default; Undo is only
+          // offered for a short window.
+          persist: false,
+          duration: const Duration(seconds: 5),
           action: SnackBarAction(
             label: 'Geri al',
             onPressed: () => restorePreviousFolders(_repo, previous),
