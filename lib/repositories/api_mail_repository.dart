@@ -44,12 +44,18 @@ class _Session {
   final Map<MailFolder, List<Email>> emails = {};
   final Map<MailFolder, int> pages = {};
   final Map<MailFolder, int> serverUnread = {};
+  final Map<MailFolder, bool> hasMore = {};
+  /// Set on every successful `_loadMoreFor`/`_refreshEmailsFor` fetch for
+  /// the folder — the "son senkronizasyon" hint on empty/error states.
+  final Map<MailFolder, DateTime> lastSynced = {};
   final Map<String, int> serverThreadSizes = {};
 
   Set<String> pinnedIds = {};
   final Set<String> starredIds = {};
   Set<String> repliedIds = {};
   Set<String> forwardedIds = {};
+  Set<String> repliedThreadIds = {};
+  Set<String> forwardedThreadIds = {};
 
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
@@ -68,14 +74,39 @@ class _Session {
   MailFolder resolveFolder(String folderId) =>
       folderTypeById[folderId] ?? MailFolder.inbox;
 
+  /// Finds an already-loaded mail by id, regardless of which folder bucket
+  /// it currently sits in. Used to resolve a message's threadId when only
+  /// its id is known (e.g. [ApiMailRepository.markAsReplied]).
+  Email? findLoaded(String id) {
+    for (final list in emails.values) {
+      for (final email in list) {
+        if (email.id == id) return email;
+      }
+    }
+    return null;
+  }
+
   /// Overlays the locally-persisted pin/reply/forward/label flags onto a
   /// mail freshly mapped from the API — the server has no concept of any of
   /// them, so every fetch would otherwise reset them.
+  ///
+  /// Reply/forward also check the thread-level sets: the user marks these
+  /// by opening a specific message, but every message sharing its thread
+  /// should show the icon too, even when that specific message isn't
+  /// currently loaded into memory (e.g. it lives in a folder not yet
+  /// fetched this session) — see [ApiMailRepository.markAsReplied].
   Email stampLocalFlags(Email email) => email.copyWith(
     isStarred: email.isStarred || starredIds.contains(email.id),
     isPinned: pinnedIds.contains(email.id),
-    isReplied: email.isReplied || repliedIds.contains(email.id),
-    isForwarded: forwardedIds.contains(email.id),
+    isReplied:
+        email.isReplied ||
+        repliedIds.contains(email.id) ||
+        (email.threadId.isNotEmpty &&
+            repliedThreadIds.contains(email.threadId)),
+    isForwarded:
+        forwardedIds.contains(email.id) ||
+        (email.threadId.isNotEmpty &&
+            forwardedThreadIds.contains(email.threadId)),
     labelIds: labelMap[email.id] ?? const [],
   );
 }
@@ -338,7 +369,32 @@ class ApiMailRepository extends MailRepository {
   Future<MailAccount> connectAccount({
     required String email,
     required String password,
+    MailServerSettings? serverSettings,
   }) async {
+    if (serverSettings != null) {
+      final account = await connectManual(
+        ManualConnectionRequest(
+          email: email,
+          username: email,
+          password: password,
+          imap: ManualMailServer(
+            host: serverSettings.imapServer,
+            port: serverSettings.imapPort,
+            security: _securityForPort(serverSettings.imapPort),
+          ),
+          smtp: ManualMailServer(
+            host: serverSettings.smtpServer,
+            port: serverSettings.smtpPort,
+            security: _securityForPort(serverSettings.smtpPort),
+          ),
+          displayName: email,
+        ),
+      );
+      _activeAccountId = null;
+      _touch();
+      notifyListeners();
+      return account;
+    }
     final services = _nextServices();
     final discovery = await services.authService.discover(email);
     final account = await _connect(
@@ -446,6 +502,8 @@ class ApiMailRepository extends MailRepository {
       session.pinnedIds = await flags.readPinned();
       session.repliedIds = await flags.readReplied();
       session.forwardedIds = await flags.readForwarded();
+      session.repliedThreadIds = await flags.readRepliedThreads();
+      session.forwardedThreadIds = await flags.readForwardedThreads();
       await flags.seedDefaultLabels();
       session.labels = [
         for (final d in await flags.readLabelDefs())
@@ -483,7 +541,9 @@ class ApiMailRepository extends MailRepository {
       session.account = await accountFuture ?? session.account;
       // Cached mail is already on screen; quietly bring it up to date.
       if (hydrated) {
-        unawaited(_refreshEmailsFor(session, MailFolder.inbox).catchError((_) {}));
+        unawaited(
+          _refreshEmailsFor(session, MailFolder.inbox).catchError((_) {}),
+        );
       }
       notifyListeners();
       return session.account;
@@ -563,7 +623,7 @@ class ApiMailRepository extends MailRepository {
           // Emails are immutable, so identity tells us what changed.
           final current = <String, Email>{
             for (final e in session.emails.entries)
-              if (e.key != MailFolder.pinned)
+              if (e.key != MailFolder.starred)
                 for (final m in e.value.take(100)) m.id: m,
           };
           final changed = [
@@ -616,8 +676,9 @@ class ApiMailRepository extends MailRepository {
     final accessToken = await services.authService.tokenStore.readAccessToken(
       candidateId,
     );
-    final refreshToken = await services.authService.tokenStore
-        .readRefreshToken(candidateId);
+    final refreshToken = await services.authService.tokenStore.readRefreshToken(
+      candidateId,
+    );
     if (accessToken == null || refreshToken == null) {
       throw StateError('Secure API session is unavailable.');
     }
@@ -695,7 +756,8 @@ class ApiMailRepository extends MailRepository {
     if (cache == null) return;
     try {
       cache.saveFolders(session.account.id, {
-        for (final entry in session.folderIds.entries) entry.value: entry.key.name,
+        for (final entry in session.folderIds.entries)
+          entry.value: entry.key.name,
       });
     } catch (_) {
       // Cache is an optimization; never surface its failures.
@@ -774,10 +836,29 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
+  /// Re-derives every loaded mail's local-only flags (pin/star/replied/
+  /// forwarded/labels) from [session]'s current sets. Used instead of
+  /// [_replaceMany] whenever a change can affect mail beyond the ids the
+  /// caller touched directly — e.g. marking one message replied also marks
+  /// every other loaded message in its thread via `repliedThreadIds`.
+  void _restampFlags(_Session session) {
+    _touch();
+    for (final folder in session.emails.keys.toList()) {
+      session.emails[folder] = [
+        for (final email in session.emails[folder]!)
+          session.stampLocalFlags(email),
+      ];
+    }
+  }
+
   /// Moves every cached mail in [ids] into [targetFolder]'s bucket within
   /// [session], stamping the new folder on each and dropping it from
   /// wherever it used to live. Mails not currently cached are ignored.
-  void _moveMany(_Session session, Iterable<String> ids, MailFolder targetFolder) {
+  void _moveMany(
+    _Session session,
+    Iterable<String> ids,
+    MailFolder targetFolder,
+  ) {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
     _touch();
@@ -796,7 +877,9 @@ class ApiMailRepository extends MailRepository {
       session.emails[folder] = keep;
     }
     if (moved.isNotEmpty) {
-      session.emails.putIfAbsent(targetFolder, () => <Email>[]).insertAll(0, moved);
+      session.emails
+          .putIfAbsent(targetFolder, () => <Email>[])
+          .insertAll(0, moved);
     }
   }
 
@@ -839,7 +922,7 @@ class ApiMailRepository extends MailRepository {
     unawaited(_refreshCountsFor(session));
   }
 
-  static bool _highlighted(Email e) => e.isPinned || e.isStarred;
+  static bool _pinned(Email email) => email.isPinned;
 
   /// Sessions the public read/write methods operate on: just the active one
   /// when scoped, every connected session when unified (`null`).
@@ -876,7 +959,9 @@ class ApiMailRepository extends MailRepository {
   /// The session that currently caches any message of [threadId], if any.
   _Session? _sessionForThread(String threadId) {
     for (final s in _sessions.values) {
-      if (s.emails.values.any((list) => list.any((e) => e.threadId == threadId))) {
+      if (s.emails.values.any(
+        (list) => list.any((e) => e.threadId == threadId),
+      )) {
         return s;
       }
     }
@@ -927,11 +1012,9 @@ class ApiMailRepository extends MailRepository {
   // rebuilds instead of serving a stale view.
   void _touch() => _viewCache.clear();
 
-  /// [MailFolder.pinned] is virtual — "Yıldızlılar" surfaces every pinned or
-  /// starred mail regardless of its real folder — so it's built by scanning
-  /// every cached bucket rather than a fetched one. Every folder additionally
-  /// floats highlighted mails above the rest, newest-first within each
-  /// group, matching [MailRepository.getEmailsInFolder]'s documented order.
+  /// [MailFolder.starred] is virtual — "Yıldızlılar" surfaces starred mail
+  /// regardless of its real folder. Pinning remains independent: pinned mail
+  /// floats above the rest inside whichever folder it already belongs to.
   /// The unified mailbox (`activeAccountId == null`) merges every session's
   /// mail into one such view.
   @override
@@ -942,17 +1025,17 @@ class ApiMailRepository extends MailRepository {
 
   List<Email> _buildFolderView(MailFolder folder) {
     final sessions = _scopedSessions;
-    final result = folder == MailFolder.pinned
+    final result = folder == MailFolder.starred
         ? [
             for (final s in sessions)
-              ...s.emails.values.expand((list) => list).where(_highlighted),
+              ...s.emails.values
+                  .expand((list) => list)
+                  .where((e) => e.isStarred),
           ]
-        : [
-            for (final s in sessions) ...(s.emails[folder] ?? const <Email>[]),
-          ];
+        : [for (final s in sessions) ...(s.emails[folder] ?? const <Email>[])];
     result.sort((a, b) {
-      final ha = _highlighted(a);
-      final hb = _highlighted(b);
+      final ha = _pinned(a);
+      final hb = _pinned(b);
       if (ha != hb) return ha ? -1 : 1;
       return b.timestamp.compareTo(a.timestamp);
     });
@@ -961,6 +1044,17 @@ class ApiMailRepository extends MailRepository {
 
   @override
   List<Email> getAllEmails() {
+    const key = 'all:global';
+    return _viewCache.putIfAbsent(
+      key,
+      () => [
+        for (final s in _sessions.values) ...s.emails.values.expand((l) => l),
+      ],
+    );
+  }
+
+  @override
+  List<Email> getScopedEmails() {
     final key = 'all:${_activeAccountId ?? ''}';
     return _viewCache.putIfAbsent(
       key,
@@ -968,6 +1062,27 @@ class ApiMailRepository extends MailRepository {
         for (final s in _scopedSessions) ...s.emails.values.expand((l) => l),
       ],
     );
+  }
+
+  @override
+  bool hasMoreEmails(MailFolder folder) {
+    if (folder == MailFolder.starred) return false;
+    final sessions = _scopedSessions.where(
+      (session) => session.folderIds.containsKey(folder),
+    );
+    return sessions.any((session) => session.hasMore[folder] ?? true);
+  }
+
+  @override
+  DateTime? lastSyncedAt(MailFolder folder) {
+    DateTime? latest;
+    for (final session in _scopedSessions) {
+      final synced = session.lastSynced[folder];
+      if (synced != null && (latest == null || synced.isAfter(latest))) {
+        latest = synced;
+      }
+    }
+    return latest;
   }
 
   @override
@@ -979,6 +1094,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<List<Email>> _loadMoreFor(_Session session, MailFolder folder) async {
+    if (session.hasMore[folder] == false) return const [];
     final folderId = session.folderIds[folder];
     if (folderId == null) return const [];
     final page = (session.pages[folder] ?? 0) + 1;
@@ -995,6 +1111,9 @@ class ApiMailRepository extends MailRepository {
         .toList();
     current.addAll(fresh);
     session.pages[folder] = result.page;
+    session.hasMore[folder] =
+        result.page * result.pageSize < result.total && result.items.isNotEmpty;
+    session.lastSynced[folder] = DateTime.now();
     _cancelReconnectRetry(session);
     session.offline = false;
     notifyListeners();
@@ -1045,6 +1164,9 @@ class ApiMailRepository extends MailRepository {
     session.emails[folder] = [...refreshed, ...stale]
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     session.pages[folder] = max(session.pages[folder] ?? 1, result.page);
+    session.hasMore[folder] =
+        (session.emails[folder]?.length ?? 0) < result.total;
+    session.lastSynced[folder] = DateTime.now();
     notifyListeners();
   }
 
@@ -1102,7 +1224,10 @@ class ApiMailRepository extends MailRepository {
     for (final session in candidates) {
       try {
         final email = session.stampLocalFlags(
-          await session.mailService.getMail(id, resolveFolder: session.resolveFolder),
+          await session.mailService.getMail(
+            id,
+            resolveFolder: session.resolveFolder,
+          ),
         );
         _upsertDetail(session, email);
         return email;
@@ -1255,7 +1380,10 @@ class ApiMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
   }) async {
-    final session = _sessionForCompose(from: from, fromAccountId: fromAccountId);
+    final session = _sessionForCompose(
+      from: from,
+      fromAccountId: fromAccountId,
+    );
     final result = await session.mailService.sendMail(
       to: to,
       cc: cc,
@@ -1290,7 +1418,9 @@ class ApiMailRepository extends MailRepository {
       inReplyToId: inReplyToId,
     );
     if (result.sentCopySaved) {
-      session.emails.putIfAbsent(MailFolder.sent, () => <Email>[]).insert(0, email);
+      session.emails
+          .putIfAbsent(MailFolder.sent, () => <Email>[])
+          .insert(0, email);
       notifyListeners();
     }
     return email;
@@ -1311,7 +1441,8 @@ class ApiMailRepository extends MailRepository {
     String? draftId,
   }) async {
     final session = draftId != null
-        ? (_sessionOwning(draftId) ?? _sessionForCompose(from: from, fromAccountId: fromAccountId))
+        ? (_sessionOwning(draftId) ??
+              _sessionForCompose(from: from, fromAccountId: fromAccountId))
         : _sessionForCompose(from: from, fromAccountId: fromAccountId);
     // Editing an existing draft goes through PUT /drafts/{id}, which returns
     // a NEW mailId — the old id is invalid afterwards, so the cache drops it
@@ -1328,7 +1459,10 @@ class ApiMailRepository extends MailRepository {
         replySourceMailId: inReplyToId,
       );
       final newId = result.mailId ?? draftId;
-      final drafts = session.emails.putIfAbsent(MailFolder.drafts, () => <Email>[]);
+      final drafts = session.emails.putIfAbsent(
+        MailFolder.drafts,
+        () => <Email>[],
+      );
       final oldIndex = drafts.indexWhere((e) => e.id == draftId);
       final previous = oldIndex >= 0 ? drafts[oldIndex] : null;
       final updated = Email(
@@ -1391,7 +1525,9 @@ class ApiMailRepository extends MailRepository {
       threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
       inReplyToId: inReplyToId,
     );
-    session.emails.putIfAbsent(MailFolder.drafts, () => <Email>[]).insert(0, email);
+    session.emails
+        .putIfAbsent(MailFolder.drafts, () => <Email>[])
+        .insert(0, email);
     notifyListeners();
     return email;
   }
@@ -1434,7 +1570,9 @@ class ApiMailRepository extends MailRepository {
                   accountId: session.account.id,
                 ))
             .copyWith(folder: MailFolder.sent, timestamp: DateTime.now());
-    session.emails.putIfAbsent(MailFolder.sent, () => <Email>[]).insert(0, echo);
+    session.emails
+        .putIfAbsent(MailFolder.sent, () => <Email>[])
+        .insert(0, echo);
     notifyListeners();
     return echo;
   }
@@ -1461,7 +1599,8 @@ class ApiMailRepository extends MailRepository {
   /// server mail, fanned out across every account in scope — reaches mail
   /// not yet loaded into the local buckets. The sync in-screen search
   /// ([MailRepository.searchEmails]) stays client-side over loaded mail.
-  Future<List<Email>> searchServer({
+  @override
+  Future<List<Email>> searchEmailsOnServer({
     required String query,
     String? folderId,
     String? conversationId,
@@ -1476,7 +1615,7 @@ class ApiMailRepository extends MailRepository {
     int pageSize = 20,
   }) async {
     final all = <Email>[];
-    for (final session in _scopedSessions) {
+    for (final session in _sessions.values) {
       final results = await session.mailService.search(
         query: query,
         resolveFolder: session.resolveFolder,
@@ -1547,7 +1686,9 @@ class ApiMailRepository extends MailRepository {
         (succeeded) => _moveMany(session, succeeded, folder),
       );
 
-      final rest = idsForSession.where((id) => !restoring.contains(id)).toList();
+      final rest = idsForSession
+          .where((id) => !restoring.contains(id))
+          .toList();
       if (rest.isNotEmpty) {
         await _bulkAndApply(
           session,
@@ -1568,7 +1709,8 @@ class ApiMailRepository extends MailRepository {
           e.key,
           'read',
           e.value,
-          (succeeded) => _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: true)),
+          (succeeded) =>
+              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: true)),
         ),
       ),
     );
@@ -1582,16 +1724,16 @@ class ApiMailRepository extends MailRepository {
           e.key,
           'unread',
           e.value,
-          (succeeded) => _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: false)),
+          (succeeded) =>
+              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: false)),
         ),
       ),
     );
   }
 
   /// Pinning never reaches the network — see [LocalMailFlagsStore]. The
-  /// `maxPinnedMails` cap is global across every connected account (it keeps
-  /// the "Yıldızlılar" shortcut short, not a per-account allowance);
-  /// unpinning always applies.
+  /// `maxPinnedMails` cap is global across every connected account; pinning
+  /// only changes sort priority inside a mail's existing folder.
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     if (ids.isEmpty) return;
@@ -1640,7 +1782,11 @@ class ApiMailRepository extends MailRepository {
           starred
               ? session.starredIds.addAll(succeeded)
               : session.starredIds.removeAll(succeeded);
-          _replaceMany(session, succeeded, (m) => m.copyWith(isStarred: starred));
+          _replaceMany(
+            session,
+            succeeded,
+            (m) => m.copyWith(isStarred: starred),
+          );
         });
       }),
     );
@@ -1659,8 +1805,17 @@ class ApiMailRepository extends MailRepository {
       final store = session.flagsStore;
       if (store == null) continue;
       session.repliedIds.addAll(entry.value);
-      await store.writeReplied(session.repliedIds);
-      _replaceMany(session, entry.value, (e) => e.copyWith(isReplied: true));
+      for (final id in entry.value) {
+        final threadId = session.findLoaded(id)?.threadId;
+        if (threadId != null && threadId.isNotEmpty) {
+          session.repliedThreadIds.add(threadId);
+        }
+      }
+      await Future.wait([
+        store.writeReplied(session.repliedIds),
+        store.writeRepliedThreads(session.repliedThreadIds),
+      ]);
+      _restampFlags(session);
     }
     notifyListeners();
   }
@@ -1677,8 +1832,17 @@ class ApiMailRepository extends MailRepository {
       final store = session.flagsStore;
       if (store == null) continue;
       session.forwardedIds.addAll(entry.value);
-      await store.writeForwarded(session.forwardedIds);
-      _replaceMany(session, entry.value, (e) => e.copyWith(isForwarded: true));
+      for (final id in entry.value) {
+        final threadId = session.findLoaded(id)?.threadId;
+        if (threadId != null && threadId.isNotEmpty) {
+          session.forwardedThreadIds.add(threadId);
+        }
+      }
+      await Future.wait([
+        store.writeForwarded(session.forwardedIds),
+        store.writeForwardedThreads(session.forwardedThreadIds),
+      ]);
+      _restampFlags(session);
     }
     notifyListeners();
   }
@@ -1725,6 +1889,10 @@ class ApiMailRepository extends MailRepository {
     }
     return List.unmodifiable(result);
   }
+
+  @override
+  List<MailLabel> getLabelsForAccount(String accountId) =>
+      List.unmodifiable(_sessions[accountId]?.labels ?? const <MailLabel>[]);
 
   @override
   Future<MailLabel> createLabel({
@@ -1787,11 +1955,16 @@ class ApiMailRepository extends MailRepository {
   ) async {
     for (final entry in _groupBySession(emailIds).entries) {
       final session = entry.key;
+      final ownedLabelIds = {
+        for (final label in session.labels)
+          if (labelIds.contains(label.id)) label.id,
+      };
+      if (ownedLabelIds.isEmpty) continue;
       for (final id in entry.value) {
         final cur = session.labelMap[id] ?? const <String>[];
         session.labelMap[id] = [
           ...cur,
-          ...labelIds.where((l) => !cur.contains(l)),
+          ...ownedLabelIds.where((labelId) => !cur.contains(labelId)),
         ];
       }
       await _persistLabels(session);

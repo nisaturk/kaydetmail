@@ -58,6 +58,50 @@ void main() {
       );
     });
 
+    test(
+      'Given an active session When the server address changes mid-session '
+      'Then the next request targets the new server without any forced '
+      'logout',
+      () async {
+        // Audit item 12: switching the configured server must not force a
+        // re-auth dialog or drop the current session — the next request
+        // simply goes to wherever ServerAddressStore now points, and the
+        // existing refresh-on-401 flow (see 'Given expired access token…'
+        // below) transparently recovers if the new server rejects the old
+        // token.
+        SharedPreferences.setMockInitialValues({
+          'kaydet.server.baseUrl': 'http://old-server.example:5071',
+        });
+        final tokenStore = TokenStore(storage: MemoryTokenStorage());
+        await tokenStore.save(
+          accountId: 'account-1',
+          accessToken: 'access',
+          refreshToken: 'refresh',
+        );
+        final seen = <Uri>[];
+        final client = ApiClient(
+          tokenStore: tokenStore,
+          accountId: 'account-1',
+          httpClient: MockClient((request) async {
+            seen.add(request.url);
+            return http.Response('{}', 200);
+          }),
+        );
+
+        await client.get('/api/mails');
+        expect(seen.single.host, 'old-server.example');
+
+        // User edits the server address in settings — no logout call, no
+        // new ApiClient instance, the session just keeps going.
+        await ServerAddressStore.save('http://new-server.example:5071');
+
+        await client.get('/api/mails');
+        expect(seen.last.host, 'new-server.example');
+        // Same bearer token carried over; only a 401 would trigger refresh.
+        expect(await tokenStore.readAccessToken('account-1'), 'access');
+      },
+    );
+
     test('Given no saved URL When loading default Then backend development URL is used', () async {
       SharedPreferences.setMockInitialValues({});
 
@@ -353,6 +397,34 @@ void main() {
       expect(await store.readRefreshToken('account-1'), isNull);
       expect(await store.readAccountIds(), isEmpty);
     });
+    test(
+      'Given a stalled request When timeout elapses Then error is classified',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final client = ApiClient(
+          tokenStore: TokenStore(storage: MemoryTokenStorage()),
+          requestTimeout: const Duration(milliseconds: 1),
+          httpClient: MockClient((_) async {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            return http.Response('{}', 200);
+          }),
+        );
+
+        await expectLater(
+          client.get('/api/accounts/discover', authenticated: false),
+          throwsA(
+            isA<ApiException>()
+                .having((error) => error.code, 'code', 'request_timeout')
+                .having(
+                  (error) => error.category,
+                  'category',
+                  ApiErrorCategory.timeout,
+                )
+                .having((error) => error.isTransient, 'isTransient', isTrue),
+          ),
+        );
+      },
+    );
   });
 
   group('Authentication', () {

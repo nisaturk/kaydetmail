@@ -29,6 +29,9 @@ const _flatFieldDecoration = InputDecoration(
   contentPadding: EdgeInsets.symmetric(vertical: 12),
 );
 
+// Hint color is intentionally left unset here: it falls back to the
+// brightness-aware `InputDecorationTheme.hintStyle` (see AppTheme) instead
+// of a hardcoded light-only color.
 const _flatBodyDecoration = InputDecoration(
   hintText: 'E-postanızı yazın…',
   border: InputBorder.none,
@@ -38,8 +41,23 @@ const _flatBodyDecoration = InputDecoration(
   focusedErrorBorder: InputBorder.none,
   disabledBorder: InputBorder.none,
   filled: false,
-  hintStyle: TextStyle(color: AppTheme.tertiaryText),
 );
+
+/// Light shape check for a recipient chip: `name@domain.tld`. Not a full
+/// RFC 5322 validator — just enough to flag an obviously broken address
+/// (missing `@`, missing domain) before it reaches the backend.
+final RegExp _emailShapePattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
+
+/// One recipient chip. [valid] is false for anything that fails
+/// [_emailShapePattern] — the chip still renders (never silently dropped)
+/// but in the destructive palette so the user notices and fixes it.
+@immutable
+class _Recipient {
+  const _Recipient(this.address, {required this.valid});
+
+  final String address;
+  final bool valid;
+}
 
 /// Compose a new mail (or reply/forward/edit-draft — same screen).
 ///
@@ -92,9 +110,16 @@ class ComposeScreen extends StatefulWidget {
 }
 
 class _ComposeScreenState extends State<ComposeScreen> {
-  final _toController = TextEditingController();
-  final _ccController = TextEditingController();
-  final _bccController = TextEditingController();
+  final List<_Recipient> _toRecipients = [];
+  final List<_Recipient> _ccRecipients = [];
+  final List<_Recipient> _bccRecipients = [];
+
+  // Holds whatever the user has typed but not yet turned into a chip
+  // (no comma/space/Enter yet). Read alongside the chip lists so in-flight
+  // text is never silently lost from `_hasContent`, send, or save-draft.
+  final _toInputController = TextEditingController();
+  final _ccInputController = TextEditingController();
+  final _bccInputController = TextEditingController();
   final _subjectController = TextEditingController();
   final _bodyController = TextEditingController();
 
@@ -123,15 +148,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void initState() {
     super.initState();
-    _toController.text = widget.initialTo;
-    _ccController.text = widget.initialCc;
-    _bccController.text = widget.initialBcc;
+    _toRecipients.addAll(_parseRecipients(widget.initialTo));
+    _ccRecipients.addAll(_parseRecipients(widget.initialCc));
+    _bccRecipients.addAll(_parseRecipients(widget.initialBcc));
     _subjectController.text = widget.initialSubject;
     _bodyController.text = widget.initialBody;
     // Fields that already carry content start visible so nothing is lost;
     // empty ones stay hidden behind the Cc/Bcc menu.
-    _ccExpanded = widget.initialCc.trim().isNotEmpty;
-    _bccExpanded = widget.initialBcc.trim().isNotEmpty;
+    _ccExpanded = _ccRecipients.isNotEmpty;
+    _bccExpanded = _bccRecipients.isNotEmpty;
     _attachments.addAll(widget.initialAttachments);
     final accounts = _repo.accounts;
     if (widget.initialFrom != null &&
@@ -144,11 +169,18 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
   }
 
+  static List<_Recipient> _parseRecipients(String raw) => raw
+      .split(',')
+      .map((e) => e.trim())
+      .where((e) => e.isNotEmpty)
+      .map((e) => _Recipient(e, valid: _emailShapePattern.hasMatch(e)))
+      .toList();
+
   @override
   void dispose() {
-    _toController.dispose();
-    _ccController.dispose();
-    _bccController.dispose();
+    _toInputController.dispose();
+    _ccInputController.dispose();
+    _bccInputController.dispose();
     _subjectController.dispose();
     _bodyController.dispose();
     _toFocus.dispose();
@@ -158,19 +190,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   bool get _hasContent =>
-      _toController.text.trim().isNotEmpty ||
+      _toRecipients.isNotEmpty ||
+      _ccRecipients.isNotEmpty ||
+      _bccRecipients.isNotEmpty ||
+      _toInputController.text.trim().isNotEmpty ||
+      _ccInputController.text.trim().isNotEmpty ||
+      _bccInputController.text.trim().isNotEmpty ||
       _subjectController.text.trim().isNotEmpty ||
       _bodyController.text.trim().isNotEmpty ||
       _attachments.isNotEmpty;
 
   Future<bool> _onWillPop() async {
     if (!_hasContent) return true;
+    final editingDraft = widget.editingDraftId != null;
     return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Bu e-posta silinsin mi?'),
-            content: const Text(
-              'Taslak olarak kaydedebilir veya silebilirsiniz.',
+            title: Text(
+              editingDraft
+                  ? 'Değişiklikler kaydedilsin mi?'
+                  : 'Bu e-posta silinsin mi?',
+            ),
+            content: Text(
+              editingDraft
+                  ? 'Taslağın mevcut hali korunabilir veya değişiklikler kaydedilebilir.'
+                  : 'E-postayı taslak olarak kaydedebilir veya içeriği silebilirsiniz.',
             ),
             actions: [
               TextButton(
@@ -179,19 +223,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
               ),
               TextButton(
                 onPressed: () async {
-                  await _saveDraft();
-                  if (mounted && ctx.mounted) {
-                    Navigator.of(ctx).pop(true);
+                  final saved = await _saveDraft();
+                  if (!mounted || !ctx.mounted) return;
+                  if (!saved) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Taslak kaydedildi.')),
+                      const SnackBar(
+                        content: Text(
+                          'Taslak kaydedilemedi. İçeriğiniz ekranda tutuluyor.',
+                        ),
+                      ),
                     );
+                    return;
                   }
+                  Navigator.of(ctx).pop(true);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Taslak kaydedildi.')),
+                  );
                 },
                 child: const Text('Taslağı Kaydet'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Sil', style: TextStyle(color: Colors.red)),
+                child: Text(
+                  editingDraft ? 'Değişiklikleri At' : 'İçeriği Sil',
+                  style: TextStyle(color: AppTheme.colors(ctx).destructive),
+                ),
               ),
             ],
           ),
@@ -199,18 +255,83 @@ class _ComposeScreenState extends State<ComposeScreen> {
         false;
   }
 
-  List<String> _splitAddresses(TextEditingController controller) => controller
-      .text
-      .split(',')
-      .map((e) => e.trim())
-      .where((e) => e.isNotEmpty)
-      .toList();
+  List<String> _addressStrings(List<_Recipient> recipients) =>
+      [for (final recipient in recipients) recipient.address];
+
+  /// Turns whatever is left in [input] into a chip in [recipients] (used on
+  /// submit/Enter and right before send/save so an address the user typed
+  /// but never delimited isn't silently lost). Caller wraps this in
+  /// `setState` when a rebuild is needed.
+  void _commitPendingRecipient(
+    List<_Recipient> recipients,
+    TextEditingController input,
+  ) {
+    final address = input.text.trim();
+    if (address.isEmpty) return;
+    recipients.add(_Recipient(address, valid: _emailShapePattern.hasMatch(address)));
+    input.clear();
+  }
+
+  /// Splits typed text on comma/whitespace, turning every completed token
+  /// into a chip and leaving the trailing partial token as pending text —
+  /// so a comma or space commits a chip without waiting for submit.
+  void _onRecipientChanged(
+    List<_Recipient> recipients,
+    TextEditingController input,
+    String value,
+  ) {
+    if (!value.contains(',') && !value.contains(' ')) return;
+    final parts = value.split(RegExp(r'[,\s]+'));
+    final pending = parts.removeLast();
+    if (parts.every((p) => p.isEmpty)) {
+      input.value = TextEditingValue(
+        text: pending,
+        selection: TextSelection.collapsed(offset: pending.length),
+      );
+      return;
+    }
+    setState(() {
+      for (final part in parts) {
+        if (part.isEmpty) continue;
+        recipients.add(_Recipient(part, valid: _emailShapePattern.hasMatch(part)));
+      }
+      input.value = TextEditingValue(
+        text: pending,
+        selection: TextSelection.collapsed(offset: pending.length),
+      );
+    });
+  }
+
+  void _onRecipientSubmitted(
+    List<_Recipient> recipients,
+    TextEditingController input,
+  ) {
+    setState(() => _commitPendingRecipient(recipients, input));
+  }
+
+  void _removeRecipient(List<_Recipient> recipients, _Recipient recipient) {
+    setState(() => recipients.remove(recipient));
+  }
 
   Future<void> _send() async {
-    final to = _toController.text.trim();
-    if (to.isEmpty) {
+    setState(() {
+      _commitPendingRecipient(_toRecipients, _toInputController);
+      _commitPendingRecipient(_ccRecipients, _ccInputController);
+      _commitPendingRecipient(_bccRecipients, _bccInputController);
+    });
+    if (_toRecipients.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('En az bir alıcı yazmalısınız.')),
+      );
+      _toFocus.requestFocus();
+      return;
+    }
+    final allRecipients = [..._toRecipients, ..._ccRecipients, ..._bccRecipients];
+    if (allRecipients.any((r) => !r.valid)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Geçersiz e-posta adreslerini düzeltip tekrar deneyin.'),
+        ),
       );
       _toFocus.requestFocus();
       return;
@@ -220,9 +341,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     try {
       await _repo.sendEmail(
         from: _fromAccount,
-        to: _splitAddresses(_toController),
-        cc: _splitAddresses(_ccController),
-        bcc: _splitAddresses(_bccController),
+        to: _addressStrings(_toRecipients),
+        cc: _addressStrings(_ccRecipients),
+        bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
@@ -240,7 +361,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         }
       }
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('E-posta gönderildi.')));
     } catch (e) {
@@ -253,20 +374,19 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
   }
 
-  Future<void> _saveDraft() async {
-    final to = _toController.text.trim();
-    final hasAny =
-        to.isNotEmpty ||
-        _subjectController.text.trim().isNotEmpty ||
-        _bodyController.text.trim().isNotEmpty ||
-        _attachments.isNotEmpty;
-    if (!hasAny) return;
+  Future<bool> _saveDraft() async {
+    if (!_hasContent) return true;
+    setState(() {
+      _commitPendingRecipient(_toRecipients, _toInputController);
+      _commitPendingRecipient(_ccRecipients, _ccInputController);
+      _commitPendingRecipient(_bccRecipients, _bccInputController);
+    });
     try {
       await _repo.saveDraft(
         from: _fromAccount,
-        to: _splitAddresses(_toController),
-        cc: _splitAddresses(_ccController),
-        bcc: _splitAddresses(_bccController),
+        to: _addressStrings(_toRecipients),
+        cc: _addressStrings(_ccRecipients),
+        bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
@@ -275,9 +395,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
         // Editing a draft updates it in place — never a duplicate.
         draftId: widget.editingDraftId,
       );
+      return true;
     } catch (_) {
-      // Best-effort autosave: the user is already leaving the screen, so a
-      // failure here has nowhere useful to surface — swallow it.
+      return false;
     }
   }
 
@@ -297,6 +417,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   Future<void> _attach() async {
+    if (_sending) return;
     final picked = await (widget.pickAttachments ?? _osPickAttachments)();
     if (picked == null || picked.isEmpty || !mounted) return;
     setState(() => _attachments.addAll(picked));
@@ -359,7 +480,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   void _onSpeechError(SpeechRecognitionError error) {
-    if (!error.permanent) return; // Transient — the retry in onStatus covers it.
+    if (!error.permanent) {
+      return; // Transient — the retry in onStatus covers it.
+    }
     if (!mounted) return;
     setState(() => _recording = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -383,9 +506,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Sesle yazma için mikrofon iznini vermeniz gerekiyor.',
-          ),
+          content: Text('Sesle yazma için mikrofon iznini vermeniz gerekiyor.'),
         ),
       );
       return;
@@ -397,28 +518,33 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
     return PopScope(
       // Always intercept: content typed after the last build must still be
       // caught, or back silently discards it.
       canPop: false,
       onPopInvokedWithResult: (didPop, _) async {
-        if (!didPop) {
-          if (!_hasContent) return Navigator.of(context).pop();
-          final nav = Navigator.of(context);
-          final shouldPop = await _onWillPop();
-          if (shouldPop && mounted) nav.pop();
-        }
+        if (didPop) return;
+        // Mid-send: navigating away is blocked outright, not just guarded
+        // by the draft-save dialog — the send must finish or fail first.
+        if (_sending) return;
+        if (!_hasContent) return Navigator.of(context).pop();
+        final nav = Navigator.of(context);
+        final shouldPop = await _onWillPop();
+        if (shouldPop && mounted) nav.pop();
       },
       child: Scaffold(
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(LucideIcons.x),
             tooltip: 'Kapat',
-            onPressed: () async {
-              final nav = Navigator.of(context);
-              final shouldPop = await _onWillPop();
-              if (shouldPop && mounted) nav.pop();
-            },
+            onPressed: _sending
+                ? null
+                : () async {
+                    final nav = Navigator.of(context);
+                    final shouldPop = await _onWillPop();
+                    if (shouldPop && mounted) nav.pop();
+                  },
           ),
           title: Text(
             widget.composeTitle ??
@@ -459,23 +585,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       const Divider(indent: 0, endIndent: 0, height: 1),
                       // Gmail-style disclosure: hidden Cc/Bcc are revealed
                       // through the small chevron at the far right of the
-                      // Kime row. Entered values live in the controllers,
-                      // so revealing a field never erases its content. Once
+                      // Kime row. Entered values live in the chip lists, so
+                      // revealing a field never erases its content. Once
                       // both are visible the chevron disappears.
-                      _fieldRow(
+                      _recipientFieldRow(
                         label: 'Kime',
-                        controller: _toController,
+                        recipients: _toRecipients,
+                        inputController: _toInputController,
                         focusNode: _toFocus,
                         fieldKey: const Key('to-field'),
+                        enabled: !_sending,
+                        onRemove: (r) => _removeRecipient(_toRecipients, r),
+                        onChanged: (v) =>
+                            _onRecipientChanged(_toRecipients, _toInputController, v),
+                        onSubmitted: () =>
+                            _onRecipientSubmitted(_toRecipients, _toInputController),
                         trailing: (!_ccExpanded || !_bccExpanded)
                             ? PopupMenuButton<String>(
                                 key: const Key('cc-bcc-menu'),
                                 tooltip: 'Cc / Bcc ekle',
                                 padding: EdgeInsets.zero,
-                                icon: const Icon(
+                                enabled: !_sending,
+                                icon: Icon(
                                   LucideIcons.chevronDown,
                                   size: 18,
-                                  color: AppTheme.secondaryText,
+                                  color: colors.secondaryText,
                                 ),
                                 onSelected: (value) => setState(() {
                                   if (value == 'Cc') {
@@ -500,22 +634,42 @@ class _ComposeScreenState extends State<ComposeScreen> {
                             : const SizedBox.shrink(),
                       ),
                       if (_ccExpanded)
-                        _fieldRow(
+                        _recipientFieldRow(
                           label: 'Cc',
-                          controller: _ccController,
+                          recipients: _ccRecipients,
+                          inputController: _ccInputController,
                           fieldKey: const Key('cc-field'),
+                          enabled: !_sending,
+                          onRemove: (r) => _removeRecipient(_ccRecipients, r),
+                          onChanged: (v) =>
+                              _onRecipientChanged(_ccRecipients, _ccInputController, v),
+                          onSubmitted: () =>
+                              _onRecipientSubmitted(_ccRecipients, _ccInputController),
                         ),
                       if (_bccExpanded)
-                        _fieldRow(
+                        _recipientFieldRow(
                           label: 'Bcc',
-                          controller: _bccController,
+                          recipients: _bccRecipients,
+                          inputController: _bccInputController,
                           fieldKey: const Key('bcc-field'),
+                          enabled: !_sending,
+                          onRemove: (r) => _removeRecipient(_bccRecipients, r),
+                          onChanged: (v) => _onRecipientChanged(
+                            _bccRecipients,
+                            _bccInputController,
+                            v,
+                          ),
+                          onSubmitted: () => _onRecipientSubmitted(
+                            _bccRecipients,
+                            _bccInputController,
+                          ),
                         ),
                       const Divider(indent: 0, endIndent: 0),
                       _fieldRow(
                         label: 'Konu',
                         controller: _subjectController,
                         fieldKey: const Key('subject-field'),
+                        enabled: !_sending,
                       ),
                       const Divider(indent: 0, endIndent: 0, height: 1),
                       if (_attachments.isNotEmpty) ...[
@@ -524,18 +678,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           _AttachmentRow(
                             attachment: attachment,
                             onRemove: () => _removeAttachment(attachment),
+                            enabled: !_sending,
                           ),
                       ],
                       const SizedBox(height: 8),
                       TextField(
                         controller: _bodyController,
                         focusNode: _bodyFocus,
+                        enabled: !_sending,
                         maxLines: null,
                         textAlignVertical: TextAlignVertical.top,
                         decoration: _flatBodyDecoration,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 15,
-                          color: AppTheme.bodyText,
+                          color: colors.bodyText,
                           height: 1.55,
                         ),
                       ),
@@ -556,10 +712,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// so every value starts at the same x offset and labels never wrap.
   static const _labelWidth = 64.0;
 
-  static const _labelStyle = TextStyle(
+  static TextStyle _labelStyle(AppColors colors) => TextStyle(
     fontSize: 15,
     fontWeight: FontWeight.w600,
-    color: AppTheme.secondaryText,
+    color: colors.secondaryText,
   );
 
   Widget _fieldRow({
@@ -568,7 +724,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     FocusNode? focusNode,
     Key? fieldKey,
     Widget trailing = const SizedBox.shrink(),
+    bool enabled = true,
   }) {
+    final colors = AppTheme.colors(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.center,
       children: [
@@ -578,7 +736,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             label,
             maxLines: 1,
             overflow: TextOverflow.clip,
-            style: _labelStyle,
+            style: _labelStyle(colors),
           ),
         ),
         Expanded(
@@ -586,9 +744,82 @@ class _ComposeScreenState extends State<ComposeScreen> {
             key: fieldKey,
             controller: controller,
             focusNode: focusNode,
+            enabled: enabled,
             textInputAction: TextInputAction.next,
             decoration: _flatFieldDecoration,
-            style: const TextStyle(fontSize: 15, color: Colors.black),
+            style: TextStyle(fontSize: 15, color: colors.bodyText),
+          ),
+        ),
+        trailing,
+      ],
+    );
+  }
+
+  /// Chip-based recipient field. Confirmed addresses render as removable
+  /// chips (an invalid-looking one — no `@`/domain — still renders, in the
+  /// destructive palette, so it's visible and fixable instead of silently
+  /// dropped or silently sent); typed text turns into a chip on comma,
+  /// space, or Enter/submit. Keeps the same label-column layout as
+  /// [_fieldRow] so Kimden/Kime/Cc/Bcc/Konu stay aligned.
+  Widget _recipientFieldRow({
+    required String label,
+    required List<_Recipient> recipients,
+    required TextEditingController inputController,
+    required void Function(_Recipient) onRemove,
+    required void Function(String) onChanged,
+    required VoidCallback onSubmitted,
+    FocusNode? focusNode,
+    Key? fieldKey,
+    Widget trailing = const SizedBox.shrink(),
+    bool enabled = true,
+  }) {
+    final colors = AppTheme.colors(context);
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: SizedBox(
+            width: _labelWidth,
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.clip,
+              style: _labelStyle(colors),
+            ),
+          ),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6),
+            child: Wrap(
+              crossAxisAlignment: WrapCrossAlignment.center,
+              spacing: AppTheme.space2,
+              runSpacing: AppTheme.space1,
+              children: [
+                for (final recipient in recipients)
+                  _RecipientChip(
+                    key: ObjectKey(recipient),
+                    recipient: recipient,
+                    enabled: enabled,
+                    onDeleted: () => onRemove(recipient),
+                  ),
+                SizedBox(
+                  width: 140,
+                  child: TextField(
+                    key: fieldKey,
+                    controller: inputController,
+                    focusNode: focusNode,
+                    enabled: enabled,
+                    textInputAction: TextInputAction.done,
+                    decoration: _flatFieldDecoration,
+                    style: TextStyle(fontSize: 15, color: colors.bodyText),
+                    onChanged: onChanged,
+                    onSubmitted: (_) => onSubmitted(),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
         trailing,
@@ -602,6 +833,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// the chevron is hidden.
   Widget _fromRow() {
     final accounts = _repo.accounts;
+    final colors = AppTheme.colors(context);
     final selected =
         _fromAccount ?? (accounts.isNotEmpty ? accounts.first.email : '');
     return Padding(
@@ -610,13 +842,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.center,
         children: [
-          const SizedBox(
+          SizedBox(
             width: _labelWidth,
             child: Text(
               'Kimden',
               maxLines: 1,
               overflow: TextOverflow.clip,
-              style: _labelStyle,
+              style: _labelStyle(colors),
             ),
           ),
           Expanded(
@@ -624,7 +856,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
               selected,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 15, color: Colors.black),
+              style: TextStyle(fontSize: 15, color: colors.bodyText),
             ),
           ),
           if (accounts.length > 1)
@@ -632,10 +864,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
               key: const Key('from-account-menu'),
               tooltip: 'Hesap seç',
               padding: EdgeInsets.zero,
-              icon: const Icon(
+              enabled: !_sending,
+              icon: Icon(
                 LucideIcons.chevronDown,
                 size: 18,
-                color: AppTheme.secondaryText,
+                color: colors.secondaryText,
               ),
               onSelected: (picked) => setState(() => _fromAccount = picked),
               itemBuilder: (context) => [
@@ -655,12 +888,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           ),
                         ),
                         if (account.email == _fromAccount)
-                          const Padding(
-                            padding: EdgeInsets.only(left: 12),
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
                             child: Icon(
                               LucideIcons.check,
                               size: 18,
-                              color: Colors.black,
+                              color: colors.bodyText,
                             ),
                           ),
                       ],
@@ -674,42 +907,43 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   Widget _buildBottomBar() {
+    final colors = AppTheme.colors(context);
     return Container(
-      decoration: const BoxDecoration(
-        color: Colors.white,
-        border: Border(top: BorderSide(color: AppTheme.border)),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surface,
+        border: Border(top: BorderSide(color: colors.border)),
       ),
       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
       child: Row(
         children: [
           IconButton(
             key: const Key('attach-button'),
-            onPressed: _attach,
+            onPressed: _sending ? null : _attach,
             icon: const Icon(LucideIcons.paperclip, size: 22),
             tooltip: 'Dosya ekle',
           ),
           IconButton(
-            onPressed: _toggleDictation,
+            onPressed: _sending ? null : _toggleDictation,
             icon: _recording
-                ? const SizedBox(
+                ? SizedBox(
                     width: 22,
                     height: 22,
                     child: CircularProgressIndicator(
                       strokeWidth: 2.5,
-                      color: Colors.red,
+                      color: colors.destructive,
                     ),
                   )
                 : const Icon(LucideIcons.mic, size: 22),
             tooltip: _recording ? 'Dinlemeyi durdur' : 'Sesle yaz',
           ),
           if (_recording)
-            const Padding(
-              padding: EdgeInsets.only(left: 4),
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
               child: Text(
                 'Dinleniyor…',
                 style: TextStyle(
                   fontSize: 13,
-                  color: Colors.red,
+                  color: colors.destructive,
                   fontWeight: FontWeight.w600,
                 ),
               ),
@@ -722,50 +956,94 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 }
 
-class _AttachmentRow extends StatelessWidget {
-  const _AttachmentRow({required this.attachment, required this.onRemove});
+/// A single recipient chip. [recipient.valid] false renders it in the
+/// destructive palette instead of silently dropping or silently sending a
+/// broken address — the user has to see and fix it.
+class _RecipientChip extends StatelessWidget {
+  const _RecipientChip({
+    super.key,
+    required this.recipient,
+    required this.enabled,
+    required this.onDeleted,
+  });
 
-  final Attachment attachment;
-  final VoidCallback onRemove;
+  final _Recipient recipient;
+  final bool enabled;
+  final VoidCallback onDeleted;
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    if (recipient.valid) {
+      return Chip(
+        label: Text(recipient.address),
+        onDeleted: enabled ? onDeleted : null,
+        deleteButtonTooltipMessage: '${recipient.address} kaldır',
+        visualDensity: VisualDensity.compact,
+      );
+    }
+    return Semantics(
+      label: '${recipient.address}, geçersiz e-posta adresi',
+      child: Chip(
+        label: Text(recipient.address),
+        labelStyle: TextStyle(color: colors.destructive),
+        backgroundColor: colors.destructive.withValues(alpha: 0.12),
+        side: BorderSide(color: colors.destructive),
+        deleteIconColor: colors.destructive,
+        onDeleted: enabled ? onDeleted : null,
+        deleteButtonTooltipMessage: '${recipient.address} kaldır',
+        visualDensity: VisualDensity.compact,
+      ),
+    );
+  }
+}
+
+class _AttachmentRow extends StatelessWidget {
+  const _AttachmentRow({
+    required this.attachment,
+    required this.onRemove,
+    this.enabled = true,
+  });
+
+  final Attachment attachment;
+  final VoidCallback onRemove;
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
       decoration: BoxDecoration(
-        border: Border.all(color: AppTheme.border),
+        border: Border.all(color: colors.border),
         borderRadius: BorderRadius.circular(10),
-        color: const Color(0xFFF9FAFB),
+        color: colors.unreadBackground,
       ),
       child: Row(
         children: [
-          const Icon(
-            LucideIcons.fileText,
-            size: 20,
-            color: AppTheme.secondaryText,
-          ),
+          Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
           const SizedBox(width: 10),
           Expanded(
             child: Text(
               attachment.name,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontSize: 14, color: Colors.black),
+              style: TextStyle(fontSize: 14, color: colors.bodyText),
             ),
           ),
           const SizedBox(width: 8),
           Text(
             attachment.sizeLabel,
-            style: const TextStyle(fontSize: 13, color: AppTheme.secondaryText),
+            style: TextStyle(fontSize: 13, color: colors.secondaryText),
           ),
           IconButton(
             key: ValueKey('attach-remove-${attachment.name}'),
-            onPressed: onRemove,
+            onPressed: enabled ? onRemove : null,
             tooltip: '${attachment.name} kaldır',
             iconSize: 18,
             visualDensity: VisualDensity.compact,
-            icon: const Icon(LucideIcons.x, color: AppTheme.secondaryText),
+            icon: Icon(LucideIcons.x, color: colors.secondaryText),
           ),
         ],
       ),

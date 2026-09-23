@@ -19,19 +19,24 @@ class KaydetApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      navigatorKey: _navigatorKey,
-      title: 'KAYDET',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.light,
-      locale: const Locale('tr'),
-      supportedLocales: const [Locale('tr')],
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
-      ],
-      home: const _AuthGate(),
+    return ListenableBuilder(
+      listenable: AppSettingsController.instance,
+      builder: (context, _) => MaterialApp(
+        navigatorKey: _navigatorKey,
+        title: 'KAYDET',
+        debugShowCheckedModeBanner: false,
+        theme: AppTheme.light,
+        darkTheme: AppTheme.dark,
+        themeMode: AppSettingsController.instance.themeMode,
+        locale: const Locale('tr'),
+        supportedLocales: const [Locale('tr')],
+        localizationsDelegates: const [
+          GlobalMaterialLocalizations.delegate,
+          GlobalWidgetsLocalizations.delegate,
+          GlobalCupertinoLocalizations.delegate,
+        ],
+        home: const _AuthGate(),
+      ),
     );
   }
 }
@@ -55,13 +60,13 @@ class _AuthGateState extends State<_AuthGate> {
   StreamSubscription<String>? _mailTapSub;
   Timer? _syncTimer;
 
+  bool _handlingLogout = false;
+  String? _pendingMailId;
   @override
   void initState() {
     super.initState();
-    // Persisted server base URL loads before any screen reads it. The future
-    // API repository will read the same controller value.
-    AppSettingsController.instance.loadServerAddress();
     AppSettingsController.instance.addListener(_onSettingsChanged);
+    AppConfig.mailRepository.addListener(_onRepositoryChanged);
     _check();
     if (AppConfig.pushEnabled) {
       _mailTapSub = PushService.onMailTapped.listen(_openTappedMail);
@@ -72,17 +77,31 @@ class _AuthGateState extends State<_AuthGate> {
   void dispose() {
     _mailTapSub?.cancel();
     AppSettingsController.instance.removeListener(_onSettingsChanged);
+    AppConfig.mailRepository.removeListener(_onRepositoryChanged);
     _syncTimer?.cancel();
     super.dispose();
   }
 
   void _openTappedMail(String mailId) {
+    if (_loggedIn != true) {
+      _pendingMailId = mailId;
+      return;
+    }
+    _pushMailDetail(mailId);
+  }
+
+  void _pushMailDetail(String mailId) {
     _navigatorKey.currentState?.push(
       MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: mailId)),
     );
   }
 
   Future<void> _check() async {
+    await Future.wait([
+      AppSettingsController.instance.loadServerAddress(),
+      AppSettingsController.instance.loadBehaviorPreferences(),
+    ]);
+    if (!mounted) return;
     final emails = await SessionStore.loadEmails();
     if (!mounted) return;
     if (emails.isEmpty) {
@@ -101,8 +120,45 @@ class _AuthGateState extends State<_AuthGate> {
       }
       if (!mounted) return;
     }
-    setState(() => _loggedIn = anyRestored);
-    if (_loggedIn == true) _rescheduleSync();
+    if (anyRestored) {
+      _setAuthenticated();
+    } else {
+      setState(() => _loggedIn = false);
+    }
+  }
+
+  void _setAuthenticated() {
+    if (!mounted) return;
+    setState(() => _loggedIn = true);
+    _rescheduleSync();
+    if (AppConfig.pushEnabled) {
+      unawaited(PushService.registerAuthenticatedDevice());
+    }
+    final pendingMailId = _pendingMailId;
+    if (pendingMailId != null) {
+      _pendingMailId = null;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _pushMailDetail(pendingMailId);
+      });
+    }
+  }
+
+  void _onRepositoryChanged() {
+    if (_loggedIn != true ||
+        AppConfig.mailRepository.isLoggedIn ||
+        _handlingLogout) {
+      return;
+    }
+    _handlingLogout = true;
+    _syncTimer?.cancel();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      setState(() {
+        _loggedIn = false;
+        _handlingLogout = false;
+      });
+    });
   }
 
   /// The Settings "Senkronizasyon" section only ever changes
@@ -142,6 +198,8 @@ class _AuthGateState extends State<_AuthGate> {
     if (_loggedIn == null) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
-    return _loggedIn! ? const HomeScreen() : const LoginScreen();
+    return _loggedIn!
+        ? const HomeScreen()
+        : LoginScreen(onAuthenticated: _setAuthenticated);
   }
 }

@@ -9,7 +9,6 @@ import '../theme/app_theme.dart';
 import '../widgets/mail_avatar.dart';
 import '../widgets/manual_mail_setup_dialog.dart';
 import '../widgets/server_address_dialog.dart';
-import 'home_screen.dart';
 
 /// Two-step login: an email step that slides horizontally into a password
 /// step and back. Step 1 shows branding plus only the email field; step 2
@@ -21,7 +20,12 @@ import 'home_screen.dart';
 /// replaced. The login flow itself switches to this mode when the server
 /// reports `mail_account_needs_reauthentication`/`credential_missing`.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key, this.reconnect = false, this.initialEmail});
+  const LoginScreen({
+    super.key,
+    this.reconnect = false,
+    this.initialEmail,
+    this.onAuthenticated,
+  });
 
   /// When true, the screen opens directly on the password step and submits
   /// to `MailRepository.reconnect` instead of `login`.
@@ -29,6 +33,10 @@ class LoginScreen extends StatefulWidget {
 
   /// Prefilled account address for reconnect mode.
   final String? initialEmail;
+
+  /// Lets the persistent app-level auth coordinator reveal the mailbox
+  /// without replacing the route that owns sync and push subscriptions.
+  final VoidCallback? onAuthenticated;
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -113,9 +121,7 @@ class _LoginScreenState extends State<LoginScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Hesap yeniden bağlandı.')),
         );
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        widget.onAuthenticated?.call();
         return;
       }
       final ok = await AppConfig.mailRepository.login(
@@ -129,9 +135,7 @@ class _LoginScreenState extends State<LoginScreen> {
       if (ok) {
         await SessionStore.addEmail(_emailController.text.trim());
         if (!mounted) return;
-        Navigator.of(context).pushReplacement(
-          MaterialPageRoute(builder: (_) => const HomeScreen()),
-        );
+        widget.onAuthenticated?.call();
       } else {
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -219,31 +223,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: const Icon(LucideIcons.settings, size: 20),
                 ),
               ),
-              const Center(
+              Center(
                 child: Column(
                   children: [
-                    MailAvatar(
+                    const MailAvatar(
                       identity: 'kaydet@app',
                       displayName: 'KAYDET',
                       size: 72,
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       'KAYDET',
                       style: TextStyle(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 1.5,
-                        color: Colors.black,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
                       'E-postalarınız için güvenli bir uygulama',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
-                        color: AppTheme.secondaryText,
+                        color: AppTheme.colors(context).secondaryText,
                       ),
                     ),
                   ],
@@ -319,7 +323,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 13,
-                          color: AppTheme.secondaryText,
+                          color: AppTheme.colors(context).secondaryText,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -327,10 +331,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text(
                         email,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -351,15 +355,15 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Şifre zorunludur';
                     }
-                    if (value.length < 6) {
-                      return 'Şifre en az 6 karakter olmalıdır';
-                    }
                     return null;
                   },
                   decoration: InputDecoration(
                     labelText: 'Şifre',
                     prefixIcon: const Icon(LucideIcons.lock, size: 20),
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Şifreyi göster'
+                          : 'Şifreyi gizle',
                       onPressed: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
                       icon: Icon(
@@ -375,12 +379,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 key: const Key('signin-button'),
                 onPressed: _loading ? null : _login,
                 child: _loading
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.5,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
                     : Text(_reconnect ? 'Yeniden Bağlan' : 'Giriş Yap'),

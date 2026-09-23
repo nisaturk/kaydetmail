@@ -3,12 +3,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 /// Logical mail folders shown in the app drawer.
 ///
-/// [pinned] is not a real folder on the server — it groups every pinned mail
-/// regardless of the folder it actually lives in.
+/// [starred] is not a real folder on the server — it groups every starred
+/// mail regardless of the folder it actually lives in.
 enum MailFolder {
   inbox,
   sent,
-  pinned,
+  starred,
   drafts,
   trash,
   spam,
@@ -17,7 +17,7 @@ enum MailFolder {
   String get label => switch (this) {
     MailFolder.inbox => 'Gelen Kutusu',
     MailFolder.sent => 'Gönderilenler',
-    MailFolder.pinned => 'Yıldızlılar',
+    MailFolder.starred => 'Yıldızlılar',
     MailFolder.drafts => 'Taslaklar',
     MailFolder.trash => 'Çöp Kutusu',
     MailFolder.spam => 'Spam',
@@ -27,7 +27,7 @@ enum MailFolder {
   IconData get icon => switch (this) {
     MailFolder.inbox => LucideIcons.inbox,
     MailFolder.sent => LucideIcons.send,
-    MailFolder.pinned => LucideIcons.star,
+    MailFolder.starred => LucideIcons.star,
     MailFolder.drafts => LucideIcons.fileText,
     MailFolder.trash => LucideIcons.trash2,
     MailFolder.spam => LucideIcons.shieldAlert,

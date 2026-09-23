@@ -97,17 +97,17 @@ class AccountsScreen extends StatelessWidget {
               const Divider(),
               ListTile(
                 key: const ValueKey('add-account-row'),
-                leading: const Icon(
+                leading: Icon(
                   LucideIcons.plus,
                   size: 20,
-                  color: AppTheme.secondaryText,
+                  color: AppTheme.colors(context).secondaryText,
                 ),
-                title: const Text(
+                title: Text(
                   'Yeni hesap ekle',
                   style: TextStyle(
                     fontSize: 14.5,
                     fontWeight: FontWeight.w600,
-                    color: Colors.black,
+                    color: Theme.of(context).colorScheme.onSurface,
                   ),
                 ),
                 onTap: () => _add(context),
@@ -146,42 +146,46 @@ class _AccountRow extends StatelessWidget {
   Widget build(BuildContext context) {
     return ListTile(
       onTap: onTap,
-      tileColor: isActive ? const Color(0xFFF3F4F6) : null,
+      tileColor: isActive ? AppTheme.colors(context).surfaceAlt : null,
       leading: avatarIdentity != null
           ? MailAvatar(identity: avatarIdentity!, displayName: title, size: 40)
-          : Icon(icon, size: 20, color: AppTheme.secondaryText),
+          : Icon(icon, size: 20, color: AppTheme.colors(context).secondaryText),
       title: Text(
         title,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 14.5,
           fontWeight: FontWeight.w600,
-          color: Colors.black,
+          color: Theme.of(context).colorScheme.onSurface,
         ),
       ),
       subtitle: subtitle == null
           ? null
           : Text(
               isActive ? '$subtitle · Aktif' : subtitle!,
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 13,
-                color: AppTheme.secondaryText,
+                color: AppTheme.colors(context).secondaryText,
               ),
             ),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
           if (isActive)
-            const Icon(LucideIcons.check, size: 20, color: Colors.black),
+            Icon(
+              LucideIcons.check,
+              size: 20,
+              color: Theme.of(context).colorScheme.onSurface,
+            ),
           if (canRemove && onRemove != null)
             IconButton(
               tooltip: 'Hesabı kaldır',
               onPressed: onRemove,
-              icon: const Icon(
+              icon: Icon(
                 LucideIcons.trash2,
                 size: 18,
-                color: AppTheme.tertiaryText,
+                color: AppTheme.colors(context).tertiaryText,
               ),
             ),
         ],

@@ -103,6 +103,19 @@ class PushService {
     }
   }
 
+  /// Retries device registration after authentication establishes at least
+  /// one repository session. Safe when Firebase is unavailable or disabled.
+  static Future<void> registerAuthenticatedDevice() async {
+    final messaging = _messaging;
+    final repository = _repository;
+    if (messaging == null ||
+        repository == null ||
+        !AppSettingsController.instance.notificationsEnabled) {
+      return;
+    }
+    await _register(messaging, repository);
+  }
+
   /// Requests notification permission, then registers the current FCM token
   /// unless the user has turned notifications off in Settings. Keeps
   /// registering on every token refresh. Runs detached from [initialize] so

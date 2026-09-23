@@ -121,6 +121,7 @@ abstract class MailRepository extends ChangeNotifier {
   Future<MailAccount> connectAccount({
     required String email,
     required String password,
+    MailServerSettings? serverSettings,
   });
 
   /// Disconnects an account and drops its mails. The last remaining account
@@ -155,6 +156,12 @@ abstract class MailRepository extends ChangeNotifier {
   /// newest first. Powers unified search across accounts.
   List<Email> getAllEmails();
 
+  /// Every mail in the active mailbox scope, regardless of folder.
+  ///
+  /// Unlike [getAllEmails], this narrows to [activeAccountId] when one is
+  /// selected. Folder UI uses this for scope-local thread aggregation.
+  List<Email> getScopedEmails();
+
   /// Unread badge for [folder]; implementations may prefer a server count.
   int unreadCount(MailFolder folder) =>
       getEmailsInFolder(folder).where((e) => !e.isRead).length;
@@ -164,6 +171,10 @@ abstract class MailRepository extends ChangeNotifier {
   /// Used for infinite scrolling; should never duplicate previously returned
   /// emails and must keep existing entries intact.
   Future<List<Email>> loadMoreEmails(MailFolder folder);
+
+  /// Whether at least one account in the active mailbox scope has another
+  /// page for [folder].
+  bool hasMoreEmails(MailFolder folder);
 
   /// Re-syncs [folder] from the source without touching the existing page.
   ///
@@ -178,6 +189,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// Failures (e.g. a full sync queue) are for the caller to swallow — the
   /// refresh that follows still shows the current snapshot.
   Future<void> syncFolder(MailFolder folder);
+
+  /// Timestamp of the most recent successful sync for [folder] in the
+  /// active mailbox scope, or null if it hasn't synced yet this session.
+  /// Powers the "son senkronizasyon" hint on empty/error/offline states.
+  DateTime? lastSyncedAt(MailFolder folder) => null;
 
   Future<Email?> getEmail(String id);
 
@@ -267,6 +283,10 @@ abstract class MailRepository extends ChangeNotifier {
 
   List<MailLabel> getLabels();
 
+  /// Labels owned by one account. Label ids are account-local and must never
+  /// be applied to mail belonging to another account.
+  List<MailLabel> getLabelsForAccount(String accountId);
+
   /// Creates a new label. Throws [ArgumentError] (Turkish message) when the
   /// trimmed name is empty or duplicates an existing name case-insensitively.
   Future<MailLabel> createLabel({required String name, required Color color});
@@ -302,8 +322,7 @@ abstract class MailRepository extends ChangeNotifier {
     if (representative.threadId.isEmpty) return representative;
     final members = getThreadEmails(representative.threadId);
     if (members.isEmpty) return representative;
-    final replied =
-        representative.isReplied || members.any((m) => m.isReplied);
+    final replied = representative.isReplied || members.any((m) => m.isReplied);
     final forwarded =
         representative.isForwarded || members.any((m) => m.isForwarded);
     if (replied == representative.isReplied &&
@@ -314,6 +333,10 @@ abstract class MailRepository extends ChangeNotifier {
   }
 
   // --- Search -------------------------------------------------------
+
+  /// Searches the complete server-side corpus across every connected account,
+  /// independent of [activeAccountId].
+  Future<List<Email>> searchEmailsOnServer({required String query});
 
   /// Conversations matching a client-side text [query] and an optional label
   /// filter, one representative row per conversation, newest first.

@@ -2,8 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../repositories/mail_repository.dart';
+import '../services/api_exception.dart';
 import '../services/session_store.dart';
+import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
+import '../widgets/manual_mail_setup_dialog.dart';
 
 /// Account-connection flow: enter the address and password, connect through
 /// [AppConfig.mailRepository].
@@ -32,7 +36,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
     super.dispose();
   }
 
-  Future<void> _connect() async {
+  Future<void> _connect({MailServerSettings? serverSettings}) async {
     if (!_formKey.currentState!.validate() || _connecting) return;
     setState(() {
       _connecting = true;
@@ -42,19 +46,39 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
       final account = await AppConfig.mailRepository.connectAccount(
         email: _emailController.text.trim(),
         password: _passwordController.text,
+        serverSettings: serverSettings,
       );
       await SessionStore.addEmail(account.email);
       if (!mounted) return;
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('${account.email} bağlandı.')));
-    } catch (e) {
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      if (serverSettings == null &&
+          error.code == 'mail_discovery_failed' &&
+          error.details['manualSetupAvailable'] == true) {
+        setState(() => _connecting = false);
+        final settings = await ManualMailSetupDialog.show(
+          context,
+          email: _emailController.text.trim(),
+        );
+        if (settings != null && mounted) {
+          await _connect(serverSettings: settings);
+        }
+        return;
+      }
+      setState(() {
+        _connecting = false;
+        _error = error.userMessage;
+      });
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _connecting = false;
-        _error = e is ArgumentError
-            ? '${e.message}'
-            : friendlyErrorMessage(e);
+        _error = error is ArgumentError
+            ? '${error.message}'
+            : friendlyErrorMessage(error);
       });
     }
   }
@@ -124,9 +148,9 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   const SizedBox(height: 12),
                   Text(
                     _error!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: Color(0xFFB3261E),
+                      color: AppTheme.colors(context).destructive,
                     ),
                   ),
                 ],
@@ -135,12 +159,12 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   key: const Key('connect-button'),
                   onPressed: _connecting ? null : _connect,
                   child: _connecting
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 22,
                           height: 22,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: Colors.white,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
                         )
                       : const Text('Bağla'),

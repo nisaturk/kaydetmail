@@ -30,7 +30,7 @@ class AppDrawer extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Drawer(
-      backgroundColor: Colors.white,
+      backgroundColor: Theme.of(context).colorScheme.surface,
       child: SafeArea(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -49,21 +49,21 @@ class AppDrawer extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'KAYDET',
                           style: TextStyle(
                             fontSize: 18,
                             fontWeight: FontWeight.w700,
-                            color: Colors.black,
+                            color: Theme.of(context).colorScheme.onSurface,
                           ),
                         ),
                         Text(
                           AppConfig.mailRepository.currentUser,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
+                          style: TextStyle(
                             fontSize: 13,
-                            color: AppTheme.secondaryText,
+                            color: AppTheme.colors(context).secondaryText,
                           ),
                         ),
                       ],
@@ -129,7 +129,7 @@ class AppDrawer extends StatelessWidget {
       case MailFolder.spam:
         return repo.unreadCount(folder);
       case MailFolder.sent:
-      case MailFolder.pinned:
+      case MailFolder.starred:
       case MailFolder.trash:
       case MailFolder.archive:
         return 0;
@@ -152,25 +152,27 @@ class _FolderTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: ListTile(
         onTap: onTap,
         selected: selected,
-        selectedColor: Colors.black,
-        selectedTileColor: const Color(0xFFF3F4F6),
+        selectedColor: onSurface,
+        selectedTileColor: colors.surfaceAlt,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         leading: Icon(
           folder.icon,
           size: 20,
-          color: selected ? Colors.black : AppTheme.secondaryText,
+          color: selected ? onSurface : colors.secondaryText,
         ),
         title: Text(
           folder.label,
           style: TextStyle(
             fontSize: 14.5,
             fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
-            color: selected ? Colors.black : AppTheme.secondaryText,
+            color: selected ? onSurface : colors.secondaryText,
           ),
         ),
         trailing: badgeCount > 0
@@ -194,15 +196,16 @@ class _SectionTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final secondaryText = AppTheme.colors(context).secondaryText;
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: ListTile(
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-        leading: Icon(icon, size: 20, color: AppTheme.secondaryText),
+        leading: Icon(icon, size: 20, color: secondaryText),
         title: Text(
           label,
-          style: const TextStyle(fontSize: 14.5, color: AppTheme.secondaryText),
+          style: TextStyle(fontSize: 14.5, color: secondaryText),
         ),
       ),
     );

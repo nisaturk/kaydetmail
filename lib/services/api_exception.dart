@@ -1,5 +1,14 @@
 import 'dart:convert';
 
+enum ApiErrorCategory {
+  authentication,
+  request,
+  network,
+  timeout,
+  server,
+  unknown,
+}
+
 class ApiException implements Exception {
   const ApiException({
     required this.status,
@@ -39,8 +48,24 @@ class ApiException implements Exception {
   final String? title;
   final String? correlationId;
   final Map<String, dynamic> details;
+  ApiErrorCategory get category => switch (code) {
+    'request_timeout' => ApiErrorCategory.timeout,
+    'network_unavailable' => ApiErrorCategory.network,
+    _ when status == 401 || status == 403 => ApiErrorCategory.authentication,
+    _ when status >= 400 && status < 500 => ApiErrorCategory.request,
+    _ when status >= 500 => ApiErrorCategory.server,
+    _ => ApiErrorCategory.unknown,
+  };
+
+  bool get isTransient =>
+      category == ApiErrorCategory.network ||
+      category == ApiErrorCategory.timeout ||
+      status == 429 ||
+      category == ApiErrorCategory.server;
 
   String get userMessage => switch (code) {
+    'request_timeout' => 'Sunucu yanıt vermedi. Lütfen tekrar deneyin.',
+    'network_unavailable' => 'İnternet bağlantınızı kontrol edin.',
     'mail_authentication_failed' => 'E-posta şifresi reddedildi.',
     'invalid_refresh_token' =>
       'Oturum süresi doldu. Lütfen yeniden giriş yapın.',

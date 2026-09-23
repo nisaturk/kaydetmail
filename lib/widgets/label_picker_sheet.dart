@@ -4,6 +4,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
+import '../theme/app_theme.dart';
 
 /// Bottom-sheet label picker shared by the detail screen and the bulk action
 /// bar, so assigning labels never forks into two implementations.
@@ -24,40 +25,67 @@ Future<void> showLabelPicker(
       return ListenableBuilder(
         listenable: repo,
         builder: (sheetContext, _) {
-          final labels = repo.getLabels();
+          final selectedEmails = repo.getAllEmails().where(
+            (email) => emailIds.contains(email.id),
+          );
+          final byAccount = <String, List<String>>{};
+          for (final email in selectedEmails) {
+            byAccount.putIfAbsent(email.accountId, () => []).add(email.id);
+          }
+          final multipleAccounts = byAccount.length > 1;
           return SafeArea(
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Padding(
-                  padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      'Etiketler',
-                      style: TextStyle(
+                      multipleAccounts
+                          ? 'Etiketler hesap bazında uygulanır'
+                          : 'Etiketler',
+                      style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
                       ),
                     ),
                   ),
                 ),
-                if (labels.isEmpty)
-                  const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 24, vertical: 16),
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Text(
-                        'Henüz etiket yok. Ayarlar’dan ekleyebilirsiniz.',
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Color(0xFF6B7280),
+                for (final entry in byAccount.entries) ...[
+                  if (multipleAccounts)
+                    ListTile(
+                      dense: true,
+                      title: Text(
+                        repo.getAccount(entry.key)?.email ?? 'Posta hesabı',
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ),
+                  if (repo.getLabelsForAccount(entry.key).isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 24,
+                        vertical: 16,
+                      ),
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          'Bu hesapta etiket yok.',
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: AppTheme.colors(sheetContext).secondaryText,
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                for (final label in labels)
-                  _LabelRow(repo: repo, labelId: label.id, emailIds: emailIds),
+                  for (final label in repo.getLabelsForAccount(entry.key))
+                    _LabelRow(
+                      repo: repo,
+                      accountId: entry.key,
+                      labelId: label.id,
+                      emailIds: entry.value,
+                    ),
+                ],
                 const SizedBox(height: 8),
               ],
             ),
@@ -72,10 +100,12 @@ class _LabelRow extends StatefulWidget {
   const _LabelRow({
     required this.repo,
     required this.labelId,
+    required this.accountId,
     required this.emailIds,
   });
 
   final MailRepository repo;
+  final String accountId;
   final String labelId;
   final List<String> emailIds;
 
@@ -138,7 +168,7 @@ class _LabelRowState extends State<_LabelRow> {
   }
 
   MailLabel? _labelById() {
-    for (final label in widget.repo.getLabels()) {
+    for (final label in widget.repo.getLabelsForAccount(widget.accountId)) {
       if (label.id == widget.labelId) return label;
     }
     return null;

@@ -1,7 +1,9 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 
+import '../services/app_preferences_store.dart';
 import '../services/notification_settings_store.dart';
 import '../services/server_address_store.dart';
 
@@ -40,6 +42,7 @@ class AppSettingsController extends ChangeNotifier {
   SyncInterval _syncInterval = SyncInterval.manual;
   bool _swipeDeleteEnabled = true;
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
+  ThemeMode _themeMode = ThemeMode.system;
 
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
@@ -49,6 +52,11 @@ class AppSettingsController extends ChangeNotifier {
 
   /// Configured HTTP API base URL, normalized (no trailing slash).
   String get serverBaseUrl => _serverBaseUrl;
+
+  /// `system` follows the device's light/dark setting; `light`/`dark`
+  /// override it. Defaults to `system` — the palette itself never changes
+  /// (grayscale by design), only which end of it is the background.
+  ThemeMode get themeMode => _themeMode;
 
   set notificationsEnabled(bool value) {
     if (_notificationsEnabled == value) return;
@@ -61,12 +69,21 @@ class AppSettingsController extends ChangeNotifier {
     if (_syncInterval == value) return;
     _syncInterval = value;
     notifyListeners();
+    unawaited(AppPreferencesStore.saveSyncInterval(value.name));
   }
 
   set swipeDeleteEnabled(bool value) {
     if (_swipeDeleteEnabled == value) return;
     _swipeDeleteEnabled = value;
     notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeDeleteEnabled(value));
+  }
+
+  set themeMode(ThemeMode value) {
+    if (_themeMode == value) return;
+    _themeMode = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveThemeMode(value.name));
   }
 
   /// Loads the persisted server address at app startup. Falls back to the
@@ -84,6 +101,31 @@ class AppSettingsController extends ChangeNotifier {
     final loaded = await NotificationSettingsStore.load();
     if (loaded == _notificationsEnabled) return;
     _notificationsEnabled = loaded;
+    notifyListeners();
+  }
+
+  /// Loads sync and gesture preferences before authentication completes, so
+  /// the first mailbox frame and sync timer use the persisted values.
+  Future<void> loadBehaviorPreferences() async {
+    final syncName = await AppPreferencesStore.loadSyncInterval();
+    final sync = SyncInterval.values
+        .where((value) => value.name == syncName)
+        .firstOrNull;
+    final swipe = await AppPreferencesStore.loadSwipeDeleteEnabled();
+    if (sync == null && swipe == _swipeDeleteEnabled) return;
+    _syncInterval = sync ?? SyncInterval.manual;
+    _swipeDeleteEnabled = swipe;
+    notifyListeners();
+  }
+
+  /// Loads the persisted theme mode. Awaited before `runApp` in `main()` so
+  /// the very first frame already uses the right mode — no light-then-dark
+  /// flash.
+  Future<void> loadThemeMode() async {
+    final saved = await AppPreferencesStore.loadThemeMode();
+    final mode = ThemeMode.values.where((m) => m.name == saved).firstOrNull;
+    if (mode == null || mode == _themeMode) return;
+    _themeMode = mode;
     notifyListeners();
   }
 
@@ -108,6 +150,7 @@ class AppSettingsController extends ChangeNotifier {
       .._syncInterval = SyncInterval.manual
       .._swipeDeleteEnabled = true
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
+      .._themeMode = ThemeMode.system
       ..notifyListeners();
   }
 }

@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
 
 import 'mail_cache.dart';
 
@@ -17,7 +17,7 @@ class LocalMailFlagsStore {
   LocalMailFlagsStore(this._accountId, MailCache cache) : _db = cache.db;
 
   final String _accountId;
-  final Database _db;
+  final CommonDatabase _db;
 
   Future<Set<String>> _read(String kind) async => {
     for (final r in _db.select(
@@ -54,10 +54,23 @@ class LocalMailFlagsStore {
   Future<Set<String>> readReplied() => _read('replied');
   Future<Set<String>> readForwarded() => _read('forwarded');
 
+  /// ThreadId-keyed companions to [readReplied]/[readForwarded]: a reply or
+  /// forward is stamped on every message in the conversation, not only the
+  /// one the user actually opened — so the inbox row for a thread whose
+  /// answered message isn't currently loaded into memory (e.g. it lives in
+  /// an unfetched folder) still shows the icon. See [ApiMailRepository]
+  /// `stampLocalFlags`.
+  Future<Set<String>> readRepliedThreads() => _read('replied_threads');
+  Future<Set<String>> readForwardedThreads() => _read('forwarded_threads');
+
   Future<void> writePinned(Set<String> ids) async => _write('pinned', ids);
   Future<void> writeReplied(Set<String> ids) async => _write('replied', ids);
   Future<void> writeForwarded(Set<String> ids) async =>
       _write('forwarded', ids);
+  Future<void> writeRepliedThreads(Set<String> ids) async =>
+      _write('replied_threads', ids);
+  Future<void> writeForwardedThreads(Set<String> ids) async =>
+      _write('forwarded_threads', ids);
 
   Future<List<Map<String, dynamic>>> readLabelDefs() async => [
     for (final r in _db.select(

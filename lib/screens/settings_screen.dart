@@ -12,7 +12,6 @@ import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
-import 'login_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
 ///
@@ -37,6 +36,22 @@ class SettingsScreen extends StatelessWidget {
     Color(0xFF2D3142),
   ];
 
+  /// Accessible names for [labelColors], same order — read by
+  /// [_ColorPalette]'s swatch semantics so a screen reader announces which
+  /// color is selected instead of just "button".
+  static const List<String> labelColorNames = [
+    'Mavi',
+    'Mor',
+    'Yeşil',
+    'Turuncu',
+    'Koyu kırmızı',
+    'Kırmızı',
+    'Turkuaz',
+    'Menekşe',
+    'Kırmızı-turuncu',
+    'Koyu gri',
+  ];
+
   @override
   Widget build(BuildContext context) {
     // Index of categories (Gmail/Thunderbird style); each opens its own page.
@@ -50,9 +65,15 @@ class SettingsScreen extends StatelessWidget {
             icon: LucideIcons.users,
             title: 'Hesaplar',
             subtitle: 'Bağlı posta hesapları',
-            onTap: (ctx) => Navigator.of(ctx).push(
-              MaterialPageRoute(builder: (_) => const AccountsScreen()),
-            ),
+            onTap: (ctx) => Navigator.of(
+              ctx,
+            ).push(MaterialPageRoute(builder: (_) => const AccountsScreen())),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.palette,
+            title: 'Görünüm',
+            subtitle: 'Açık, koyu veya sistem teması',
+            page: (_) => [_AppearanceSection()],
           ),
           _CategoryTile(
             icon: LucideIcons.bell,
@@ -116,7 +137,7 @@ class _CategoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon, size: 22, color: AppTheme.secondaryText),
+      leading: Icon(icon, size: 22, color: AppTheme.colors(context).secondaryText),
       title: Text(title),
       subtitle: Text(subtitle),
       trailing: const Icon(LucideIcons.chevronRight, size: 18),
@@ -202,27 +223,48 @@ class _ColorPalette extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final c in SettingsScreen.labelColors)
-          GestureDetector(
-            onTap: () => onSelected(c),
-            child: Container(
-              width: 32,
-              height: 32,
-              decoration: BoxDecoration(
-                color: c,
-                shape: BoxShape.circle,
-                border: Border.all(
-                  color: c == selected ? Colors.black : Colors.transparent,
-                  width: 2,
+        for (final (i, c) in SettingsScreen.labelColors.indexed)
+          Semantics(
+            button: true,
+            label: SettingsScreen.labelColorNames[i],
+            selected: c == selected,
+            child: Material(
+              color: Colors.transparent,
+              shape: const CircleBorder(),
+              child: InkWell(
+                onTap: () => onSelected(c),
+                customBorder: const CircleBorder(),
+                child: SizedBox(
+                  width: AppTheme.minTouchTarget,
+                  height: AppTheme.minTouchTarget,
+                  child: Center(
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: c,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: c == selected ? onSurface : Colors.transparent,
+                          width: 2,
+                        ),
+                      ),
+                      child: c == selected
+                          ? const Icon(
+                              LucideIcons.check,
+                              size: 18,
+                              color: Colors.white,
+                            )
+                          : null,
+                    ),
+                  ),
                 ),
               ),
-              child: c == selected
-                  ? const Icon(LucideIcons.check, size: 18, color: Colors.white)
-                  : null,
             ),
           ),
       ],
@@ -354,7 +396,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
           TextButton(
             onPressed: _delete,
             style: TextButton.styleFrom(
-              foregroundColor: const Color(0xFFB3261E),
+              foregroundColor: AppTheme.colors(context).destructive,
             ),
             child: const Text('Sil'),
           ),
@@ -430,10 +472,10 @@ class _ServerSectionState extends State<_ServerSection> {
       children: [
         ListTile(
           dense: true,
-          leading: const Icon(
+          leading: Icon(
             LucideIcons.server,
             size: 20,
-            color: AppTheme.secondaryText,
+            color: AppTheme.colors(context).secondaryText,
           ),
           title: const Text('Sunucu adresi'),
           subtitle: Text(
@@ -457,7 +499,7 @@ class _ServerSectionState extends State<_ServerSection> {
                   healthy ? LucideIcons.circleCheckBig : LucideIcons.circleX,
                   size: 20,
                   color: healthy
-                      ? const Color(0xFF2E7D32)
+                      ? AppTheme.colors(context).success
                       : Theme.of(context).colorScheme.error,
                 ),
           title: const Text('API bağlantısı'),
@@ -566,11 +608,8 @@ class _SessionsSectionState extends State<_SessionsSection> {
   Future<void> _signOutAfterRevoke() async {
     await AppConfig.mailRepository.logout();
     await SessionStore.clear();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+    // The root auth coordinator observes the repository logout and clears
+    // every authenticated route before showing Login.
   }
 
   @override
@@ -579,13 +618,16 @@ class _SessionsSectionState extends State<_SessionsSection> {
     if (_error != null) {
       return ListTile(
         dense: true,
-        leading: const Icon(
+        leading: Icon(
           LucideIcons.triangleAlert,
           size: 20,
-          color: AppTheme.secondaryText,
+          color: AppTheme.colors(context).secondaryText,
         ),
         title: Text(_error!),
-        trailing: TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+        trailing: TextButton(
+          onPressed: _load,
+          child: const Text('Tekrar dene'),
+        ),
       );
     }
     if (sessions == null) {
@@ -601,11 +643,11 @@ class _SessionsSectionState extends State<_SessionsSection> {
       );
     }
     if (sessions.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
           'Bağlı cihaz yok.',
-          style: TextStyle(fontSize: 14, color: AppTheme.secondaryText),
+          style: TextStyle(fontSize: 14, color: AppTheme.colors(context).secondaryText),
         ),
       );
     }
@@ -614,10 +656,10 @@ class _SessionsSectionState extends State<_SessionsSection> {
         for (final session in sessions)
           ListTile(
             dense: true,
-            leading: const Icon(
+            leading: Icon(
               LucideIcons.smartphone,
               size: 20,
-              color: AppTheme.secondaryText,
+              color: AppTheme.colors(context).secondaryText,
             ),
             title: Row(
               children: [
@@ -635,23 +677,25 @@ class _SessionsSectionState extends State<_SessionsSection> {
                       vertical: 2,
                     ),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFF9FAFB),
+                      color: AppTheme.colors(context).unreadBackground,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppTheme.border),
+                      border: Border.all(color: AppTheme.colors(context).border),
                     ),
-                    child: const Text(
+                    child: Text(
                       'Bu cihaz',
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
-                        color: AppTheme.secondaryText,
+                        color: AppTheme.colors(context).secondaryText,
                       ),
                     ),
                   ),
                 ],
               ],
             ),
-            subtitle: Text('Son kullanım: ${formatMailTime(session.lastUsedAt)}'),
+            subtitle: Text(
+              'Son kullanım: ${formatMailTime(session.lastUsedAt)}',
+            ),
             trailing: _revokingId == session.id
                 ? const SizedBox(
                     width: 18,
@@ -661,7 +705,7 @@ class _SessionsSectionState extends State<_SessionsSection> {
                 : TextButton(
                     onPressed: () => _revoke(session),
                     style: TextButton.styleFrom(
-                      foregroundColor: const Color(0xFFB3261E),
+                      foregroundColor: AppTheme.colors(context).destructive,
                     ),
                     child: const Text('Kapat'),
                   ),
@@ -682,7 +726,6 @@ class _NotificationsSection extends StatelessWidget {
       title: const Text('Bildirimler'),
       subtitle: const Text('Bu cihazda yeni e-posta bildirimlerini göster.'),
       value: settings.notificationsEnabled,
-      activeThumbColor: Colors.black,
       onChanged: (v) => settings.notificationsEnabled = v,
     );
   }
@@ -710,6 +753,38 @@ class _SyncSection extends StatelessWidget {
   }
 }
 
+/// System/light/dark theme picker. The palette itself never changes
+/// (grayscale by design per the client's brand guidelines) — only which end
+/// of it is the background.
+class _AppearanceSection extends StatelessWidget {
+  const _AppearanceSection();
+
+  static const _options = [
+    (ThemeMode.system, 'Sistem', 'Cihazın temasını izler'),
+    (ThemeMode.light, 'Açık', null),
+    (ThemeMode.dark, 'Koyu', null),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return Column(
+      children: [
+        for (final (mode, label, subtitle) in _options)
+          ListTile(
+            dense: true,
+            title: Text(label),
+            subtitle: subtitle == null ? null : Text(subtitle),
+            trailing: mode == settings.themeMode
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.themeMode = mode,
+          ),
+      ],
+    );
+  }
+}
+
 class _SwipeSection extends StatelessWidget {
   const _SwipeSection();
 
@@ -723,7 +798,6 @@ class _SwipeSection extends StatelessWidget {
         'Listede sola kaydırınca e-postayı çöp kutusuna taşır.',
       ),
       value: settings.swipeDeleteEnabled,
-      activeThumbColor: Colors.black,
       onChanged: (v) => settings.swipeDeleteEnabled = v,
     );
   }

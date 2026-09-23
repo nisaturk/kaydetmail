@@ -19,6 +19,12 @@ import 'mail_avatar.dart';
 /// background; the row structure is identical either way. Pinned mails show
 /// a pin icon and mails with attachments show a paperclip. While [selected]
 /// the row gets a light background in addition to the avatar check.
+///
+/// The customer's product requirement is that attachment/replied/forwarded/
+/// label status is visible from the list without opening the mail — so
+/// every status icon here stays, but they're exposed to screen readers as
+/// one merged announcement (see [_semanticSummary]) instead of each Text/
+/// Icon being read separately.
 class MailListItem extends StatelessWidget {
   const MailListItem({
     super.key,
@@ -54,174 +60,205 @@ class MailListItem extends StatelessWidget {
   /// labeled mail is obvious without opening it.
   final List<MailLabel> labels;
 
+  String _semanticSummary() {
+    final parts = <String>[
+      email.senderName,
+      email.subject.isEmpty ? '(konu yok)' : email.subject,
+      email.isRead ? 'okundu' : 'okunmadı',
+    ];
+    if (email.isStarred) parts.add('yıldızlı');
+    if (email.isPinned) parts.add('sabitlenmiş');
+    if (email.isReplied) parts.add('yanıtlandı');
+    if (email.isForwarded) parts.add('iletildi');
+    if (email.attachments.isNotEmpty || email.hasAttachments) {
+      parts.add('ek içeriyor');
+    }
+    if (threadCount != null && threadCount! > 1) {
+      parts.add('$threadCount mesajlık konuşma');
+    }
+    if (labels.isNotEmpty) {
+      parts.add('etiketler: ${labels.map((l) => l.name).join(', ')}');
+    }
+    parts.add(email.preview);
+    return parts.join(', ');
+  }
+
   @override
   Widget build(BuildContext context) {
     final time = formatMailTime(email.timestamp);
     final meta = [?folderLabel, ?accountLabel].join(' · ');
+    final colors = AppTheme.colors(context);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
 
-    return Container(
-      color: selected
-          ? const Color(0xFFF3F4F6)
-          : (email.isRead ? null : AppTheme.unreadBackground),
-      child: InkWell(
-        onTap: onTap,
-        onLongPress: onLongPress,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MailAvatar(
-                identity: email.senderEmail,
-                displayName: email.senderName,
-                selected: selected,
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            email.senderName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+    return Semantics(
+      label: _semanticSummary(),
+      selected: selected,
+      button: true,
+      excludeSemantics: true,
+      child: Container(
+        color: selected
+            ? colors.surfaceAlt
+            : (email.isRead ? null : colors.unreadBackground),
+        child: InkWell(
+          onTap: onTap,
+          onLongPress: onLongPress,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                MailAvatar(
+                  identity: email.senderEmail,
+                  displayName: email.senderName,
+                  selected: selected,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              email.senderName,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 15,
+                                fontWeight: email.isRead
+                                    ? FontWeight.w400
+                                    : FontWeight.w700,
+                                color: onSurface,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
+                          if (email.isStarred) ...[
+                            Icon(LucideIcons.star, size: 14, color: onSurface),
+                            const SizedBox(width: 6),
+                          ],
+                          if (email.isPinned) ...[
+                            Icon(
+                              LucideIcons.pin,
+                              size: 14,
+                              color: colors.tertiaryText,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          if (email.attachments.isNotEmpty ||
+                              email.hasAttachments) ...[
+                            Icon(
+                              LucideIcons.paperclip,
+                              size: 13,
+                              color: colors.tertiaryText,
+                            ),
+                            const SizedBox(width: 6),
+                          ],
+                          _StatusIcons(email: email),
+                          Text(
+                            time,
                             style: TextStyle(
-                              fontSize: 15,
+                              fontSize: 12,
                               fontWeight: email.isRead
                                   ? FontWeight.w400
                                   : FontWeight.w700,
-                              color: Colors.black,
+                              color: email.isRead
+                                  ? colors.secondaryText
+                                  : onSurface,
                             ),
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        if (email.isStarred) ...[
-                          const Icon(Icons.star, size: 14, color: Colors.black),
-                          const SizedBox(width: 6),
                         ],
-                        if (email.isPinned) ...[
-                          Icon(
-                            LucideIcons.pin,
-                            size: 14,
-                            color: AppTheme.tertiaryText,
-                          ),
-                          const SizedBox(width: 6),
-                        ],
-                        if (email.attachments.isNotEmpty ||
-                            email.hasAttachments) ...[
-                          Icon(
-                            LucideIcons.paperclip,
-                            size: 13,
-                            color: AppTheme.tertiaryText,
-                          ),
-                          const SizedBox(width: 6),
-                        ],
-                        _StatusIcons(email: email),
-                        Text(
-                          time,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: email.isRead
-                                ? FontWeight.w400
-                                : FontWeight.w700,
-                            color: email.isRead
-                                ? AppTheme.secondaryText
-                                : Colors.black,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 3),
-                    if (meta.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 2),
-                        child: Text(
-                          meta,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 11,
-                            color: AppTheme.tertiaryText,
-                          ),
-                        ),
                       ),
-                    Row(
-                      children: [
-                        Expanded(
+                      const SizedBox(height: 3),
+                      if (meta.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 2),
                           child: Text(
-                            email.subject,
+                            meta,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: email.isRead
-                                  ? FontWeight.w400
-                                  : FontWeight.w600,
-                              color: email.isRead
-                                  ? AppTheme.secondaryText
-                                  : Colors.black,
+                              fontSize: 11,
+                              color: colors.tertiaryText,
                             ),
                           ),
                         ),
-                        if (threadCount != null && threadCount! > 1) ...[
-                          const SizedBox(width: 6),
-                          Text(
-                            '($threadCount)',
-                            style: const TextStyle(
-                              fontSize: 12,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.tertiaryText,
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              email.subject,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 14,
+                                fontWeight: email.isRead
+                                    ? FontWeight.w400
+                                    : FontWeight.w600,
+                                color: email.isRead
+                                    ? colors.secondaryText
+                                    : onSurface,
+                              ),
                             ),
                           ),
-                        ],
-                      ],
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      email.preview,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: AppTheme.secondaryText,
-                        height: 1.3,
-                      ),
-                    ),
-                    if (labels.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Wrap(
-                        spacing: 6,
-                        runSpacing: 4,
-                        children: [
-                          for (final label in labels)
-                            Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 2,
-                              ),
-                              decoration: BoxDecoration(
-                                color: label.color.withValues(alpha: 0.15),
-                                borderRadius: BorderRadius.circular(20),
-                              ),
-                              child: Text(
-                                label.name,
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: label.color,
-                                ),
+                          if (threadCount != null && threadCount! > 1) ...[
+                            const SizedBox(width: 6),
+                            Text(
+                              '($threadCount)',
+                              style: TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: colors.tertiaryText,
                               ),
                             ),
+                          ],
                         ],
                       ),
+                      const SizedBox(height: 2),
+                      Text(
+                        email.preview,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: colors.secondaryText,
+                          height: 1.3,
+                        ),
+                      ),
+                      if (labels.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Wrap(
+                          spacing: 6,
+                          runSpacing: 4,
+                          children: [
+                            for (final label in labels)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 2,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: label.color.withValues(alpha: 0.15),
+                                  borderRadius: BorderRadius.circular(20),
+                                ),
+                                child: Text(
+                                  label.name,
+                                  style: TextStyle(
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.w600,
+                                    color: label.color,
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
       ),
@@ -232,7 +269,9 @@ class MailListItem extends StatelessWidget {
 /// Compact secondary status icons: read/unread + replied + forwarded.
 ///
 /// All small, tertiary (except unread), never dominating sender/subject.
-/// Read and unread variants share the same size so rows stay aligned.
+/// Read and unread variants share the same size so rows stay aligned. These
+/// stay purely visual — [MailListItem._semanticSummary] already covers them
+/// for screen readers via the row's merged semantics.
 class _StatusIcons extends StatelessWidget {
   const _StatusIcons({required this.email});
 
@@ -240,25 +279,23 @@ class _StatusIcons extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(
           email.isRead ? LucideIcons.mailOpen : LucideIcons.mail,
           size: 13,
-          color: email.isRead ? AppTheme.tertiaryText : Colors.black,
+          color: email.isRead ? colors.tertiaryText : onSurface,
         ),
         if (email.isReplied) ...[
           const SizedBox(width: 5),
-          const Icon(LucideIcons.reply, size: 13, color: AppTheme.tertiaryText),
+          Icon(LucideIcons.reply, size: 13, color: colors.tertiaryText),
         ],
         if (email.isForwarded) ...[
           const SizedBox(width: 5),
-          const Icon(
-            LucideIcons.forward,
-            size: 13,
-            color: AppTheme.tertiaryText,
-          ),
+          Icon(LucideIcons.forward, size: 13, color: colors.tertiaryText),
         ],
         const SizedBox(width: 6),
       ],
