@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
+import '../services/api_health_service.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
@@ -366,26 +367,117 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
   }
 }
 
-class _ServerSection extends StatelessWidget {
+enum _ApiHealthStatus { checking, healthy, unhealthy }
+
+class _ServerSection extends StatefulWidget {
   const _ServerSection();
+
+  @override
+  State<_ServerSection> createState() => _ServerSectionState();
+}
+
+class _ServerSectionState extends State<_ServerSection> {
+  final ApiHealthService _healthService = ApiHealthService();
+  _ApiHealthStatus _status = _ApiHealthStatus.checking;
+  var _checkGeneration = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _checkHealth();
+  }
+
+  @override
+  void dispose() {
+    _healthService.close();
+    super.dispose();
+  }
+
+  Future<void> _checkHealth() async {
+    final generation = ++_checkGeneration;
+    if (_status != _ApiHealthStatus.checking) {
+      setState(() => _status = _ApiHealthStatus.checking);
+    }
+
+    var isHealthy = false;
+    try {
+      isHealthy = await _healthService.isReady(
+        AppSettingsController.instance.serverBaseUrl,
+      );
+    } catch (_) {
+      // Network, timeout and malformed-address failures share one UI state.
+    }
+    if (!mounted || generation != _checkGeneration) return;
+    setState(
+      () => _status = isHealthy
+          ? _ApiHealthStatus.healthy
+          : _ApiHealthStatus.unhealthy,
+    );
+  }
+
+  Future<void> _editServerAddress() async {
+    await ServerAddressDialog.show(context);
+    if (mounted) await _checkHealth();
+  }
 
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
-    return ListTile(
-      dense: true,
-      leading: const Icon(
-        LucideIcons.server,
-        size: 20,
-        color: AppTheme.secondaryText,
-      ),
-      title: const Text('Sunucu adresi'),
-      subtitle: Text(
-        settings.serverBaseUrl,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      onTap: () => ServerAddressDialog.show(context),
+    final checking = _status == _ApiHealthStatus.checking;
+    final healthy = _status == _ApiHealthStatus.healthy;
+
+    return Column(
+      children: [
+        ListTile(
+          dense: true,
+          leading: const Icon(
+            LucideIcons.server,
+            size: 20,
+            color: AppTheme.secondaryText,
+          ),
+          title: const Text('Sunucu adresi'),
+          subtitle: Text(
+            settings.serverBaseUrl,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          onTap: _editServerAddress,
+        ),
+        const Divider(indent: 56),
+        ListTile(
+          key: const Key('api-health-row'),
+          dense: true,
+          leading: checking
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : Icon(
+                  healthy ? LucideIcons.circleCheckBig : LucideIcons.circleX,
+                  size: 20,
+                  color: healthy
+                      ? const Color(0xFF2E7D32)
+                      : Theme.of(context).colorScheme.error,
+                ),
+          title: const Text('API bağlantısı'),
+          subtitle: Text(
+            checking
+                ? 'Bağlantı kontrol ediliyor…'
+                : healthy
+                ? 'Sunucu ve servisler hazır'
+                : 'Bağlantı kurulamadı',
+          ),
+          trailing: checking
+              ? null
+              : IconButton(
+                  tooltip: 'Bağlantıyı yeniden kontrol et',
+                  onPressed: _checkHealth,
+                  icon: const Icon(LucideIcons.refreshCw, size: 18),
+                ),
+          onTap: checking ? null : _checkHealth,
+        ),
+      ],
     );
   }
 }

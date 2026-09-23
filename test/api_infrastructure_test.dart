@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/services/api_auth_service.dart';
+import 'package:kaydetmail/services/api_health_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
@@ -62,6 +63,40 @@ void main() {
 
       expect(await ServerAddressStore.load(), 'http://localhost:5071');
     });
+  });
+
+  group('API health', () {
+    test(
+      'Given a ready API When checked Then the readiness endpoint is used',
+      () async {
+        Uri? requestedUri;
+        final service = ApiHealthService(
+          httpClient: MockClient((request) async {
+            requestedUri = request.url;
+            return http.Response('Healthy', 200);
+          }),
+        );
+        addTearDown(service.close);
+
+        expect(await service.isReady('https://mail.example.com/'), isTrue);
+        expect(
+          requestedUri,
+          Uri.parse('https://mail.example.com/health/ready'),
+        );
+      },
+    );
+
+    test(
+      'Given an unavailable dependency When checked Then API is not ready',
+      () async {
+        final service = ApiHealthService(
+          httpClient: MockClient((_) async => http.Response('Unhealthy', 503)),
+        );
+        addTearDown(service.close);
+
+        expect(await service.isReady('https://mail.example.com'), isFalse);
+      },
+    );
   });
 
   group('TokenStore', () {
