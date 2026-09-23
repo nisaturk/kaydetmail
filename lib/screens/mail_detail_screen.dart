@@ -294,7 +294,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               onPressed: _toggleStar,
               tooltip: _email!.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
               icon: Icon(
-                _email!.isStarred ? Icons.star : LucideIcons.star,
+                LucideIcons.star,
                 color: _email!.isStarred ? Colors.amber : null,
               ),
             ),

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart' show ThemeMode;
 
 import '../services/app_preferences_store.dart';
 import '../services/notification_settings_store.dart';
@@ -41,6 +42,7 @@ class AppSettingsController extends ChangeNotifier {
   SyncInterval _syncInterval = SyncInterval.manual;
   bool _swipeDeleteEnabled = true;
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
+  ThemeMode _themeMode = ThemeMode.system;
 
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
@@ -50,6 +52,11 @@ class AppSettingsController extends ChangeNotifier {
 
   /// Configured HTTP API base URL, normalized (no trailing slash).
   String get serverBaseUrl => _serverBaseUrl;
+
+  /// `system` follows the device's light/dark setting; `light`/`dark`
+  /// override it. Defaults to `system` — the palette itself never changes
+  /// (grayscale by design), only which end of it is the background.
+  ThemeMode get themeMode => _themeMode;
 
   set notificationsEnabled(bool value) {
     if (_notificationsEnabled == value) return;
@@ -70,6 +77,13 @@ class AppSettingsController extends ChangeNotifier {
     _swipeDeleteEnabled = value;
     notifyListeners();
     unawaited(AppPreferencesStore.saveSwipeDeleteEnabled(value));
+  }
+
+  set themeMode(ThemeMode value) {
+    if (_themeMode == value) return;
+    _themeMode = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveThemeMode(value.name));
   }
 
   /// Loads the persisted server address at app startup. Falls back to the
@@ -104,6 +118,17 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Loads the persisted theme mode. Awaited before `runApp` in `main()` so
+  /// the very first frame already uses the right mode — no light-then-dark
+  /// flash.
+  Future<void> loadThemeMode() async {
+    final saved = await AppPreferencesStore.loadThemeMode();
+    final mode = ThemeMode.values.where((m) => m.name == saved).firstOrNull;
+    if (mode == null || mode == _themeMode) return;
+    _themeMode = mode;
+    notifyListeners();
+  }
+
   /// Validates, normalizes and persists a new server base URL. Throws
   /// [ArgumentError] (Turkish message) when [raw] is not a usable absolute
   /// http/https URL.
@@ -125,6 +150,7 @@ class AppSettingsController extends ChangeNotifier {
       .._syncInterval = SyncInterval.manual
       .._swipeDeleteEnabled = true
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
+      .._themeMode = ThemeMode.system
       ..notifyListeners();
   }
 }

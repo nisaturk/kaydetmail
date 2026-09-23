@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart' show ThemeMode;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/services/app_preferences_store.dart';
 import 'package:kaydetmail/services/server_address_store.dart';
@@ -58,12 +59,36 @@ void main() {
   });
 
   group('AppSettingsController', () {
-    test('defaults: notifications on, manual sync, swipe on', () {
+    test('defaults: notifications on, manual sync, swipe on, system theme', () {
       final settings = AppSettingsController.instance;
       expect(settings.notificationsEnabled, isTrue);
       expect(settings.syncInterval, SyncInterval.manual);
       expect(settings.swipeDeleteEnabled, isTrue);
       expect(settings.serverBaseUrl, ServerAddressStore.defaultBaseUrl);
+      expect(settings.themeMode, ThemeMode.system);
+    });
+
+    test('themeMode setter persists and notifies once per change', () async {
+      final settings = AppSettingsController.instance;
+      var notified = 0;
+      settings.addListener(() => notified++);
+
+      settings.themeMode = ThemeMode.dark;
+      settings.themeMode = ThemeMode.dark; // no-op, same value
+      expect(notified, 1);
+      expect(settings.themeMode, ThemeMode.dark);
+      // The setter persists fire-and-forget; give it a turn to land.
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(await AppPreferencesStore.loadThemeMode(), 'dark');
+    });
+
+    test('loadThemeMode picks up a previously saved value', () async {
+      await AppPreferencesStore.saveThemeMode(ThemeMode.light.name);
+      AppSettingsController.resetForTest();
+      expect(AppSettingsController.instance.themeMode, ThemeMode.system);
+
+      await AppSettingsController.instance.loadThemeMode();
+      expect(AppSettingsController.instance.themeMode, ThemeMode.light);
     });
 
     test('setServerAddress persists the normalized value', () async {

@@ -9,6 +9,7 @@ class AppPreferencesStore {
 
   static const _syncIntervalKey = 'kaydet.sync.interval';
   static const _swipeDeleteKey = 'kaydet.swipe.deleteEnabled';
+  static const _themeModeKey = 'kaydet.theme.mode';
 
   static Future<String?> loadSyncInterval() async {
     try {
@@ -36,5 +37,19 @@ class AppPreferencesStore {
   static Future<void> saveSwipeDeleteEnabled(bool value) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_swipeDeleteKey, value);
+  }
+
+  static Future<String?> loadThemeMode() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_themeModeKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveThemeMode(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_themeModeKey, value);
   }
 }

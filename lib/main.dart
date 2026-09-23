@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'app.dart';
 import 'config/app_config.dart';
 import 'services/push_service.dart';
+import 'state/app_settings_controller.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AppSettingsController.instance.loadThemeMode();
   runApp(const KaydetApp());
   if (!AppConfig.pushEnabled) return;
   // Best-effort: without Firebase config files this no-ops and the app runs

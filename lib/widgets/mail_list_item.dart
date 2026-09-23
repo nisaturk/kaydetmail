@@ -99,7 +99,11 @@ class MailListItem extends StatelessWidget {
                         ),
                         const SizedBox(width: 8),
                         if (email.isStarred) ...[
-                          const Icon(Icons.star, size: 14, color: Colors.black),
+                          const Icon(
+                            LucideIcons.star,
+                            size: 14,
+                            color: Colors.black,
+                          ),
                           const SizedBox(width: 6),
                         ],
                         if (email.isPinned) ...[

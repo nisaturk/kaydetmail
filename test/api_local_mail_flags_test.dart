@@ -201,6 +201,38 @@ void main() {
       },
     );
   });
+
+  group('lastSyncedAt', () {
+    test(
+      'null before a folder has ever synced, set after initial load and '
+      'refresh',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-archive', 'Archive'),
+          ],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1')]),
+            'folder-archive': _page(const []),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+
+        // Inbox was loaded by the shared setup helper.
+        final afterLoad = repo.lastSyncedAt(MailFolder.inbox);
+        expect(afterLoad, isNotNull);
+        // A folder nothing ever fetched has no sync timestamp yet.
+        expect(repo.lastSyncedAt(MailFolder.trash), isNull);
+
+        await Future<void>.delayed(const Duration(milliseconds: 5));
+        await repo.refreshEmails(MailFolder.inbox);
+        final afterRefresh = repo.lastSyncedAt(MailFolder.inbox);
+        expect(afterRefresh, isNotNull);
+        expect(afterRefresh!.isAfter(afterLoad!), isTrue);
+      },
+    );
+  });
 }
 
 Future<ApiMailRepository> _repositoryWithLoadedInbox(

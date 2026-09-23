@@ -190,6 +190,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// refresh that follows still shows the current snapshot.
   Future<void> syncFolder(MailFolder folder);
 
+  /// Timestamp of the most recent successful sync for [folder] in the
+  /// active mailbox scope, or null if it hasn't synced yet this session.
+  /// Powers the "son senkronizasyon" hint on empty/error/offline states.
+  DateTime? lastSyncedAt(MailFolder folder) => null;
+
   Future<Email?> getEmail(String id);
 
   /// Downloads one attachment's raw bytes for sharing/saving.

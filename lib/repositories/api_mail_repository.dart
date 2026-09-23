@@ -45,6 +45,9 @@ class _Session {
   final Map<MailFolder, int> pages = {};
   final Map<MailFolder, int> serverUnread = {};
   final Map<MailFolder, bool> hasMore = {};
+  /// Set on every successful `_loadMoreFor`/`_refreshEmailsFor` fetch for
+  /// the folder — the "son senkronizasyon" hint on empty/error states.
+  final Map<MailFolder, DateTime> lastSynced = {};
   final Map<String, int> serverThreadSizes = {};
 
   Set<String> pinnedIds = {};
@@ -1071,6 +1074,18 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
+  DateTime? lastSyncedAt(MailFolder folder) {
+    DateTime? latest;
+    for (final session in _scopedSessions) {
+      final synced = session.lastSynced[folder];
+      if (synced != null && (latest == null || synced.isAfter(latest))) {
+        latest = synced;
+      }
+    }
+    return latest;
+  }
+
+  @override
   Future<List<Email>> loadMoreEmails(MailFolder folder) async {
     final results = await Future.wait(
       _scopedSessions.map((s) => _loadMoreFor(s, folder)),
@@ -1098,6 +1113,7 @@ class ApiMailRepository extends MailRepository {
     session.pages[folder] = result.page;
     session.hasMore[folder] =
         result.page * result.pageSize < result.total && result.items.isNotEmpty;
+    session.lastSynced[folder] = DateTime.now();
     _cancelReconnectRetry(session);
     session.offline = false;
     notifyListeners();
@@ -1150,6 +1166,7 @@ class ApiMailRepository extends MailRepository {
     session.pages[folder] = max(session.pages[folder] ?? 1, result.page);
     session.hasMore[folder] =
         (session.emails[folder]?.length ?? 0) < result.total;
+    session.lastSynced[folder] = DateTime.now();
     notifyListeners();
   }
 
