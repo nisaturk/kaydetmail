@@ -43,12 +43,17 @@ class AppSettingsController extends ChangeNotifier {
   bool _swipeDeleteEnabled = true;
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
+  bool _biometricLockEnabled = false;
 
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
 
   /// Whether the inbox supports swipe-to-delete (`Kaydırarak sil`).
   bool get swipeDeleteEnabled => _swipeDeleteEnabled;
+
+  /// Whether the app requires a biometric/device-credential check on cold
+  /// start and on returning from the background. See `BiometricLockGate`.
+  bool get biometricLockEnabled => _biometricLockEnabled;
 
   /// Configured HTTP API base URL, normalized (no trailing slash).
   String get serverBaseUrl => _serverBaseUrl;
@@ -77,6 +82,13 @@ class AppSettingsController extends ChangeNotifier {
     _swipeDeleteEnabled = value;
     notifyListeners();
     unawaited(AppPreferencesStore.saveSwipeDeleteEnabled(value));
+  }
+
+  set biometricLockEnabled(bool value) {
+    if (_biometricLockEnabled == value) return;
+    _biometricLockEnabled = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveBiometricLockEnabled(value));
   }
 
   set themeMode(ThemeMode value) {
@@ -112,9 +124,15 @@ class AppSettingsController extends ChangeNotifier {
         .where((value) => value.name == syncName)
         .firstOrNull;
     final swipe = await AppPreferencesStore.loadSwipeDeleteEnabled();
-    if (sync == null && swipe == _swipeDeleteEnabled) return;
+    final biometricLock = await AppPreferencesStore.loadBiometricLockEnabled();
+    if (sync == null &&
+        swipe == _swipeDeleteEnabled &&
+        biometricLock == _biometricLockEnabled) {
+      return;
+    }
     _syncInterval = sync ?? SyncInterval.every5Minutes;
     _swipeDeleteEnabled = swipe;
+    _biometricLockEnabled = biometricLock;
     notifyListeners();
   }
 
@@ -151,6 +169,7 @@ class AppSettingsController extends ChangeNotifier {
       .._swipeDeleteEnabled = true
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
+      .._biometricLockEnabled = false
       ..notifyListeners();
   }
 }

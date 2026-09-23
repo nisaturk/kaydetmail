@@ -10,6 +10,7 @@ class AppPreferencesStore {
   static const _syncIntervalKey = 'kaydet.sync.interval';
   static const _swipeDeleteKey = 'kaydet.swipe.deleteEnabled';
   static const _themeModeKey = 'kaydet.theme.mode';
+  static const _biometricLockKey = 'kaydet.security.biometricLockEnabled';
 
   static Future<String?> loadSyncInterval() async {
     try {
@@ -51,5 +52,19 @@ class AppPreferencesStore {
   static Future<void> saveThemeMode(String value) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_themeModeKey, value);
+  }
+
+  static Future<bool> loadBiometricLockEnabled() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getBool(_biometricLockKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> saveBiometricLockEnabled(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_biometricLockKey, value);
   }
 }

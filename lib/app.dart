@@ -10,8 +10,10 @@ import '../state/app_settings_controller.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/mail_detail_screen.dart';
+import 'services/mail_rules_engine.dart';
 import 'services/push_service.dart';
 import 'theme/app_theme.dart';
+import 'widgets/biometric_lock_gate.dart';
 
 /// Root widget of the KAYDET application.
 class KaydetApp extends StatelessWidget {
@@ -191,6 +193,7 @@ class _AuthGateState extends State<_AuthGate> {
         // the user since the last snapshot stays on screen either way.
       }
     }
+    unawaited(MailRulesEngine.instance.evaluateNewMail(repo));
   }
 
   @override
@@ -199,7 +202,7 @@ class _AuthGateState extends State<_AuthGate> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     return _loggedIn!
-        ? const HomeScreen()
+        ? const BiometricLockGate(child: HomeScreen())
         : LoginScreen(onAuthenticated: _setAuthenticated);
   }
 }
