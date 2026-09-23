@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -56,6 +57,7 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _loading = false;
   int _page = _emailPage;
   bool _reconnect = false;
+  bool _autofillFinished = false;
 
   @override
   void initState() {
@@ -78,6 +80,9 @@ class _LoginScreenState extends State<LoginScreen> {
 
   @override
   void dispose() {
+    if (!_autofillFinished) {
+      TextInput.finishAutofillContext(shouldSave: false);
+    }
     _pageController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
@@ -117,6 +122,8 @@ class _LoginScreenState extends State<LoginScreen> {
           password: _passwordController.text,
         );
         if (!mounted) return;
+        _autofillFinished = true;
+        TextInput.finishAutofillContext();
         setState(() => _loading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Hesap yeniden bağlandı.')),
@@ -135,6 +142,8 @@ class _LoginScreenState extends State<LoginScreen> {
       if (ok) {
         await SessionStore.addEmail(_emailController.text.trim());
         if (!mounted) return;
+        _autofillFinished = true;
+        TextInput.finishAutofillContext();
         widget.onAuthenticated?.call();
       } else {
         setState(() => _loading = false);
@@ -195,10 +204,12 @@ class _LoginScreenState extends State<LoginScreen> {
       },
       child: Scaffold(
         body: SafeArea(
-          child: PageView(
-            controller: _pageController,
-            physics: const NeverScrollableScrollPhysics(),
-            children: [_buildEmailStep(), _buildPasswordStep()],
+          child: AutofillGroup(
+            child: PageView(
+              controller: _pageController,
+              physics: const NeverScrollableScrollPhysics(),
+              children: [_buildEmailStep(), _buildPasswordStep()],
+            ),
           ),
         ),
       ),
@@ -260,7 +271,10 @@ class _LoginScreenState extends State<LoginScreen> {
                   key: const Key('email-field'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
+                  autofillHints: const [
+                    AutofillHints.email,
+                    AutofillHints.username,
+                  ],
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _continue(),
                   validator: (value) {
@@ -348,6 +362,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   key: const Key('password-field'),
                   controller: _passwordController,
                   obscureText: _obscurePassword,
+                  autofillHints: const [AutofillHints.password],
                   autofocus: true,
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _loading ? null : _login(),
