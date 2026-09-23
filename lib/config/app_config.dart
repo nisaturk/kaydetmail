@@ -11,9 +11,15 @@ import '../services/session_store.dart';
 class AppConfig {
   const AppConfig._();
 
-  /// Push (FCM) stays off until Firebase is configured — see
-  /// `docs/push-notifications.md`. Enable with `--dart-define=PUSH_ENABLED=true`.
-  static const bool pushEnabled = bool.fromEnvironment('PUSH_ENABLED');
+  /// Push (FCM) is on by default — Firebase is configured for Android (see
+  /// `docs/push-notifications.md`) and the backend already sends pushes.
+  /// Disable with `--dart-define=PUSH_ENABLED=false`. Platforms without
+  /// Firebase messaging (web, desktop) skip it regardless, see
+  /// `PushService.isSupportedPlatform`.
+  static const bool pushEnabled = bool.fromEnvironment(
+    'PUSH_ENABLED',
+    defaultValue: true,
+  );
 
   static MailRepository? _mailRepository;
 

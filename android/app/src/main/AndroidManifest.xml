@@ -38,11 +38,17 @@
             </intent-filter>
         </activity>
         <!-- FCM: icon used for background/killed-state system tray
-             notifications (foreground messages are routed through
-             PushService instead, see push_service.dart). -->
+             notifications (foreground ones are shown by PushService through
+             flutter_local_notifications, see push_service.dart). -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher" />
+        <!-- Same high-importance channel PushService creates, so background
+             pushes pop up too instead of landing silently in the SDK's
+             fallback channel. -->
+        <meta-data
+            android:name="com.google.firebase.messaging.default_notification_channel_id"
+            android:value="mail" />
         <!-- Don't delete the meta-data below.
              This is used by the Flutter tool to generate GeneratedPluginRegistrant.java -->
         <meta-data

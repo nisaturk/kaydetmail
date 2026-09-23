@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../state/app_settings_controller.dart';
 
@@ -50,6 +52,30 @@ class PushService {
   static MailRepository? _repository;
   static bool _settingsListenerAttached = false;
 
+  /// Accounts the device was last registered for — a newly connected
+  /// account needs its own registration (see [_onRepositoryChanged]).
+  static Set<String> _registeredAccountIds = {};
+
+  /// FCM only pops up a notification by itself while the app is in the
+  /// background; foreground ones are shown through this plugin instead.
+  static final FlutterLocalNotificationsPlugin _local =
+      FlutterLocalNotificationsPlugin();
+
+  /// Also referenced by `default_notification_channel_id` in the Android
+  /// manifest, so background pushes use the same high-importance channel.
+  static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
+    'mail',
+    'E-postalar',
+    description: 'Yeni e-posta ve hesap bildirimleri',
+    importance: Importance.high,
+  );
+
+  /// Push needs Firebase's mobile SDKs; desktop and web builds run without.
+  static bool get isSupportedPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
   /// Emits a mail id whenever the user taps a push notification, or once on
   /// launch if the app was cold-started from one. `new_mail` and
   /// `mail_state_changed` are the only types that carry a `mailId`; taps on
@@ -75,18 +101,27 @@ class PushService {
       final initial = await messaging.getInitialMessage();
       if (initial != null) _routeTap(initial);
 
-      FirebaseMessaging.onMessage.listen(
-        (message) => handlePushData(
-          message.data.map((key, value) => MapEntry(key, '$value')),
-          fetchMail: (id) async {
-            try {
-              await repository.getEmail(id);
-            } catch (_) {
-              // A failed refresh never crashes the foreground listener.
-            }
-          },
-        ),
-      );
+      await _initLocalNotifications();
+      FirebaseMessaging.onMessage.listen((message) {
+        unawaited(_showForeground(message));
+        unawaited(
+          handlePushData(
+            message.data.map((key, value) => MapEntry(key, '$value')),
+            fetchMail: (id) async {
+              try {
+                await repository.getEmail(id);
+                // The detail fetch only caches the mail; a new one must
+                // also show up in the open inbox list.
+                if (message.data['type'] == 'new_mail') {
+                  await repository.refreshEmails(MailFolder.inbox);
+                }
+              } catch (_) {
+                // A failed refresh never crashes the foreground listener.
+              }
+            },
+          ),
+        );
+      });
 
       // The persisted "Bildirimler" toggle (Settings) must be known before
       // deciding whether to register — otherwise a user who turned
@@ -94,6 +129,7 @@ class PushService {
       await AppSettingsController.instance.loadNotificationsEnabled();
       if (!_settingsListenerAttached) {
         AppSettingsController.instance.addListener(_onSettingsChanged);
+        repository.addListener(_onRepositoryChanged);
         _settingsListenerAttached = true;
       }
 
@@ -154,9 +190,76 @@ class PushService {
     }
   }
 
+  /// Registers again when an account was connected after launch — the
+  /// device registration is per account, and [registerAuthenticatedDevice]
+  /// only runs once at sign-in.
+  static void _onRepositoryChanged() {
+    final messaging = _messaging;
+    final repository = _repository;
+    if (messaging == null ||
+        repository == null ||
+        !AppSettingsController.instance.notificationsEnabled) {
+      return;
+    }
+    final ids = {for (final account in repository.accounts) account.id};
+    if (ids.difference(_registeredAccountIds).isEmpty) return;
+    unawaited(_register(messaging, repository));
+  }
+
   static void _routeTap(RemoteMessage message) {
     final mailId = message.data['mailId'];
     if (mailId != null && mailId.isNotEmpty) _mailTapped.add(mailId);
+  }
+
+  static Future<void> _initLocalNotifications() async {
+    await _local.initialize(
+      settings: const InitializationSettings(
+        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
+        // FCM already asked for permission (see [_setUpToken]).
+        iOS: DarwinInitializationSettings(
+          requestAlertPermission: false,
+          requestBadgePermission: false,
+          requestSoundPermission: false,
+        ),
+      ),
+      onDidReceiveNotificationResponse: (response) {
+        final mailId = response.payload;
+        if (mailId != null && mailId.isNotEmpty) _mailTapped.add(mailId);
+      },
+    );
+    await _local
+        .resolvePlatformSpecificImplementation<
+          AndroidFlutterLocalNotificationsPlugin
+        >()
+        ?.createNotificationChannel(_channel);
+  }
+
+  /// Shows a push that arrived while the app is open. Only pushes carrying
+  /// a `notification` block are user-facing; `mail_state_changed` is a
+  /// silent data-only sync signal.
+  static Future<void> _showForeground(RemoteMessage message) async {
+    final notification = message.notification;
+    if (notification == null) return;
+    try {
+      await _local.show(
+        id: message.messageId?.hashCode ?? notification.hashCode,
+        title: notification.title,
+        body: notification.body,
+        notificationDetails: NotificationDetails(
+          android: AndroidNotificationDetails(
+            _channel.id,
+            _channel.name,
+            channelDescription: _channel.description,
+            importance: Importance.high,
+            priority: Priority.high,
+          ),
+          iOS: const DarwinNotificationDetails(),
+        ),
+        payload: message.data['mailId'] as String?,
+      );
+    } catch (_) {
+      debugPrint('PushService: foreground notification skipped.');
+    }
   }
 
   static Future<void> _register(
@@ -167,11 +270,13 @@ class PushService {
       final token = await messaging.getToken();
       if (token == null || token.isEmpty) return;
       final package = await PackageInfo.fromPlatform();
+      final accountIds = {for (final a in repository.accounts) a.id};
       await repository.registerCurrentDevice(
         fcmToken: token,
         appVersion: package.version,
         locale: PlatformDispatcher.instance.locale.toLanguageTag(),
       );
+      _registeredAccountIds = accountIds;
     } catch (_) {
       // Registration races (e.g. logged out mid-launch) retry next launch.
       debugPrint('PushService: device registration skipped.');
