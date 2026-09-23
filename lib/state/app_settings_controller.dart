@@ -39,7 +39,7 @@ class AppSettingsController extends ChangeNotifier {
   static final AppSettingsController instance = AppSettingsController._();
 
   bool _notificationsEnabled = true;
-  SyncInterval _syncInterval = SyncInterval.manual;
+  SyncInterval _syncInterval = SyncInterval.every5Minutes;
   bool _swipeDeleteEnabled = true;
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
@@ -113,7 +113,7 @@ class AppSettingsController extends ChangeNotifier {
         .firstOrNull;
     final swipe = await AppPreferencesStore.loadSwipeDeleteEnabled();
     if (sync == null && swipe == _swipeDeleteEnabled) return;
-    _syncInterval = sync ?? SyncInterval.manual;
+    _syncInterval = sync ?? SyncInterval.every5Minutes;
     _swipeDeleteEnabled = swipe;
     notifyListeners();
   }
@@ -147,7 +147,7 @@ class AppSettingsController extends ChangeNotifier {
   static void resetForTest() {
     instance
       .._notificationsEnabled = true
-      .._syncInterval = SyncInterval.manual
+      .._syncInterval = SyncInterval.every5Minutes
       .._swipeDeleteEnabled = true
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
