@@ -54,4 +54,8 @@ flutter {
 
 dependencies {
     coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
+    // local_auth: LaunchTheme now extends Theme.AppCompat.DayNight so its
+    // biometric dialog doesn't crash on Android 8 and below (see
+    // res/values/styles.xml and the local_auth_android setup README).
+    implementation("androidx.appcompat:appcompat:1.7.0")
 }
