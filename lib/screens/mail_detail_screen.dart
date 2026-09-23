@@ -16,6 +16,7 @@ import '../utils/error_messages.dart';
 import '../utils/mail_threads.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
+import '../widgets/permanent_delete_dialog.dart';
 import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 
@@ -416,6 +417,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               value: 'read',
               child: Text('Okundu olarak işaretle'),
             ),
+          if (email.folder == MailFolder.trash)
+            const PopupMenuItem(
+              value: 'delete_forever',
+              child: Text('Kalıcı olarak sil'),
+            ),
           if (anyLabeled(_repo, _conversationIds))
             const PopupMenuItem(
               value: 'unlabel',
@@ -449,6 +455,34 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await showLabelPicker(context, emailIds: _conversationIds);
     } else if (action == 'unlabel') {
       await removeAllLabels(_repo, _conversationIds);
+    } else if (action == 'delete_forever') {
+      await _deleteForever();
+    }
+  }
+
+  /// Expunges the conversation's Trash messages after a confirmation, then
+  /// leaves the screen — there is nothing left to show.
+  Future<void> _deleteForever() async {
+    final ids = idsInFolder(_repo, _conversationIds, MailFolder.trash);
+    if (ids.isEmpty || _folderActionBusy) return;
+    final confirmed = await confirmPermanentDelete(context, ids.length);
+    if (!confirmed || !mounted) return;
+    setState(() => _folderActionBusy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _repo.deletePermanently(ids);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('E-posta kalıcı olarak silindi.')),
+      );
+      if (mounted) await Navigator.of(context).maybePop();
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _folderActionBusy = false);
     }
   }
 

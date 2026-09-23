@@ -247,9 +247,9 @@ class ApiMailService {
     );
   }
 
-  /// One of the nine fixed single-mail actions documented for
+  /// One of the fixed single-mail actions documented for
   /// `POST /api/mails/{id}/{action}` (read, unread, star, unstar, trash,
-  /// restore, archive, spam, not-spam). No request/response body.
+  /// restore, archive, spam, not-spam, delete). No request/response body.
   Future<void> mailAction(String id, String action) =>
       _client.post('/api/mails/${Uri.encodeComponent(id)}/$action');
 
@@ -282,7 +282,7 @@ class ApiMailService {
       _client.post('/api/folders/${Uri.encodeComponent(folderId)}/sync');
 
   /// Applies [action] (read, unread, star, unstar, archive, trash, restore,
-  /// spam, not-spam, or move) to every id in
+  /// spam, not-spam, delete, or move) to every id in
   /// [mailIds] in one request. Each mail is processed independently server
   /// side — read the per-item [BulkActionResult.success] rather than
   /// assuming the whole batch succeeded or failed together.

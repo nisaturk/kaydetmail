@@ -90,6 +90,7 @@ class ApiException implements Exception {
     'mail_operation_conflict' ||
     'mailbox_changed' => 'Posta kutusu değişti. Yenileyip tekrar deneyin.',
     'mail_move_failed' => 'E-posta taşınamadı. Tekrar deneyin.',
+    'mail_delete_failed' => 'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
     'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
     'delivery_unknown' =>
       'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',

@@ -1743,6 +1743,47 @@ class ApiMailRepository extends MailRepository {
     );
   }
 
+  /// Bulk `delete` (IMAP expunge) per owning account. Only ids the server
+  /// confirmed leave the cache; any per-item failure is surfaced afterwards
+  /// so the UI never claims a mail is gone when it isn't.
+  @override
+  Future<void> deletePermanently(List<String> ids) async {
+    final failures = <String>[];
+    for (final entry in _groupBySession(ids).entries) {
+      final session = entry.key;
+      final results = await session.mailService.bulkAction(
+        'delete',
+        entry.value,
+      );
+      _removeMany(session, [
+        for (final r in results)
+          if (r.success) r.mailId,
+      ]);
+      failures.addAll([
+        for (final r in results)
+          if (!r.success) r.code ?? 'mail_operation_failed',
+      ]);
+      notifyListeners();
+      unawaited(_refreshCountsFor(session));
+    }
+    if (failures.isNotEmpty) {
+      throw ApiException(status: 0, code: failures.first);
+    }
+  }
+
+  /// Drops every cached mail in [ids] from whichever bucket holds it.
+  void _removeMany(_Session session, Iterable<String> ids) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    _touch();
+    for (final folder in session.emails.keys.toList()) {
+      session.emails[folder] = [
+        for (final email in session.emails[folder]!)
+          if (!idSet.contains(email.id)) email,
+      ];
+    }
+  }
+
   /// Mails currently in Trash/Spam go back through bulk `restore` (the only
   /// action that reverses those two); everything else moves via the bulk
   /// `move`/`archive` actions. Both branches can run per account when [ids]
@@ -1804,14 +1845,7 @@ class ApiMailRepository extends MailRepository {
         }
       }),
     );
-    final idSet = ids.toSet();
-    _touch();
-    for (final folder in session.emails.keys.toList()) {
-      session.emails[folder] = [
-        for (final email in session.emails[folder]!)
-          if (!idSet.contains(email.id)) email,
-      ];
-    }
+    _removeMany(session, ids);
     for (final detail in details) {
       if (detail == null) continue;
       session.emails

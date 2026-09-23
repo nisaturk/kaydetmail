@@ -12,6 +12,7 @@ import '../utils/mail_threads.dart';
 import '../utils/error_messages.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
+import '../widgets/permanent_delete_dialog.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
@@ -198,12 +199,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Folder-contextual bulk actions ───────────────────────────────────
   //
   // Trash and Drafts don't support the generic move/delete flow: Trash
-  // mails have no permanent-delete endpoint (there is nothing further to
-  // do besides restore), and Drafts delete through a distinct one-id-at-a-
-  // time endpoint rather than a folder move. Spam/Archive/Sent keep the
+  // mails can only be restored or permanently deleted, and Drafts delete
+  // through a distinct one-id-at-a-time endpoint rather than a folder move. Spam/Archive/Sent keep the
   // generic flow but hide or add the specific moves that make sense there.
 
-  /// Delete is hidden entirely in Trash; in Drafts it routes to
+  /// Delete (move to Trash) is hidden in Trash, which offers
+  /// [_actionDeleteForever] instead; in Drafts it routes to
   /// [_actionDeleteDrafts] instead of a folder move.
   bool get _showDeleteAction => _folder != MailFolder.trash;
 
@@ -216,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
   };
 
   bool get _showRestoreAction => _folder == MailFolder.trash;
+  bool get _showDeleteForeverAction => _folder == MailFolder.trash;
   bool get _showUnarchiveAction => _folder == MailFolder.archive;
   bool get _showMarkNotSpamAction => _folder == MailFolder.spam;
 
@@ -256,6 +258,41 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('${ids.length} taslak silindi')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
+  }
+
+  /// Trash only: expunges the selected conversations' Trash messages. No
+  /// Undo exists, so it asks first.
+  Future<void> _actionDeleteForever() async {
+    if (_bulkBusy) return;
+    final ids = idsInFolder(
+      _repo,
+      expandThreadIds(_repo, _selection.selectedIds),
+      _folder,
+    );
+    if (ids.isEmpty) {
+      _selection.exit();
+      return;
+    }
+    final confirmed = await confirmPermanentDelete(context, ids.length);
+    if (!confirmed || !mounted) return;
+    setState(() => _bulkBusy = true);
+    try {
+      await _repo.deletePermanently(ids);
+      _selection.exit();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${ids.length} e-posta kalıcı olarak silindi')),
       );
     } catch (error) {
       if (!mounted) return;
@@ -583,6 +620,12 @@ class _HomeScreenState extends State<HomeScreen> {
           onPressed: _bulkBusy ? null : _actionRestoreFromTrash,
           tooltip: 'Geri Yükle',
           icon: const Icon(LucideIcons.rotateCcw),
+        ),
+      if (_showDeleteForeverAction)
+        IconButton(
+          onPressed: _bulkBusy ? null : _actionDeleteForever,
+          tooltip: 'Kalıcı olarak sil',
+          icon: const Icon(LucideIcons.trash2),
         ),
       IconButton(
         onPressed: _bulkBusy ? null : _actionToggleRead,

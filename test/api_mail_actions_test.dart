@@ -10,6 +10,7 @@ import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/api_mail_repository.dart';
 import 'package:kaydetmail/services/api_auth_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
+import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/token_store.dart';
@@ -229,6 +230,52 @@ void main() {
           'new',
           'mid',
           'old',
+        ]);
+      },
+    );
+
+    test(
+      'deletePermanently removes only the mails the server expunged and '
+      'reports the rest',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-trash', 'Trash'),
+          ],
+          pagesByFolderId: {
+            'folder-trash': _page([
+              _mailJson('mail-1', 'folder-trash'),
+              _mailJson('mail-2', 'folder-trash'),
+            ]),
+          },
+        )..bulkResultsOverride = (action, ids) => [
+            for (final id in ids)
+              BulkActionResult(
+                mailId: id,
+                success: id == 'mail-1',
+                code: id == 'mail-1' ? null : 'mail_delete_failed',
+              ),
+          ];
+        final repo = await _repositoryWithLoadedFolder(
+          mailService,
+          MailFolder.trash,
+        );
+
+        await expectLater(
+          repo.deletePermanently(['mail-1', 'mail-2']),
+          throwsA(
+            isA<ApiException>().having(
+              (e) => e.code,
+              'code',
+              'mail_delete_failed',
+            ),
+          ),
+        );
+
+        expect(mailService.bulkActionCalls.single, startsWith('delete:'));
+        expect(repo.getEmailsInFolder(MailFolder.trash).map((e) => e.id), [
+          'mail-2',
         ]);
       },
     );
