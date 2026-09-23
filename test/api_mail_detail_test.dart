@@ -114,7 +114,9 @@ void main() {
       expect(email.attachments.single.name, 'notlar.pdf');
       expect(email.attachments.single.sizeBytes, 48211);
       expect(email.attachments.single.mimeType, 'application/pdf');
-      expect(email.timestamp, DateTime.parse('2026-09-18T08:00:00Z'));
+      // UTC from the API, shown in the device zone: same instant, local clock.
+      expect(email.timestamp.isUtc, isFalse);
+      expect(email.timestamp, DateTime.parse('2026-09-18T08:00:00Z').toLocal());
     });
 
     test('missing optional fields never break the mapping', () async {

@@ -103,7 +103,6 @@ class ApiException implements Exception {
     'invalid_mail_header' => 'E-posta başlıkları geçersiz.',
     'message_not_constructible' => 'E-posta oluşturulamadı.',
     'manual_setup_invalid' => 'Sunucu ayarları geçersiz.',
-    'discovery_invalid' => 'Sunucu keşfi geçersiz. Tekrar deneyin.',
     'oauth_provider_not_configured' =>
       'Bu giriş yöntemi sunucuda ayarlı değil.',
     'oauth_redirect_uri_invalid' => 'Yönlendirme adresi geçersiz.',
