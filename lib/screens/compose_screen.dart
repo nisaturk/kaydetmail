@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
@@ -5,7 +7,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
+import '../services/contacts_store.dart';
+import '../services/signature_store.dart';
+import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
+import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 
 /// Borderless field decoration shared by every compose input.
@@ -111,6 +117,21 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
 /// Drafts. Inside a scrolled column so nothing overflows when the keyboard is
 /// open or the screen is narrow.
 /// Smart-back saves a draft when content exists.
+///
+/// Three more behaviors live here:
+/// - **Signature**: when [editingDraftId] is null (a genuinely new send, not
+///   restoring a stored draft), the signature saved for the selected Kimden
+///   account ([SignatureStore]) is appended to the body automatically, and
+///   re-applied if Kimden changes — but only while the body still matches
+///   exactly what auto-insertion put there, so real typing is never
+///   clobbered. See `_syncSignature`.
+/// - **Undo send**: "Gönder" doesn't call `MailRepository.sendEmail`
+///   directly — it hands the fields to [PendingSendQueue], which holds them
+///   for a few seconds (with a "Geri Al" SnackBar) before the real send
+///   fires, and pops this screen immediately. See `_send`.
+/// - **Zamanla**: the small chevron next to "Gönder" offers scheduling
+///   through `MailRepository.scheduleSend` with a date/time picker instead.
+///   See `_scheduleSend`.
 class ComposeScreen extends StatefulWidget {
   const ComposeScreen({
     super.key,
@@ -167,6 +188,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final _bodyController = TextEditingController();
 
   final _toFocus = FocusNode();
+  final _ccFocus = FocusNode();
+  final _bccFocus = FocusNode();
   final _bodyFocus = FocusNode();
 
   bool _ccExpanded = false;
@@ -175,6 +198,24 @@ class _ComposeScreenState extends State<ComposeScreen> {
   String? _fromAccount;
 
   final List<Attachment> _attachments = [];
+
+  // --- Contact autocomplete (Kime/Cc/Bcc) --------------------------------
+  final _toLink = LayerLink();
+  final _ccLink = LayerLink();
+  final _bccLink = LayerLink();
+  OverlayEntry? _suggestionOverlay;
+  List<Contact> _contacts = const [];
+
+  // --- Signature -----------------------------------------------------
+  /// Body content as it was right before [_insertedSignature] was last
+  /// appended — the baseline [_syncSignature] compares against to detect
+  /// whether the user has typed anything else since.
+  String _bodyBeforeSignature = '';
+  String _insertedSignature = '';
+
+  /// Only a genuinely new send auto-gets a signature — restoring a stored
+  /// draft must never inject one that was never part of it.
+  bool get _signatureEligible => widget.editingDraftId == null;
 
   MailRepository get _repo => AppConfig.mailRepository;
 
@@ -186,6 +227,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     _bccRecipients.addAll(_parseRecipients(widget.initialBcc));
     _subjectController.text = widget.initialSubject;
     _bodyController.text = widget.initialBody;
+    _bodyBeforeSignature = widget.initialBody;
     // Fields that already carry content start visible so nothing is lost;
     // empty ones stay hidden behind the Cc/Bcc menu.
     _ccExpanded = _ccRecipients.isNotEmpty;
@@ -200,6 +242,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ? _repo.currentUser
           : (accounts.isNotEmpty ? accounts.first.email : null);
     }
+    _contacts = ContactsStore.fromEmails(_repo.getAllEmails());
+    _toFocus.addListener(() => _handleFieldFocusChange(_toFocus));
+    _ccFocus.addListener(() => _handleFieldFocusChange(_ccFocus));
+    _bccFocus.addListener(() => _handleFieldFocusChange(_bccFocus));
+    if (_signatureEligible) _syncSignature();
   }
 
   static List<_Recipient> _parseRecipients(String raw) => raw
@@ -211,12 +258,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   @override
   void dispose() {
+    _removeSuggestionOverlay();
     _toInputController.dispose();
     _ccInputController.dispose();
     _bccInputController.dispose();
     _subjectController.dispose();
     _bodyController.dispose();
     _toFocus.dispose();
+    _ccFocus.dispose();
+    _bccFocus.dispose();
     _bodyFocus.dispose();
     super.dispose();
   }
@@ -345,7 +395,182 @@ class _ComposeScreenState extends State<ComposeScreen> {
     setState(() => recipients.remove(recipient));
   }
 
-  Future<void> _send() async {
+  // --- Contact autocomplete ------------------------------------------
+
+  void _handleFieldFocusChange(FocusNode node) {
+    if (node.hasFocus) return;
+    // A tap on a suggestion briefly steals focus before committing it —
+    // give that tap a chance to land before tearing the overlay down.
+    Future.delayed(const Duration(milliseconds: 150), () {
+      if (mounted && !node.hasFocus) _removeSuggestionOverlay();
+    });
+  }
+
+  void _removeSuggestionOverlay() {
+    _suggestionOverlay?.remove();
+    _suggestionOverlay = null;
+  }
+
+  /// Shows/updates the suggestion overlay anchored to [link] for the
+  /// current [query], excluding addresses already chipped in
+  /// [currentRecipients]. [onSelected] adds the tapped contact as a chip.
+  void _updateSuggestions(
+    LayerLink link,
+    String query,
+    List<_Recipient> currentRecipients,
+    void Function(Contact) onSelected,
+  ) {
+    _removeSuggestionOverlay();
+    final trimmed = query.trim();
+    if (trimmed.isEmpty) return;
+    final existing = {
+      for (final r in currentRecipients) r.address.toLowerCase(),
+    };
+    final matches = ContactsStore.search(_contacts, trimmed)
+        .where((c) => !existing.contains(c.email.toLowerCase()))
+        .take(5)
+        .toList();
+    if (matches.isEmpty) return;
+    final entry = OverlayEntry(
+      builder: (_) => Positioned(
+        width: 280,
+        child: CompositedTransformFollower(
+          link: link,
+          showWhenUnlinked: false,
+          offset: const Offset(0, 4),
+          child: _ContactSuggestionList(contacts: matches, onSelected: onSelected),
+        ),
+      ),
+    );
+    _suggestionOverlay = entry;
+    Overlay.of(context).insert(entry);
+  }
+
+  void _commitSuggestion(
+    List<_Recipient> recipients,
+    TextEditingController input,
+    Contact contact,
+  ) {
+    setState(() {
+      recipients.add(
+        _Recipient(contact.email, valid: _emailShapePattern.hasMatch(contact.email)),
+      );
+      input.clear();
+    });
+    _removeSuggestionOverlay();
+  }
+
+  // --- Signature -------------------------------------------------------
+
+  String _signatureSuffix(String signature) =>
+      signature.trim().isEmpty ? '' : '\n\n--\n$signature';
+
+  /// Applies the signature for the current Kimden account, but only while
+  /// the body still exactly matches [_bodyBeforeSignature] plus whatever
+  /// signature was last inserted — i.e. the user hasn't typed anything else
+  /// since. Called once on open and again every time Kimden changes, so a
+  /// switch re-applies the new account's signature without ever clobbering
+  /// real typing.
+  Future<void> _syncSignature() async {
+    if (!_signatureEligible) return;
+    final expected = _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
+    if (_bodyController.text != expected) return;
+    final account = _fromAccount;
+    if (account == null) return;
+    final signature = await SignatureStore.load(account);
+    if (!mounted || _fromAccount != account) return;
+    if (_bodyController.text != expected) return;
+    setState(() {
+      _insertedSignature = signature;
+      _bodyController.text = _bodyBeforeSignature + _signatureSuffix(signature);
+      _bodyController.selection = const TextSelection.collapsed(offset: 0);
+    });
+  }
+
+  // --- Formatting toolbar ----------------------------------------------
+
+  /// Wraps the current body selection in [prefix]/[suffix] (bold/italic/
+  /// underline). With no selection, wraps an empty span at the cursor (or
+  /// at the end of the text when the field was never focused) so typing
+  /// continues right inside the markers.
+  void _wrapSelection(String prefix, String suffix) {
+    final text = _bodyController.text;
+    final selection = _bodyController.selection;
+    final start = selection.isValid ? selection.start : text.length;
+    final end = selection.isValid ? selection.end : text.length;
+    final selected = text.substring(start, end);
+    final replacement = '$prefix$selected$suffix';
+    final newText = text.replaceRange(start, end, replacement);
+    final cursorOffset = selected.isEmpty
+        ? start + prefix.length
+        : start + replacement.length;
+    setState(() {
+      _bodyController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: cursorOffset),
+      );
+    });
+  }
+
+  /// Prefixes every line touched by the current selection (or just the
+  /// line under the cursor) with `- `, skipping lines already prefixed.
+  void _toggleBulletList() {
+    final text = _bodyController.text;
+    final selection = _bodyController.selection;
+    final start = selection.isValid ? selection.start : text.length;
+    final end = selection.isValid ? selection.end : text.length;
+    final newlineBefore = start == 0 ? -1 : text.lastIndexOf('\n', start - 1);
+    final lineStart = newlineBefore + 1;
+    final nextNewline = text.indexOf('\n', end);
+    final lineEnd = nextNewline == -1 ? text.length : nextNewline;
+    final block = text.substring(lineStart, lineEnd);
+    final prefixed = block
+        .split('\n')
+        .map((line) => line.startsWith('- ') ? line : '- $line')
+        .join('\n');
+    final newText = text.replaceRange(lineStart, lineEnd, prefixed);
+    final delta = prefixed.length - block.length;
+    setState(() {
+      _bodyController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: end + delta),
+      );
+    });
+  }
+
+  /// Prompts for a URL, then inserts `[selected text](url)` — the selected
+  /// text becomes the link label, or a generic placeholder when nothing was
+  /// selected.
+  Future<void> _insertLink() async {
+    final text = _bodyController.text;
+    final selection = _bodyController.selection;
+    final hasSelection = selection.isValid && selection.start != selection.end;
+    final insertStart = selection.isValid ? selection.start : text.length;
+    final insertEnd = selection.isValid ? selection.end : text.length;
+    final label = hasSelection ? text.substring(insertStart, insertEnd) : 'bağlantı';
+
+    final url = await showDialog<String>(
+      context: context,
+      builder: (ctx) => const _LinkUrlDialog(),
+    );
+    if (url == null || url.isEmpty || !mounted) return;
+
+    final markup = '[$label]($url)';
+    final newText = text.replaceRange(insertStart, insertEnd, markup);
+    setState(() {
+      _bodyController.value = TextEditingValue(
+        text: newText,
+        selection: TextSelection.collapsed(offset: insertStart + markup.length),
+      );
+    });
+  }
+
+  // --- Send / schedule -------------------------------------------------
+
+  /// Commits pending recipient text into chips, then validates there is at
+  /// least one To recipient and every chip looks like a real address.
+  /// Shared by [_send] and [_scheduleSend].
+  bool _validateRecipients() {
     setState(() {
       _commitPendingRecipient(_toRecipients, _toInputController);
       _commitPendingRecipient(_ccRecipients, _ccInputController);
@@ -356,7 +581,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         const SnackBar(content: Text('En az bir alıcı yazmalısınız.')),
       );
       _toFocus.requestFocus();
-      return;
+      return false;
     }
     final allRecipients = [..._toRecipients, ..._ccRecipients, ..._bccRecipients];
     if (allRecipients.any((r) => !r.valid)) {
@@ -366,41 +591,145 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ),
       );
       _toFocus.requestFocus();
+      return false;
+    }
+    return true;
+  }
+
+  /// Queues the mail through [PendingSendQueue] instead of sending it right
+  /// away, shows the "Geri Al" countdown SnackBar through the app's shared
+  /// [ScaffoldMessenger] (so it survives this screen popping), and pops
+  /// immediately — an optimistic send. Tapping "Geri Al" within the window
+  /// cancels the queued send and reopens compose with the same content.
+  void _send() {
+    if (!_validateRecipients()) return;
+
+    final to = _addressStrings(_toRecipients);
+    final cc = _addressStrings(_ccRecipients);
+    final bcc = _addressStrings(_bccRecipients);
+    final subject = _subjectController.text.trim();
+    final body = _bodyController.text;
+    final attachments = List<Attachment>.unmodifiable(_attachments);
+    final from = _fromAccount;
+    final threadId = widget.initialThreadId;
+    final inReplyToId = widget.inReplyToId;
+    final draftId = _draftId;
+    final composeTitle = widget.composeTitle;
+
+    final pending = PendingSend(
+      id: PendingSendQueue.instance.nextId(),
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      body: body,
+      attachments: attachments,
+      from: from,
+      threadId: threadId,
+      inReplyToId: inReplyToId,
+      draftId: draftId,
+    );
+
+    final navigator = Navigator.of(context);
+    final messenger = ScaffoldMessenger.of(context);
+    PendingSendQueue.instance.enqueue(pending, messenger: messenger);
+
+    messenger.showSnackBar(
+      SnackBar(
+        key: const Key('undo-send-snackbar'),
+        duration: PendingSendQueue.undoWindow,
+        content: const _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
+        action: SnackBarAction(
+          label: 'Geri Al',
+          onPressed: () {
+            if (!PendingSendQueue.instance.cancel(pending.id)) return;
+            navigator.push(
+              MaterialPageRoute(
+                builder: (_) => ComposeScreen(
+                  composeTitle: composeTitle,
+                  editingDraftId: draftId,
+                  initialFrom: from,
+                  initialTo: to.join(', '),
+                  initialCc: cc.join(', '),
+                  initialBcc: bcc.join(', '),
+                  initialSubject: subject,
+                  initialBody: body,
+                  initialAttachments: attachments,
+                  initialThreadId: threadId,
+                  inReplyToId: inReplyToId,
+                ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+
+    navigator.pop(true);
+  }
+
+  /// Offered from the chevron next to "Gönder": picks a future date/time
+  /// through the standard pickers, then queues the mail with
+  /// `MailRepository.scheduleSend` instead of sending it now.
+  Future<void> _scheduleSend() async {
+    if (!_validateRecipients()) return;
+
+    final now = DateTime.now();
+    final date = await showDatePicker(
+      context: context,
+      initialDate: now,
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (date == null || !mounted) return;
+    final time = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+    );
+    if (time == null || !mounted) return;
+    final sendAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    if (!sendAt.isAfter(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Lütfen ileri bir tarih ve saat seçin.')),
+      );
       return;
     }
 
     setState(() => _sending = true);
     try {
-      await _repo.sendEmail(
-        from: _fromAccount,
+      await _repo.scheduleSend(
         to: _addressStrings(_toRecipients),
         cc: _addressStrings(_ccRecipients),
         bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
         attachments: List.unmodifiable(_attachments),
-        threadId: widget.initialThreadId,
+        from: _fromAccount,
         inReplyToId: widget.inReplyToId,
+        sendAt: sendAt,
       );
-      // A sent draft leaves Drafts — the sent copy lives in Sent now.
       final draftId = _draftId;
       if (draftId != null) {
         try {
           await _repo.deleteDraft(draftId);
         } catch (_) {
-          // The mail is already sent; a stale draft row is harmless next
-          // to that and reconciles on the next refresh.
+          // Scheduled already; a stale draft row reconciles on next refresh.
         }
       }
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('E-posta gönderildi.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'E-posta ${formatMailDateFull(sendAt)} tarihinde gönderilmek üzere zamanlandı.',
+          ),
+        ),
+      );
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Gönderilemedi: ${friendlyErrorMessage(e)}')),
+          SnackBar(content: Text('Zamanlanamadı: ${friendlyErrorMessage(e)}')),
         );
       }
     }
@@ -518,12 +847,35 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   child: CircularProgressIndicator(strokeWidth: 2.4),
                 ),
               )
-            else
+            else ...[
               IconButton(
+                key: const Key('send-button'),
                 icon: const Icon(LucideIcons.send),
-                tooltip: 'Gönder',
+                tooltip: 'Şimdi Gönder',
                 onPressed: _send,
               ),
+              PopupMenuButton<String>(
+                key: const Key('send-options-menu'),
+                tooltip: 'Gönderme seçenekleri',
+                padding: EdgeInsets.zero,
+                icon: Icon(
+                  LucideIcons.chevronDown,
+                  size: 18,
+                  color: colors.secondaryText,
+                ),
+                onSelected: (value) {
+                  if (value == 'now') {
+                    _send();
+                  } else if (value == 'schedule') {
+                    _scheduleSend();
+                  }
+                },
+                itemBuilder: (context) => const [
+                  PopupMenuItem(value: 'now', child: Text('Şimdi Gönder')),
+                  PopupMenuItem(value: 'schedule', child: Text('Zamanla')),
+                ],
+              ),
+            ],
           ],
         ),
         body: SafeArea(
@@ -551,9 +903,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         focusNode: _toFocus,
                         fieldKey: const Key('to-field'),
                         enabled: !_sending,
+                        suggestionLink: _toLink,
                         onRemove: (r) => _removeRecipient(_toRecipients, r),
-                        onChanged: (v) =>
-                            _onRecipientChanged(_toRecipients, _toInputController, v),
+                        onChanged: (v) {
+                          _onRecipientChanged(_toRecipients, _toInputController, v);
+                          _updateSuggestions(
+                            _toLink,
+                            v,
+                            _toRecipients,
+                            (c) => _commitSuggestion(_toRecipients, _toInputController, c),
+                          );
+                        },
                         onSubmitted: () =>
                             _onRecipientSubmitted(_toRecipients, _toInputController),
                         trailing: (!_ccExpanded || !_bccExpanded)
@@ -594,11 +954,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           label: 'Cc',
                           recipients: _ccRecipients,
                           inputController: _ccInputController,
+                          focusNode: _ccFocus,
                           fieldKey: const Key('cc-field'),
                           enabled: !_sending,
+                          suggestionLink: _ccLink,
                           onRemove: (r) => _removeRecipient(_ccRecipients, r),
-                          onChanged: (v) =>
-                              _onRecipientChanged(_ccRecipients, _ccInputController, v),
+                          onChanged: (v) {
+                            _onRecipientChanged(_ccRecipients, _ccInputController, v);
+                            _updateSuggestions(
+                              _ccLink,
+                              v,
+                              _ccRecipients,
+                              (c) => _commitSuggestion(_ccRecipients, _ccInputController, c),
+                            );
+                          },
                           onSubmitted: () =>
                               _onRecipientSubmitted(_ccRecipients, _ccInputController),
                         ),
@@ -607,14 +976,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           label: 'Bcc',
                           recipients: _bccRecipients,
                           inputController: _bccInputController,
+                          focusNode: _bccFocus,
                           fieldKey: const Key('bcc-field'),
                           enabled: !_sending,
+                          suggestionLink: _bccLink,
                           onRemove: (r) => _removeRecipient(_bccRecipients, r),
-                          onChanged: (v) => _onRecipientChanged(
-                            _bccRecipients,
-                            _bccInputController,
-                            v,
-                          ),
+                          onChanged: (v) {
+                            _onRecipientChanged(_bccRecipients, _bccInputController, v);
+                            _updateSuggestions(
+                              _bccLink,
+                              v,
+                              _bccRecipients,
+                              (c) => _commitSuggestion(_bccRecipients, _bccInputController, c),
+                            );
+                          },
                           onSubmitted: () => _onRecipientSubmitted(
                             _bccRecipients,
                             _bccInputController,
@@ -638,7 +1013,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           ),
                       ],
                       const SizedBox(height: 8),
+                      _formattingToolbar(colors),
                       TextField(
+                        key: const Key('body-field'),
                         controller: _bodyController,
                         focusNode: _bodyFocus,
                         enabled: !_sending,
@@ -661,6 +1038,61 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ),
         ),
       ),
+    );
+  }
+
+  /// Small toolbar of markdown-lite formatting shortcuts above the body:
+  /// bold/italic/underline wrap the current selection, the list button
+  /// bullet-prefixes the current line(s), and the link button prompts for a
+  /// URL. See `_wrapSelection`/`_toggleBulletList`/`_insertLink`.
+  Widget _formattingToolbar(AppColors colors) {
+    Widget button(Key key, IconData icon, String tooltip, VoidCallback onPressed) {
+      return IconButton(
+        key: key,
+        icon: Icon(icon, size: AppTheme.iconSizeMedium),
+        tooltip: tooltip,
+        color: colors.secondaryText,
+        visualDensity: VisualDensity.compact,
+        padding: EdgeInsets.zero,
+        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
+        onPressed: _sending ? null : onPressed,
+      );
+    }
+
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.start,
+      children: [
+        button(
+          const Key('format-bold'),
+          LucideIcons.bold,
+          'Kalın',
+          () => _wrapSelection('**', '**'),
+        ),
+        button(
+          const Key('format-italic'),
+          LucideIcons.italic,
+          'İtalik',
+          () => _wrapSelection('*', '*'),
+        ),
+        button(
+          const Key('format-underline'),
+          LucideIcons.underline,
+          'Altı çizili',
+          () => _wrapSelection('__', '__'),
+        ),
+        button(
+          const Key('format-list'),
+          LucideIcons.list,
+          'Madde işaretli liste',
+          _toggleBulletList,
+        ),
+        button(
+          const Key('format-link'),
+          LucideIcons.link,
+          'Bağlantı ekle',
+          _insertLink,
+        ),
+      ],
     );
   }
 
@@ -716,7 +1148,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// destructive palette, so it's visible and fixable instead of silently
   /// dropped or silently sent); typed text turns into a chip on comma,
   /// space, or Enter/submit. Keeps the same label-column layout as
-  /// [_fieldRow] so Kimden/Kime/Cc/Bcc/Konu stay aligned.
+  /// [_fieldRow] so Kimden/Kime/Cc/Bcc/Konu stay aligned. [suggestionLink]
+  /// anchors the contact-autocomplete overlay (see `_updateSuggestions`)
+  /// under this field's value area.
   Widget _recipientFieldRow({
     required String label,
     required List<_Recipient> recipients,
@@ -724,6 +1158,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     required void Function(_Recipient) onRemove,
     required void Function(String) onChanged,
     required VoidCallback onSubmitted,
+    required LayerLink suggestionLink,
     FocusNode? focusNode,
     Key? fieldKey,
     Widget trailing = const SizedBox.shrink(),
@@ -746,35 +1181,38 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ),
         ),
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6),
-            child: Wrap(
-              crossAxisAlignment: WrapCrossAlignment.center,
-              spacing: AppTheme.space2,
-              runSpacing: AppTheme.space1,
-              children: [
-                for (final recipient in recipients)
-                  _RecipientChip(
-                    key: ObjectKey(recipient),
-                    recipient: recipient,
-                    enabled: enabled,
-                    onDeleted: () => onRemove(recipient),
+          child: CompositedTransformTarget(
+            link: suggestionLink,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6),
+              child: Wrap(
+                crossAxisAlignment: WrapCrossAlignment.center,
+                spacing: AppTheme.space2,
+                runSpacing: AppTheme.space1,
+                children: [
+                  for (final recipient in recipients)
+                    _RecipientChip(
+                      key: ObjectKey(recipient),
+                      recipient: recipient,
+                      enabled: enabled,
+                      onDeleted: () => onRemove(recipient),
+                    ),
+                  SizedBox(
+                    width: 140,
+                    child: TextField(
+                      key: fieldKey,
+                      controller: inputController,
+                      focusNode: focusNode,
+                      enabled: enabled,
+                      textInputAction: TextInputAction.done,
+                      decoration: _flatFieldDecoration,
+                      style: TextStyle(fontSize: 15, color: colors.bodyText),
+                      onChanged: onChanged,
+                      onSubmitted: (_) => onSubmitted(),
+                    ),
                   ),
-                SizedBox(
-                  width: 140,
-                  child: TextField(
-                    key: fieldKey,
-                    controller: inputController,
-                    focusNode: focusNode,
-                    enabled: enabled,
-                    textInputAction: TextInputAction.done,
-                    decoration: _flatFieldDecoration,
-                    style: TextStyle(fontSize: 15, color: colors.bodyText),
-                    onChanged: onChanged,
-                    onSubmitted: (_) => onSubmitted(),
-                  ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
@@ -826,7 +1264,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 size: 18,
                 color: colors.secondaryText,
               ),
-              onSelected: (picked) => setState(() => _fromAccount = picked),
+              onSelected: (picked) {
+                setState(() => _fromAccount = picked);
+                _syncSignature();
+              },
               itemBuilder: (context) => [
                 for (final account in accounts)
                   PopupMenuItem(
@@ -891,37 +1332,34 @@ class _RecipientChip extends StatelessWidget {
   const _RecipientChip({
     super.key,
     required this.recipient,
-    required this.enabled,
     required this.onDeleted,
+    this.enabled = true,
   });
 
   final _Recipient recipient;
-  final bool enabled;
   final VoidCallback onDeleted;
+  final bool enabled;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
-    if (recipient.valid) {
-      return Chip(
-        label: Text(recipient.address),
-        onDeleted: enabled ? onDeleted : null,
-        deleteButtonTooltipMessage: '${recipient.address} kaldır',
-        visualDensity: VisualDensity.compact,
-      );
-    }
-    return Semantics(
-      label: '${recipient.address}, geçersiz e-posta adresi',
-      child: Chip(
-        label: Text(recipient.address),
-        labelStyle: TextStyle(color: colors.destructive),
-        backgroundColor: colors.destructive.withValues(alpha: 0.12),
-        side: BorderSide(color: colors.destructive),
-        deleteIconColor: colors.destructive,
-        onDeleted: enabled ? onDeleted : null,
-        deleteButtonTooltipMessage: '${recipient.address} kaldır',
-        visualDensity: VisualDensity.compact,
+    final destructive = !recipient.valid;
+    return Chip(
+      label: Text(recipient.address, style: const TextStyle(fontSize: 13)),
+      backgroundColor: destructive
+          ? colors.destructive.withValues(alpha: 0.12)
+          : colors.surfaceAlt,
+      labelStyle: TextStyle(color: destructive ? colors.destructive : colors.bodyText),
+      deleteIcon: Icon(
+        LucideIcons.x,
+        size: 14,
+        color: destructive ? colors.destructive : colors.secondaryText,
       ),
+      onDeleted: enabled ? onDeleted : null,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      padding: const EdgeInsets.symmetric(horizontal: 4),
+      side: BorderSide(color: destructive ? colors.destructive : colors.border),
     );
   }
 }
@@ -940,41 +1378,180 @@ class _AttachmentRow extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
-    return Container(
-      margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.fromLTRB(12, 8, 4, 8),
-      decoration: BoxDecoration(
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(10),
-        color: colors.unreadBackground,
-      ),
-      child: Row(
-        children: [
-          Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
-          const SizedBox(width: 10),
-          Expanded(
-            child: Text(
-              attachment.name,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 14, color: colors.bodyText),
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: colors.surfaceAlt,
+          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+        ),
+        child: Row(
+          children: [
+            Icon(LucideIcons.paperclip, size: 16, color: colors.secondaryText),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                attachment.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: colors.bodyText),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(
-            attachment.sizeLabel,
-            style: TextStyle(fontSize: 13, color: colors.secondaryText),
-          ),
-          IconButton(
-            key: ValueKey('attach-remove-${attachment.name}'),
-            onPressed: enabled ? onRemove : null,
-            tooltip: '${attachment.name} kaldır',
-            iconSize: 18,
-            visualDensity: VisualDensity.compact,
-            icon: Icon(LucideIcons.x, color: colors.secondaryText),
-          ),
-        ],
+            const SizedBox(width: 8),
+            Text(
+              attachment.sizeLabel,
+              style: TextStyle(fontSize: 12, color: colors.secondaryText),
+            ),
+            IconButton(
+              onPressed: enabled ? onRemove : null,
+              icon: const Icon(LucideIcons.x, size: 16),
+              tooltip: 'Kaldır',
+              visualDensity: VisualDensity.compact,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// Live "N sn içinde gönderilecek" countdown shown inside the undo-send
+/// SnackBar. Purely cosmetic — the actual send fires from
+/// [PendingSendQueue]'s own timer, matching [PendingSendQueue.undoWindow];
+/// this only mirrors it visually.
+class _UndoSendSnackContent extends StatefulWidget {
+  const _UndoSendSnackContent({required this.duration});
+
+  final Duration duration;
+
+  @override
+  State<_UndoSendSnackContent> createState() => _UndoSendSnackContentState();
+}
+
+class _UndoSendSnackContentState extends State<_UndoSendSnackContent> {
+  late int _secondsLeft = widget.duration.inSeconds;
+  Timer? _ticker;
+
+  @override
+  void initState() {
+    super.initState();
+    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (_secondsLeft <= 1) {
+        _ticker?.cancel();
+        setState(() => _secondsLeft = 0);
+        return;
+      }
+      setState(() => _secondsLeft -= 1);
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Text('E-posta $_secondsLeft sn içinde gönderilecek');
+  }
+}
+
+/// Tappable contact suggestion dropdown, anchored under a recipient field
+/// via [CompositedTransformFollower]/[CompositedTransformTarget] (see
+/// `_ComposeScreenState._updateSuggestions`).
+class _ContactSuggestionList extends StatelessWidget {
+  const _ContactSuggestionList({required this.contacts, required this.onSelected});
+
+  final List<Contact> contacts;
+  final void Function(Contact) onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    return Material(
+      elevation: 4,
+      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+      color: Theme.of(context).colorScheme.surface,
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxHeight: 220),
+        child: ListView(
+          padding: EdgeInsets.zero,
+          shrinkWrap: true,
+          children: [
+            for (final contact in contacts)
+              ListTile(
+                key: ValueKey('contact-suggestion-${contact.email}'),
+                dense: true,
+                title: Text(
+                  contact.displayName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                subtitle: contact.displayName == contact.email
+                    ? null
+                    : Text(
+                        contact.email,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(color: colors.secondaryText),
+                      ),
+                onTap: () => onSelected(contact),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Prompts for a URL to insert as a link. A [StatefulWidget] (not a bare
+/// controller disposed right after the dialog closes) so the framework
+/// disposes [_controller] only once the widget is truly unmounted — the
+/// dialog's own exit transition keeps it mounted for a few more frames
+/// after `Navigator.pop`, and disposing any earlier crashes that
+/// animation (same convention as `_LabelEditorDialogState`).
+class _LinkUrlDialog extends StatefulWidget {
+  const _LinkUrlDialog();
+
+  @override
+  State<_LinkUrlDialog> createState() => _LinkUrlDialogState();
+}
+
+class _LinkUrlDialogState extends State<_LinkUrlDialog> {
+  final _controller = TextEditingController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('Bağlantı Ekle'),
+      content: TextField(
+        controller: _controller,
+        autofocus: true,
+        keyboardType: TextInputType.url,
+        textInputAction: TextInputAction.done,
+        decoration: const InputDecoration(hintText: 'https://ornek.com'),
+        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(),
+          child: const Text('Vazgeç'),
+        ),
+        FilledButton(
+          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
+          child: const Text('Ekle'),
+        ),
+      ],
     );
   }
 }
