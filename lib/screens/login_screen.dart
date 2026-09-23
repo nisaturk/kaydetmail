@@ -52,6 +52,8 @@ class _LoginScreenState extends State<LoginScreen> {
   final _pageController = PageController();
   final _emailController = TextEditingController();
   final _passwordController = TextEditingController();
+  final _emailFocus = FocusNode();
+  final _passwordFocus = FocusNode();
 
   bool _obscurePassword = true;
   bool _loading = false;
@@ -72,6 +74,7 @@ class _LoginScreenState extends State<LoginScreen> {
         if (mounted && _pageController.hasClients) {
           _pageController.jumpToPage(_passwordPage);
         }
+        if (mounted) _passwordFocus.requestFocus();
       });
     }
   }
@@ -86,6 +89,8 @@ class _LoginScreenState extends State<LoginScreen> {
     _pageController.dispose();
     _emailController.dispose();
     _passwordController.dispose();
+    _emailFocus.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
@@ -100,10 +105,19 @@ class _LoginScreenState extends State<LoginScreen> {
 
   void _continue() {
     if (!_emailFormKey.currentState!.validate()) return;
+    // The password page's field is already mounted (PageView builds both
+    // children up front); without an explicit handoff its autofocus loses
+    // to the still-focused email field and keystrokes land in the wrong
+    // controller.
+    _emailFocus.unfocus();
     _slideTo(_passwordPage);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _passwordFocus.requestFocus();
+    });
   }
 
   void _back() {
+    _passwordFocus.unfocus();
     setState(() {
       _obscurePassword = true;
       _passwordController.clear();
@@ -270,6 +284,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: TextFormField(
                   key: const Key('email-field'),
                   controller: _emailController,
+                  focusNode: _emailFocus,
                   keyboardType: TextInputType.emailAddress,
                   autofillHints: const [
                     AutofillHints.email,
@@ -361,9 +376,9 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: TextFormField(
                   key: const Key('password-field'),
                   controller: _passwordController,
+                  focusNode: _passwordFocus,
                   obscureText: _obscurePassword,
                   autofillHints: const [AutofillHints.password],
-                  autofocus: true,
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _loading ? null : _login(),
                   validator: (value) {
