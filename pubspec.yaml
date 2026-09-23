@@ -52,7 +52,12 @@ dependencies:
   pdfrx: ^2.6.5
   archive: ^4.3.0
   flutter_widget_from_html_core: ^0.17.4
-  flutter_local_notifications: ^21.0.0
+  flutter_local_notifications: ^22.3.1
+  local_auth: ^3.0.2
+  home_widget: ^0.10.0
+  pdf: ^3.13.1
+  printing: ^5.15.1
+  url_launcher: ^6.3.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
