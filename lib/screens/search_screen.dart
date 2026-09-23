@@ -5,10 +5,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 import '../widgets/mail_list_item.dart';
+import 'compose_screen.dart';
 import 'mail_detail_screen.dart';
 
 /// Debounced server-side search across every connected account.
@@ -157,6 +159,34 @@ class _SearchScreenState extends State<SearchScreen> {
     );
   }
 
+  void _onMailTap(Email email) {
+    if (email.folder == MailFolder.drafts) {
+      // Drafts open in the editor with every field populated; ordinary
+      // messages keep opening the read-only detail view.
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ComposeScreen(
+            composeTitle: 'Taslağı Düzenle',
+            editingDraftId: email.id,
+            initialFrom: _repo.getAccount(email.accountId)?.email,
+            initialTo: email.recipients.join(', '),
+            initialCc: email.cc.join(', '),
+            initialBcc: email.bcc.join(', '),
+            initialSubject: email.subject,
+            initialBody: email.bodyText,
+            initialAttachments: email.attachments,
+            initialThreadId: email.threadId.isEmpty ? null : email.threadId,
+            inReplyToId: email.inReplyToId,
+          ),
+        ),
+      );
+    } else {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: email.id)),
+      );
+    }
+  }
+
   Widget _buildResults(List<Email> results) {
     if (_loading && results.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -192,13 +222,7 @@ class _SearchScreenState extends State<SearchScreen> {
             for (final id in email.labelIds)
               if (labelsById[id] != null) labelsById[id]!,
           ],
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => MailDetailScreen(emailId: email.id),
-              ),
-            );
-          },
+          onTap: () => _onMailTap(email),
         );
       },
     );
