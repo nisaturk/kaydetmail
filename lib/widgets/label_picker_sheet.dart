@@ -4,6 +4,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
+import '../theme/app_theme.dart';
 
 /// Bottom-sheet label picker shared by the detail screen and the bulk action
 /// bar, so assigning labels never forks into two implementations.
@@ -61,8 +62,8 @@ Future<void> showLabelPicker(
                       ),
                     ),
                   if (repo.getLabelsForAccount(entry.key).isEmpty)
-                    const Padding(
-                      padding: EdgeInsets.symmetric(
+                    Padding(
+                      padding: const EdgeInsets.symmetric(
                         horizontal: 24,
                         vertical: 16,
                       ),
@@ -72,7 +73,7 @@ Future<void> showLabelPicker(
                           'Bu hesapta etiket yok.',
                           style: TextStyle(
                             fontSize: 14,
-                            color: Color(0xFF6B7280),
+                            color: AppTheme.colors(sheetContext).secondaryText,
                           ),
                         ),
                       ),

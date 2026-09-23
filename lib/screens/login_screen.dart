@@ -223,31 +223,31 @@ class _LoginScreenState extends State<LoginScreen> {
                   icon: const Icon(LucideIcons.settings, size: 20),
                 ),
               ),
-              const Center(
+              Center(
                 child: Column(
                   children: [
-                    MailAvatar(
+                    const MailAvatar(
                       identity: 'kaydet@app',
                       displayName: 'KAYDET',
                       size: 72,
                     ),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
                       'KAYDET',
                       style: TextStyle(
                         fontSize: 30,
                         fontWeight: FontWeight.w800,
                         letterSpacing: 1.5,
-                        color: Colors.black,
+                        color: Theme.of(context).colorScheme.onSurface,
                       ),
                     ),
-                    SizedBox(height: 4),
+                    const SizedBox(height: 4),
                     Text(
                       'E-postalarınız için güvenli bir uygulama',
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
-                        color: AppTheme.secondaryText,
+                        color: AppTheme.colors(context).secondaryText,
                       ),
                     ),
                   ],
@@ -323,7 +323,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 13,
-                          color: AppTheme.secondaryText,
+                          color: AppTheme.colors(context).secondaryText,
                           fontWeight: FontWeight.w600,
                         ),
                       ),
@@ -331,10 +331,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       Text(
                         email,
                         textAlign: TextAlign.center,
-                        style: const TextStyle(
+                        style: TextStyle(
                           fontSize: 17,
                           fontWeight: FontWeight.w700,
-                          color: Colors.black,
+                          color: Theme.of(context).colorScheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 32),
@@ -361,6 +361,9 @@ class _LoginScreenState extends State<LoginScreen> {
                     labelText: 'Şifre',
                     prefixIcon: const Icon(LucideIcons.lock, size: 20),
                     suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Şifreyi göster'
+                          : 'Şifreyi gizle',
                       onPressed: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
                       icon: Icon(
@@ -376,12 +379,12 @@ class _LoginScreenState extends State<LoginScreen> {
                 key: const Key('signin-button'),
                 onPressed: _loading ? null : _login,
                 child: _loading
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 22,
                         height: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.5,
-                          color: Colors.white,
+                          color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
                     : Text(_reconnect ? 'Yeniden Bağlan' : 'Giriş Yap'),

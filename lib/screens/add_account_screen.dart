@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../services/session_store.dart';
+import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 import '../widgets/manual_mail_setup_dialog.dart';
 
@@ -147,9 +148,9 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   const SizedBox(height: 12),
                   Text(
                     _error!,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: Color(0xFFB3261E),
+                      color: AppTheme.colors(context).destructive,
                     ),
                   ),
                 ],
@@ -158,12 +159,12 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   key: const Key('connect-button'),
                   onPressed: _connecting ? null : _connect,
                   child: _connecting
-                      ? const SizedBox(
+                      ? SizedBox(
                           width: 22,
                           height: 22,
                           child: CircularProgressIndicator(
                             strokeWidth: 2.5,
-                            color: Colors.white,
+                            color: Theme.of(context).colorScheme.onPrimary,
                           ),
                         )
                       : const Text('Bağla'),
