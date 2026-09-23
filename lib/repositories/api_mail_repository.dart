@@ -1498,7 +1498,8 @@ class ApiMailRepository extends MailRepository {
   /// server mail, fanned out across every account in scope — reaches mail
   /// not yet loaded into the local buckets. The sync in-screen search
   /// ([MailRepository.searchEmails]) stays client-side over loaded mail.
-  Future<List<Email>> searchServer({
+  @override
+  Future<List<Email>> searchEmailsOnServer({
     required String query,
     String? folderId,
     String? conversationId,
@@ -1513,7 +1514,7 @@ class ApiMailRepository extends MailRepository {
     int pageSize = 20,
   }) async {
     final all = <Email>[];
-    for (final session in _scopedSessions) {
+    for (final session in _sessions.values) {
       final results = await session.mailService.search(
         query: query,
         resolveFolder: session.resolveFolder,

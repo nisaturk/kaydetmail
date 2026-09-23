@@ -205,6 +205,11 @@ void main() {
           'mail-2a',
         ]);
         expect(repo.getScopedEmails().map((email) => email.id), ['mail-1a']);
+        expect(
+          (await repo.searchEmailsOnServer(query: 'mail'))
+              .map((email) => email.id),
+          containsAll(['mail-1a', 'mail-2a']),
+        );
 
         final label = await repo.createLabel(
           name: 'Hesap 1',
@@ -335,6 +340,38 @@ class _RecordingMailService extends ApiMailService {
       total: mailIds.length,
     );
   }
+
+  @override
+  Future<List<Email>> search({
+    required String query,
+    required MailFolder Function(String folderId) resolveFolder,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    int page = 1,
+    int pageSize = 20,
+  }) async => [
+    for (final id in mailIds)
+      if (id.contains(query))
+        Email(
+          id: id,
+          senderName: 'Sender',
+          senderEmail: 'sender@example.com',
+          recipients: const ['me@example.com'],
+          subject: 'Subject $id',
+          bodyText: '',
+          timestamp: DateTime.parse('2026-01-01T00:00:00Z'),
+          isRead: false,
+          folder: MailFolder.inbox,
+          accountId: accountId,
+        ),
+  ];
 
   @override
   Future<void> deleteAccount() async {
