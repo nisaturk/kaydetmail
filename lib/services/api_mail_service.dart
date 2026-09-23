@@ -6,6 +6,7 @@ import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
+import '../models/scheduled_send.dart';
 import '../utils/html_to_text.dart';
 import 'api_auth_service.dart';
 import 'api_client.dart';
@@ -512,6 +513,64 @@ class ApiMailService {
     );
   }
 
+  /// Queues a mail to send at [sendAtUtc] instead of now, via
+  /// `POST /api/scheduled-sends`. Same field set/idempotency contract as
+  /// [sendMail]; the backend — not this app — fires it at the right time.
+  Future<ScheduledSend> scheduleSend({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String bodyText = '',
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    required DateTime sendAtUtc,
+    required String idempotencyKey,
+  }) async {
+    final body = await _client.multipart(
+      '/api/scheduled-sends',
+      fields: {
+        ..._composeFields(
+          subject: subject,
+          bodyText: bodyText,
+          replySourceMailId: replySourceMailId,
+        ),
+        'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+      },
+      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      headers: {'Idempotency-Key': idempotencyKey},
+    );
+    return _mapScheduledSend(body);
+  }
+
+  /// Cancels a still-pending scheduled send via
+  /// `DELETE /api/scheduled-sends/{id}` (`204`).
+  Future<void> cancelScheduledSend(String id) =>
+      _client.delete('/api/scheduled-sends/${Uri.encodeComponent(id)}');
+
+  /// Lists every scheduled send for the account via
+  /// `GET /api/scheduled-sends`.
+  Future<List<ScheduledSend>> listScheduledSends() async {
+    final body = await _client.get('/api/scheduled-sends');
+    final items = body['items'] as List? ?? const [];
+    return items
+        .map((item) => _mapScheduledSend(item as Map<String, dynamic>))
+        .toList();
+  }
+
+  ScheduledSend _mapScheduledSend(Map<String, dynamic> body) => ScheduledSend(
+    id: body['id'] as String,
+    to: _addresses(body['to']),
+    cc: _addresses(body['cc']),
+    bcc: _addresses(body['bcc']),
+    subject: body['subject'] as String? ?? '',
+    sendAt: DateTime.parse(body['sendAtUtc'] as String).toLocal(),
+    status: ScheduledSendStatus.fromApi(body['status'] as String? ?? 'Pending'),
+    createdAt: DateTime.parse(body['createdAtUtc'] as String).toLocal(),
+    sentMailId: body['sentMailId'] as String?,
+    failureReason: body['failureReason'] as String?,
+  );
+
   Map<String, String> _composeFields({
     required String subject,
     required String bodyText,
@@ -708,7 +767,24 @@ class ApiMailService {
       inReplyToId: inReplyTo == null || inReplyTo.isEmpty ? null : inReplyTo,
       attachments: attachments,
       hasAttachments: item['hasAttachments'] as bool? ?? attachments.isNotEmpty,
+      headers: _mapHeaders(item['headers']),
     );
+  }
+
+  /// `headers: [{ name, value }]` -> case-insensitively keyed map (last
+  /// value wins on a duplicate name; good enough for the single-value
+  /// headers this app reads, e.g. `List-Unsubscribe`).
+  static Map<String, String> _mapHeaders(dynamic raw) {
+    if (raw is! List) return const {};
+    final map = <String, String>{};
+    for (final entry in raw) {
+      if (entry is! Map<String, dynamic>) continue;
+      final name = entry['name'] as String?;
+      final value = entry['value'] as String?;
+      if (name == null || value == null) continue;
+      map[name.toLowerCase()] = value;
+    }
+    return map;
   }
 }
 

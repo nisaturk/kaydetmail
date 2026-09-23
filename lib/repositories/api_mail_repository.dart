@@ -9,6 +9,7 @@ import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
+import '../models/scheduled_send.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
@@ -59,6 +60,15 @@ class _Session {
 
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
+
+  /// Mail id -> epoch millis it should reappear (client-only, see
+  /// [LocalMailFlagsStore.readSnoozed]). A mail past its timestamp is
+  /// treated as not-snoozed everywhere below.
+  Map<String, int> snoozedUntil = {};
+
+  /// Scheduled sends known for this account, soonest first. Populated by
+  /// [ApiMailRepository.refreshScheduledSends].
+  List<ScheduledSend> scheduledSends = [];
 
   // Debounced whole-mailbox cache write-behind, mirrored per account so one
   // account's writes never race another's.
@@ -517,6 +527,7 @@ class ApiMailRepository extends MailRepository {
           ),
       ];
       session.labelMap = await flags.readLabelMap();
+      session.snoozedUntil = await flags.readSnoozed();
       session.flagsStore = flags;
       _hydrateFolderMapFromCache(session);
       final hydrated = await _hydrateFromCache(session);
@@ -1028,14 +1039,28 @@ class ApiMailRepository extends MailRepository {
 
   List<Email> _buildFolderView(MailFolder folder) {
     final sessions = _scopedSessions;
+    if (folder == MailFolder.snoozed) {
+      final pairs = [
+        for (final s in sessions)
+          for (final e in s.emails.values.expand((list) => list))
+            if (_snoozedUntil(s, e.id) case final until?) (email: e, until: until),
+      ];
+      pairs.sort((a, b) => a.until.compareTo(b.until));
+      return List.unmodifiable([for (final p in pairs) p.email]);
+    }
     final result = folder == MailFolder.starred
         ? [
             for (final s in sessions)
               ...s.emails.values
                   .expand((list) => list)
-                  .where((e) => e.isStarred),
+                  .where((e) => e.isStarred && _snoozedUntil(s, e.id) == null),
           ]
-        : [for (final s in sessions) ...(s.emails[folder] ?? const <Email>[])];
+        : [
+            for (final s in sessions)
+              ...(s.emails[folder] ?? const <Email>[]).where(
+                (e) => _snoozedUntil(s, e.id) == null,
+              ),
+          ];
     result.sort((a, b) {
       final ha = _pinned(a);
       final hb = _pinned(b);
@@ -1043,6 +1068,16 @@ class ApiMailRepository extends MailRepository {
       return b.timestamp.compareTo(a.timestamp);
     });
     return List.unmodifiable(result);
+  }
+
+  /// The active snooze deadline for [mailId] in [session], or null when it
+  /// isn't snoozed or the snooze already elapsed (elapsed entries are left
+  /// in storage — they're simply inert — and pruned lazily on next write).
+  DateTime? _snoozedUntil(_Session session, String mailId) {
+    final ms = session.snoozedUntil[mailId];
+    if (ms == null) return null;
+    final until = DateTime.fromMillisecondsSinceEpoch(ms);
+    return until.isAfter(DateTime.now()) ? until : null;
   }
 
   @override
@@ -1069,7 +1104,9 @@ class ApiMailRepository extends MailRepository {
 
   @override
   bool hasMoreEmails(MailFolder folder) {
-    if (folder == MailFolder.starred) return false;
+    if (folder == MailFolder.starred || folder == MailFolder.snoozed) {
+      return false;
+    }
     final sessions = _scopedSessions.where(
       (session) => session.folderIds.containsKey(folder),
     );
@@ -1446,6 +1483,75 @@ class ApiMailRepository extends MailRepository {
       notifyListeners();
     }
     return email;
+  }
+
+  @override
+  Future<ScheduledSend> scheduleSend({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    required String body,
+    List<Attachment> attachments = const [],
+    String? from,
+    String? fromAccountId,
+    String? inReplyToId,
+    required DateTime sendAt,
+  }) async {
+    final session = _sessionForCompose(
+      from: from,
+      fromAccountId: fromAccountId,
+    );
+    final scheduled = await session.mailService.scheduleSend(
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      attachments: attachments,
+      replySourceMailId: inReplyToId,
+      sendAtUtc: sendAt,
+      idempotencyKey: _newIdempotencyKey(),
+    );
+    final stamped = scheduled.copyWith(accountId: session.account.id);
+    session.scheduledSends = [...session.scheduledSends, stamped]
+      ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
+    notifyListeners();
+    return stamped;
+  }
+
+  @override
+  Future<void> cancelScheduledSend(String id) async {
+    final session = _sessions.values.firstWhere(
+      (s) => s.scheduledSends.any((sch) => sch.id == id),
+      orElse: () => _primarySession,
+    );
+    await session.mailService.cancelScheduledSend(id);
+    session.scheduledSends = session.scheduledSends
+        .where((s) => s.id != id)
+        .toList();
+    notifyListeners();
+  }
+
+  @override
+  List<ScheduledSend> getScheduledSends() {
+    final result = [
+      for (final s in _scopedSessions) ...s.scheduledSends,
+    ]..sort((a, b) => a.sendAt.compareTo(b.sendAt));
+    return List.unmodifiable(result);
+  }
+
+  @override
+  Future<void> refreshScheduledSends() async {
+    await Future.wait(
+      _scopedSessions.map((session) async {
+        final items = await session.mailService.listScheduledSends();
+        session.scheduledSends = [
+          for (final s in items) s.copyWith(accountId: session.account.id),
+        ]..sort((a, b) => a.sendAt.compareTo(b.sendAt));
+      }),
+    );
+    notifyListeners();
   }
 
   /// Tail of the draft write queue — see [_serializeDraftWrite].
@@ -1987,6 +2093,39 @@ class ApiMailRepository extends MailRepository {
       _restampFlags(session);
     }
     notifyListeners();
+  }
+
+  /// Snooze never reaches the network — see [LocalMailFlagsStore]. Unlike
+  /// pin/star it changes which folder view a mail is even visible in (see
+  /// [_buildFolderView]), so a write always touches the view cache.
+  @override
+  Future<void> setSnoozed(List<String> ids, DateTime? until) async {
+    if (ids.isEmpty) return;
+    for (final entry in _groupBySession(ids).entries) {
+      final session = entry.key;
+      final store = session.flagsStore;
+      if (store == null) continue;
+      if (until == null) {
+        session.snoozedUntil.removeWhere((id, _) => entry.value.contains(id));
+      } else {
+        final ms = until.toUtc().millisecondsSinceEpoch;
+        for (final id in entry.value) {
+          session.snoozedUntil[id] = ms;
+        }
+      }
+      await store.writeSnoozed(session.snoozedUntil);
+    }
+    _touch();
+    notifyListeners();
+  }
+
+  @override
+  DateTime? snoozedUntilOf(String mailId) {
+    for (final session in _scopedSessions) {
+      final until = _snoozedUntil(session, mailId);
+      if (until != null) return until;
+    }
+    return null;
   }
 
   /// Marks that the user opened the forward screen — same split as

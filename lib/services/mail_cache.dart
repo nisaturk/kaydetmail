@@ -51,6 +51,15 @@ class MailCache {
         account_id TEXT NOT NULL, mail_id TEXT NOT NULL, label_id TEXT NOT NULL,
         PRIMARY KEY (account_id, mail_id, label_id)
       )''');
+    // Snooze is purely client-side (see LocalMailFlagsStore): until_ms is
+    // the epoch-millis timestamp the mail should reappear in its real
+    // folder. Rows past their timestamp are inert — filtering happens in
+    // the repository, not here.
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS snoozes (
+        account_id TEXT NOT NULL, mail_id TEXT NOT NULL, until_ms INTEGER NOT NULL,
+        PRIMARY KEY (account_id, mail_id)
+      )''');
     // Server folder id -> logical MailFolder name, so the repository can
     // still resolve folders (and thus act on cached mail) after a cold
     // start with no network reachable yet.

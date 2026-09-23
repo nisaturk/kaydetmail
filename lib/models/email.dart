@@ -75,6 +75,7 @@ class Email {
     this.accountId = '',
     this.threadId = '',
     this.inReplyToId,
+    this.headers = const {},
   });
 
   final String id;
@@ -137,6 +138,13 @@ class Email {
   /// this — [threadId] is the conversation identity. Pure provenance.
   final String? inReplyToId;
 
+  /// Raw MIME headers (`GET /api/mails/{id}` `headers`), keyed
+  /// case-insensitively. Empty on list rows and locally composed mail —
+  /// only a detail fetch populates it. Powers header-driven features like
+  /// one-click unsubscribe (`List-Unsubscribe`); never shown to the user
+  /// directly.
+  final Map<String, String> headers;
+
   static final _previewCache = Expando<String>('Email.preview');
   static final _whitespace = RegExp(r'\s+');
 
@@ -186,6 +194,7 @@ class Email {
     String? accountId,
     String? threadId,
     String? inReplyToId,
+    Map<String, String>? headers,
   }) {
     return Email(
       id: id,
@@ -211,6 +220,7 @@ class Email {
       accountId: accountId ?? this.accountId,
       threadId: threadId ?? this.threadId,
       inReplyToId: inReplyToId ?? this.inReplyToId,
+      headers: headers ?? this.headers,
     );
   }
 
