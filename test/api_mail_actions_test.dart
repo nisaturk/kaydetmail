@@ -158,28 +158,80 @@ void main() {
       },
     );
 
-    test('moveToFolder restores a trashed mail via bulk restore, not bulk move', () async {
-      final mailService = _RecordingMailService(
-        folders: [
-          _folder('folder-inbox', 'Inbox'),
-          _folder('folder-trash', 'Trash'),
-        ],
-        pagesByFolderId: {
-          'folder-trash': _page([_mailJson('mail-1', 'folder-trash')]),
-        },
-      );
-      final repo = await _repositoryWithLoadedFolder(
-        mailService,
-        MailFolder.trash,
-      );
+    test(
+      'moveToFolder restores trashed mail via bulk restore and files each '
+      'mail where the server put it back, not in the requested folder',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-drafts', 'Drafts'),
+            _folder('folder-trash', 'Trash'),
+          ],
+          pagesByFolderId: {
+            'folder-trash': _page([
+              _mailJson('mail-1', 'folder-trash'),
+              _mailJson('draft-1', 'folder-trash'),
+            ]),
+          },
+        )..folderAfterRestore.addAll({
+            'mail-1': 'folder-inbox',
+            'draft-1': 'folder-drafts',
+          });
+        final repo = await _repositoryWithLoadedFolder(
+          mailService,
+          MailFolder.trash,
+        );
 
-      await repo.moveToFolder(['mail-1'], MailFolder.inbox);
+        await repo.moveToFolder(['mail-1', 'draft-1'], MailFolder.inbox);
 
-      expect(mailService.singleActionCalls, isEmpty);
-      expect(mailService.bulkActionCalls.single, startsWith('restore'));
-      expect(repo.getEmailsInFolder(MailFolder.trash), isEmpty);
-      expect(repo.getEmailsInFolder(MailFolder.inbox).single.id, 'mail-1');
-    });
+        expect(mailService.singleActionCalls, isEmpty);
+        expect(mailService.bulkActionCalls.single, startsWith('restore'));
+        expect(repo.getEmailsInFolder(MailFolder.trash), isEmpty);
+        expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+          'mail-1',
+        ]);
+        expect(repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id), [
+          'draft-1',
+        ]);
+      },
+    );
+
+    test(
+      'refresh drops cached mail inside page 1\'s window that the server no '
+      'longer lists, but keeps older mail paged in earlier',
+      () async {
+        Map<String, dynamic> mail(String id, String day) =>
+            _mailJson(id, 'folder-inbox', receivedAt: '2026-09-${day}T08:00:00Z');
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([
+              mail('new', '20'),
+              mail('gone', '18'),
+              mail('old', '10'),
+            ]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+
+        mailService.pagesByFolderId['folder-inbox'] = MailListPage(
+          items: [mail('new', '20'), mail('mid', '15')]
+              .map(_mapMailForTest)
+              .toList(),
+          page: 1,
+          pageSize: 2,
+          total: 3,
+        );
+        await repo.refreshEmails(MailFolder.inbox);
+
+        expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+          'new',
+          'mid',
+          'old',
+        ]);
+      },
+    );
 
     test('setStarred uses one bulk star request and updates the cache', () async {
       final mailService = _RecordingMailService(
@@ -299,7 +351,11 @@ Map<String, dynamic> _folder(String id, String type) => {
   'folderType': type,
 };
 
-Map<String, dynamic> _mailJson(String id, String folderId) => {
+Map<String, dynamic> _mailJson(
+  String id,
+  String folderId, {
+  String receivedAt = '2026-09-17T01:56:58Z',
+}) => {
   'id': id,
   'folderId': folderId,
   'subject': 'Subject $id',
@@ -308,7 +364,7 @@ Map<String, dynamic> _mailJson(String id, String folderId) => {
   'toAddress': 'person@example.com',
   'isRead': false,
   'hasAttachments': false,
-  'receivedAt': '2026-09-17T01:56:58Z',
+  'receivedAt': receivedAt,
 };
 
 MailListPage _page(List<Map<String, dynamic>> items) => MailListPage(
@@ -350,6 +406,24 @@ class _RecordingMailService extends ApiMailService {
   final List<String> syncedFolderIds = [];
   List<BulkActionResult> Function(String action, List<String> ids)?
   bulkResultsOverride;
+
+  /// Server folder id each mail's detail reports after a `restore`.
+  final Map<String, String> folderAfterRestore = {};
+
+  @override
+  Future<Email> getMail(
+    String id, {
+    required MailFolder Function(String folderId) resolveFolder,
+  }) async => Email(
+    id: id,
+    senderName: 'Sender',
+    senderEmail: 'sender@example.com',
+    recipients: const ['person@example.com'],
+    subject: 'Subject $id',
+    bodyText: '',
+    timestamp: DateTime.parse('2026-09-17T01:56:58Z'),
+    folder: resolveFolder(folderAfterRestore[id]!),
+  );
 
   @override
   Future<List<ApiMailFolder>> getFolders() async => folders

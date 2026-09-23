@@ -1160,9 +1160,27 @@ class ApiMailRepository extends MailRepository {
     // pass didn't re-verify it — losing it also breaks threadStatusOf's
     // cross-message reply/forward aggregation for any thread whose
     // answered/forwarded message lived past page 1.
+    //
+    // Page 1 is newest-first, though, so it does cover everything down to
+    // its oldest item (the whole folder when the page isn't full): a cached
+    // mail inside that window which the server didn't return has left the
+    // folder and must go — otherwise a mail misfiled locally (or moved by
+    // another client) would sit in this folder forever.
     final refreshedIds = refreshed.map((e) => e.id).toSet();
+    final wholeFolder = result.items.length >= result.total;
+    final oldestFetched = result.items.isEmpty
+        ? null
+        : result.items
+              .map((e) => e.timestamp)
+              .reduce((a, b) => a.isBefore(b) ? a : b);
     final stale = old.values
-        .where((e) => !refreshedIds.contains(e.id))
+        .where(
+          (e) =>
+              !refreshedIds.contains(e.id) &&
+              !wholeFolder &&
+              oldestFetched != null &&
+              e.timestamp.isBefore(oldestFetched),
+        )
         .map(session.stampLocalFlags);
     session.emails[folder] = [...refreshed, ...stale]
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -1682,12 +1700,9 @@ class ApiMailRepository extends MailRepository {
       }
       final idsForSession = entry.value;
       final restoring = _idsInTrashOrSpam(session, idsForSession);
-      await _bulkAndApply(
-        session,
-        'restore',
-        restoring.toList(),
-        (succeeded) => _moveMany(session, succeeded, folder),
-      );
+      final restored = <String>[];
+      await _bulkAndApply(session, 'restore', restoring, restored.addAll);
+      await _fileRestored(session, restored);
 
       final rest = idsForSession
           .where((id) => !restoring.contains(id))
@@ -1702,6 +1717,50 @@ class ApiMailRepository extends MailRepository {
         );
       }
     }
+  }
+
+  /// `restore` sends each mail back to the folder it was trashed/spammed
+  /// from, which only the server tracks — the target a caller passes to
+  /// [moveToFolder] says nothing about where it went (a restored draft goes
+  /// back to Drafts, not Inbox). Asks the server where each mail landed and
+  /// files it there; a mail whose folder can't be determined, or that went
+  /// to a folder this client doesn't track, only leaves Trash/Spam locally
+  /// and shows up again on that folder's next load.
+  Future<void> _fileRestored(_Session session, List<String> ids) async {
+    if (ids.isEmpty) return;
+    final details = await Future.wait(
+      ids.map((id) async {
+        String? landedFolderId;
+        try {
+          final detail = await session.mailService.getMail(
+            id,
+            resolveFolder: (folderId) {
+              landedFolderId = folderId;
+              return session.resolveFolder(folderId);
+            },
+          );
+          final tracked = session.folderTypeById.containsKey(landedFolderId);
+          return tracked ? detail : null;
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    final idSet = ids.toSet();
+    _touch();
+    for (final folder in session.emails.keys.toList()) {
+      session.emails[folder] = [
+        for (final email in session.emails[folder]!)
+          if (!idSet.contains(email.id)) email,
+      ];
+    }
+    for (final detail in details) {
+      if (detail == null) continue;
+      session.emails
+          .putIfAbsent(detail.folder, () => <Email>[])
+          .insert(0, session.stampLocalFlags(detail));
+    }
+    notifyListeners();
   }
 
   @override
