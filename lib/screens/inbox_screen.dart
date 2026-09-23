@@ -384,7 +384,7 @@ class _InboxScreenState extends State<InboxScreen> {
 
   Map<String, int> _threadCounts() {
     final active = _repo.activeAccountId;
-    final source = _repo.getAllEmails();
+    final source = _repo.getScopedEmails();
     // The repository hands back the same list until something changes.
     if (identical(source, _countsSource) && active == _countsAccount) {
       return _counts;
@@ -392,7 +392,6 @@ class _InboxScreenState extends State<InboxScreen> {
     final counts = <String, int>{};
     for (final email in source) {
       if (email.threadId.isEmpty) continue;
-      if (active != null && email.accountId != active) continue;
       counts[email.threadId] = (counts[email.threadId] ?? 0) + 1;
     }
     _countsSource = source;

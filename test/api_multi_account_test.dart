@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -79,10 +80,10 @@ void main() {
         );
 
         await repo.setActiveAccount('account-1');
-        expect(
-          repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
-          ['mail-1a', 'mail-1b'],
-        );
+        expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+          'mail-1a',
+          'mail-1b',
+        ]);
       },
     );
 
@@ -123,10 +124,9 @@ void main() {
 
         expect(repo.accounts.map((a) => a.id), ['account-1']);
         expect(two.mailService.deleteAccountCalled, isTrue);
-        expect(
-          repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
-          ['mail-1a'],
-        );
+        expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+          'mail-1a',
+        ]);
       },
     );
 
@@ -166,6 +166,54 @@ void main() {
 
         expect(one.mailService.bulkActionCalls, ['read:mail-1a']);
         expect(two.mailService.bulkActionCalls, ['read:mail-2a']);
+      },
+    );
+    test(
+      'global search ignores active scope and labels stay account-local',
+      () async {
+        final one = _fakeAccount(
+          accountId: 'account-1',
+          email: 'one@example.com',
+          folderId: 'folder-1',
+          mailIds: ['mail-1a'],
+        );
+        await one.authService.tokenStore.save(
+          accountId: 'account-1',
+          accessToken: 'access-1',
+          refreshToken: 'refresh-1',
+        );
+        final two = _fakeAccount(
+          accountId: 'account-2',
+          email: 'two@example.com',
+          folderId: 'folder-2',
+          mailIds: ['mail-2a'],
+        );
+        final repo = ApiMailRepository(
+          authService: one.authService,
+          mailService: one.mailService,
+          sessionFactory: () =>
+              (authService: two.authService, mailService: two.mailService),
+        );
+
+        await repo.restoreSession('one@example.com');
+        await repo.loadMoreEmails(MailFolder.inbox);
+        await repo.connectAccount(email: 'two@example.com', password: 'pw');
+        await repo.loadMoreEmails(MailFolder.inbox);
+        await repo.setActiveAccount('account-1');
+
+        expect(repo.searchEmails(query: 'mail-2a').map((email) => email.id), [
+          'mail-2a',
+        ]);
+        expect(repo.getScopedEmails().map((email) => email.id), ['mail-1a']);
+
+        final label = await repo.createLabel(
+          name: 'Hesap 1',
+          color: const Color(0xFF000000),
+        );
+        await repo.addLabelsToEmails(['mail-1a', 'mail-2a'], [label.id]);
+        final byId = {for (final email in repo.getAllEmails()) email.id: email};
+        expect(byId['mail-1a']!.labelIds, contains(label.id));
+        expect(byId['mail-2a']!.labelIds, isNot(contains(label.id)));
       },
     );
   });
@@ -212,7 +260,9 @@ void main() {
   final authService = ApiAuthService(
     client: client,
     tokenStore: tokenStore,
-    deviceIdentifierProvider: MemoryDeviceIdentifierProvider('device-$accountId'),
+    deviceIdentifierProvider: MemoryDeviceIdentifierProvider(
+      'device-$accountId',
+    ),
   );
   final mailService = _RecordingMailService(
     client,
@@ -258,7 +308,12 @@ class _RecordingMailService extends ApiMailService {
     String? search,
   }) async {
     if (folderId != this.folderId || page != 1) {
-      return MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+      return MailListPage(
+        items: const [],
+        page: page,
+        pageSize: pageSize,
+        total: 0,
+      );
     }
     return MailListPage(
       items: [
@@ -293,7 +348,9 @@ class _RecordingMailService extends ApiMailService {
     String? folderId,
   }) async {
     bulkActionCalls.add('$action:${mailIds.join(",")}');
-    return mailIds.map((id) => BulkActionResult(mailId: id, success: true)).toList();
+    return mailIds
+        .map((id) => BulkActionResult(mailId: id, success: true))
+        .toList();
   }
 }
 
