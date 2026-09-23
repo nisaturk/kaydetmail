@@ -15,6 +15,7 @@ import '../widgets/label_picker_sheet.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
+import 'mail_detail_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 
@@ -34,6 +35,31 @@ class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
   bool _bulkBusy = false;
+
+  /// Mail shown in the wide-layout detail pane (>=[_masterDetailBreakpoint]).
+  /// Null shows [_DetailPanePlaceholder] instead — nothing selected yet, or
+  /// the folder was just switched (see [_selectFolder]).
+  String? _selectedMailId;
+
+  // ── Adaptive layout breakpoints ─────────────────────────────────────
+  //
+  // Below `_railBreakpoint` this screen is untouched: `Scaffold.drawer` +
+  // a full-width list, identical to the phone-only layout. At and above it
+  // folders become a persistent rail (no drawer to open/close), and at
+  // `_masterDetailBreakpoint` a detail pane joins a width-constrained list.
+
+  /// Tablet-and-up: folder navigation becomes a persistent rail instead of
+  /// a `Scaffold.drawer`.
+  static const double _railBreakpoint = 840;
+
+  /// Desktop-class: a persistent detail pane joins the rail and a width-
+  /// constrained list (master/detail).
+  static const double _masterDetailBreakpoint = 1200;
+
+  /// True once the rail replaces the drawer — [_selectFolder] and the other
+  /// drawer callbacks must not try to pop a drawer this layout never opened.
+  bool get _isRailLayout =>
+      mounted && MediaQuery.sizeOf(context).width >= _railBreakpoint;
 
   late final ShareIntake _shareIntake = ShareIntake(
     () => mounted ? context : null,
@@ -56,12 +82,15 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _selectFolder(MailFolder folder) {
     _selection.exit();
-    setState(() => _folder = folder);
-    Navigator.of(context).pop();
+    setState(() {
+      _folder = folder;
+      _selectedMailId = null;
+    });
+    if (!_isRailLayout) Navigator.of(context).pop();
   }
 
   Future<void> _logout() async {
-    Navigator.of(context).pop();
+    if (!_isRailLayout) Navigator.of(context).pop();
     await _repo.logout();
     await SessionStore.clear();
     // The root auth coordinator observes the repository logout and replaces
@@ -74,13 +103,13 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSettings() {
-    Navigator.of(context).pop(); // close the drawer
+    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
   }
 
   void _openAccounts() {
-    Navigator.of(context).pop(); // close the drawer
+    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
     _selection.exit();
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const AccountsScreen()));
@@ -108,10 +137,10 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               ListTile(
                 key: const ValueKey('selector-unified'),
-                leading: const Icon(
+                leading: Icon(
                   LucideIcons.inbox,
                   size: 20,
-                  color: AppTheme.secondaryText,
+                  color: AppTheme.colors(ctx).secondaryText,
                 ),
                 title: const Text('Tüm Gelen Kutuları'),
                 selected: activeId == null,
@@ -126,8 +155,8 @@ class _HomeScreenState extends State<HomeScreen> {
                         : LucideIcons.circle,
                     size: 20,
                     color: account.id == activeId
-                        ? Colors.black
-                        : AppTheme.tertiaryText,
+                        ? Theme.of(ctx).colorScheme.onSurface
+                        : AppTheme.colors(ctx).tertiaryText,
                   ),
                   title: Text(
                     account.email,
@@ -166,10 +195,79 @@ class _HomeScreenState extends State<HomeScreen> {
   // them to all member messages first. Delete/archive confirm with a compact
   // SnackBar whose Undo restores each message to its exact previous folder.
 
-  Future<void> _actionDelete() => _runBulkMove(
-    action: (ids) => _repo.moveToTrash(ids),
-    success: (count) => '$count e-posta silindi',
-  );
+  // ── Folder-contextual bulk actions ───────────────────────────────────
+  //
+  // Trash and Drafts don't support the generic move/delete flow: Trash
+  // mails have no permanent-delete endpoint (there is nothing further to
+  // do besides restore), and Drafts delete through a distinct one-id-at-a-
+  // time endpoint rather than a folder move. Spam/Archive/Sent keep the
+  // generic flow but hide or add the specific moves that make sense there.
+
+  /// Delete is hidden entirely in Trash; in Drafts it routes to
+  /// [_actionDeleteDrafts] instead of a folder move.
+  bool get _showDeleteAction => _folder != MailFolder.trash;
+
+  bool get _showArchiveAction => switch (_folder) {
+    MailFolder.drafts ||
+    MailFolder.trash ||
+    MailFolder.spam ||
+    MailFolder.archive => false,
+    _ => true,
+  };
+
+  bool get _showRestoreAction => _folder == MailFolder.trash;
+  bool get _showUnarchiveAction => _folder == MailFolder.archive;
+  bool get _showMarkNotSpamAction => _folder == MailFolder.spam;
+
+  /// "Spam kutusuna gönder" only makes sense where a mail could plausibly
+  /// still be legitimate — not already in Drafts/Trash/Spam/Sent.
+  bool get _showMarkAsSpamAction => switch (_folder) {
+    MailFolder.drafts ||
+    MailFolder.trash ||
+    MailFolder.spam ||
+    MailFolder.sent => false,
+    _ => true,
+  };
+
+  Future<void> _actionDelete() {
+    if (_folder == MailFolder.drafts) return _actionDeleteDrafts();
+    return _runBulkMove(
+      action: (ids) => _repo.moveToTrash(ids),
+      success: (count) => '$count e-posta silindi',
+    );
+  }
+
+  /// Drafts delete through [MailRepository.deleteDraft] — a distinct,
+  /// one-id-at-a-time endpoint (see docs/flutter-api-integration.md), never
+  /// the generic trash/move flow. There is nothing to restore once a draft
+  /// is gone, so this intentionally offers no Undo rather than one that
+  /// would silently do nothing.
+  Future<void> _actionDeleteDrafts() async {
+    if (_bulkBusy) return;
+    final ids = _selection.selectedIds.toList();
+    if (ids.isEmpty) {
+      _selection.exit();
+      return;
+    }
+    setState(() => _bulkBusy = true);
+    try {
+      await Future.wait(ids.map(_repo.deleteDraft));
+      _selection.exit();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${ids.length} taslak silindi')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
+  }
 
   Future<void> _actionArchive() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.archive),
@@ -179,6 +277,24 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionSpam() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.spam),
     success: (count) => '$count e-posta spam kutusuna taşındı',
+  );
+
+  /// Trash's `moveToFolder(ids, inbox)` is auto-resolved by the repository
+  /// to a real `restore` call for trashed ids, returning each mail to its
+  /// original pre-trash folder — see `MailRepository.moveToFolder` docs.
+  Future<void> _actionRestoreFromTrash() => _runBulkMove(
+    action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
+    success: (count) => '$count e-posta geri yüklendi',
+  );
+
+  Future<void> _actionUnarchive() => _runBulkMove(
+    action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
+    success: (count) => '$count e-posta arşivden çıkarıldı',
+  );
+
+  Future<void> _actionMarkNotSpam() => _runBulkMove(
+    action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
+    success: (count) => '$count e-posta spam olmaktan çıkarıldı',
   );
 
   Future<void> _runBulkMove({
@@ -273,17 +389,21 @@ class _HomeScreenState extends State<HomeScreen> {
     return ListenableBuilder(
       listenable: Listenable.merge([_repo, _selection]),
       builder: (context, _) {
+        final width = MediaQuery.sizeOf(context).width;
+        final showRail = width >= _railBreakpoint;
+        final showDetailPane = width >= _masterDetailBreakpoint;
+        final drawerContent = AppDrawer(
+          selectedFolder: _folder,
+          onSelectFolder: _selectFolder,
+          onLogout: _logout,
+          onOpenSettings: _openSettings,
+          onOpenAccounts: _openAccounts,
+        );
         return Scaffold(
           appBar: _selection.isActive
               ? _buildSelectionAppBar()
               : _buildNormalAppBar(),
-          drawer: AppDrawer(
-            selectedFolder: _folder,
-            onSelectFolder: _selectFolder,
-            onLogout: _logout,
-            onOpenSettings: _openSettings,
-            onOpenAccounts: _openAccounts,
-          ),
+          drawer: showRail ? null : drawerContent,
           floatingActionButton: _selection.isActive
               ? null
               : FloatingActionButton(
@@ -291,19 +411,67 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Yeni E-posta',
                   child: const Icon(LucideIcons.mailPlus),
                 ),
-          body: Column(
-            children: [
-              if (_repo.isOffline) const _OfflineBanner(),
-              Expanded(
-                child: KeyedSubtree(
-                  key: ValueKey(_folder),
-                  child: InboxScreen(folder: _folder, selection: _selection),
-                ),
-              ),
-            ],
-          ),
+          body: showRail
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    drawerContent,
+                    VerticalDivider(
+                      width: 1,
+                      color: AppTheme.colors(context).border,
+                    ),
+                    Expanded(
+                      child: _buildMailArea(showDetailPane: showDetailPane),
+                    ),
+                  ],
+                )
+              : _buildMailArea(showDetailPane: false),
         );
       },
+    );
+  }
+
+  /// Offline banner plus the mail list. At [_masterDetailBreakpoint] and up
+  /// the list is width-constrained and a persistent detail pane shows
+  /// whichever mail was last tapped (via `InboxScreen.onOpenMail`) instead
+  /// of `InboxScreen` pushing `MailDetailScreen` full-screen; below that
+  /// this is exactly the full-width list the phone layout has always had.
+  Widget _buildMailArea({required bool showDetailPane}) {
+    final list = KeyedSubtree(
+      key: ValueKey(_folder),
+      child: InboxScreen(
+        folder: _folder,
+        selection: _selection,
+        onOpenMail: showDetailPane
+            ? (id) => setState(() => _selectedMailId = id)
+            : null,
+      ),
+    );
+    final content = showDetailPane
+        ? Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              SizedBox(width: 440, child: list),
+              VerticalDivider(
+                width: 1,
+                color: AppTheme.colors(context).border,
+              ),
+              Expanded(
+                child: _selectedMailId == null
+                    ? const _DetailPanePlaceholder()
+                    : MailDetailScreen(
+                        key: ValueKey(_selectedMailId),
+                        emailId: _selectedMailId!,
+                      ),
+              ),
+            ],
+          )
+        : list;
+    return Column(
+      children: [
+        if (_repo.isOffline) const _OfflineBanner(),
+        Expanded(child: content),
+      ],
     );
   }
 
@@ -332,10 +500,10 @@ class _HomeScreenState extends State<HomeScreen> {
               const Text('Gelen Kutusu'),
               if (selectingInbox) ...[
                 const SizedBox(width: 6),
-                const Icon(
+                Icon(
                   LucideIcons.chevronDown,
                   size: 18,
-                  color: AppTheme.secondaryText,
+                  color: AppTheme.colors(context).secondaryText,
                 ),
               ],
             ],
@@ -344,8 +512,8 @@ class _HomeScreenState extends State<HomeScreen> {
             scopeLabel,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: AppTheme.secondaryText,
+            style: TextStyle(
+              color: AppTheme.colors(context).secondaryText,
               fontSize: 12,
               fontWeight: FontWeight.w400,
               height: 1.15,
@@ -378,10 +546,63 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// Selection toolbar: cancel + count on the left; Sil, Okundu/Okunmadı and
-  /// Arşivle inline; Yıldızla, Spam'e gönder, Etiketle and Tümünü seç in the
-  /// overflow menu.
+  /// Selection toolbar: cancel + count on the left; inline actions vary by
+  /// folder (see the `_show*Action` getters) since delete/archive/spam have
+  /// no meaning — or a different meaning — outside Inbox/Starred/Sent. Star,
+  /// read/unread and Etiketle stay available in every folder.
   PreferredSizeWidget _buildSelectionAppBar() {
+    final inlineActions = <Widget>[
+      if (_showDeleteAction)
+        IconButton(
+          onPressed: _bulkBusy ? null : _actionDelete,
+          tooltip: 'Sil',
+          icon: const Icon(LucideIcons.trash2),
+        ),
+      if (_showRestoreAction)
+        IconButton(
+          onPressed: _bulkBusy ? null : _actionRestoreFromTrash,
+          tooltip: 'Geri Yükle',
+          icon: const Icon(LucideIcons.rotateCcw),
+        ),
+      IconButton(
+        onPressed: _bulkBusy ? null : _actionToggleRead,
+        tooltip: _selectionAnyUnread
+            ? 'Okundu olarak işaretle'
+            : 'Okunmadı olarak işaretle',
+        icon: Icon(
+          _selectionAnyUnread ? LucideIcons.mailOpen : LucideIcons.mail,
+        ),
+      ),
+      if (_showArchiveAction)
+        IconButton(
+          onPressed: _bulkBusy ? null : _actionArchive,
+          tooltip: 'Arşivle',
+          icon: const Icon(LucideIcons.archive),
+        ),
+      if (_showUnarchiveAction)
+        IconButton(
+          onPressed: _bulkBusy ? null : _actionUnarchive,
+          tooltip: 'Arşivden çıkar',
+          icon: const Icon(LucideIcons.archiveRestore),
+        ),
+    ];
+
+    final overflowItems = <PopupMenuEntry<String>>[
+      PopupMenuItem(
+        value: 'star',
+        child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
+      ),
+      if (_showMarkAsSpamAction)
+        const PopupMenuItem(
+          value: 'spam',
+          child: Text('Spam kutusuna gönder'),
+        ),
+      if (_showMarkNotSpamAction)
+        const PopupMenuItem(value: 'not_spam', child: Text('Spam değil')),
+      const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+      const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
+    ];
+
     return AppBar(
       leading: _bulkBusy
           ? const Padding(
@@ -397,25 +618,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _selection.count == 1 ? '1 seçili' : '${_selection.count} seçili',
       ),
       actions: [
-        IconButton(
-          onPressed: _bulkBusy ? null : _actionDelete,
-          tooltip: 'Sil',
-          icon: const Icon(LucideIcons.trash2),
-        ),
-        IconButton(
-          onPressed: _bulkBusy ? null : _actionToggleRead,
-          tooltip: _selectionAnyUnread
-              ? 'Okundu olarak işaretle'
-              : 'Okunmadı olarak işaretle',
-          icon: Icon(
-            _selectionAnyUnread ? LucideIcons.mailOpen : LucideIcons.mail,
-          ),
-        ),
-        IconButton(
-          onPressed: _bulkBusy ? null : _actionArchive,
-          tooltip: 'Arşivle',
-          icon: const Icon(LucideIcons.archive),
-        ),
+        ...inlineActions,
         PopupMenuButton<String>(
           enabled: !_bulkBusy,
           tooltip: 'Diğer',
@@ -426,26 +629,44 @@ class _HomeScreenState extends State<HomeScreen> {
                 _actionStar();
               case 'spam':
                 _actionSpam();
+              case 'not_spam':
+                _actionMarkNotSpam();
               case 'label':
                 _actionLabel();
               case 'all':
                 _selection.selectAllVisible();
             }
           },
-          itemBuilder: (_) => [
-            PopupMenuItem(
-              value: 'star',
-              child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
-            ),
-            const PopupMenuItem(
-              value: 'spam',
-              child: Text('Spam kutusuna gönder'),
-            ),
-            const PopupMenuItem(value: 'label', child: Text('Etiketle')),
-            const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
-          ],
+          itemBuilder: (_) => overflowItems,
         ),
       ],
+    );
+  }
+}
+
+/// Empty state for the wide-layout detail pane before any mail has been
+/// tapped, or right after switching folders (see `_selectFolder`).
+class _DetailPanePlaceholder extends StatelessWidget {
+  const _DetailPanePlaceholder();
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(AppTheme.space6),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(LucideIcons.mailOpen, size: 40, color: colors.tertiaryText),
+            const SizedBox(height: AppTheme.space3),
+            Text(
+              'Görüntülemek için bir e-posta seçin',
+              style: AppTheme.bodyText2.copyWith(color: colors.secondaryText),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }
@@ -460,16 +681,23 @@ class _OfflineBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      color: const Color(0xFFFFF3CD),
+      color: AppTheme.colors(context).warningBackground,
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       child: Row(
         children: [
-          const Icon(LucideIcons.cloudOff, size: 16, color: Color(0xFF8A6D00)),
+          Icon(
+            LucideIcons.cloudOff,
+            size: 16,
+            color: AppTheme.colors(context).warning,
+          ),
           const SizedBox(width: 8),
-          const Expanded(
+          Expanded(
             child: Text(
               'Bağlantı yok. Önbellekteki son postalar gösteriliyor.',
-              style: TextStyle(fontSize: 12.5, color: Color(0xFF8A6D00)),
+              style: TextStyle(
+                fontSize: 12.5,
+                color: AppTheme.colors(context).warning,
+              ),
             ),
           ),
         ],
