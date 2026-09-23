@@ -1151,6 +1151,7 @@ class ApiMailRepository extends MailRepository {
                   bodyText: old[e.id]!.bodyText.isEmpty
                       ? e.bodyText
                       : old[e.id]!.bodyText,
+                  bodyHtml: old[e.id]!.bodyHtml,
                   isStarred: old[e.id]!.isStarred,
                 ),
         ),

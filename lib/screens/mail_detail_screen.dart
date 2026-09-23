@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -629,15 +630,44 @@ class _SingleMessage extends StatelessWidget {
         ],
         const Divider(height: 32),
         const SizedBox(height: 4),
-        SelectableText(
-          email.bodyText,
-          style: TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText),
-        ),
+        _MessageBody(email: email),
       ],
     );
   }
 
   String recipientText(List<String> recipients) => recipients.join(', ');
+}
+
+/// The message body: the server's sanitized HTML when present, so the
+/// sender's formatting (bold, italics, lists, tables, links) survives —
+/// otherwise the plain text. Remote images never load (the server already
+/// strips their `src` into `data-remote-src`); only inline `data:` images
+/// render.
+class _MessageBody extends StatelessWidget {
+  const _MessageBody({required this.email});
+
+  final Email email;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    final style = TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText);
+    final html = email.bodyHtml;
+    if (html == null || html.trim().isEmpty) {
+      return SelectableText(email.bodyText, style: style);
+    }
+    return SelectionArea(
+      child: HtmlWidget(
+        html,
+        textStyle: style,
+        customWidgetBuilder: (element) {
+          if (element.localName != 'img') return null;
+          final src = element.attributes['src'] ?? '';
+          return src.startsWith('data:') ? null : const SizedBox.shrink();
+        },
+      ),
+    );
+  }
 }
 
 class _RecipientLine extends StatelessWidget {
