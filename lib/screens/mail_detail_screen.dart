@@ -234,11 +234,10 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     return _repo.getAccount(email.accountId)?.email;
   }
 
-  void _reply() {
+  Future<void> _reply() async {
     final email = _email;
     if (email == null) return;
-    _repo.markAsReplied([email.id]);
-    Navigator.of(context).push(
+    final sent = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
           composeTitle: 'Yanıtla',
@@ -250,13 +249,13 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         ),
       ),
     );
+    if (sent == true) await _repo.markAsReplied([email.id]);
   }
 
-  void _forward() {
+  Future<void> _forward() async {
     final email = _email;
     if (email == null) return;
-    _repo.markAsForwarded([email.id]);
-    Navigator.of(context).push(
+    final sent = await Navigator.of(context).push<bool>(
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
           composeTitle: 'İlet',
@@ -267,6 +266,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         ),
       ),
     );
+    if (sent == true) await _repo.markAsForwarded([email.id]);
   }
 
   static String _replySubject(String subject) {
