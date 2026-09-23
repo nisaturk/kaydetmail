@@ -38,6 +38,7 @@ class _InboxScreenState extends State<InboxScreen> {
   bool _initialLoading = true;
   bool _loadingMore = false;
   Object? _error;
+  Object? _loadMoreError;
 
   /// Conversations removed from the local list right after a swipe, before the
   /// async trash move lands. Keyed by thread id (see [_dismissKey]).
@@ -86,14 +87,22 @@ class _InboxScreenState extends State<InboxScreen> {
   }
 
   Future<void> _loadMore() async {
-    if (_loadingMore || _initialLoading) return;
-    setState(() => _loadingMore = true);
+    if (_loadingMore ||
+        _initialLoading ||
+        !_repo.hasMoreEmails(widget.folder)) {
+      return;
+    }
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
     try {
       await _repo.loadMoreEmails(widget.folder);
-    } catch (_) {
-      // Keep the current list; the next scroll will retry.
+    } catch (error) {
+      if (mounted) setState(() => _loadMoreError = error);
+    } finally {
+      if (mounted) setState(() => _loadingMore = false);
     }
-    if (mounted) setState(() => _loadingMore = false);
   }
 
   Future<void> _refresh() async {
@@ -256,7 +265,8 @@ class _InboxScreenState extends State<InboxScreen> {
         }
 
         final swipeEnabled = AppSettingsController.instance.swipeDeleteEnabled;
-        final itemCount = grouped.length + (_loadingMore ? 1 : 0);
+        final showFooter = _loadingMore || _loadMoreError != null;
+        final itemCount = grouped.length + (showFooter ? 1 : 0);
         return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView.separated(
@@ -268,6 +278,18 @@ class _InboxScreenState extends State<InboxScreen> {
                 const Divider(indent: 64, endIndent: 16),
             itemBuilder: (context, index) {
               if (index == grouped.length) {
+                if (_loadMoreError != null) {
+                  return Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Center(
+                      child: TextButton.icon(
+                        onPressed: _loadMore,
+                        icon: const Icon(LucideIcons.refreshCw, size: 18),
+                        label: const Text('Daha fazlasını tekrar yükle'),
+                      ),
+                    ),
+                  );
+                }
                 return const Padding(
                   padding: EdgeInsets.symmetric(vertical: 16),
                   child: Center(

@@ -172,6 +172,10 @@ abstract class MailRepository extends ChangeNotifier {
   /// emails and must keep existing entries intact.
   Future<List<Email>> loadMoreEmails(MailFolder folder);
 
+  /// Whether at least one account in the active mailbox scope has another
+  /// page for [folder].
+  bool hasMoreEmails(MailFolder folder);
+
   /// Re-syncs [folder] from the source without touching the existing page.
   ///
   /// Pull-to-refresh must never duplicate already-loaded mails nor change

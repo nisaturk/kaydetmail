@@ -44,6 +44,7 @@ class _Session {
   final Map<MailFolder, List<Email>> emails = {};
   final Map<MailFolder, int> pages = {};
   final Map<MailFolder, int> serverUnread = {};
+  final Map<MailFolder, bool> hasMore = {};
   final Map<String, int> serverThreadSizes = {};
 
   Set<String> pinnedIds = {};
@@ -1017,6 +1018,15 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
+  bool hasMoreEmails(MailFolder folder) {
+    if (folder == MailFolder.starred) return false;
+    final sessions = _scopedSessions.where(
+      (session) => session.folderIds.containsKey(folder),
+    );
+    return sessions.any((session) => session.hasMore[folder] ?? true);
+  }
+
+  @override
   Future<List<Email>> loadMoreEmails(MailFolder folder) async {
     final results = await Future.wait(
       _scopedSessions.map((s) => _loadMoreFor(s, folder)),
@@ -1025,6 +1035,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<List<Email>> _loadMoreFor(_Session session, MailFolder folder) async {
+    if (session.hasMore[folder] == false) return const [];
     final folderId = session.folderIds[folder];
     if (folderId == null) return const [];
     final page = (session.pages[folder] ?? 0) + 1;
@@ -1041,6 +1052,8 @@ class ApiMailRepository extends MailRepository {
         .toList();
     current.addAll(fresh);
     session.pages[folder] = result.page;
+    session.hasMore[folder] =
+        result.page * result.pageSize < result.total && result.items.isNotEmpty;
     _cancelReconnectRetry(session);
     session.offline = false;
     notifyListeners();
@@ -1091,6 +1104,8 @@ class ApiMailRepository extends MailRepository {
     session.emails[folder] = [...refreshed, ...stale]
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     session.pages[folder] = max(session.pages[folder] ?? 1, result.page);
+    session.hasMore[folder] =
+        (session.emails[folder]?.length ?? 0) < result.total;
     notifyListeners();
   }
 

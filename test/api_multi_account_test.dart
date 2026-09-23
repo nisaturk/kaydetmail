@@ -78,6 +78,7 @@ void main() {
           unified.map((e) => e.id),
           containsAll(['mail-1a', 'mail-1b', 'mail-2a']),
         );
+        expect(repo.hasMoreEmails(MailFolder.inbox), isFalse);
 
         await repo.setActiveAccount('account-1');
         expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
