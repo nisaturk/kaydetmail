@@ -167,23 +167,7 @@ class _SearchScreenState extends State<SearchScreen> {
     if (email.folder == MailFolder.drafts) {
       // Drafts open in the editor with every field populated; ordinary
       // messages keep opening the read-only detail view.
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ComposeScreen(
-            composeTitle: 'Taslağı Düzenle',
-            editingDraftId: email.id,
-            initialFrom: _repo.getAccount(email.accountId)?.email,
-            initialTo: email.recipients.join(', '),
-            initialCc: email.cc.join(', '),
-            initialBcc: email.bcc.join(', '),
-            initialSubject: email.subject,
-            initialBody: email.bodyText,
-            initialAttachments: email.attachments,
-            initialThreadId: email.threadId.isEmpty ? null : email.threadId,
-            inReplyToId: email.inReplyToId,
-          ),
-        ),
-      );
+      openDraftEditor(context, email);
     } else {
       Navigator.of(context).push(
         MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: email.id)),

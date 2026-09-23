@@ -27,6 +27,24 @@ List<String> expandThreadIds(
   return out;
 }
 
+/// The subset of [ids] whose message currently lives in [folder].
+///
+/// A row in Trash, Spam or Archive stands for the conversation as it appears
+/// there. Taking it back out (restore, "spam değil", "arşivden çıkar") must
+/// only move those messages — never drag the thread's Sent or Drafts
+/// messages into the Inbox along with them.
+List<String> idsInFolder(
+  MailRepository repo,
+  List<String> ids,
+  MailFolder folder,
+) {
+  final wanted = ids.toSet();
+  return [
+    for (final email in repo.getAllEmails())
+      if (email.folder == folder && wanted.remove(email.id)) email.id,
+  ];
+}
+
 /// Previous folder per message id, captured before a move so one Undo can
 /// restore every affected message to its exact original folder.
 Map<String, MailFolder> previousFoldersOf(

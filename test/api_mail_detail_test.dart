@@ -110,6 +110,10 @@ void main() {
       expect(email.threadId, 'conv-7');
       expect(email.inReplyToId, '<parent@mail.example.com>');
       expect(email.hasRemoteContent, isTrue);
+      expect(
+        email.bodyHtml,
+        '<p>Merhaba,</p><p>yarın saat 10:00\'da toplantımız var.</p>',
+      );
       expect(email.attachments.single.id, 'att-1');
       expect(email.attachments.single.name, 'notlar.pdf');
       expect(email.attachments.single.sizeBytes, 48211);

@@ -12,6 +12,7 @@ import '../utils/mail_threads.dart';
 import '../utils/error_messages.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
+import '../widgets/permanent_delete_dialog.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
@@ -198,12 +199,12 @@ class _HomeScreenState extends State<HomeScreen> {
   // ── Folder-contextual bulk actions ───────────────────────────────────
   //
   // Trash and Drafts don't support the generic move/delete flow: Trash
-  // mails have no permanent-delete endpoint (there is nothing further to
-  // do besides restore), and Drafts delete through a distinct one-id-at-a-
-  // time endpoint rather than a folder move. Spam/Archive/Sent keep the
+  // mails can only be restored or permanently deleted, and Drafts delete
+  // through a distinct one-id-at-a-time endpoint rather than a folder move. Spam/Archive/Sent keep the
   // generic flow but hide or add the specific moves that make sense there.
 
-  /// Delete is hidden entirely in Trash; in Drafts it routes to
+  /// Delete (move to Trash) is hidden in Trash, which offers
+  /// [_actionDeleteForever] instead; in Drafts it routes to
   /// [_actionDeleteDrafts] instead of a folder move.
   bool get _showDeleteAction => _folder != MailFolder.trash;
 
@@ -216,6 +217,7 @@ class _HomeScreenState extends State<HomeScreen> {
   };
 
   bool get _showRestoreAction => _folder == MailFolder.trash;
+  bool get _showDeleteForeverAction => _folder == MailFolder.trash;
   bool get _showUnarchiveAction => _folder == MailFolder.archive;
   bool get _showMarkNotSpamAction => _folder == MailFolder.spam;
 
@@ -269,6 +271,41 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  /// Trash only: expunges the selected conversations' Trash messages. No
+  /// Undo exists, so it asks first.
+  Future<void> _actionDeleteForever() async {
+    if (_bulkBusy) return;
+    final ids = idsInFolder(
+      _repo,
+      expandThreadIds(_repo, _selection.selectedIds),
+      _folder,
+    );
+    if (ids.isEmpty) {
+      _selection.exit();
+      return;
+    }
+    final confirmed = await confirmPermanentDelete(context, ids.length);
+    if (!confirmed || !mounted) return;
+    setState(() => _bulkBusy = true);
+    try {
+      await _repo.deletePermanently(ids);
+      _selection.exit();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${ids.length} e-posta kalıcı olarak silindi')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
+  }
+
   Future<void> _actionArchive() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.archive),
     success: (count) => '$count e-posta arşivlendi',
@@ -285,24 +322,33 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionRestoreFromTrash() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
     success: (count) => '$count e-posta geri yüklendi',
+    onlyCurrentFolder: true,
   );
 
   Future<void> _actionUnarchive() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
     success: (count) => '$count e-posta arşivden çıkarıldı',
+    onlyCurrentFolder: true,
   );
 
   Future<void> _actionMarkNotSpam() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
     success: (count) => '$count e-posta spam olmaktan çıkarıldı',
+    onlyCurrentFolder: true,
   );
 
+  /// [onlyCurrentFolder] limits the thread-expanded ids to messages in the
+  /// folder being viewed — see [idsInFolder].
   Future<void> _runBulkMove({
     required Future<void> Function(List<String> ids) action,
     required String Function(int count) success,
+    bool onlyCurrentFolder = false,
   }) async {
     if (_bulkBusy) return;
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final threadIds = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = onlyCurrentFolder
+        ? idsInFolder(_repo, threadIds, _folder)
+        : threadIds;
     if (ids.isEmpty) {
       _selection.exit();
       return;
@@ -316,6 +362,10 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(success(ids.length)),
+          // A SnackBar with an action persists by default; Undo is only
+          // offered for a short window.
+          persist: false,
+          duration: const Duration(seconds: 5),
           action: SnackBarAction(
             label: 'Geri al',
             onPressed: () => restorePreviousFolders(_repo, previous),
@@ -379,6 +429,13 @@ class _HomeScreenState extends State<HomeScreen> {
     // Shared picker with the mail detail screen, so labeling never forks into
     // two implementations.
     await showLabelPicker(context, emailIds: ids);
+    _selection.exit();
+  }
+
+  Future<void> _actionUnlabel() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return;
+    await removeAllLabels(_repo, ids);
     _selection.exit();
   }
 
@@ -564,6 +621,12 @@ class _HomeScreenState extends State<HomeScreen> {
           tooltip: 'Geri Yükle',
           icon: const Icon(LucideIcons.rotateCcw),
         ),
+      if (_showDeleteForeverAction)
+        IconButton(
+          onPressed: _bulkBusy ? null : _actionDeleteForever,
+          tooltip: 'Kalıcı olarak sil',
+          icon: const Icon(LucideIcons.trash2),
+        ),
       IconButton(
         onPressed: _bulkBusy ? null : _actionToggleRead,
         tooltip: _selectionAnyUnread
@@ -599,7 +662,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       if (_showMarkNotSpamAction)
         const PopupMenuItem(value: 'not_spam', child: Text('Spam değil')),
-      const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+      if (anyLabeled(_repo, expandThreadIds(_repo, _selection.selectedIds)))
+        const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
+      else
+        const PopupMenuItem(value: 'label', child: Text('Etiketle')),
       const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
     ];
 
@@ -633,6 +699,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 _actionMarkNotSpam();
               case 'label':
                 _actionLabel();
+              case 'unlabel':
+                _actionUnlabel();
               case 'all':
                 _selection.selectAllVisible();
             }

@@ -265,6 +265,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// Moves the given mails to Trash (does not delete them permanently).
   Future<void> moveToTrash(List<String> ids);
 
+  /// Permanently deletes mails that are in Trash or Spam — expunged on the
+  /// mail server, not recoverable. Mails that succeed leave every folder;
+  /// throws when any id could not be deleted (e.g. it isn't in Trash/Spam).
+  Future<void> deletePermanently(List<String> ids);
+
   Future<void> moveToFolder(List<String> ids, MailFolder folder);
 
   Future<void> markAsRead(List<String> ids);

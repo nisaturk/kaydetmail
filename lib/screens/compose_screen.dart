@@ -1,9 +1,6 @@
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
-import 'package:speech_to_text/speech_recognition_error.dart';
-import 'package:speech_to_text/speech_recognition_result.dart';
-import 'package:speech_to_text/speech_to_text.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
@@ -59,14 +56,60 @@ class _Recipient {
   final bool valid;
 }
 
+/// Opens [draft] in the editor with its complete content. List rows only
+/// carry a ~120 character snippet and no attachment files, so the draft is
+/// fetched (and its attachments downloaded) first — saving an editor
+/// prefilled from the row would truncate the body and drop attachments.
+/// Falls back to the cached copy when the fetch fails (e.g. offline).
+Future<void> openDraftEditor(BuildContext context, Email draft) async {
+  final repo = AppConfig.mailRepository;
+  var full = draft;
+  try {
+    full = await repo.getEmail(draft.id) ?? draft;
+  } catch (_) {}
+  final attachments = await Future.wait(
+    full.attachments.map((attachment) async {
+      if (attachment.bytes != null || attachment.id == null) return attachment;
+      try {
+        return Attachment(
+          id: attachment.id,
+          name: attachment.name,
+          sizeBytes: attachment.sizeBytes,
+          mimeType: attachment.mimeType,
+          bytes: await repo.downloadAttachment(full.id, attachment),
+        );
+      } catch (_) {
+        return attachment;
+      }
+    }),
+  );
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ComposeScreen(
+        composeTitle: 'Taslağı Düzenle',
+        editingDraftId: full.id,
+        initialFrom: repo.getAccount(full.accountId)?.email,
+        initialTo: full.recipients.join(', '),
+        initialCc: full.cc.join(', '),
+        initialBcc: full.bcc.join(', '),
+        initialSubject: full.subject,
+        initialBody: full.bodyText,
+        initialAttachments: attachments,
+        initialThreadId: full.threadId.isEmpty ? null : full.threadId,
+        inReplyToId: full.inReplyToId,
+      ),
+    ),
+  );
+}
+
 /// Compose a new mail (or reply/forward/edit-draft — same screen).
 ///
 /// Cc/Bcc stay hidden behind a compact menu until requested. When
 /// [editingDraftId] is set the screen edits that draft: fields are prefilled,
 /// saving updates it in place (no duplicate) and sending removes it from
 /// Drafts. Inside a scrolled column so nothing overflows when the keyboard is
-/// open or the screen is narrow. The mic button dictates speech to text via
-/// the on-device speech recognizer (Android/iOS).
+/// open or the screen is narrow.
 /// Smart-back saves a draft when content exists.
 class ComposeScreen extends StatefulWidget {
   const ComposeScreen({
@@ -128,18 +171,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   bool _ccExpanded = false;
   bool _bccExpanded = false;
-  bool _recording = false;
   bool _sending = false;
   String? _fromAccount;
-
-  final SpeechToText _speech = SpeechToText();
-  bool _speechInitialized = false;
-
-  /// Body text captured at the start of the current dictation session; each
-  /// recognized chunk is appended after this so restarting the recognizer
-  /// (Android stops listening after a few seconds of silence) never drops
-  /// or duplicates already-dictated text.
-  String _dictationBase = '';
 
   final List<Attachment> _attachments = [];
 
@@ -185,7 +218,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
     _bodyController.dispose();
     _toFocus.dispose();
     _bodyFocus.dispose();
-    if (_speechInitialized) _speech.cancel();
     super.dispose();
   }
 
@@ -351,7 +383,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         inReplyToId: widget.inReplyToId,
       );
       // A sent draft leaves Drafts — the sent copy lives in Sent now.
-      final draftId = widget.editingDraftId;
+      final draftId = _draftId;
       if (draftId != null) {
         try {
           await _repo.deleteDraft(draftId);
@@ -374,7 +406,19 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
   }
 
-  Future<bool> _saveDraft() async {
+  /// The draft this screen edits: starts as [ComposeScreen.editingDraftId]
+  /// and follows the id each save returns (an update re-creates the draft
+  /// under a new id).
+  late String? _draftId = widget.editingDraftId;
+
+  /// In-flight save shared by every caller, so a double-tapped "Taslağı
+  /// Kaydet" writes the draft once instead of cloning it.
+  Future<bool>? _pendingSave;
+
+  Future<bool> _saveDraft() =>
+      _pendingSave ??= _writeDraft().whenComplete(() => _pendingSave = null);
+
+  Future<bool> _writeDraft() async {
     if (!_hasContent) return true;
     setState(() {
       _commitPendingRecipient(_toRecipients, _toInputController);
@@ -382,7 +426,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _commitPendingRecipient(_bccRecipients, _bccInputController);
     });
     try {
-      await _repo.saveDraft(
+      final saved = await _repo.saveDraft(
         from: _fromAccount,
         to: _addressStrings(_toRecipients),
         cc: _addressStrings(_ccRecipients),
@@ -393,8 +437,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,
         // Editing a draft updates it in place — never a duplicate.
-        draftId: widget.editingDraftId,
+        draftId: _draftId,
       );
+      _draftId = saved.id;
       return true;
     } catch (_) {
       return false;
@@ -425,95 +470,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   void _removeAttachment(Attachment attachment) {
     setState(() => _attachments.remove(attachment));
-  }
-
-  /// Starts (or restarts) a listen session. Android in particular stops
-  /// listening after a few seconds of silence even mid-sentence — see
-  /// [_onSpeechStatus], which restarts it automatically until the user taps
-  /// the mic again — so this is called more than once per dictation.
-  Future<void> _startListening() async {
-    try {
-      await _speech.listen(
-        onResult: _onSpeechResult,
-        listenOptions: SpeechListenOptions(
-          partialResults: true,
-          cancelOnError: true,
-          listenMode: ListenMode.dictation,
-          autoPunctuation: true,
-          pauseFor: const Duration(seconds: 30),
-          listenFor: const Duration(minutes: 5),
-        ),
-      );
-    } catch (_) {
-      if (mounted) setState(() => _recording = false);
-    }
-  }
-
-  /// Appends each recognized chunk after [_dictationBase] (the text typed
-  /// or dictated before this listen session) instead of after the current
-  /// controller text, so a live partial result never gets appended on top
-  /// of itself as it is refined.
-  void _onSpeechResult(SpeechRecognitionResult result) {
-    final words = result.recognizedWords;
-    final needsSpace =
-        _dictationBase.isNotEmpty &&
-        !_dictationBase.endsWith('\n') &&
-        !_dictationBase.endsWith(' ');
-    final combined = '$_dictationBase${needsSpace ? ' ' : ''}$words';
-    _bodyController.value = TextEditingValue(
-      text: combined,
-      selection: TextSelection.collapsed(offset: combined.length),
-    );
-    if (result.finalResult) _dictationBase = combined;
-  }
-
-  /// `notListening`/`done` fire both when the user stops dictation and when
-  /// the platform times out a pause; `_recording` (cleared *before* calling
-  /// [SpeechToText.stop]) tells these two cases apart so a pause never
-  /// silently ends dictation early.
-  void _onSpeechStatus(String status) {
-    if (!mounted || !_recording) return;
-    if (status == SpeechToText.notListeningStatus ||
-        status == SpeechToText.doneStatus) {
-      _startListening();
-    }
-  }
-
-  void _onSpeechError(SpeechRecognitionError error) {
-    if (!error.permanent) {
-      return; // Transient — the retry in onStatus covers it.
-    }
-    if (!mounted) return;
-    setState(() => _recording = false);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Sesle yazma kullanılamıyor.')),
-    );
-  }
-
-  Future<void> _toggleDictation() async {
-    if (_recording) {
-      setState(() => _recording = false);
-      await _speech.stop();
-      return;
-    }
-    if (!_speechInitialized) {
-      _speechInitialized = await _speech.initialize(
-        onStatus: _onSpeechStatus,
-        onError: _onSpeechError,
-      );
-    }
-    if (!_speechInitialized) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Sesle yazma için mikrofon iznini vermeniz gerekiyor.'),
-        ),
-      );
-      return;
-    }
-    _dictationBase = _bodyController.text;
-    setState(() => _recording = true);
-    await _startListening();
   }
 
   @override
@@ -922,34 +878,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
             icon: const Icon(LucideIcons.paperclip, size: 22),
             tooltip: 'Dosya ekle',
           ),
-          IconButton(
-            onPressed: _sending ? null : _toggleDictation,
-            icon: _recording
-                ? SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 2.5,
-                      color: colors.destructive,
-                    ),
-                  )
-                : const Icon(LucideIcons.mic, size: 22),
-            tooltip: _recording ? 'Dinlemeyi durdur' : 'Sesle yaz',
-          ),
-          if (_recording)
-            Padding(
-              padding: const EdgeInsets.only(left: 4),
-              child: Text(
-                'Dinleniyor…',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: colors.destructive,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-            )
-          else
-            const Spacer(),
         ],
       ),
     );

@@ -60,6 +60,7 @@ class Email {
     this.bcc = const [],
     required this.subject,
     required this.bodyText,
+    this.bodyHtml,
     this.hasRemoteContent = false,
     required this.timestamp,
     this.isRead = false,
@@ -87,6 +88,12 @@ class Email {
 
   final String subject;
   final String bodyText;
+
+  /// Server-rendered, sanitized HTML body (`body.html` on detail and
+  /// conversation responses) — carries the sender's formatting (bold,
+  /// lists, tables, …) that [bodyText] flattens. Null on list rows and on
+  /// locally composed mail; the plain [bodyText] is shown then.
+  final String? bodyHtml;
 
   /// Whether the original HTML body references remote content (tracking
   /// pixels, remote images, …). Remote resources are never fetched
@@ -164,6 +171,7 @@ class Email {
     List<String>? bcc,
     String? subject,
     String? bodyText,
+    String? bodyHtml,
     bool? hasRemoteContent,
     DateTime? timestamp,
     bool? isRead,
@@ -188,6 +196,7 @@ class Email {
       bcc: bcc ?? this.bcc,
       subject: subject ?? this.subject,
       bodyText: bodyText ?? this.bodyText,
+      bodyHtml: bodyHtml ?? this.bodyHtml,
       hasRemoteContent: hasRemoteContent ?? this.hasRemoteContent,
       timestamp: timestamp ?? this.timestamp,
       isRead: isRead ?? this.isRead,

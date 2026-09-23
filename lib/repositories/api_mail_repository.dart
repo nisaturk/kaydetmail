@@ -88,7 +88,9 @@ class _Session {
 
   /// Overlays the locally-persisted pin/reply/forward/label flags onto a
   /// mail freshly mapped from the API — the server has no concept of any of
-  /// them, so every fetch would otherwise reset them.
+  /// them, so every fetch would otherwise reset them. Also stamps the owning
+  /// account: list and conversation responses carry no `accountId`, and
+  /// account-local features (labels) resolve through it.
   ///
   /// Reply/forward also check the thread-level sets: the user marks these
   /// by opening a specific message, but every message sharing its thread
@@ -96,6 +98,7 @@ class _Session {
   /// currently loaded into memory (e.g. it lives in a folder not yet
   /// fetched this session) — see [ApiMailRepository.markAsReplied].
   Email stampLocalFlags(Email email) => email.copyWith(
+    accountId: account.id,
     isStarred: email.isStarred || starredIds.contains(email.id),
     isPinned: pinnedIds.contains(email.id),
     isReplied:
@@ -1148,6 +1151,7 @@ class ApiMailRepository extends MailRepository {
                   bodyText: old[e.id]!.bodyText.isEmpty
                       ? e.bodyText
                       : old[e.id]!.bodyText,
+                  bodyHtml: old[e.id]!.bodyHtml,
                   isStarred: old[e.id]!.isStarred,
                 ),
         ),
@@ -1157,9 +1161,27 @@ class ApiMailRepository extends MailRepository {
     // pass didn't re-verify it — losing it also breaks threadStatusOf's
     // cross-message reply/forward aggregation for any thread whose
     // answered/forwarded message lived past page 1.
+    //
+    // Page 1 is newest-first, though, so it does cover everything down to
+    // its oldest item (the whole folder when the page isn't full): a cached
+    // mail inside that window which the server didn't return has left the
+    // folder and must go — otherwise a mail misfiled locally (or moved by
+    // another client) would sit in this folder forever.
     final refreshedIds = refreshed.map((e) => e.id).toSet();
+    final wholeFolder = result.items.length >= result.total;
+    final oldestFetched = result.items.isEmpty
+        ? null
+        : result.items
+              .map((e) => e.timestamp)
+              .reduce((a, b) => a.isBefore(b) ? a : b);
     final stale = old.values
-        .where((e) => !refreshedIds.contains(e.id))
+        .where(
+          (e) =>
+              !refreshedIds.contains(e.id) &&
+              !wholeFolder &&
+              oldestFetched != null &&
+              e.timestamp.isBefore(oldestFetched),
+        )
         .map(session.stampLocalFlags);
     session.emails[folder] = [...refreshed, ...stale]
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
@@ -1426,6 +1448,33 @@ class ApiMailRepository extends MailRepository {
     return email;
   }
 
+  /// Tail of the draft write queue — see [_serializeDraftWrite].
+  Future<void> _draftWrites = Future.value();
+
+  /// Old draft id -> the id `PUT /drafts/{id}` replaced it with.
+  final Map<String, String> _draftIdSuccessor = {};
+
+  /// Runs draft writes one at a time. Two overlapping saves of the same
+  /// draft (a double-tapped "Taslağı Kaydet") would otherwise both `PUT`
+  /// the same id: each re-APPENDs a copy and only one can retire the
+  /// original, leaving duplicates behind.
+  Future<T> _serializeDraftWrite<T>(Future<T> Function() write) {
+    final result = _draftWrites.then((_) => write());
+    _draftWrites = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// The current id of a draft that may have been re-created under a new id
+  /// by an earlier update — callers holding the id they opened keep working.
+  String _latestDraftId(String id) {
+    var current = id;
+    for (var next = _draftIdSuccessor[current]; next != null;) {
+      current = next;
+      next = _draftIdSuccessor[current];
+    }
+    return current;
+  }
+
   @override
   Future<Email> saveDraft({
     required List<String> to,
@@ -1439,6 +1488,34 @@ class ApiMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? draftId,
+  }) => _serializeDraftWrite(
+    () => _writeDraft(
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      body: body,
+      attachments: attachments,
+      from: from,
+      fromAccountId: fromAccountId,
+      threadId: threadId,
+      inReplyToId: inReplyToId,
+      draftId: draftId == null ? null : _latestDraftId(draftId),
+    ),
+  );
+
+  Future<Email> _writeDraft({
+    required List<String> to,
+    required List<String> cc,
+    required List<String> bcc,
+    required String subject,
+    required String body,
+    required List<Attachment> attachments,
+    required String? from,
+    required String? fromAccountId,
+    required String? threadId,
+    required String? inReplyToId,
+    required String? draftId,
   }) async {
     final session = draftId != null
         ? (_sessionOwning(draftId) ??
@@ -1459,6 +1536,7 @@ class ApiMailRepository extends MailRepository {
         replySourceMailId: inReplyToId,
       );
       final newId = result.mailId ?? draftId;
+      if (newId != draftId) _draftIdSuccessor[draftId] = newId;
       final drafts = session.emails.putIfAbsent(
         MailFolder.drafts,
         () => <Email>[],
@@ -1486,6 +1564,21 @@ class ApiMailRepository extends MailRepository {
             : threadId,
         inReplyToId: inReplyToId ?? previous?.inReplyToId,
       );
+      if (result.mailId == null) {
+        // Reconciliation pending: the server stored the new copy and already
+        // retired the old one, but can't name the new id yet. Drop the stale
+        // row and pick the real one up once the Drafts sync lands.
+        if (oldIndex >= 0) drafts.removeAt(oldIndex);
+        _touch();
+        notifyListeners();
+        unawaited(
+          Future<void>.delayed(
+            const Duration(seconds: 3),
+            () => _refreshEmailsFor(session, MailFolder.drafts),
+          ).catchError((_) {}),
+        );
+        return updated;
+      }
       if (oldIndex >= 0) {
         drafts[oldIndex] = updated;
       } else {
@@ -1533,12 +1626,13 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<void> deleteDraft(String draftId) async {
-    final session = _sessionOwning(draftId) ?? _primarySession;
-    await session.mailService.deleteDraft(draftId);
-    session.emails[MailFolder.drafts]?.removeWhere((e) => e.id == draftId);
+  Future<void> deleteDraft(String draftId) => _serializeDraftWrite(() async {
+    final id = _latestDraftId(draftId);
+    final session = _sessionOwning(id) ?? _primarySession;
+    await session.mailService.deleteDraft(id);
+    session.emails[MailFolder.drafts]?.removeWhere((e) => e.id == id);
     notifyListeners();
-  }
+  });
 
   /// Sends a draft via `POST /api/drafts/{id}/send`. A fresh
   /// `Idempotency-Key` per attempt makes a network-timeout retry safe. Never
@@ -1664,6 +1758,47 @@ class ApiMailRepository extends MailRepository {
     );
   }
 
+  /// Bulk `delete` (IMAP expunge) per owning account. Only ids the server
+  /// confirmed leave the cache; any per-item failure is surfaced afterwards
+  /// so the UI never claims a mail is gone when it isn't.
+  @override
+  Future<void> deletePermanently(List<String> ids) async {
+    final failures = <String>[];
+    for (final entry in _groupBySession(ids).entries) {
+      final session = entry.key;
+      final results = await session.mailService.bulkAction(
+        'delete',
+        entry.value,
+      );
+      _removeMany(session, [
+        for (final r in results)
+          if (r.success) r.mailId,
+      ]);
+      failures.addAll([
+        for (final r in results)
+          if (!r.success) r.code ?? 'mail_operation_failed',
+      ]);
+      notifyListeners();
+      unawaited(_refreshCountsFor(session));
+    }
+    if (failures.isNotEmpty) {
+      throw ApiException(status: 0, code: failures.first);
+    }
+  }
+
+  /// Drops every cached mail in [ids] from whichever bucket holds it.
+  void _removeMany(_Session session, Iterable<String> ids) {
+    final idSet = ids.toSet();
+    if (idSet.isEmpty) return;
+    _touch();
+    for (final folder in session.emails.keys.toList()) {
+      session.emails[folder] = [
+        for (final email in session.emails[folder]!)
+          if (!idSet.contains(email.id)) email,
+      ];
+    }
+  }
+
   /// Mails currently in Trash/Spam go back through bulk `restore` (the only
   /// action that reverses those two); everything else moves via the bulk
   /// `move`/`archive` actions. Both branches can run per account when [ids]
@@ -1679,12 +1814,9 @@ class ApiMailRepository extends MailRepository {
       }
       final idsForSession = entry.value;
       final restoring = _idsInTrashOrSpam(session, idsForSession);
-      await _bulkAndApply(
-        session,
-        'restore',
-        restoring.toList(),
-        (succeeded) => _moveMany(session, succeeded, folder),
-      );
+      final restored = <String>[];
+      await _bulkAndApply(session, 'restore', restoring, restored.addAll);
+      await _fileRestored(session, restored);
 
       final rest = idsForSession
           .where((id) => !restoring.contains(id))
@@ -1699,6 +1831,43 @@ class ApiMailRepository extends MailRepository {
         );
       }
     }
+  }
+
+  /// `restore` sends each mail back to the folder it was trashed/spammed
+  /// from, which only the server tracks — the target a caller passes to
+  /// [moveToFolder] says nothing about where it went (a restored draft goes
+  /// back to Drafts, not Inbox). Asks the server where each mail landed and
+  /// files it there; a mail whose folder can't be determined, or that went
+  /// to a folder this client doesn't track, only leaves Trash/Spam locally
+  /// and shows up again on that folder's next load.
+  Future<void> _fileRestored(_Session session, List<String> ids) async {
+    if (ids.isEmpty) return;
+    final details = await Future.wait(
+      ids.map((id) async {
+        String? landedFolderId;
+        try {
+          final detail = await session.mailService.getMail(
+            id,
+            resolveFolder: (folderId) {
+              landedFolderId = folderId;
+              return session.resolveFolder(folderId);
+            },
+          );
+          final tracked = session.folderTypeById.containsKey(landedFolderId);
+          return tracked ? detail : null;
+        } catch (_) {
+          return null;
+        }
+      }),
+    );
+    _removeMany(session, ids);
+    for (final detail in details) {
+      if (detail == null) continue;
+      session.emails
+          .putIfAbsent(detail.folder, () => <Email>[])
+          .insert(0, session.stampLocalFlags(detail));
+    }
+    notifyListeners();
   }
 
   @override

@@ -9,7 +9,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await AppSettingsController.instance.loadThemeMode();
   runApp(const KaydetApp());
-  if (!AppConfig.pushEnabled) return;
+  if (!AppConfig.pushEnabled || !PushService.isSupportedPlatform) return;
   // Best-effort: without Firebase config files this no-ops and the app runs
   // push-free; with them, the device registers and foreground pushes route
   // through the API. Never throws, so no guard needed here.

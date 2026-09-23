@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -12,8 +13,10 @@ import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
+import '../utils/mail_threads.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
+import '../widgets/permanent_delete_dialog.dart';
 import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 
@@ -414,10 +417,29 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               value: 'read',
               child: Text('Okundu olarak işaretle'),
             ),
-          const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+          if (email.folder == MailFolder.trash)
+            const PopupMenuItem(
+              value: 'delete_forever',
+              child: Text('Kalıcı olarak sil'),
+            ),
+          if (anyLabeled(_repo, _conversationIds))
+            const PopupMenuItem(
+              value: 'unlabel',
+              child: Text('Etiketi kaldır'),
+            )
+          else
+            const PopupMenuItem(value: 'label', child: Text('Etiketle')),
         ],
       ),
     ];
+  }
+
+  /// Labels apply to the whole conversation, the same unit a list row and
+  /// the bulk "Etiketle" act on — labeling only the opened message would
+  /// leave the row's representative (often another message) unchanged.
+  List<String> get _conversationIds {
+    final ids = expandThreadIds(_repo, [widget.emailId]);
+    return ids.isEmpty ? [widget.emailId] : ids;
   }
 
   Future<void> _handleMenu(String action) async {
@@ -430,7 +452,37 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     } else if (action == 'star') {
       await _toggleStar();
     } else if (action == 'label') {
-      await showLabelPicker(context, emailIds: [widget.emailId]);
+      await showLabelPicker(context, emailIds: _conversationIds);
+    } else if (action == 'unlabel') {
+      await removeAllLabels(_repo, _conversationIds);
+    } else if (action == 'delete_forever') {
+      await _deleteForever();
+    }
+  }
+
+  /// Expunges the conversation's Trash messages after a confirmation, then
+  /// leaves the screen — there is nothing left to show.
+  Future<void> _deleteForever() async {
+    final ids = idsInFolder(_repo, _conversationIds, MailFolder.trash);
+    if (ids.isEmpty || _folderActionBusy) return;
+    final confirmed = await confirmPermanentDelete(context, ids.length);
+    if (!confirmed || !mounted) return;
+    setState(() => _folderActionBusy = true);
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _repo.deletePermanently(ids);
+      messenger.showSnackBar(
+        const SnackBar(content: Text('E-posta kalıcı olarak silindi.')),
+      );
+      if (mounted) await Navigator.of(context).maybePop();
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _folderActionBusy = false);
     }
   }
 
@@ -612,15 +664,44 @@ class _SingleMessage extends StatelessWidget {
         ],
         const Divider(height: 32),
         const SizedBox(height: 4),
-        SelectableText(
-          email.bodyText,
-          style: TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText),
-        ),
+        _MessageBody(email: email),
       ],
     );
   }
 
   String recipientText(List<String> recipients) => recipients.join(', ');
+}
+
+/// The message body: the server's sanitized HTML when present, so the
+/// sender's formatting (bold, italics, lists, tables, links) survives —
+/// otherwise the plain text. Remote images never load (the server already
+/// strips their `src` into `data-remote-src`); only inline `data:` images
+/// render.
+class _MessageBody extends StatelessWidget {
+  const _MessageBody({required this.email});
+
+  final Email email;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    final style = TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText);
+    final html = email.bodyHtml;
+    if (html == null || html.trim().isEmpty) {
+      return SelectableText(email.bodyText, style: style);
+    }
+    return SelectionArea(
+      child: HtmlWidget(
+        html,
+        textStyle: style,
+        customWidgetBuilder: (element) {
+          if (element.localName != 'img') return null;
+          final src = element.attributes['src'] ?? '';
+          return src.startsWith('data:') ? null : const SizedBox.shrink();
+        },
+      ),
+    );
+  }
 }
 
 class _RecipientLine extends StatelessWidget {

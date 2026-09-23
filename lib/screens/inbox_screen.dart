@@ -13,16 +13,24 @@ import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/mail_threads.dart';
 import '../widgets/mail_list_item.dart';
+import '../widgets/permanent_delete_dialog.dart';
 import 'compose_screen.dart';
 import 'mail_detail_screen.dart';
 
 /// What each swipe direction does for a given [MailFolder]. `none` disables
-/// that direction — either there's nothing sensible to do (Trash's own
-/// delete direction: the mail is already trashed and there is no permanent
-/// delete API) or the operation needs a dedicated endpoint a generic
+/// that direction when the operation needs a dedicated endpoint a generic
 /// move/trash call can't safely stand in for (Drafts: deletion must go
-/// through `deleteDraft`, one id at a time, never `moveToTrash`).
-enum _SwipeAction { none, trash, archive, restore, unspam, unarchive }
+/// through `deleteDraft`, one id at a time, never `moveToTrash`). Trash's
+/// delete direction deletes permanently, after a confirmation.
+enum _SwipeAction {
+  none,
+  trash,
+  deleteForever,
+  archive,
+  restore,
+  unspam,
+  unarchive,
+}
 
 /// The action revealed when a row is dragged start-to-end (right in LTR).
 _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
@@ -41,7 +49,8 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
   MailFolder.starred ||
   MailFolder.spam ||
   MailFolder.archive => _SwipeAction.trash,
-  MailFolder.trash || MailFolder.drafts => _SwipeAction.none,
+  MailFolder.trash => _SwipeAction.deleteForever,
+  MailFolder.drafts => _SwipeAction.none,
 };
 
 /// Label + icon for a swipe background, reused verbatim as the label of the
@@ -50,6 +59,10 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
 ({String label, IconData icon}) _swipeActionMeta(_SwipeAction action) =>
     switch (action) {
       _SwipeAction.trash => (label: 'Sil', icon: LucideIcons.trash2),
+      _SwipeAction.deleteForever => (
+        label: 'Kalıcı olarak sil',
+        icon: LucideIcons.trash2,
+      ),
       _SwipeAction.archive => (label: 'Arşivle', icon: LucideIcons.archive),
       _SwipeAction.restore => (label: 'Geri yükle', icon: LucideIcons.undo2),
       _SwipeAction.unspam => (
@@ -69,6 +82,7 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
 /// completes.
 String _swipeActionDone(_SwipeAction action) => switch (action) {
   _SwipeAction.trash => 'silindi',
+  _SwipeAction.deleteForever => 'kalıcı olarak silindi',
   _SwipeAction.archive => 'arşivlendi',
   _SwipeAction.restore => 'geri yüklendi',
   _SwipeAction.unspam => 'spam değil olarak işaretlendi',
@@ -79,6 +93,8 @@ String _swipeActionDone(_SwipeAction action) => switch (action) {
 /// Failure message shown when [action] can't be completed.
 String _swipeActionFailed(_SwipeAction action) => switch (action) {
   _SwipeAction.trash => 'E-posta silinemedi. Tekrar deneyin.',
+  _SwipeAction.deleteForever =>
+    'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
   _SwipeAction.archive => 'E-posta arşivlenemedi. Tekrar deneyin.',
   _SwipeAction.restore => 'E-posta geri yüklenemedi. Tekrar deneyin.',
   _SwipeAction.unspam => 'E-posta spam dışına alınamadı. Tekrar deneyin.',
@@ -106,8 +122,8 @@ String _relativeSyncLabel(DateTime time, {DateTime? now}) {
 ///
 /// Swipe actions are folder-contextual (see [_swipeStartAction] and
 /// [_swipeEndAction]): Inbox/Sent/Starred keep the original archive-right,
-/// delete-left gesture; Trash only offers restore (there's no permanent
-/// delete API, and the mail is already trashed); Spam swaps archive for
+/// delete-left gesture; Trash offers restore and a confirmed permanent
+/// delete (no Undo — the server expunges it); Spam swaps archive for
 /// "Spam değil"; Archive swaps archive for "Arşivden çıkar"; Drafts disables
 /// swipe entirely because deleting a draft needs the dedicated
 /// `deleteDraft` endpoint, not a generic move/trash call. Every enabled
@@ -264,23 +280,7 @@ class _InboxScreenState extends State<InboxScreen>
     } else if (email.folder == MailFolder.drafts) {
       // Drafts open in the editor with every field populated; ordinary
       // messages keep opening the read-only detail view.
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => ComposeScreen(
-            composeTitle: 'Taslağı Düzenle',
-            editingDraftId: email.id,
-            initialFrom: _repo.getAccount(email.accountId)?.email,
-            initialTo: email.recipients.join(', '),
-            initialCc: email.cc.join(', '),
-            initialBcc: email.bcc.join(', '),
-            initialSubject: email.subject,
-            initialBody: email.bodyText,
-            initialAttachments: email.attachments,
-            initialThreadId: email.threadId.isEmpty ? null : email.threadId,
-            inReplyToId: email.inReplyToId,
-          ),
-        ),
-      );
+      openDraftEditor(context, email);
     } else if (widget.onOpenMail != null) {
       widget.onOpenMail!(email.id);
     } else {
@@ -299,7 +299,23 @@ class _InboxScreenState extends State<InboxScreen>
   /// other bit of state (labels, read/star/pin, attachments, …) survives.
   Future<void> _swipeMove(Email representative, _SwipeAction action) async {
     if (action == _SwipeAction.none) return;
-    final ids = expandThreadIds(_repo, [representative.id]);
+    final threadIds = expandThreadIds(_repo, [representative.id]);
+    final ids = switch (action) {
+      _SwipeAction.restore ||
+      _SwipeAction.unspam ||
+      _SwipeAction.unarchive ||
+      _SwipeAction.deleteForever => idsInFolder(
+        _repo,
+        threadIds,
+        widget.folder,
+      ),
+      _ => threadIds,
+    };
+    if (action == _SwipeAction.deleteForever) {
+      if (ids.isEmpty) return;
+      final confirmed = await confirmPermanentDelete(context, ids.length);
+      if (!confirmed || !mounted) return;
+    }
     if (ids.isEmpty) return;
     final previousFolders = previousFoldersOf(_repo, ids);
     final undoKey = _dismissKey(representative);
@@ -316,6 +332,7 @@ class _InboxScreenState extends State<InboxScreen>
       // so that one is a plain move to Inbox.
       final op = switch (action) {
         _SwipeAction.trash => _repo.moveToTrash(ids),
+        _SwipeAction.deleteForever => _repo.deletePermanently(ids),
         _SwipeAction.archive => _repo.moveToFolder(ids, MailFolder.archive),
         _SwipeAction.restore ||
         _SwipeAction.unspam ||
@@ -325,9 +342,22 @@ class _InboxScreenState extends State<InboxScreen>
       await op;
       if (!mounted) return;
       setState(() => _moving.remove(undoKey));
+      if (action == _SwipeAction.deleteForever) {
+        // Expunged server-side: nothing to undo.
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${ids.length} e-posta ${_swipeActionDone(action)}'),
+          ),
+        );
+        return;
+      }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${ids.length} e-posta ${_swipeActionDone(action)}'),
+          // A SnackBar with an action persists by default; Undo is only
+          // offered for a short window.
+          persist: false,
+          duration: const Duration(seconds: 5),
           action: SnackBarAction(
             label: 'Geri al',
             onPressed: () {
@@ -581,7 +611,8 @@ class _SwipeBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     if (action == _SwipeAction.none) return const SizedBox.shrink();
     final meta = _swipeActionMeta(action);
-    final fill = action == _SwipeAction.trash
+    final fill =
+        action == _SwipeAction.trash || action == _SwipeAction.deleteForever
         ? colors.destructive
         : colors.secondaryText;
     final icon = Icon(

@@ -59,10 +59,10 @@ void main() {
   });
 
   group('AppSettingsController', () {
-    test('defaults: notifications on, manual sync, swipe on, system theme', () {
+    test('defaults: notifications on, 5-minute sync, swipe on, system theme', () {
       final settings = AppSettingsController.instance;
       expect(settings.notificationsEnabled, isTrue);
-      expect(settings.syncInterval, SyncInterval.manual);
+      expect(settings.syncInterval, SyncInterval.every5Minutes);
       expect(settings.swipeDeleteEnabled, isTrue);
       expect(settings.serverBaseUrl, ServerAddressStore.defaultBaseUrl);
       expect(settings.themeMode, ThemeMode.system);
