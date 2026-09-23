@@ -9,6 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../state/app_settings_controller.dart';
+import 'home_widget_service.dart';
 
 /// Routes an FCM `data` payload to the matching API call.
 ///
@@ -111,9 +112,11 @@ class PushService {
               try {
                 await repository.getEmail(id);
                 // The detail fetch only caches the mail; a new one must
-                // also show up in the open inbox list.
+                // also show up in the open inbox list, and the home-screen
+                // widget's recent-mail lines need refreshing too.
                 if (message.data['type'] == 'new_mail') {
                   await repository.refreshEmails(MailFolder.inbox);
+                  await HomeWidgetService.refreshFromInbox(repository);
                 }
               } catch (_) {
                 // A failed refresh never crashes the foreground listener.

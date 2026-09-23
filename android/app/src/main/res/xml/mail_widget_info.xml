@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- AppWidgetProviderInfo for MailWidgetProvider. updatePeriodMillis is set
+     to the Android-enforced minimum (30 minutes) as a fallback repaint of
+     already-stored data; real data freshness comes from
+     HomeWidgetService.refreshFromInbox writing new SharedPreferences values
+     and calling HomeWidget.updateWidget on demand. -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:minWidth="250dp"
+    android:minHeight="110dp"
+    android:updatePeriodMillis="1800000"
+    android:initialLayout="@layout/mail_widget"
+    android:resizeMode="horizontal|vertical"
+    android:widgetCategory="home_screen"
+    android:previewImage="@mipmap/ic_launcher">
+</appwidget-provider>

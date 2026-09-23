@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Layout for MailWidgetProvider: KAYDET wordmark + unread count on one
+     row, followed by up to three single-line recent inbox subject/sender
+     rows. Values are populated in MailWidgetProvider.onUpdate from the
+     SharedPreferences written by HomeWidgetService (lib/services/home_widget_service.dart). -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/mail_widget_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@drawable/mail_widget_background"
+    android:padding="12dp">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <TextView
+            android:id="@+id/mail_widget_title"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:text="KAYDET"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="#1F2937" />
+
+        <TextView
+            android:id="@+id/mail_widget_unread_count"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textSize="13sp"
+            android:textStyle="bold"
+            android:textColor="#1F2937"
+            tools:text="3 okunmamış" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/mail_widget_line_1"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textSize="12sp"
+        android:textColor="#6B7280"
+        tools:text="Ada Lovelace — Toplantı notları" />
+
+    <TextView
+        android:id="@+id/mail_widget_line_2"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textSize="12sp"
+        android:textColor="#6B7280"
+        tools:text="Turing Ekibi — Haftalık rapor" />
+
+    <TextView
+        android:id="@+id/mail_widget_line_3"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="2dp"
+        android:singleLine="true"
+        android:ellipsize="end"
+        android:textSize="12sp"
+        android:textColor="#6B7280"
+        tools:text="Destek — Hesabınız doğrulandı" />
+</LinearLayout>
