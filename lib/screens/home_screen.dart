@@ -322,33 +322,62 @@ class _HomeScreenState extends State<HomeScreen> {
 
   PreferredSizeWidget _buildNormalAppBar() {
     // The inbox title doubles as the mailbox selector when more than one
-    // account is connected: tap it to pick "Tüm Gelen Kutuları" or a single
-    // mailbox. With one account — and outside the inbox — the plain folder
-    // label stands alone, no chevron, no redundant scope subtitle.
-    final selectingInbox =
-        _folder == MailFolder.inbox && _repo.accounts.length > 1;
-    final Widget title = selectingInbox
+    // account is connected. Its second line makes the current mailbox scope
+    // visible without opening the selector.
+    final accounts = _repo.accounts;
+    final isInbox = _folder == MailFolder.inbox;
+    final selectingInbox = isInbox && accounts.length > 1;
+    final activeAccountId = _repo.activeAccountId;
+    final activeEmail = activeAccountId == null
+        ? (accounts.length == 1 ? accounts.single.email : null)
+        : _repo.getAccount(activeAccountId)?.email;
+    final scopeLabel = activeEmail ?? 'Tüm Gelen Kutuları';
+
+    final inboxTitle = Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              const Text('Gelen Kutusu'),
+              if (selectingInbox) ...[
+                const SizedBox(width: 6),
+                const Icon(
+                  LucideIcons.chevronDown,
+                  size: 18,
+                  color: AppTheme.secondaryText,
+                ),
+              ],
+            ],
+          ),
+          Text(
+            scopeLabel,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(
+              color: AppTheme.secondaryText,
+              fontSize: 12,
+              fontWeight: FontWeight.w400,
+              height: 1.15,
+            ),
+          ),
+        ],
+      ),
+    );
+
+    final Widget title = !isInbox
+        ? Text(_folder.label)
+        : selectingInbox
         ? InkWell(
             key: const Key('mailbox-selector'),
             borderRadius: BorderRadius.circular(6),
             onTap: _showMailboxSelector,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const Text('Gelen Kutusu'),
-                  const SizedBox(width: 6),
-                  const Icon(
-                    LucideIcons.chevronDown,
-                    size: 18,
-                    color: AppTheme.secondaryText,
-                  ),
-                ],
-              ),
-            ),
+            child: inboxTitle,
           )
-        : Text(_folder.label);
+        : inboxTitle;
 
     return AppBar(
       title: title,

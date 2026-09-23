@@ -3,7 +3,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../services/session_store.dart';
-import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 
 /// Account-connection flow: enter the address and password, connect through
@@ -22,6 +21,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
 
   var _connecting = false;
   String? _error;
+  var _obscurePassword = true;
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
@@ -95,7 +95,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                 TextFormField(
                   key: const Key('new-password-field'),
                   controller: _passwordController,
-                  obscureText: true,
+                  obscureText: _obscurePassword,
                   autofillHints: const [AutofillHints.password],
                   textInputAction: TextInputAction.done,
                   onFieldSubmitted: (_) => _connect(),
@@ -104,9 +104,20 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                     if (text.isEmpty) return 'Şifre zorunludur';
                     return null;
                   },
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Şifre',
-                    prefixIcon: Icon(LucideIcons.lock, size: 20),
+                    prefixIcon: const Icon(LucideIcons.lock, size: 20),
+                    suffixIcon: IconButton(
+                      tooltip: _obscurePassword
+                          ? 'Şifreyi göster'
+                          : 'Şifreyi gizle',
+                      onPressed: () =>
+                          setState(() => _obscurePassword = !_obscurePassword),
+                      icon: Icon(
+                        _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
+                        size: 20,
+                      ),
+                    ),
                   ),
                 ),
                 if (_error != null) ...[
@@ -133,12 +144,6 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                           ),
                         )
                       : const Text('Bağla'),
-                ),
-                const SizedBox(height: 12),
-                const Text(
-                  'Geliştirme modu: gerçek giriş yapılmaz, örnek bir posta kutusu açılır.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(fontSize: 12, color: AppTheme.tertiaryText),
                 ),
               ],
             ),
