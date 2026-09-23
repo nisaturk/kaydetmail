@@ -355,9 +355,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     if (value == null || value.isEmpty) {
                       return 'Şifre zorunludur';
                     }
-                    if (value.length < 6) {
-                      return 'Şifre en az 6 karakter olmalıdır';
-                    }
                     return null;
                   },
                   decoration: InputDecoration(
