@@ -118,6 +118,7 @@ class _SearchScreenState extends State<SearchScreen> {
   @override
   Widget build(BuildContext context) {
     final results = _visibleResults;
+    final colors = AppTheme.colors(context);
     return Scaffold(
       appBar: AppBar(
         titleSpacing: 0,
@@ -126,13 +127,16 @@ class _SearchScreenState extends State<SearchScreen> {
           autofocus: true,
           textInputAction: TextInputAction.search,
           onChanged: _queryChanged,
-          decoration: const InputDecoration(
+          decoration: InputDecoration(
             hintText: 'E-posta ara',
             border: InputBorder.none,
             filled: false,
-            hintStyle: TextStyle(color: AppTheme.tertiaryText, fontSize: 16),
+            hintStyle: TextStyle(color: colors.tertiaryText, fontSize: 16),
           ),
-          style: const TextStyle(fontSize: 16, color: Colors.black),
+          style: TextStyle(
+            fontSize: 16,
+            color: Theme.of(context).colorScheme.onSurface,
+          ),
         ),
         actions: [
           if (_query.isNotEmpty)
@@ -254,9 +258,9 @@ class _SearchScopeStatus extends StatelessWidget {
               serverSearch
                   ? 'Tüm hesaplarda sunucuda aranıyor'
                   : 'Etiketler bu cihazdaki e-postalarda filtrelenir',
-              style: const TextStyle(
+              style: TextStyle(
                 fontSize: 12,
-                color: AppTheme.secondaryText,
+                color: AppTheme.colors(context).secondaryText,
               ),
             ),
           ),
@@ -281,7 +285,7 @@ class _SearchError extends StatelessWidget {
           Text(
             friendlyErrorMessage(error),
             textAlign: TextAlign.center,
-            style: const TextStyle(color: AppTheme.secondaryText),
+            style: TextStyle(color: AppTheme.colors(context).secondaryText),
           ),
           const SizedBox(height: 8),
           TextButton.icon(
@@ -357,7 +361,10 @@ class _Hint extends StatelessWidget {
     return Center(
       child: Text(
         message,
-        style: const TextStyle(fontSize: 14, color: AppTheme.secondaryText),
+        style: TextStyle(
+          fontSize: 14,
+          color: AppTheme.colors(context).secondaryText,
+        ),
       ),
     );
   }
