@@ -338,7 +338,32 @@ class ApiMailRepository extends MailRepository {
   Future<MailAccount> connectAccount({
     required String email,
     required String password,
+    MailServerSettings? serverSettings,
   }) async {
+    if (serverSettings != null) {
+      final account = await connectManual(
+        ManualConnectionRequest(
+          email: email,
+          username: email,
+          password: password,
+          imap: ManualMailServer(
+            host: serverSettings.imapServer,
+            port: serverSettings.imapPort,
+            security: _securityForPort(serverSettings.imapPort),
+          ),
+          smtp: ManualMailServer(
+            host: serverSettings.smtpServer,
+            port: serverSettings.smtpPort,
+            security: _securityForPort(serverSettings.smtpPort),
+          ),
+          displayName: email,
+        ),
+      );
+      _activeAccountId = null;
+      _touch();
+      notifyListeners();
+      return account;
+    }
     final services = _nextServices();
     final discovery = await services.authService.discover(email);
     final account = await _connect(

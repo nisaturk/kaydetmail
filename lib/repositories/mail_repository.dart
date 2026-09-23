@@ -121,6 +121,7 @@ abstract class MailRepository extends ChangeNotifier {
   Future<MailAccount> connectAccount({
     required String email,
     required String password,
+    MailServerSettings? serverSettings,
   });
 
   /// Disconnects an account and drops its mails. The last remaining account
