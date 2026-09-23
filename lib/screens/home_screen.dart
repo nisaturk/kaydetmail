@@ -285,24 +285,33 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionRestoreFromTrash() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
     success: (count) => '$count e-posta geri yüklendi',
+    onlyCurrentFolder: true,
   );
 
   Future<void> _actionUnarchive() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
     success: (count) => '$count e-posta arşivden çıkarıldı',
+    onlyCurrentFolder: true,
   );
 
   Future<void> _actionMarkNotSpam() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
     success: (count) => '$count e-posta spam olmaktan çıkarıldı',
+    onlyCurrentFolder: true,
   );
 
+  /// [onlyCurrentFolder] limits the thread-expanded ids to messages in the
+  /// folder being viewed — see [idsInFolder].
   Future<void> _runBulkMove({
     required Future<void> Function(List<String> ids) action,
     required String Function(int count) success,
+    bool onlyCurrentFolder = false,
   }) async {
     if (_bulkBusy) return;
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final threadIds = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = onlyCurrentFolder
+        ? idsInFolder(_repo, threadIds, _folder)
+        : threadIds;
     if (ids.isEmpty) {
       _selection.exit();
       return;

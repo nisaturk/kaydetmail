@@ -283,7 +283,13 @@ class _InboxScreenState extends State<InboxScreen>
   /// other bit of state (labels, read/star/pin, attachments, …) survives.
   Future<void> _swipeMove(Email representative, _SwipeAction action) async {
     if (action == _SwipeAction.none) return;
-    final ids = expandThreadIds(_repo, [representative.id]);
+    final threadIds = expandThreadIds(_repo, [representative.id]);
+    final ids = switch (action) {
+      _SwipeAction.restore ||
+      _SwipeAction.unspam ||
+      _SwipeAction.unarchive => idsInFolder(_repo, threadIds, widget.folder),
+      _ => threadIds,
+    };
     if (ids.isEmpty) return;
     final previousFolders = previousFoldersOf(_repo, ids);
     final undoKey = _dismissKey(representative);
