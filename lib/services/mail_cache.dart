@@ -1,9 +1,10 @@
 import 'dart:convert';
-import 'dart:io';
 
-import 'package:path/path.dart' as p;
-import 'package:path_provider/path_provider.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
+
+import 'mail_cache_io.dart'
+    if (dart.library.js_interop) 'mail_cache_web.dart'
+    as platform;
 
 import '../models/email.dart';
 import '../models/mail_folder.dart';
@@ -13,6 +14,12 @@ import '../models/mail_folder.dart';
 /// revalidate in the background. One row per mail, scoped by account.
 ///
 /// Attachment bytes are never stored, only their metadata.
+///
+/// Backed by a real SQLite file via `dart:ffi` on native platforms, and by
+/// sqlite3 compiled to WebAssembly (persisted through IndexedDB) on the web
+/// — see `mail_cache_io.dart` / `mail_cache_web.dart` for the platform
+/// split. Everything below this point is platform-agnostic: it only talks
+/// to the shared `CommonDatabase` interface.
 class MailCache {
   MailCache._(this._db) {
     _db.execute('''
@@ -54,19 +61,16 @@ class MailCache {
       )''');
   }
 
-  final Database _db;
+  final CommonDatabase _db;
 
   /// Raw handle for [LocalMailFlagsStore]; everything else goes through the
   /// typed methods above.
-  Database get db => _db;
+  CommonDatabase get db => _db;
 
-  static Future<MailCache> open() async {
-    final dir = await getApplicationSupportDirectory();
-    await Directory(dir.path).create(recursive: true);
-    return MailCache._(sqlite3.open(p.join(dir.path, 'mail_cache.db')));
-  }
+  static Future<MailCache> open() async =>
+      MailCache._(await platform.openPersistent());
 
-  factory MailCache.inMemory() => MailCache._(sqlite3.openInMemory());
+  factory MailCache.inMemory() => MailCache._(platform.openInMemory());
 
   /// Newest [perFolder] mails of every folder for [accountId].
   List<Email> load(String accountId, {int perFolder = 100}) {

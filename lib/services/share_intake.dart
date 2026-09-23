@@ -1,8 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:receive_sharing_intent/receive_sharing_intent.dart';
+
+import 'share_intake_io.dart'
+    if (dart.library.js_interop) 'share_intake_web.dart'
+    as platform;
 
 import '../models/email.dart';
 import '../screens/compose_screen.dart';
@@ -11,7 +15,9 @@ import '../screens/compose_screen.dart';
 /// sheet (files/images become attachments, text/links become the body).
 ///
 /// Covers both cold start (initial media) and while running (media stream).
-/// Best-effort: platforms without the plugin simply never emit.
+/// Best-effort: platforms without the plugin simply never emit. There is no
+/// OS share sheet on the web, so [start] no-ops there instead of touching
+/// the native-only plugin or `dart:io` (see `share_intake_web.dart`).
 class ShareIntake {
   ShareIntake(this._context);
 
@@ -20,6 +26,7 @@ class ShareIntake {
   StreamSubscription<List<SharedMediaFile>>? _sub;
 
   void start() {
+    if (kIsWeb) return;
     try {
       final rsi = ReceiveSharingIntent.instance;
       rsi.getInitialMedia().then(_handle).catchError((_) {});
@@ -40,10 +47,10 @@ class ShareIntake {
         continue;
       }
       try {
-        final bytes = await File(m.path).readAsBytes();
+        final bytes = await platform.readSharedFileBytes(m.path);
         attachments.add(
           Attachment(
-            name: m.path.split(Platform.pathSeparator).last,
+            name: platform.fileNameFromPath(m.path),
             sizeBytes: bytes.length,
             mimeType: m.mimeType,
             bytes: bytes,

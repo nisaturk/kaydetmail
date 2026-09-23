@@ -1,7 +1,7 @@
 import 'dart:convert';
 
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:sqlite3/sqlite3.dart';
+import 'package:sqlite3/common.dart';
 
 import 'mail_cache.dart';
 
@@ -17,7 +17,7 @@ class LocalMailFlagsStore {
   LocalMailFlagsStore(this._accountId, MailCache cache) : _db = cache.db;
 
   final String _accountId;
-  final Database _db;
+  final CommonDatabase _db;
 
   Future<Set<String>> _read(String kind) async => {
     for (final r in _db.select(
