@@ -159,18 +159,27 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   bool get _hasContent =>
       _toController.text.trim().isNotEmpty ||
+      _ccController.text.trim().isNotEmpty ||
+      _bccController.text.trim().isNotEmpty ||
       _subjectController.text.trim().isNotEmpty ||
       _bodyController.text.trim().isNotEmpty ||
       _attachments.isNotEmpty;
 
   Future<bool> _onWillPop() async {
     if (!_hasContent) return true;
+    final editingDraft = widget.editingDraftId != null;
     return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: const Text('Bu e-posta silinsin mi?'),
-            content: const Text(
-              'Taslak olarak kaydedebilir veya silebilirsiniz.',
+            title: Text(
+              editingDraft
+                  ? 'Değişiklikler kaydedilsin mi?'
+                  : 'Bu e-posta silinsin mi?',
+            ),
+            content: Text(
+              editingDraft
+                  ? 'Taslağın mevcut hali korunabilir veya değişiklikler kaydedilebilir.'
+                  : 'E-postayı taslak olarak kaydedebilir veya içeriği silebilirsiniz.',
             ),
             actions: [
               TextButton(
@@ -179,19 +188,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
               ),
               TextButton(
                 onPressed: () async {
-                  await _saveDraft();
-                  if (mounted && ctx.mounted) {
-                    Navigator.of(ctx).pop(true);
+                  final saved = await _saveDraft();
+                  if (!mounted || !ctx.mounted) return;
+                  if (!saved) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(content: Text('Taslak kaydedildi.')),
+                      const SnackBar(
+                        content: Text(
+                          'Taslak kaydedilemedi. İçeriğiniz ekranda tutuluyor.',
+                        ),
+                      ),
                     );
+                    return;
                   }
+                  Navigator.of(ctx).pop(true);
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Taslak kaydedildi.')),
+                  );
                 },
                 child: const Text('Taslağı Kaydet'),
               ),
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(true),
-                child: const Text('Sil', style: TextStyle(color: Colors.red)),
+                child: Text(
+                  editingDraft ? 'Değişiklikleri At' : 'İçeriği Sil',
+                  style: const TextStyle(color: Colors.red),
+                ),
               ),
             ],
           ),
@@ -240,7 +261,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         }
       }
       if (!mounted) return;
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context)
           .showSnackBar(const SnackBar(content: Text('E-posta gönderildi.')));
     } catch (e) {
@@ -253,14 +274,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
   }
 
-  Future<void> _saveDraft() async {
-    final to = _toController.text.trim();
-    final hasAny =
-        to.isNotEmpty ||
-        _subjectController.text.trim().isNotEmpty ||
-        _bodyController.text.trim().isNotEmpty ||
-        _attachments.isNotEmpty;
-    if (!hasAny) return;
+  Future<bool> _saveDraft() async {
+    if (!_hasContent) return true;
     try {
       await _repo.saveDraft(
         from: _fromAccount,
@@ -275,9 +290,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
         // Editing a draft updates it in place — never a duplicate.
         draftId: widget.editingDraftId,
       );
+      return true;
     } catch (_) {
-      // Best-effort autosave: the user is already leaving the screen, so a
-      // failure here has nowhere useful to surface — swallow it.
+      return false;
     }
   }
 
@@ -359,7 +374,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   void _onSpeechError(SpeechRecognitionError error) {
-    if (!error.permanent) return; // Transient — the retry in onStatus covers it.
+    if (!error.permanent) {
+      return; // Transient — the retry in onStatus covers it.
+    }
     if (!mounted) return;
     setState(() => _recording = false);
     ScaffoldMessenger.of(context).showSnackBar(
@@ -383,9 +400,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Sesle yazma için mikrofon iznini vermeniz gerekiyor.',
-          ),
+          content: Text('Sesle yazma için mikrofon iznini vermeniz gerekiyor.'),
         ),
       );
       return;
