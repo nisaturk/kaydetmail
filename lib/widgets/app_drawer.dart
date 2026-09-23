@@ -129,7 +129,7 @@ class AppDrawer extends StatelessWidget {
       case MailFolder.spam:
         return repo.unreadCount(folder);
       case MailFolder.sent:
-      case MailFolder.pinned:
+      case MailFolder.starred:
       case MailFolder.trash:
       case MailFolder.archive:
         return 0;

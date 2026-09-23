@@ -565,7 +565,7 @@ class ApiMailRepository extends MailRepository {
           // Emails are immutable, so identity tells us what changed.
           final current = <String, Email>{
             for (final e in session.emails.entries)
-              if (e.key != MailFolder.pinned)
+              if (e.key != MailFolder.starred)
                 for (final m in e.value.take(100)) m.id: m,
           };
           final changed = [
@@ -849,7 +849,7 @@ class ApiMailRepository extends MailRepository {
     unawaited(_refreshCountsFor(session));
   }
 
-  static bool _highlighted(Email e) => e.isPinned || e.isStarred;
+  static bool _pinned(Email email) => email.isPinned;
 
   /// Sessions the public read/write methods operate on: just the active one
   /// when scoped, every connected session when unified (`null`).
@@ -939,11 +939,9 @@ class ApiMailRepository extends MailRepository {
   // rebuilds instead of serving a stale view.
   void _touch() => _viewCache.clear();
 
-  /// [MailFolder.pinned] is virtual — "Yıldızlılar" surfaces every pinned or
-  /// starred mail regardless of its real folder — so it's built by scanning
-  /// every cached bucket rather than a fetched one. Every folder additionally
-  /// floats highlighted mails above the rest, newest-first within each
-  /// group, matching [MailRepository.getEmailsInFolder]'s documented order.
+  /// [MailFolder.starred] is virtual — "Yıldızlılar" surfaces starred mail
+  /// regardless of its real folder. Pinning remains independent: pinned mail
+  /// floats above the rest inside whichever folder it already belongs to.
   /// The unified mailbox (`activeAccountId == null`) merges every session's
   /// mail into one such view.
   @override
@@ -954,15 +952,17 @@ class ApiMailRepository extends MailRepository {
 
   List<Email> _buildFolderView(MailFolder folder) {
     final sessions = _scopedSessions;
-    final result = folder == MailFolder.pinned
+    final result = folder == MailFolder.starred
         ? [
             for (final s in sessions)
-              ...s.emails.values.expand((list) => list).where(_highlighted),
+              ...s.emails.values
+                  .expand((list) => list)
+                  .where((e) => e.isStarred),
           ]
         : [for (final s in sessions) ...(s.emails[folder] ?? const <Email>[])];
     result.sort((a, b) {
-      final ha = _highlighted(a);
-      final hb = _highlighted(b);
+      final ha = _pinned(a);
+      final hb = _pinned(b);
       if (ha != hb) return ha ? -1 : 1;
       return b.timestamp.compareTo(a.timestamp);
     });
@@ -1630,9 +1630,8 @@ class ApiMailRepository extends MailRepository {
   }
 
   /// Pinning never reaches the network — see [LocalMailFlagsStore]. The
-  /// `maxPinnedMails` cap is global across every connected account (it keeps
-  /// the "Yıldızlılar" shortcut short, not a per-account allowance);
-  /// unpinning always applies.
+  /// `maxPinnedMails` cap is global across every connected account; pinning
+  /// only changes sort priority inside a mail's existing folder.
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     if (ids.isEmpty) return;

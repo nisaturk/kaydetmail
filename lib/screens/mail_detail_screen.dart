@@ -5,7 +5,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
-import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
@@ -201,7 +200,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// Shows the pin-limit notice when no slot is left. Returns true when the
   /// caller may proceed with pinning.
   bool _ensurePinSlot() {
-    if (_repo.getEmailsInFolder(MailFolder.pinned).length >=
+    if (_repo.getAllEmails().where((email) => email.isPinned).length >=
         MailRepository.maxPinnedMails) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('En fazla 3 mail sabitlenebilir.')),

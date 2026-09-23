@@ -6,7 +6,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/api_mail_repository.dart';
-import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/services/api_auth_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
@@ -20,108 +19,125 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('pin/reply/forward stay client-only', () {
-    test('setPinned caps at maxPinnedMails and never calls the network', () async {
-      final mailService = _RecordingMailService(
-        folders: [_folder('folder-inbox', 'Inbox')],
-        pagesByFolderId: {
-          'folder-inbox': _page([
-            _mailJson('mail-1'),
-            _mailJson('mail-2'),
-            _mailJson('mail-3'),
-            _mailJson('mail-4'),
-          ]),
-        },
-      );
-      final repo = await _repositoryWithLoadedInbox(mailService);
+    test(
+      'setPinned caps at maxPinnedMails and never calls the network',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([
+              _mailJson('mail-1'),
+              _mailJson('mail-2'),
+              _mailJson('mail-3'),
+              _mailJson('mail-4'),
+            ]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
 
-      await repo.setPinned(['mail-1', 'mail-2', 'mail-3', 'mail-4'], true);
+        await repo.setPinned(['mail-1', 'mail-2', 'mail-3', 'mail-4'], true);
 
-      final pinned = repo.getEmailsInFolder(MailFolder.pinned);
-      expect(pinned.length, MailRepository.maxPinnedMails);
-      expect(pinned.map((e) => e.id), isNot(contains('mail-4')));
-      expect(mailService.singleActionCalls, isEmpty);
-      expect(mailService.bulkActionCalls, isEmpty);
+        final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+        expect(inbox.where((email) => email.isPinned).length, 3);
+        expect(
+          inbox.singleWhere((email) => email.id == 'mail-4').isPinned,
+          false,
+        );
+        expect(mailService.singleActionCalls, isEmpty);
+        expect(mailService.bulkActionCalls, isEmpty);
 
-      await repo.setPinned(['mail-1'], false);
-      expect(
-        repo.getEmailsInFolder(MailFolder.pinned).map((e) => e.id),
-        isNot(contains('mail-1')),
-      );
-    });
+        await repo.setPinned(['mail-1'], false);
+        expect(
+          repo
+              .getEmailsInFolder(MailFolder.inbox)
+              .singleWhere((email) => email.id == 'mail-1')
+              .isPinned,
+          isFalse,
+        );
+      },
+    );
 
-    test('pin/reply/forward flags survive a fresh repository instance (persisted)', () async {
-      final mailService = _RecordingMailService(
-        folders: [_folder('folder-inbox', 'Inbox')],
-        pagesByFolderId: {
-          'folder-inbox': _page([_mailJson('mail-1')]),
-        },
-      );
-      final db = MailCache.inMemory(); // the "disk" both launches share
-      final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
-      await repo1.setPinned(['mail-1'], true);
-      await repo1.markAsReplied(['mail-1']);
+    test(
+      'pin/reply/forward flags survive a fresh repository instance (persisted)',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1')]),
+          },
+        );
+        final db = MailCache.inMemory(); // the "disk" both launches share
+        final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
+        await repo1.setPinned(['mail-1'], true);
+        await repo1.markAsReplied(['mail-1']);
 
-      // A second repository instance (e.g. after an app restart) refetches
-      // from the fixture's static isRead:false — only the local-only flags
-      // (pin/reply) are expected to survive that; isRead itself is real
-      // server state and out of scope for this fixture.
-      final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
-      final email = repo2.getEmailsInFolder(MailFolder.inbox).single;
+        // A second repository instance (e.g. after an app restart) refetches
+        // from the fixture's static isRead:false — only the local-only flags
+        // (pin/reply) are expected to survive that; isRead itself is real
+        // server state and out of scope for this fixture.
+        final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
+        final email = repo2.getEmailsInFolder(MailFolder.inbox).single;
 
-      expect(email.isPinned, isTrue);
-      expect(email.isReplied, isTrue);
-    });
+        expect(email.isPinned, isTrue);
+        expect(email.isReplied, isTrue);
+      },
+    );
 
-    test('markAsForwarded marks forwarded locally and read via the real API', () async {
-      final mailService = _RecordingMailService(
-        folders: [_folder('folder-inbox', 'Inbox')],
-        pagesByFolderId: {
-          'folder-inbox': _page([_mailJson('mail-1')]),
-        },
-      );
-      final repo = await _repositoryWithLoadedInbox(mailService);
+    test(
+      'markAsForwarded marks forwarded locally and read via the real API',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1')]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
 
-      await repo.markAsForwarded(['mail-1']);
+        await repo.markAsForwarded(['mail-1']);
 
-      final email = repo.getEmailsInFolder(MailFolder.inbox).single;
-      expect(email.isForwarded, isTrue);
-      expect(email.isRead, isTrue);
-      // "Forwarded" is local-only; the resulting read state is a real mail
-      // state, so it goes through the bulk read action, not a local fake.
-      expect(mailService.bulkActionCalls, ['read:mail-1:null']);
-      expect(mailService.singleActionCalls, isEmpty);
-    });
+        final email = repo.getEmailsInFolder(MailFolder.inbox).single;
+        expect(email.isForwarded, isTrue);
+        expect(email.isRead, isTrue);
+        // "Forwarded" is local-only; the resulting read state is a real mail
+        // state, so it goes through the bulk read action, not a local fake.
+        expect(mailService.bulkActionCalls, ['read:mail-1:null']);
+        expect(mailService.singleActionCalls, isEmpty);
+      },
+    );
   });
 
-  group('pinned virtual folder', () {
-    test('unions pinned and starred mails from every real folder, highlighted first', () async {
-      final mailService = _RecordingMailService(
-        folders: [
-          _folder('folder-inbox', 'Inbox'),
-          _folder('folder-archive', 'Archive'),
-        ],
-        pagesByFolderId: {
-          'folder-inbox': _page([
-            _mailJson('mail-old', receivedAt: '2026-01-01T00:00:00Z'),
-            _mailJson('mail-new', receivedAt: '2026-06-01T00:00:00Z'),
-          ]),
-          'folder-archive': _page([_mailJson('mail-archived')]),
-        },
-      );
-      final repo = await _repositoryWithLoadedInbox(mailService);
-      await repo.loadMoreEmails(MailFolder.archive);
+  group('starred virtual folder', () {
+    test(
+      'shows only starred mail while pins only change folder order',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-archive', 'Archive'),
+          ],
+          pagesByFolderId: {
+            'folder-inbox': _page([
+              _mailJson('mail-old', receivedAt: '2026-01-01T00:00:00Z'),
+              _mailJson('mail-new', receivedAt: '2026-06-01T00:00:00Z'),
+            ]),
+            'folder-archive': _page([_mailJson('mail-archived')]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+        await repo.loadMoreEmails(MailFolder.archive);
 
-      await repo.setPinned(['mail-old'], true);
-      await repo.setStarred(['mail-archived'], true);
+        await repo.setPinned(['mail-old'], true);
+        await repo.setStarred(['mail-archived'], true);
 
-      final pinned = repo.getEmailsInFolder(MailFolder.pinned);
-      expect(pinned.map((e) => e.id), containsAll(['mail-old', 'mail-archived']));
-      expect(pinned.map((e) => e.id), isNot(contains('mail-new')));
+        final starred = repo.getEmailsInFolder(MailFolder.starred);
+        expect(starred.map((e) => e.id), ['mail-archived']);
 
-      final inbox = repo.getEmailsInFolder(MailFolder.inbox);
-      // Highlighted (pinned) mail floats above newer, non-highlighted mail.
-      expect(inbox.first.id, 'mail-old');
-    });
+        final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+        // Highlighted (pinned) mail floats above newer, non-highlighted mail.
+        expect(inbox.first.id, 'mail-old');
+      },
+    );
   });
 }
 
@@ -193,10 +209,8 @@ Email _mapMailForTest(Map<String, dynamic> item) => Email(
 );
 
 class _RecordingMailService extends ApiMailService {
-  _RecordingMailService({
-    required this.folders,
-    required this.pagesByFolderId,
-  }) : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
+  _RecordingMailService({required this.folders, required this.pagesByFolderId})
+    : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
 
   final List<Map<String, dynamic>> folders;
   final Map<String, MailListPage> pagesByFolderId;

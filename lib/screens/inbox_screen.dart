@@ -431,7 +431,7 @@ class _EmptyState extends StatelessWidget {
   String get _subtitle => switch (folder) {
     MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
     MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
-    MailFolder.pinned => 'Yıldızladığınız e-postalar burada görünür.',
+    MailFolder.starred => 'Yıldızladığınız e-postalar burada görünür.',
     MailFolder.drafts => 'Kaydettiğiniz taslaklar burada durur.',
     MailFolder.trash => 'Sildiğiniz e-postalar burada durur.',
     MailFolder.spam => 'İstenmeyen e-postalar buraya düşer.',
