@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
@@ -44,6 +45,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   int _scrolledCount = 0;
   bool _loading = true;
   bool _opened = false;
+
+  /// Set while a folder-move action (restore / "spam değil" / "arşivden
+  /// çıkar") is in flight, so the triggering button disables itself —
+  /// mirrors the busy-flag shape of `_runBulkMove` in HomeScreen.
+  bool _folderActionBusy = false;
 
   /// Why the main mail load failed, when it did and nothing is shown yet.
   /// Null means "not found" rather than a transport error.
@@ -225,6 +231,72 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     await _repo.setStarred([email.id], !email.isStarred);
   }
 
+  /// Moves the open mail back to the inbox. For a mail whose current
+  /// folder is Trash or Spam, `MailRepository.moveToFolder` resolves this
+  /// to the backend's restore action (the mail's original pre-trash/spam
+  /// folder), not a literal move to Inbox — see the repository doc
+  /// comment. Restore / "Spam değil" / "Arşivden çıkar" all reduce to
+  /// this one call.
+  Future<void> _moveToInbox(String successMessage) async {
+    final email = _email;
+    if (email == null || _folderActionBusy) return;
+    setState(() => _folderActionBusy = true);
+    try {
+      await _repo.moveToFolder([email.id], MailFolder.inbox);
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(successMessage)));
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _folderActionBusy = false);
+    }
+  }
+
+  /// Folder-specific primary action for the open mail, when its current
+  /// folder has one: Trash → restore, Spam → not spam, Archive →
+  /// unarchive. Drafts open `ComposeScreen` instead of this screen (see
+  /// `_onMailTap` in inbox/search screens), so `MailFolder.drafts` is not
+  /// expected here — the `default` branch still returns null instead of
+  /// assuming, so a draft opened by some future path degrades gracefully
+  /// rather than crashing.
+  IconButton? _folderAction(Email email) {
+    switch (email.folder) {
+      case MailFolder.trash:
+        return IconButton(
+          onPressed: _folderActionBusy
+              ? null
+              : () => _moveToInbox('E-posta geri yüklendi.'),
+          tooltip: 'Geri yükle',
+          icon: const Icon(LucideIcons.rotateCcw),
+        );
+      case MailFolder.spam:
+        return IconButton(
+          onPressed: _folderActionBusy
+              ? null
+              : () => _moveToInbox('E-posta spam değil olarak işaretlendi.'),
+          tooltip: 'Spam değil',
+          icon: const Icon(LucideIcons.shieldOff),
+        );
+      case MailFolder.archive:
+        return IconButton(
+          onPressed: _folderActionBusy
+              ? null
+              : () => _moveToInbox('E-posta arşivden çıkarıldı.'),
+          tooltip: 'Arşivden çıkar',
+          icon: const Icon(LucideIcons.archiveRestore),
+        );
+      default:
+        return null;
+    }
+  }
+
   /// The address a reply/forward is sent from: the originating account, so a
   /// mail received on account B is never answered from account A.
   String? _originatingFrom() {
@@ -286,65 +358,66 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('E-posta'),
-        actions: [
-          if (_email != null)
-            IconButton(
-              onPressed: _toggleStar,
-              tooltip: _email!.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
-              icon: Icon(
-                LucideIcons.star,
-                color: _email!.isStarred ? Colors.amber : null,
-              ),
-            ),
-          if (_email != null)
-            IconButton(
-              onPressed: _reply,
-              tooltip: 'Yanıtla',
-              icon: const Icon(LucideIcons.reply),
-            ),
-          if (_email != null)
-            IconButton(
-              onPressed: _forward,
-              tooltip: 'İlet',
-              icon: const Icon(LucideIcons.forward),
-            ),
-          if (_email != null)
-            PopupMenuButton<String>(
-              icon: const Icon(LucideIcons.moreHorizontal),
-              tooltip: 'Daha fazla',
-              onSelected: (action) => _handleMenu(action),
-              itemBuilder: (context) => [
-                PopupMenuItem(
-                  value: 'pin',
-                  child: Text(
-                    _email!.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle',
-                  ),
-                ),
-                PopupMenuItem(
-                  value: 'star',
-                  child: Text(
-                    _email!.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
-                  ),
-                ),
-                if (_email!.isRead)
-                  const PopupMenuItem(
-                    value: 'unread',
-                    child: Text('Okunmadı olarak işaretle'),
-                  )
-                else
-                  const PopupMenuItem(
-                    value: 'read',
-                    child: Text('Okundu olarak işaretle'),
-                  ),
-                const PopupMenuItem(value: 'label', child: Text('Etiketle')),
-              ],
-            ),
-        ],
-      ),
+      appBar: AppBar(title: const Text('E-posta'), actions: _appBarActions()),
       body: SafeArea(child: _buildBody()),
     );
+  }
+
+  /// Reply/Forward stay available regardless of folder, including Trash —
+  /// replying to or forwarding a trashed mail is still a meaningful action,
+  /// and hiding them would only cost the user a round-trip through Geri
+  /// Yükle first.
+  List<Widget> _appBarActions() {
+    final email = _email;
+    if (email == null) return const [];
+    final folderAction = _folderAction(email);
+    return [
+      ?folderAction,
+      IconButton(
+        onPressed: _toggleStar,
+        tooltip: email.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
+        icon: Icon(
+          LucideIcons.star,
+          color: email.isStarred ? Colors.amber : null,
+        ),
+      ),
+      IconButton(
+        onPressed: _reply,
+        tooltip: 'Yanıtla',
+        icon: const Icon(LucideIcons.reply),
+      ),
+      IconButton(
+        onPressed: _forward,
+        tooltip: 'İlet',
+        icon: const Icon(LucideIcons.forward),
+      ),
+      PopupMenuButton<String>(
+        icon: const Icon(LucideIcons.moreHorizontal),
+        tooltip: 'Daha fazla',
+        onSelected: (action) => _handleMenu(action),
+        itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'pin',
+            child: Text(email.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'),
+          ),
+          PopupMenuItem(
+            value: 'star',
+            child: Text(email.isStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
+          ),
+          if (email.isRead)
+            const PopupMenuItem(
+              value: 'unread',
+              child: Text('Okunmadı olarak işaretle'),
+            )
+          else
+            const PopupMenuItem(
+              value: 'read',
+              child: Text('Okundu olarak işaretle'),
+            ),
+          const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+        ],
+      ),
+    ];
   }
 
   Future<void> _handleMenu(String action) async {
@@ -365,6 +438,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
     }
+    final colors = AppTheme.colors(context);
     final email = _email;
     if (email == null) {
       // The mail genuinely isn't there (null without an error), or the
@@ -372,10 +446,10 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       // only a failure offers a retry.
       final error = _loadError;
       if (error == null) {
-        return const Center(
+        return Center(
           child: Text(
             'Bu e-posta artık mevcut değil.',
-            style: TextStyle(fontSize: 15, color: AppTheme.secondaryText),
+            style: TextStyle(fontSize: 15, color: colors.secondaryText),
           ),
         );
       }
@@ -386,16 +460,19 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Icon(
+              Icon(
                 LucideIcons.cloudOff,
                 size: 40,
-                color: AppTheme.secondaryText,
+                color: colors.secondaryText,
               ),
               const SizedBox(height: 12),
               Text(
                 message,
                 textAlign: TextAlign.center,
-                style: const TextStyle(fontSize: 15, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 15,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
               const SizedBox(height: 12),
               TextButton.icon(
@@ -417,10 +494,10 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         children: [
           Text(
             email.subject,
-            style: const TextStyle(
+            style: TextStyle(
               fontSize: 22,
               fontWeight: FontWeight.w700,
-              color: Colors.black,
+              color: Theme.of(context).colorScheme.onSurface,
               height: 1.25,
             ),
           ),
@@ -453,6 +530,8 @@ class _SingleMessage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    final onSurface = Theme.of(context).colorScheme.onSurface;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -472,18 +551,18 @@ class _SingleMessage extends StatelessWidget {
                 children: [
                   Text(
                     email.senderName,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w700,
-                      color: Colors.black,
+                      color: onSurface,
                     ),
                   ),
                   const SizedBox(height: 2),
                   Text(
                     email.senderEmail,
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: AppTheme.secondaryText,
+                      color: colors.secondaryText,
                     ),
                   ),
                   if (email.recipients.isNotEmpty) ...[
@@ -503,9 +582,9 @@ class _SingleMessage extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     formatMailDateFull(email.timestamp),
-                    style: const TextStyle(
+                    style: TextStyle(
                       fontSize: 13,
-                      color: AppTheme.secondaryText,
+                      color: colors.secondaryText,
                     ),
                   ),
                 ],
@@ -519,12 +598,12 @@ class _SingleMessage extends StatelessWidget {
         ],
         if (email.attachments.isNotEmpty) ...[
           const SizedBox(height: 16),
-          const Text(
+          Text(
             'Ekler',
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
-              color: AppTheme.secondaryText,
+              color: colors.secondaryText,
             ),
           ),
           const SizedBox(height: 8),
@@ -535,11 +614,7 @@ class _SingleMessage extends StatelessWidget {
         const SizedBox(height: 4),
         SelectableText(
           email.bodyText,
-          style: const TextStyle(
-            fontSize: 15,
-            height: 1.6,
-            color: AppTheme.bodyText,
-          ),
+          style: TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText),
         ),
       ],
     );
@@ -556,9 +631,10 @@ class _RecipientLine extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
     return Text.rich(
       TextSpan(
-        style: const TextStyle(fontSize: 13, color: AppTheme.secondaryText),
+        style: TextStyle(fontSize: 13, color: colors.secondaryText),
         children: [
           TextSpan(
             text: label,
@@ -611,6 +687,7 @@ class _AttachmentTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
     return InkWell(
       onTap: () => Navigator.of(context).push(
         MaterialPageRoute(
@@ -623,26 +700,22 @@ class _AttachmentTile extends StatelessWidget {
         padding: const EdgeInsets.symmetric(vertical: 8),
         child: Row(
           children: [
-            const Icon(
-              LucideIcons.fileText,
-              size: 20,
-              color: AppTheme.secondaryText,
-            ),
+            Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
                 attachment.name,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
-                style: const TextStyle(fontSize: 14, color: Colors.black),
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
               ),
             ),
             Text(
               attachment.sizeLabel,
-              style: const TextStyle(
-                fontSize: 13,
-                color: AppTheme.secondaryText,
-              ),
+              style: TextStyle(fontSize: 13, color: colors.secondaryText),
             ),
           ],
         ),
@@ -680,6 +753,7 @@ class _ThreadStackState extends State<_ThreadStack> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
     return Column(
       children: [
         for (final m in widget.messages)
@@ -687,62 +761,68 @@ class _ThreadStackState extends State<_ThreadStack> {
             elevation: 0,
             margin: const EdgeInsets.only(top: 10),
             shape: RoundedRectangleBorder(
-              side: const BorderSide(color: AppTheme.border),
+              side: BorderSide(color: colors.border),
               borderRadius: BorderRadius.circular(12),
             ),
             clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
-                InkWell(
-                  onTap: () => setState(
-                    () => _toggled.contains(m.id)
-                        ? _toggled.remove(m.id)
-                        : _toggled.add(m.id),
-                  ),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Row(
-                      children: [
-                        MailAvatar(
-                          identity: m.senderEmail,
-                          displayName: m.senderName,
-                          size: 32,
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                m.senderName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
-                              if (!_expanded(m))
+                Semantics(
+                  // Announces the collapsed/expanded state change on tap —
+                  // without this a screen reader gives no indication that
+                  // the card hides or reveals the full message body.
+                  expanded: _expanded(m),
+                  child: InkWell(
+                    onTap: () => setState(
+                      () => _toggled.contains(m.id)
+                          ? _toggled.remove(m.id)
+                          : _toggled.add(m.id),
+                    ),
+                    child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Row(
+                        children: [
+                          MailAvatar(
+                            identity: m.senderEmail,
+                            displayName: m.senderName,
+                            size: 32,
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
                                 Text(
-                                  stripQuotedReply(m.bodyText)
-                                      .replaceAll('\n', ' '),
+                                  m.senderName,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                   style: const TextStyle(
-                                    fontSize: 13,
-                                    color: AppTheme.secondaryText,
+                                    fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                            ],
+                                if (!_expanded(m))
+                                  Text(
+                                    stripQuotedReply(m.bodyText)
+                                        .replaceAll('\n', ' '),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 13,
+                                      color: colors.secondaryText,
+                                    ),
+                                  ),
+                              ],
+                            ),
                           ),
-                        ),
-                        Text(
-                          formatMailDateFull(m.timestamp),
-                          style: const TextStyle(
-                            fontSize: 12,
-                            color: AppTheme.secondaryText,
+                          Text(
+                            formatMailDateFull(m.timestamp),
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.secondaryText,
+                            ),
                           ),
-                        ),
-                      ],
+                        ],
+                      ),
                     ),
                   ),
                 ),

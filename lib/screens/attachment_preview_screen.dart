@@ -155,10 +155,10 @@ class _TextBody extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       child: SelectableText(
         text.isEmpty ? '(Boş belge)' : text,
-        style: const TextStyle(
+        style: TextStyle(
           fontSize: 15,
           height: 1.6,
-          color: AppTheme.bodyText,
+          color: AppTheme.colors(context).bodyText,
         ),
       ),
     );
@@ -186,7 +186,7 @@ class _Message extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(icon, size: 40, color: AppTheme.secondaryText),
+            Icon(icon, size: 40, color: AppTheme.colors(context).secondaryText),
             const SizedBox(height: 12),
             Text(text, textAlign: TextAlign.center),
             const SizedBox(height: 12),
