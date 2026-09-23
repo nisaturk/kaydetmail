@@ -1447,6 +1447,33 @@ class ApiMailRepository extends MailRepository {
     return email;
   }
 
+  /// Tail of the draft write queue — see [_serializeDraftWrite].
+  Future<void> _draftWrites = Future.value();
+
+  /// Old draft id -> the id `PUT /drafts/{id}` replaced it with.
+  final Map<String, String> _draftIdSuccessor = {};
+
+  /// Runs draft writes one at a time. Two overlapping saves of the same
+  /// draft (a double-tapped "Taslağı Kaydet") would otherwise both `PUT`
+  /// the same id: each re-APPENDs a copy and only one can retire the
+  /// original, leaving duplicates behind.
+  Future<T> _serializeDraftWrite<T>(Future<T> Function() write) {
+    final result = _draftWrites.then((_) => write());
+    _draftWrites = result.then<void>((_) {}, onError: (_) {});
+    return result;
+  }
+
+  /// The current id of a draft that may have been re-created under a new id
+  /// by an earlier update — callers holding the id they opened keep working.
+  String _latestDraftId(String id) {
+    var current = id;
+    for (var next = _draftIdSuccessor[current]; next != null;) {
+      current = next;
+      next = _draftIdSuccessor[current];
+    }
+    return current;
+  }
+
   @override
   Future<Email> saveDraft({
     required List<String> to,
@@ -1460,6 +1487,34 @@ class ApiMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? draftId,
+  }) => _serializeDraftWrite(
+    () => _writeDraft(
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      body: body,
+      attachments: attachments,
+      from: from,
+      fromAccountId: fromAccountId,
+      threadId: threadId,
+      inReplyToId: inReplyToId,
+      draftId: draftId == null ? null : _latestDraftId(draftId),
+    ),
+  );
+
+  Future<Email> _writeDraft({
+    required List<String> to,
+    required List<String> cc,
+    required List<String> bcc,
+    required String subject,
+    required String body,
+    required List<Attachment> attachments,
+    required String? from,
+    required String? fromAccountId,
+    required String? threadId,
+    required String? inReplyToId,
+    required String? draftId,
   }) async {
     final session = draftId != null
         ? (_sessionOwning(draftId) ??
@@ -1480,6 +1535,7 @@ class ApiMailRepository extends MailRepository {
         replySourceMailId: inReplyToId,
       );
       final newId = result.mailId ?? draftId;
+      if (newId != draftId) _draftIdSuccessor[draftId] = newId;
       final drafts = session.emails.putIfAbsent(
         MailFolder.drafts,
         () => <Email>[],
@@ -1554,12 +1610,13 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<void> deleteDraft(String draftId) async {
-    final session = _sessionOwning(draftId) ?? _primarySession;
-    await session.mailService.deleteDraft(draftId);
-    session.emails[MailFolder.drafts]?.removeWhere((e) => e.id == draftId);
+  Future<void> deleteDraft(String draftId) => _serializeDraftWrite(() async {
+    final id = _latestDraftId(draftId);
+    final session = _sessionOwning(id) ?? _primarySession;
+    await session.mailService.deleteDraft(id);
+    session.emails[MailFolder.drafts]?.removeWhere((e) => e.id == id);
     notifyListeners();
-  }
+  });
 
   /// Sends a draft via `POST /api/drafts/{id}/send`. A fresh
   /// `Idempotency-Key` per attempt makes a network-timeout retry safe. Never

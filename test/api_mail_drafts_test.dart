@@ -146,6 +146,27 @@ void main() {
       },
     );
 
+    test(
+      'overlapping saves of the same draft update it once each, in order, '
+      'without cloning it',
+      () async {
+        final mailService = _VersioningMailService();
+        final repo = await _loggedInRepository(mailService);
+        await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+
+        // A double-tapped "Taslağı Kaydet": both calls carry the id the
+        // editor was opened with.
+        await Future.wait([
+          repo.saveDraft(to: ['a@x.com'], subject: 'v1', draftId: 'draft-old'),
+          repo.saveDraft(to: ['a@x.com'], subject: 'v2', draftId: 'draft-old'),
+        ]);
+
+        expect(mailService.updatedIds, ['draft-old', 'draft-v1']);
+        final drafts = repo.getEmailsInFolder(MailFolder.drafts);
+        expect(drafts.map((e) => (e.id, e.subject)), [('draft-v2', 'v2')]);
+      },
+    );
+
     test('deleteDraft removes the draft through the service', () async {
       final mailService = _RecordingMailService();
       final repo = await _loggedInRepository(mailService);
@@ -343,6 +364,33 @@ class _RecordingMailService extends ApiMailService {
     sentCopySaved: true,
     draftRemoved: true,
   );
+}
+
+/// Like [_RecordingMailService], but every update re-creates the draft under
+/// a fresh id — the way `PUT /drafts/{id}` does — and rejects stale ids.
+class _VersioningMailService extends _RecordingMailService {
+  final List<String> updatedIds = [];
+  final Set<String> _retired = {};
+
+  @override
+  Future<DraftResult> updateDraft(
+    String id, {
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+  }) async {
+    if (_retired.contains(id)) {
+      throw const ApiException(status: 422, code: 'mail_not_draft');
+    }
+    updatedIds.add(id);
+    await Future<void>.delayed(const Duration(milliseconds: 10));
+    _retired.add(id);
+    return DraftResult(created: false, mailId: 'draft-v${updatedIds.length}');
+  }
 }
 
 /// Reads every no-filename multipart part named [field], in order.

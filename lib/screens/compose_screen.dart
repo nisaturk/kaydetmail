@@ -59,6 +59,53 @@ class _Recipient {
   final bool valid;
 }
 
+/// Opens [draft] in the editor with its complete content. List rows only
+/// carry a ~120 character snippet and no attachment files, so the draft is
+/// fetched (and its attachments downloaded) first — saving an editor
+/// prefilled from the row would truncate the body and drop attachments.
+/// Falls back to the cached copy when the fetch fails (e.g. offline).
+Future<void> openDraftEditor(BuildContext context, Email draft) async {
+  final repo = AppConfig.mailRepository;
+  var full = draft;
+  try {
+    full = await repo.getEmail(draft.id) ?? draft;
+  } catch (_) {}
+  final attachments = await Future.wait(
+    full.attachments.map((attachment) async {
+      if (attachment.bytes != null || attachment.id == null) return attachment;
+      try {
+        return Attachment(
+          id: attachment.id,
+          name: attachment.name,
+          sizeBytes: attachment.sizeBytes,
+          mimeType: attachment.mimeType,
+          bytes: await repo.downloadAttachment(full.id, attachment),
+        );
+      } catch (_) {
+        return attachment;
+      }
+    }),
+  );
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ComposeScreen(
+        composeTitle: 'Taslağı Düzenle',
+        editingDraftId: full.id,
+        initialFrom: repo.getAccount(full.accountId)?.email,
+        initialTo: full.recipients.join(', '),
+        initialCc: full.cc.join(', '),
+        initialBcc: full.bcc.join(', '),
+        initialSubject: full.subject,
+        initialBody: full.bodyText,
+        initialAttachments: attachments,
+        initialThreadId: full.threadId.isEmpty ? null : full.threadId,
+        inReplyToId: full.inReplyToId,
+      ),
+    ),
+  );
+}
+
 /// Compose a new mail (or reply/forward/edit-draft — same screen).
 ///
 /// Cc/Bcc stay hidden behind a compact menu until requested. When
@@ -351,7 +398,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         inReplyToId: widget.inReplyToId,
       );
       // A sent draft leaves Drafts — the sent copy lives in Sent now.
-      final draftId = widget.editingDraftId;
+      final draftId = _draftId;
       if (draftId != null) {
         try {
           await _repo.deleteDraft(draftId);
@@ -374,7 +421,19 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
   }
 
-  Future<bool> _saveDraft() async {
+  /// The draft this screen edits: starts as [ComposeScreen.editingDraftId]
+  /// and follows the id each save returns (an update re-creates the draft
+  /// under a new id).
+  late String? _draftId = widget.editingDraftId;
+
+  /// In-flight save shared by every caller, so a double-tapped "Taslağı
+  /// Kaydet" writes the draft once instead of cloning it.
+  Future<bool>? _pendingSave;
+
+  Future<bool> _saveDraft() =>
+      _pendingSave ??= _writeDraft().whenComplete(() => _pendingSave = null);
+
+  Future<bool> _writeDraft() async {
     if (!_hasContent) return true;
     setState(() {
       _commitPendingRecipient(_toRecipients, _toInputController);
@@ -382,7 +441,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _commitPendingRecipient(_bccRecipients, _bccInputController);
     });
     try {
-      await _repo.saveDraft(
+      final saved = await _repo.saveDraft(
         from: _fromAccount,
         to: _addressStrings(_toRecipients),
         cc: _addressStrings(_ccRecipients),
@@ -393,8 +452,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,
         // Editing a draft updates it in place — never a duplicate.
-        draftId: widget.editingDraftId,
+        draftId: _draftId,
       );
+      _draftId = saved.id;
       return true;
     } catch (_) {
       return false;
