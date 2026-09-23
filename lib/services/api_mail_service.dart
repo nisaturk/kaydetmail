@@ -66,7 +66,7 @@ class ApiMailService {
   }
 
   static DateTime _date(Object? v) =>
-      DateTime.tryParse('${v ?? ''}') ?? DateTime.fromMillisecondsSinceEpoch(0);
+      _optionalDate(v) ?? DateTime.fromMillisecondsSinceEpoch(0);
 
   Future<void> deleteSession(String sessionId) =>
       _client.delete('/api/account/sessions/${Uri.encodeComponent(sessionId)}');
@@ -149,15 +149,13 @@ class ApiMailService {
       'appVersion': appVersion,
       'locale': locale,
     });
-    DateTime? optionalDate(dynamic raw) =>
-        raw is String ? DateTime.tryParse(raw) : null;
     return DeviceRegistration(
       id: body['id'] as String,
       platform: body['platform'] as String? ?? platform,
       appVersion: body['appVersion'] as String? ?? appVersion,
       locale: body['locale'] as String? ?? locale,
-      registeredAt: optionalDate(body['registeredAt']),
-      lastSeenAt: optionalDate(body['lastSeenAt']),
+      registeredAt: _optionalDate(body['registeredAt']),
+      lastSeenAt: _optionalDate(body['lastSeenAt']),
     );
   }
 
@@ -189,8 +187,6 @@ class ApiMailService {
   }
 
   static ConversationSummary _mapConversation(Map<String, dynamic> item) {
-    DateTime? optionalDate(dynamic raw) =>
-        raw is String ? DateTime.tryParse(raw) : null;
     return ConversationSummary(
       id: item['id'] as String,
       subject: item['subject'] as String? ?? '',
@@ -201,8 +197,8 @@ class ApiMailService {
       messageCount: (item['messageCount'] as num?)?.toInt() ?? 0,
       unreadCount: (item['unreadCount'] as num?)?.toInt() ?? 0,
       hasAttachments: item['hasAttachments'] as bool? ?? false,
-      startedAt: optionalDate(item['startedAt']),
-      lastMessageAt: optionalDate(item['lastMessageAt']),
+      startedAt: _optionalDate(item['startedAt']),
+      lastMessageAt: _optionalDate(item['lastMessageAt']),
     );
   }
 
@@ -580,8 +576,7 @@ class ApiMailService {
     // List items carry a ~120 char `snippet` instead of the full body; the
     // detail fetch replaces it.
     bodyText: item['bodyText'] as String? ?? item['snippet'] as String? ?? '',
-    timestamp:
-        DateTime.tryParse(item['receivedAt'] as String) ?? DateTime.now(),
+    timestamp: _optionalDate(item['receivedAt']) ?? DateTime.now(),
     isRead: item['isRead'] as bool? ?? false,
     isStarred: item['flagged'] as bool? ?? false,
     isReplied: item['answered'] as bool? ?? false,
@@ -615,8 +610,10 @@ class ApiMailService {
     return DateTime.now();
   }
 
+  /// The backend sends every timestamp as UTC ISO-8601 (`…Z`); convert to
+  /// the device zone so displayed times match the user's clock.
   static DateTime? _optionalDate(dynamic raw) =>
-      raw is String ? DateTime.tryParse(raw) : null;
+      raw is String ? DateTime.tryParse(raw)?.toLocal() : null;
 
   /// Prefers `bodyText`; falls back to a *safe* plain-text rendering of
   /// `body.html` for HTML-only messages (no WebView, no remote content).

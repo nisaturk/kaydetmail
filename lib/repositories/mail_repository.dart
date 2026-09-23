@@ -335,8 +335,23 @@ abstract class MailRepository extends ChangeNotifier {
   // --- Search -------------------------------------------------------
 
   /// Searches the complete server-side corpus across every connected account,
-  /// independent of [activeAccountId].
-  Future<List<Email>> searchEmailsOnServer({required String query});
+  /// independent of [activeAccountId]. All filters beyond [query] mirror
+  /// `GET /api/search` and are optional/AND-ed; `hasAttachment` is singular
+  /// to match that endpoint's query parameter name.
+  Future<List<Email>> searchEmailsOnServer({
+    required String query,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    int page = 1,
+    int pageSize = 20,
+  });
 
   /// Conversations matching a client-side text [query] and an optional label
   /// filter, one representative row per conversation, newest first.
