@@ -12,7 +12,6 @@ import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
-import 'login_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
 ///
@@ -50,9 +49,9 @@ class SettingsScreen extends StatelessWidget {
             icon: LucideIcons.users,
             title: 'Hesaplar',
             subtitle: 'Bağlı posta hesapları',
-            onTap: (ctx) => Navigator.of(ctx).push(
-              MaterialPageRoute(builder: (_) => const AccountsScreen()),
-            ),
+            onTap: (ctx) => Navigator.of(
+              ctx,
+            ).push(MaterialPageRoute(builder: (_) => const AccountsScreen())),
           ),
           _CategoryTile(
             icon: LucideIcons.bell,
@@ -566,11 +565,8 @@ class _SessionsSectionState extends State<_SessionsSection> {
   Future<void> _signOutAfterRevoke() async {
     await AppConfig.mailRepository.logout();
     await SessionStore.clear();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+    // The root auth coordinator observes the repository logout and clears
+    // every authenticated route before showing Login.
   }
 
   @override
@@ -585,7 +581,10 @@ class _SessionsSectionState extends State<_SessionsSection> {
           color: AppTheme.secondaryText,
         ),
         title: Text(_error!),
-        trailing: TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+        trailing: TextButton(
+          onPressed: _load,
+          child: const Text('Tekrar dene'),
+        ),
       );
     }
     if (sessions == null) {
@@ -651,7 +650,9 @@ class _SessionsSectionState extends State<_SessionsSection> {
                 ],
               ],
             ),
-            subtitle: Text('Son kullanım: ${formatMailTime(session.lastUsedAt)}'),
+            subtitle: Text(
+              'Son kullanım: ${formatMailTime(session.lastUsedAt)}',
+            ),
             trailing: _revokingId == session.id
                 ? const SizedBox(
                     width: 18,

@@ -14,7 +14,6 @@ import '../widgets/label_picker_sheet.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
-import 'login_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 
@@ -63,11 +62,8 @@ class _HomeScreenState extends State<HomeScreen> {
     Navigator.of(context).pop();
     await _repo.logout();
     await SessionStore.clear();
-    if (!mounted) return;
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const LoginScreen()),
-      (route) => false,
-    );
+    // The root auth coordinator observes the repository logout and replaces
+    // the entire authenticated surface, including any routes above Home.
   }
 
   void _openSearch() {
@@ -444,7 +440,10 @@ class _HomeScreenState extends State<HomeScreen> {
               value: 'star',
               child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
             ),
-            const PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
+            const PopupMenuItem(
+              value: 'spam',
+              child: Text('Spam kutusuna gönder'),
+            ),
             const PopupMenuItem(value: 'label', child: Text('Etiketle')),
             const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
           ],
