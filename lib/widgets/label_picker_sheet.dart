@@ -96,6 +96,26 @@ Future<void> showLabelPicker(
   );
 }
 
+/// Whether any mail in [emailIds] carries at least one label — drives the
+/// "Etiketle" / "Etiketi kaldır" overflow toggle.
+bool anyLabeled(MailRepository repo, List<String> emailIds) {
+  final ids = emailIds.toSet();
+  return repo.getAllEmails().any(
+    (email) => ids.contains(email.id) && email.labelIds.isNotEmpty,
+  );
+}
+
+/// Strips every label from [emailIds]; the mails themselves are untouched.
+Future<void> removeAllLabels(MailRepository repo, List<String> emailIds) {
+  final ids = emailIds.toSet();
+  final labelIds = {
+    for (final email in repo.getAllEmails())
+      if (ids.contains(email.id)) ...email.labelIds,
+  };
+  if (labelIds.isEmpty) return Future.value();
+  return repo.removeLabelsFromEmails(emailIds, labelIds.toList());
+}
+
 class _LabelRow extends StatefulWidget {
   const _LabelRow({
     required this.repo,

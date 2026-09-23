@@ -202,6 +202,33 @@ void main() {
     );
   });
 
+  group('labels', () {
+    test(
+      'list mail (no accountId in the response) resolves its account labels '
+      'and can be labeled and unlabeled',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1')]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+        Email mail() =>
+            repo.getAllEmails().singleWhere((e) => e.id == 'mail-1');
+
+        final labels = repo.getLabelsForAccount(mail().accountId);
+        expect(labels, isNotEmpty);
+
+        await repo.addLabelsToEmails(['mail-1'], [labels.first.id]);
+        expect(mail().labelIds, [labels.first.id]);
+
+        await repo.removeLabelsFromEmails(['mail-1'], [labels.first.id]);
+        expect(mail().labelIds, isEmpty);
+      },
+    );
+  });
+
   group('lastSyncedAt', () {
     test(
       'null before a folder has ever synced, set after initial load and '

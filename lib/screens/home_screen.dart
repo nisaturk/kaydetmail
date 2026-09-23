@@ -386,6 +386,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _selection.exit();
   }
 
+  Future<void> _actionUnlabel() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return;
+    await removeAllLabels(_repo, ids);
+    _selection.exit();
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────
 
   @override
@@ -603,7 +610,10 @@ class _HomeScreenState extends State<HomeScreen> {
         ),
       if (_showMarkNotSpamAction)
         const PopupMenuItem(value: 'not_spam', child: Text('Spam değil')),
-      const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+      if (anyLabeled(_repo, expandThreadIds(_repo, _selection.selectedIds)))
+        const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
+      else
+        const PopupMenuItem(value: 'label', child: Text('Etiketle')),
       const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
     ];
 
@@ -637,6 +647,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 _actionMarkNotSpam();
               case 'label':
                 _actionLabel();
+              case 'unlabel':
+                _actionUnlabel();
               case 'all':
                 _selection.selectAllVisible();
             }

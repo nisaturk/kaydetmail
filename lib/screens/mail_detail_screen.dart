@@ -12,6 +12,7 @@ import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
+import '../utils/mail_threads.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import 'attachment_preview_screen.dart';
@@ -414,10 +415,24 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               value: 'read',
               child: Text('Okundu olarak işaretle'),
             ),
-          const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+          if (anyLabeled(_repo, _conversationIds))
+            const PopupMenuItem(
+              value: 'unlabel',
+              child: Text('Etiketi kaldır'),
+            )
+          else
+            const PopupMenuItem(value: 'label', child: Text('Etiketle')),
         ],
       ),
     ];
+  }
+
+  /// Labels apply to the whole conversation, the same unit a list row and
+  /// the bulk "Etiketle" act on — labeling only the opened message would
+  /// leave the row's representative (often another message) unchanged.
+  List<String> get _conversationIds {
+    final ids = expandThreadIds(_repo, [widget.emailId]);
+    return ids.isEmpty ? [widget.emailId] : ids;
   }
 
   Future<void> _handleMenu(String action) async {
@@ -430,7 +445,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     } else if (action == 'star') {
       await _toggleStar();
     } else if (action == 'label') {
-      await showLabelPicker(context, emailIds: [widget.emailId]);
+      await showLabelPicker(context, emailIds: _conversationIds);
+    } else if (action == 'unlabel') {
+      await removeAllLabels(_repo, _conversationIds);
     }
   }
 

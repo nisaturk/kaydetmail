@@ -88,7 +88,9 @@ class _Session {
 
   /// Overlays the locally-persisted pin/reply/forward/label flags onto a
   /// mail freshly mapped from the API — the server has no concept of any of
-  /// them, so every fetch would otherwise reset them.
+  /// them, so every fetch would otherwise reset them. Also stamps the owning
+  /// account: list and conversation responses carry no `accountId`, and
+  /// account-local features (labels) resolve through it.
   ///
   /// Reply/forward also check the thread-level sets: the user marks these
   /// by opening a specific message, but every message sharing its thread
@@ -96,6 +98,7 @@ class _Session {
   /// currently loaded into memory (e.g. it lives in a folder not yet
   /// fetched this session) — see [ApiMailRepository.markAsReplied].
   Email stampLocalFlags(Email email) => email.copyWith(
+    accountId: account.id,
     isStarred: email.isStarred || starredIds.contains(email.id),
     isPinned: pinnedIds.contains(email.id),
     isReplied:
