@@ -39,7 +39,7 @@ _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
   MailFolder.trash => _SwipeAction.restore,
   MailFolder.spam => _SwipeAction.unspam,
   MailFolder.archive => _SwipeAction.unarchive,
-  MailFolder.drafts => _SwipeAction.none,
+  MailFolder.drafts || MailFolder.snoozed => _SwipeAction.none,
 };
 
 /// The action revealed when a row is dragged end-to-start (left in LTR).
@@ -50,7 +50,7 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
   MailFolder.spam ||
   MailFolder.archive => _SwipeAction.trash,
   MailFolder.trash => _SwipeAction.deleteForever,
-  MailFolder.drafts => _SwipeAction.none,
+  MailFolder.drafts || MailFolder.snoozed => _SwipeAction.none,
 };
 
 /// Label + icon for a swipe background, reused verbatim as the label of the
@@ -751,6 +751,7 @@ class _EmptyState extends StatelessWidget {
     MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
     MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
     MailFolder.starred => 'Yıldızladığınız e-postalar burada görünür.',
+    MailFolder.snoozed => 'Ertelediğiniz e-postalar burada görünür.',
     MailFolder.drafts => 'Kaydettiğiniz taslaklar burada durur.',
     MailFolder.trash => 'Sildiğiniz e-postalar burada durur.',
     MailFolder.spam => 'İstenmeyen e-postalar buraya düşer.',
