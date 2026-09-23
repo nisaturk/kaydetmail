@@ -17,6 +17,7 @@ import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
 import 'mail_detail_screen.dart';
+import 'scheduled_sends_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 
@@ -114,6 +115,13 @@ class _HomeScreenState extends State<HomeScreen> {
     _selection.exit();
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const AccountsScreen()));
+  }
+
+  void _openScheduledSends() {
+    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const ScheduledSendsScreen()),
+    );
   }
 
   void _showMailboxSelector() {
@@ -455,6 +463,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onLogout: _logout,
           onOpenSettings: _openSettings,
           onOpenAccounts: _openAccounts,
+          onOpenScheduledSends: _openScheduledSends,
         );
         return Scaffold(
           appBar: _selection.isActive
