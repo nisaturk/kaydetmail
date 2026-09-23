@@ -353,6 +353,34 @@ void main() {
       expect(await store.readRefreshToken('account-1'), isNull);
       expect(await store.readAccountIds(), isEmpty);
     });
+    test(
+      'Given a stalled request When timeout elapses Then error is classified',
+      () async {
+        SharedPreferences.setMockInitialValues({});
+        final client = ApiClient(
+          tokenStore: TokenStore(storage: MemoryTokenStorage()),
+          requestTimeout: const Duration(milliseconds: 1),
+          httpClient: MockClient((_) async {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+            return http.Response('{}', 200);
+          }),
+        );
+
+        await expectLater(
+          client.get('/api/accounts/discover', authenticated: false),
+          throwsA(
+            isA<ApiException>()
+                .having((error) => error.code, 'code', 'request_timeout')
+                .having(
+                  (error) => error.category,
+                  'category',
+                  ApiErrorCategory.timeout,
+                )
+                .having((error) => error.isTransient, 'isTransient', isTrue),
+          ),
+        );
+      },
+    );
   });
 
   group('Authentication', () {

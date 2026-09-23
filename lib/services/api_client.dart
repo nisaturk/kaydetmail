@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -8,11 +9,16 @@ import 'server_address_store.dart';
 import 'token_store.dart';
 
 class ApiClient {
-  ApiClient({required this.tokenStore, this._accountId, http.Client? httpClient})
-    : _httpClient = httpClient ?? http.Client();
+  ApiClient({
+    required this.tokenStore,
+    this._accountId,
+    http.Client? httpClient,
+    this._requestTimeout = const Duration(seconds: 30),
+  }) : _httpClient = httpClient ?? http.Client();
 
   final TokenStore tokenStore;
   final http.Client _httpClient;
+  final Duration _requestTimeout;
   String? _accountId;
   Future<void>? _refreshing;
 
@@ -217,9 +223,24 @@ class ApiClient {
     if (accessToken != null) {
       request.headers['authorization'] = 'Bearer $accessToken';
     }
-    final response = await http.Response.fromStream(
-      await _httpClient.send(request),
-    );
+    late final http.Response response;
+    try {
+      response = await http.Response.fromStream(
+        await _httpClient.send(request).timeout(_requestTimeout),
+      ).timeout(_requestTimeout);
+    } on TimeoutException {
+      throw const ApiException(
+        status: 408,
+        code: 'request_timeout',
+        title: 'Request timed out',
+      );
+    } on http.ClientException {
+      throw const ApiException(
+        status: 0,
+        code: 'network_unavailable',
+        title: 'Network unavailable',
+      );
+    }
     if (throwErrors && response.statusCode >= 400) {
       throw ApiException.fromResponse(response.statusCode, response.body);
     }
@@ -259,7 +280,9 @@ class ApiClient {
         refreshToken: tokens['refreshToken'] as String,
       );
     } on ApiException catch (error) {
-      if (error.code == 'invalid_refresh_token') await tokenStore.clear(accountId);
+      if (error.code == 'invalid_refresh_token') {
+        await tokenStore.clear(accountId);
+      }
       rethrow;
     }
   }
