@@ -1,0 +1,574 @@
+import 'dart:typed_data';
+
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:kaydetmail/config/app_config.dart';
+import 'package:kaydetmail/models/email.dart';
+import 'package:kaydetmail/models/mail_account.dart';
+import 'package:kaydetmail/models/mail_folder.dart';
+import 'package:kaydetmail/models/mail_label.dart';
+import 'package:kaydetmail/models/mail_session.dart';
+import 'package:kaydetmail/models/scheduled_send.dart';
+import 'package:kaydetmail/repositories/mail_repository.dart';
+import 'package:kaydetmail/screens/compose_screen.dart';
+import 'package:kaydetmail/services/signature_store.dart';
+import 'package:kaydetmail/state/pending_send_queue.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Minimal in-memory [MailRepository] double. Every method not exercised by
+/// compose is a harmless no-op/empty-collection stub — compose only ever
+/// reads [accounts]/[currentUser]/[getAllEmails] and calls
+/// [sendEmail]/[saveDraft]/[deleteDraft]/[scheduleSend].
+class _FakeMailRepository extends MailRepository {
+  _FakeMailRepository({required this.accounts, List<Email>? emails})
+    : currentUser = '',
+      _emails = emails ?? const [];
+
+  @override
+  final List<MailAccount> accounts;
+
+  @override
+  final String currentUser;
+
+  final List<Email> _emails;
+
+  final List<Email> sent = [];
+  final List<ScheduledSend> scheduled = [];
+  final List<String> deletedDrafts = [];
+  final List<Email> savedDrafts = [];
+
+  @override
+  bool get isLoggedIn => true;
+
+  @override
+  String? get activeAccountId => null;
+
+  @override
+  Future<bool> login({
+    required String email,
+    required String password,
+    MailServerSettings? serverSettings,
+  }) async => true;
+
+  @override
+  Future<void> logout() async {}
+
+  @override
+  Future<void> reconnect({required String password}) async {}
+
+  @override
+  Future<void> registerCurrentDevice({
+    required String fcmToken,
+    required String appVersion,
+    required String locale,
+  }) async {}
+
+  @override
+  Future<void> unregisterDevice() async {}
+
+  @override
+  Future<void> setActiveAccount(String? accountId) async {}
+
+  @override
+  Future<MailAccount> connectAccount({
+    required String email,
+    required String password,
+    MailServerSettings? serverSettings,
+  }) async => throw UnimplementedError();
+
+  @override
+  Future<void> removeAccount(String accountId) async {}
+
+  @override
+  MailAccount? getAccount(String accountId) {
+    for (final account in accounts) {
+      if (account.id == accountId) return account;
+    }
+    return null;
+  }
+
+  @override
+  Future<void> restoreSession(String email) async {}
+
+  @override
+  Future<List<MailSession>> getSessions() async => const [];
+
+  @override
+  Future<void> revokeSession(String sessionId) async {}
+
+  @override
+  List<Email> getEmailsInFolder(MailFolder folder) =>
+      _emails.where((e) => e.folder == folder).toList();
+
+  @override
+  List<Email> getAllEmails() => List.unmodifiable(_emails);
+
+  @override
+  List<Email> getScopedEmails() => List.unmodifiable(_emails);
+
+  @override
+  Future<List<Email>> loadMoreEmails(MailFolder folder) async => const [];
+
+  @override
+  bool hasMoreEmails(MailFolder folder) => false;
+
+  @override
+  Future<void> refreshEmails(MailFolder folder) async {}
+
+  @override
+  Future<void> syncFolder(MailFolder folder) async {}
+
+  @override
+  Future<Email?> getEmail(String id) async {
+    for (final email in _emails) {
+      if (email.id == id) return email;
+    }
+    return null;
+  }
+
+  @override
+  Future<Uint8List> downloadAttachment(String mailId, Attachment attachment) async =>
+      Uint8List(0);
+
+  @override
+  List<Email> getThreadEmails(String threadId) => const [];
+
+  @override
+  Future<List<Email>> fetchThreadEmails(String threadId) async => const [];
+
+  @override
+  Future<Email> sendEmail({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    required String body,
+    List<Attachment> attachments = const [],
+    String? from,
+    String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
+  }) async {
+    final email = Email(
+      id: 'sent-${sent.length}',
+      senderName: from ?? '',
+      senderEmail: from ?? '',
+      recipients: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      timestamp: DateTime.now(),
+      folder: MailFolder.sent,
+    );
+    sent.add(email);
+    return email;
+  }
+
+  @override
+  Future<Email> saveDraft({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String body = '',
+    List<Attachment> attachments = const [],
+    String? from,
+    String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
+    String? draftId,
+  }) async {
+    final email = Email(
+      id: draftId ?? 'draft-${savedDrafts.length}',
+      senderName: from ?? '',
+      senderEmail: from ?? '',
+      recipients: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      timestamp: DateTime.now(),
+      folder: MailFolder.drafts,
+    );
+    savedDrafts.add(email);
+    return email;
+  }
+
+  @override
+  Future<void> deleteDraft(String draftId) async {
+    deletedDrafts.add(draftId);
+  }
+
+  @override
+  Future<void> moveToTrash(List<String> ids) async {}
+
+  @override
+  Future<void> deletePermanently(List<String> ids) async {}
+
+  @override
+  Future<void> moveToFolder(List<String> ids, MailFolder folder) async {}
+
+  @override
+  Future<void> markAsRead(List<String> ids) async {}
+
+  @override
+  Future<void> markAsUnread(List<String> ids) async {}
+
+  @override
+  Future<void> setPinned(List<String> ids, bool pinned) async {}
+
+  @override
+  Future<void> setStarred(List<String> ids, bool starred) async {}
+
+  @override
+  Future<void> markAsReplied(List<String> ids) async {}
+
+  @override
+  Future<void> markAsForwarded(List<String> ids) async {}
+
+  @override
+  List<MailLabel> getLabels() => const [];
+
+  @override
+  List<MailLabel> getLabelsForAccount(String accountId) => const [];
+
+  @override
+  Future<MailLabel> createLabel({required String name, required Color color}) async =>
+      throw UnimplementedError();
+
+  @override
+  Future<void> updateLabel({
+    required String id,
+    required String name,
+    required Color color,
+  }) async {}
+
+  @override
+  Future<void> deleteLabel(String labelId) async {}
+
+  @override
+  Future<void> addLabelsToEmails(List<String> emailIds, List<String> labelIds) async {}
+
+  @override
+  Future<void> removeLabelsFromEmails(
+    List<String> emailIds,
+    List<String> labelIds,
+  ) async {}
+
+  @override
+  Future<List<Email>> searchEmailsOnServer({
+    required String query,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    int page = 1,
+    int pageSize = 20,
+  }) async => const [];
+
+  @override
+  Future<void> setSnoozed(List<String> ids, DateTime? until) async {}
+
+  @override
+  Future<ScheduledSend> scheduleSend({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    required String body,
+    List<Attachment> attachments = const [],
+    String? from,
+    String? fromAccountId,
+    String? inReplyToId,
+    required DateTime sendAt,
+  }) async {
+    final result = ScheduledSend(
+      id: 'sched-${scheduled.length}',
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      sendAt: sendAt,
+      status: ScheduledSendStatus.pending,
+      createdAt: DateTime.now(),
+    );
+    scheduled.add(result);
+    return result;
+  }
+
+  @override
+  Future<void> cancelScheduledSend(String id) async {}
+}
+
+const _accountA = MailAccount(id: 'acc-a', email: 'a@example.com');
+const _accountB = MailAccount(id: 'acc-b', email: 'b@example.com');
+
+Future<void> _pumpCompose(
+  WidgetTester tester, {
+  required _FakeMailRepository repo,
+  String? initialFrom,
+  String? initialTo,
+  String? editingDraftId,
+  String? initialBody,
+}) async {
+  AppConfig.mailRepositoryForTest = repo;
+  // ComposeScreen must be pushed on top of a real base route: it calls
+  // `Navigator.of(context).pop(...)` on send/schedule/close, which is a
+  // no-op when compose is itself the only (home) route — exactly like the
+  // real app, where it's always pushed from HomeScreen.
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(body: SizedBox.shrink(key: const Key('home-placeholder'))),
+    ),
+  );
+  final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+  navigator.push(
+    MaterialPageRoute(
+      builder: (_) => ComposeScreen(
+        initialFrom: initialFrom,
+        initialTo: initialTo ?? '',
+        editingDraftId: editingDraftId,
+        initialBody: initialBody ?? '',
+      ),
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+void main() {
+  TestWidgetsFlutterBinding.ensureInitialized();
+
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    AppConfig.resetForTest();
+  });
+
+  tearDown(() {
+    PendingSendQueue.instance.cancelAll();
+    AppConfig.resetForTest();
+  });
+
+  group('signature auto-insert', () {
+    testWidgets('is appended to the body of a brand-new mail', (tester) async {
+      await SignatureStore.save('a@example.com', 'Saygılarımla,\nA');
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      final bodyText = tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text;
+      expect(bodyText, '\n\n--\nSaygılarımla,\nA');
+    });
+
+    testWidgets('is never inserted while editing an existing draft', (tester) async {
+      await SignatureStore.save('a@example.com', 'Saygılarımla,\nA');
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        editingDraftId: 'draft-1',
+        initialBody: 'orijinal taslak metni',
+      );
+
+      final bodyText = tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text;
+      expect(bodyText, 'orijinal taslak metni');
+    });
+
+    testWidgets('re-applies for the newly selected Kimden account', (tester) async {
+      await SignatureStore.save('a@example.com', 'İmza A');
+      await SignatureStore.save('b@example.com', 'İmza B');
+      final repo = _FakeMailRepository(accounts: const [_accountA, _accountB]);
+
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+        '\n\n--\nİmza A',
+      );
+
+      await tester.tap(find.byKey(const Key('from-account-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('b@example.com').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+        '\n\n--\nİmza B',
+      );
+    });
+
+    testWidgets('never clobbers body text the user already typed', (tester) async {
+      await SignatureStore.save('a@example.com', 'İmza A');
+      await SignatureStore.save('b@example.com', 'İmza B');
+      final repo = _FakeMailRepository(accounts: const [_accountA, _accountB]);
+
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      final withSignature =
+          tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text;
+
+      final typed = '$withSignature merhaba, ek yazı';
+      await tester.enterText(find.byKey(const Key('body-field')), typed);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('from-account-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('b@example.com').last);
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+        typed,
+        reason: 'switching Kimden after real typing must never touch the body again',
+      );
+    });
+  });
+
+  group('formatting toolbar', () {
+    testWidgets('bold/italic/underline wrap the cursor position', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('body-field')), 'Hello');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('format-bold')));
+      await tester.pump();
+
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+        'Hello****',
+      );
+    });
+
+    testWidgets('list button bullet-prefixes the current line', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('body-field')), 'Alınacaklar');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('format-list')));
+      await tester.pump();
+
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+        '- Alınacaklar',
+      );
+    });
+
+    testWidgets('link button inserts markdown-lite markup from the URL dialog', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.tap(find.byKey(const Key('format-link')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'https://ornek.com');
+      await tester.tap(find.text('Ekle'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+        '[bağlantı](https://ornek.com)',
+      );
+    });
+  });
+
+  group('undo send', () {
+    testWidgets('queues the send, pops immediately, and delivers after the window', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('subject-field')), 'Konu');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Geri Al'), findsOneWidget);
+      expect(repo.sent, isEmpty, reason: 'send is deferred, not immediate');
+      expect(find.byType(ComposeScreen), findsNothing, reason: 'compose pops right away');
+
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.recipients, ['x@y.com']);
+      expect(repo.sent.single.subject, 'Konu');
+    });
+
+    testWidgets('Geri Al cancels the send and reopens compose with the same content', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('subject-field')), 'Konu');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Geri Al'));
+      await tester.pumpAndSettle();
+
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+      expect(repo.sent, isEmpty, reason: 'cancelled send must never fire');
+
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(find.text('x@y.com'), findsOneWidget);
+      expect(
+        tester.widget<TextField>(find.byKey(const Key('subject-field'))).controller!.text,
+        'Konu',
+      );
+    });
+  });
+
+  group('schedule send (Zamanla)', () {
+    testWidgets('calls scheduleSend with a future date/time and confirms', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('subject-field')), 'Konu');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Zamanla'));
+      await tester.pumpAndSettle();
+
+      // Date picker: move to the next month and pick its first day —
+      // deterministically in the future regardless of what day/time the
+      // test happens to run at (accepting "today" as-is would be flaky
+      // right around midnight, since the time picker's own suggestion can
+      // land on the next calendar day).
+      await tester.tap(find.byTooltip('Next month'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('1').first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+      // Time picker: accept the pre-selected initial time.
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      expect(repo.scheduled, hasLength(1));
+      expect(repo.scheduled.single.to, ['x@y.com']);
+      expect(find.textContaining('zamanlandı'), findsOneWidget);
+    });
+  });
+}
