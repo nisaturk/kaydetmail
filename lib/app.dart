@@ -60,9 +60,6 @@ class _AuthGateState extends State<_AuthGate> {
   @override
   void initState() {
     super.initState();
-    // Persisted server base URL loads before any screen reads it. The future
-    // API repository will read the same controller value.
-    AppSettingsController.instance.loadServerAddress();
     AppSettingsController.instance.addListener(_onSettingsChanged);
     AppConfig.mailRepository.addListener(_onRepositoryChanged);
     _check();
@@ -95,6 +92,11 @@ class _AuthGateState extends State<_AuthGate> {
   }
 
   Future<void> _check() async {
+    await Future.wait([
+      AppSettingsController.instance.loadServerAddress(),
+      AppSettingsController.instance.loadBehaviorPreferences(),
+    ]);
+    if (!mounted) return;
     final emails = await SessionStore.loadEmails();
     if (!mounted) return;
     if (emails.isEmpty) {

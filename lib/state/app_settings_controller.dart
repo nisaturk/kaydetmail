@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/foundation.dart';
 
+import '../services/app_preferences_store.dart';
 import '../services/notification_settings_store.dart';
 import '../services/server_address_store.dart';
 
@@ -61,12 +62,14 @@ class AppSettingsController extends ChangeNotifier {
     if (_syncInterval == value) return;
     _syncInterval = value;
     notifyListeners();
+    unawaited(AppPreferencesStore.saveSyncInterval(value.name));
   }
 
   set swipeDeleteEnabled(bool value) {
     if (_swipeDeleteEnabled == value) return;
     _swipeDeleteEnabled = value;
     notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeDeleteEnabled(value));
   }
 
   /// Loads the persisted server address at app startup. Falls back to the
@@ -84,6 +87,20 @@ class AppSettingsController extends ChangeNotifier {
     final loaded = await NotificationSettingsStore.load();
     if (loaded == _notificationsEnabled) return;
     _notificationsEnabled = loaded;
+    notifyListeners();
+  }
+
+  /// Loads sync and gesture preferences before authentication completes, so
+  /// the first mailbox frame and sync timer use the persisted values.
+  Future<void> loadBehaviorPreferences() async {
+    final syncName = await AppPreferencesStore.loadSyncInterval();
+    final sync = SyncInterval.values
+        .where((value) => value.name == syncName)
+        .firstOrNull;
+    final swipe = await AppPreferencesStore.loadSwipeDeleteEnabled();
+    if (sync == null && swipe == _swipeDeleteEnabled) return;
+    _syncInterval = sync ?? SyncInterval.manual;
+    _swipeDeleteEnabled = swipe;
     notifyListeners();
   }
 

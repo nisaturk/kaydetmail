@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kaydetmail/services/app_preferences_store.dart';
 import 'package:kaydetmail/services/server_address_store.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -99,5 +100,23 @@ void main() {
       expect(notified, 1);
       expect(settings.swipeDeleteEnabled, isFalse);
     });
+    test(
+      'sync interval and swipe preference survive controller reset',
+      () async {
+        await AppPreferencesStore.saveSyncInterval(
+          SyncInterval.every15Minutes.name,
+        );
+        await AppPreferencesStore.saveSwipeDeleteEnabled(false);
+
+        AppSettingsController.resetForTest();
+        await AppSettingsController.instance.loadBehaviorPreferences();
+
+        expect(
+          AppSettingsController.instance.syncInterval,
+          SyncInterval.every15Minutes,
+        );
+        expect(AppSettingsController.instance.swipeDeleteEnabled, isFalse);
+      },
+    );
   });
 }
