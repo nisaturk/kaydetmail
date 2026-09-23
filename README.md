@@ -70,17 +70,17 @@ flutter run --dart-define=API_BASE_URL=http://192.168.1.23:5071  # physical devi
 
 ## Push notifications
 
-FCM is wired end to end but off by default (`AppConfig.pushEnabled`). Enable with:
+FCM is on by default on Android/iOS (`AppConfig.pushEnabled`; web and desktop skip it).
+Pushes that arrive while the app is open are shown through `flutter_local_notifications`.
+Disable with:
 
 ```bash
-flutter run --dart-define=PUSH_ENABLED=true
+flutter run --dart-define=PUSH_ENABLED=false
 ```
 
-or use the Android Studio **"Kaydetmail (Profile + FCM)"** run configuration (profile
-build, push on — close to prod for manual device testing). See
-[`docs/push-notifications.md`](docs/push-notifications.md) for the Firebase project,
+See [`docs/push-notifications.md`](docs/push-notifications.md) for the Firebase project,
 Android Gradle wiring, the background message handler, notification-tap navigation, and
-what's still missing (iOS APNs setup, local notifications for data-only messages).
+what's still missing (iOS APNs setup).
 
 ## Getting started
 

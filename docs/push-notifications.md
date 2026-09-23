@@ -1,10 +1,10 @@
 # Push bildirimleri (FCM) kurulum rehberi
 
 Durum: Firebase projesi bağlı (`mail-client-37a01`, backend ile aynı proje), Android tarafı
-uçtan uca hazır ve **varsayılan olarak kapalı** (`AppConfig.pushEnabled`).
+uçtan uca hazır ve **varsayılan olarak açık** (`AppConfig.pushEnabled`; web/masaüstü
+`PushService.isSupportedPlatform` ile atlanır).
 
-Açmak için: `flutter run --dart-define=PUSH_ENABLED=true` — ya da Android Studio'da
-**"Kaydetmail (Profile + FCM)"** run configuration'ını seç (aşağıya bak).
+Kapatmak için: `flutter run --dart-define=PUSH_ENABLED=false`.
 
 ## 1. Firebase projesi
 Android uygulaması zaten eklendi: paket adı `com.example.kaydetmail`, app id
@@ -27,7 +27,7 @@ Tamamlandı:
 - `android/app/src/main/AndroidManifest.xml` → `POST_NOTIFICATIONS` izni (Android 13+) ve
   arka plan/kapalı-uygulama bildirimleri için `default_notification_icon` meta-data'sı.
 
-`flutter build apk --profile --dart-define=PUSH_ENABLED=true` ile doğrulandı (Gradle assemble
+`flutter build apk --debug` ile doğrulandı (Gradle assemble
 temiz, google-services eklentisi `google-services.json`'ı işliyor).
 
 ## 3. Android Studio profili
@@ -61,11 +61,16 @@ emülatöründe host'a erişmek için işe yarar, fiziksel cihazdan görünmez.
 - Bildirime tıklayınca ilgili maile gitme: `FirebaseMessaging.onMessageOpenedApp` +
   `getInitialMessage()` → `PushService.onMailTapped` stream'i → `app.dart` bunu dinleyip
   `MailDetailScreen`'i `navigatorKey` üzerinden açıyor (soğuk başlangıç dahil).
+- Uygulama açıkken gelen push'lar (FCM ön planda kendisi göstermez)
+  `flutter_local_notifications` ile `mail` kanalında (yüksek önem) gösterilir; bildirime
+  tıklamak yine `onMailTapped`'e düşer. Manifest'teki
+  `default_notification_channel_id` arka plan bildirimlerini de aynı kanala yönlendirir.
+  `new_mail` geldiğinde Gelen Kutusu listesi de yenilenir. `mail_state_changed` sessiz kalır.
+- Oturum açıldıktan sonra bağlanan her yeni hesap için cihaz otomatik yeniden kaydedilir.
+- `flutter_local_notifications` için Android'de core library desugaring açık
+  (`android/app/build.gradle.kts`).
 
 ## 7. Henüz yapılmayanlar
-- `mail_state_changed` gibi data-only mesajlarda kullanıcıya görünür bir bildirim
-  göstermek isteniyorsa (`notification` bloğu yok) `flutter_local_notifications` eklenmeli —
-  şu an sessizce arka planda işleniyor, tıklanacak bir şey yok.
 - iOS: APNs anahtarı ve `GoogleService-Info.plist` henüz yok.
 
 ## Not: build hatası
