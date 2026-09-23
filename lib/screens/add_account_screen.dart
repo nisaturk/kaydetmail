@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -26,11 +27,15 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   var _connecting = false;
   String? _error;
   var _obscurePassword = true;
+  var _autofillFinished = false;
 
   static final _emailPattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
 
   @override
   void dispose() {
+    if (!_autofillFinished) {
+      TextInput.finishAutofillContext(shouldSave: false);
+    }
     _emailController.dispose();
     _passwordController.dispose();
     super.dispose();
@@ -50,6 +55,8 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
       );
       await SessionStore.addEmail(account.email);
       if (!mounted) return;
+      _autofillFinished = true;
+      TextInput.finishAutofillContext();
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text('${account.email} bağlandı.')));
@@ -91,7 +98,8 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 420),
-          child: Form(
+          child: AutofillGroup(
+            child: Form(
             key: _formKey,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -100,7 +108,10 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   key: const Key('new-email-field'),
                   controller: _emailController,
                   keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [AutofillHints.email],
+                  autofillHints: const [
+                    AutofillHints.email,
+                    AutofillHints.username,
+                  ],
                   textInputAction: TextInputAction.next,
                   validator: (value) {
                     final text = value?.trim() ?? '';
@@ -169,7 +180,8 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                         )
                       : const Text('Bağla'),
                 ),
-              ],
+                ],
+              ),
             ),
           ),
         ),
