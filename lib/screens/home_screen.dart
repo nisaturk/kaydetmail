@@ -9,6 +9,7 @@ import '../services/share_intake.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/mail_threads.dart';
+import '../utils/error_messages.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
 import 'accounts_screen.dart';
@@ -32,6 +33,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
+  bool _bulkBusy = false;
 
   late final ShareIntake _shareIntake = ShareIntake(
     () => mounted ? context : null,
@@ -164,67 +166,56 @@ class _HomeScreenState extends State<HomeScreen> {
   // them to all member messages first. Delete/archive confirm with a compact
   // SnackBar whose Undo restores each message to its exact previous folder.
 
-  Future<void> _actionDelete() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
-    if (ids.isEmpty) {
-      _selection.exit();
-      return;
-    }
-    final previous = previousFoldersOf(_repo, ids);
-    await _repo.moveToTrash(ids);
-    _selection.exit();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${ids.length} e-posta silindi'),
-        action: SnackBarAction(
-          label: 'Geri al',
-          onPressed: () => restorePreviousFolders(_repo, previous),
-        ),
-      ),
-    );
-  }
+  Future<void> _actionDelete() => _runBulkMove(
+    action: (ids) => _repo.moveToTrash(ids),
+    success: (count) => '$count e-posta silindi',
+  );
 
-  Future<void> _actionArchive() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
-    if (ids.isEmpty) {
-      _selection.exit();
-      return;
-    }
-    final previous = previousFoldersOf(_repo, ids);
-    await _repo.moveToFolder(ids, MailFolder.archive);
-    _selection.exit();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${ids.length} e-posta arşivlendi'),
-        action: SnackBarAction(
-          label: 'Geri al',
-          onPressed: () => restorePreviousFolders(_repo, previous),
-        ),
-      ),
-    );
-  }
+  Future<void> _actionArchive() => _runBulkMove(
+    action: (ids) => _repo.moveToFolder(ids, MailFolder.archive),
+    success: (count) => '$count e-posta arşivlendi',
+  );
 
-  Future<void> _actionSpam() async {
+  Future<void> _actionSpam() => _runBulkMove(
+    action: (ids) => _repo.moveToFolder(ids, MailFolder.spam),
+    success: (count) => '$count e-posta spam kutusuna taşındı',
+  );
+
+  Future<void> _runBulkMove({
+    required Future<void> Function(List<String> ids) action,
+    required String Function(int count) success,
+  }) async {
+    if (_bulkBusy) return;
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) {
       _selection.exit();
       return;
     }
     final previous = previousFoldersOf(_repo, ids);
-    await _repo.moveToFolder(ids, MailFolder.spam);
-    _selection.exit();
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('${ids.length} e-posta spam kutusuna taşındı'),
-        action: SnackBarAction(
-          label: 'Geri al',
-          onPressed: () => restorePreviousFolders(_repo, previous),
+    setState(() => _bulkBusy = true);
+    try {
+      await action(ids);
+      _selection.exit();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(success(ids.length)),
+          action: SnackBarAction(
+            label: 'Geri al',
+            onPressed: () => restorePreviousFolders(_repo, previous),
+          ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
   }
 
   Future<void> _actionStar() async {
@@ -392,22 +383,27 @@ class _HomeScreenState extends State<HomeScreen> {
   /// overflow menu.
   PreferredSizeWidget _buildSelectionAppBar() {
     return AppBar(
-      leading: IconButton(
-        onPressed: _selection.exit,
-        tooltip: 'Seçimi iptal et',
-        icon: const Icon(LucideIcons.x),
-      ),
+      leading: _bulkBusy
+          ? const Padding(
+              padding: EdgeInsets.all(16),
+              child: CircularProgressIndicator(strokeWidth: 2.4),
+            )
+          : IconButton(
+              onPressed: _selection.exit,
+              tooltip: 'Seçimi iptal et',
+              icon: const Icon(LucideIcons.x),
+            ),
       title: Text(
         _selection.count == 1 ? '1 seçili' : '${_selection.count} seçili',
       ),
       actions: [
         IconButton(
-          onPressed: _actionDelete,
+          onPressed: _bulkBusy ? null : _actionDelete,
           tooltip: 'Sil',
           icon: const Icon(LucideIcons.trash2),
         ),
         IconButton(
-          onPressed: _actionToggleRead,
+          onPressed: _bulkBusy ? null : _actionToggleRead,
           tooltip: _selectionAnyUnread
               ? 'Okundu olarak işaretle'
               : 'Okunmadı olarak işaretle',
@@ -416,11 +412,12 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         ),
         IconButton(
-          onPressed: _actionArchive,
+          onPressed: _bulkBusy ? null : _actionArchive,
           tooltip: 'Arşivle',
           icon: const Icon(LucideIcons.archive),
         ),
         PopupMenuButton<String>(
+          enabled: !_bulkBusy,
           tooltip: 'Diğer',
           icon: const Icon(LucideIcons.ellipsisVertical),
           onSelected: (v) {

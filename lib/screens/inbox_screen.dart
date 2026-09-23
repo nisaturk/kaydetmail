@@ -1,4 +1,5 @@
 import 'dart:math';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -41,6 +42,7 @@ class _InboxScreenState extends State<InboxScreen> {
   /// Conversations removed from the local list right after a swipe, before the
   /// async trash move lands. Keyed by thread id (see [_dismissKey]).
   final Set<String> _dismissed = {};
+  final Set<String> _moving = {};
 
   /// Stable identity used to hide a row after swiping and to key the
   /// Dismissible. Threads share one identity; standalone mails use their id.
@@ -163,32 +165,54 @@ class _InboxScreenState extends State<InboxScreen> {
   /// Archive. Every message's original folder is remembered so one Undo
   /// restores each of them; all other state (labels, read/star/pin,
   /// attachments, …) is preserved because only the folder is swapped.
-  Future<void> _swipeMove(Email representative, {required bool archive}) {
+  Future<void> _swipeMove(Email representative, {required bool archive}) async {
     final ids = expandThreadIds(_repo, [representative.id]);
-    if (ids.isEmpty) return Future.value();
+    if (ids.isEmpty) return;
     final previousFolders = previousFoldersOf(_repo, ids);
     final undoKey = _dismissKey(representative);
-    setState(() => _dismissed.add(undoKey));
-    return (archive
-            ? _repo.moveToFolder(ids, MailFolder.archive)
-            : _repo.moveToTrash(ids))
-        .then((_) {
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                '${ids.length} e-posta ${archive ? 'arşivlendi' : 'silindi'}',
-              ),
-              action: SnackBarAction(
-                label: 'Geri al',
-                onPressed: () {
-                  restorePreviousFolders(_repo, previousFolders);
-                  if (mounted) setState(() => _dismissed.remove(undoKey));
-                },
-              ),
-            ),
-          );
-        });
+    if (_moving.contains(undoKey)) return;
+    setState(() {
+      _moving.add(undoKey);
+      _dismissed.add(undoKey);
+    });
+    try {
+      if (archive) {
+        await _repo.moveToFolder(ids, MailFolder.archive);
+      } else {
+        await _repo.moveToTrash(ids);
+      }
+      if (!mounted) return;
+      setState(() => _moving.remove(undoKey));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '${ids.length} e-posta ${archive ? 'arşivlendi' : 'silindi'}',
+          ),
+          action: SnackBarAction(
+            label: 'Geri al',
+            onPressed: () {
+              restorePreviousFolders(_repo, previousFolders);
+              if (mounted) setState(() => _dismissed.remove(undoKey));
+            },
+          ),
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _moving.remove(undoKey);
+        _dismissed.remove(undoKey);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            archive
+                ? 'E-posta arşivlenemedi. Tekrar deneyin.'
+                : 'E-posta silinemedi. Tekrar deneyin.',
+          ),
+        ),
+      );
+    }
   }
 
   @override
@@ -282,7 +306,10 @@ class _InboxScreenState extends State<InboxScreen> {
               // user turned it off in settings.
               return Dismissible(
                 key: ValueKey('dismiss-${_dismissKey(email)}'),
-                direction: swipeEnabled && !widget.selection.isActive
+                direction:
+                    swipeEnabled &&
+                        !widget.selection.isActive &&
+                        !_moving.contains(_dismissKey(email))
                     ? DismissDirection.horizontal
                     : DismissDirection.none,
                 confirmDismiss: (direction) async {
