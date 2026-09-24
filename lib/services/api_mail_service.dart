@@ -35,7 +35,13 @@ class ApiMailService {
     displayName: body['displayName'] as String?,
     provider: AccountProvider.fromBackend(body['provider'] as String),
     status: MailAccountStatus.fromBackend(body['status'] as String?),
+    signature: body['signature'] as String?,
   );
+
+  /// Sets or clears (blank/null) the signature appended to outgoing mail
+  /// from this account — synced, so every device signed into it sees it.
+  Future<void> updateSignature(String? signature) =>
+      _client.putJson('/api/account/signature', {'signature': signature});
 
   /// Re-authenticates the signed-in account after its stored credentials
   /// stopped working (`mail_account_needs_reauthentication`). `imap`/`smtp`

@@ -11,16 +11,26 @@ import 'package:kaydetmail/models/mail_session.dart';
 import 'package:kaydetmail/models/scheduled_send.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/signature_settings_screen.dart';
-import 'package:kaydetmail/services/signature_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// [SignatureSettingsScreen] only ever reads [accounts] — every other member
 /// below is an unused stub required only to satisfy the abstract interface.
 class _StubMailRepository extends MailRepository {
-  _StubMailRepository(this.accounts);
+  _StubMailRepository(List<MailAccount> accounts) : _accounts = accounts;
+
+  List<MailAccount> _accounts;
 
   @override
-  final List<MailAccount> accounts;
+  List<MailAccount> get accounts => _accounts;
+
+  @override
+  Future<void> setSignature(String accountId, String? signature) async {
+    _accounts = [
+      for (final a in _accounts)
+        if (a.id == accountId) a.copyWith(signature: signature) else a,
+    ];
+    notifyListeners();
+  }
 
   @override
   String get currentUser => accounts.isNotEmpty ? accounts.first.email : '';
@@ -285,9 +295,8 @@ void main() {
   testWidgets('loads and shows the saved signature per connected account', (
     tester,
   ) async {
-    await SignatureStore.save('a@example.com', 'Saygılarımla,\nA');
     AppConfig.mailRepositoryForTest = _StubMailRepository(const [
-      MailAccount(id: 'a', email: 'a@example.com'),
+      MailAccount(id: 'a', email: 'a@example.com', signature: 'Saygılarımla,\nA'),
       MailAccount(id: 'b', email: 'b@example.com'),
     ]);
 
@@ -317,9 +326,10 @@ void main() {
   testWidgets('editing and saving persists the new signature for that account', (
     tester,
   ) async {
-    AppConfig.mailRepositoryForTest = _StubMailRepository(const [
+    final repo = _StubMailRepository(const [
       MailAccount(id: 'a', email: 'a@example.com'),
     ]);
+    AppConfig.mailRepositoryForTest = repo;
 
     await tester.pumpWidget(const MaterialApp(home: SignatureSettingsScreen()));
     await tester.pumpAndSettle();
@@ -331,7 +341,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('signature-save-a@example.com')));
     await tester.pumpAndSettle();
 
-    expect(await SignatureStore.load('a@example.com'), 'Yeni imza');
+    expect(repo.accounts.single.signature, 'Yeni imza');
     expect(find.text('İmza kaydedildi.'), findsOneWidget);
   });
 

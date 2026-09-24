@@ -67,6 +67,12 @@ class ApiClient {
     bool authenticated = true,
   }) => _jsonRequest('POST', path, body: body, authenticated: authenticated);
 
+  Future<Map<String, dynamic>> putJson(
+    String path,
+    Map<String, dynamic> body, {
+    bool authenticated = true,
+  }) => _jsonRequest('PUT', path, body: body, authenticated: authenticated);
+
   Future<void> post(String path, {bool authenticated = true}) async {
     await _sendWithRefresh(
       () async => http.Request('POST', await _uri(path)),

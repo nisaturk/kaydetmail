@@ -125,6 +125,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// Sending accounts for the Compose "Kimden" picker.
   List<MailAccount> get accounts;
 
+  /// Sets or clears (`null`/blank) [accountId]'s signature, synced to the
+  /// backend so every device signed into that account sees it. Throws
+  /// [ArgumentError] for an unknown accountId.
+  Future<void> setSignature(String accountId, String? signature) async {}
+
   /// Id of the account whose mailbox is currently shown, or `null` for the
   /// unified mailbox ("Tüm Gelen Kutuları") spanning all connected accounts.
   String? get activeAccountId;

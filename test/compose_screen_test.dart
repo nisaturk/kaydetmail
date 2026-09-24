@@ -12,7 +12,6 @@ import 'package:kaydetmail/models/scheduled_send.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/compose_screen.dart';
 import 'package:kaydetmail/screens/outbox_screen.dart';
-import 'package:kaydetmail/services/signature_store.dart';
 import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
 import 'package:kaydetmail/utils/markdown_lite_to_html.dart';
@@ -368,8 +367,8 @@ void main() {
 
   group('signature auto-insert', () {
     testWidgets('is appended to the body of a brand-new mail', (tester) async {
-      await SignatureStore.save('a@example.com', 'Saygılarımla,\nA');
-      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      const account = MailAccount(id: 'acc-a', email: 'a@example.com', signature: 'Saygılarımla,\nA');
+      final repo = _FakeMailRepository(accounts: const [account]);
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
 
@@ -378,8 +377,8 @@ void main() {
     });
 
     testWidgets('is never inserted while editing an existing draft', (tester) async {
-      await SignatureStore.save('a@example.com', 'Saygılarımla,\nA');
-      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      const account = MailAccount(id: 'acc-a', email: 'a@example.com', signature: 'Saygılarımla,\nA');
+      final repo = _FakeMailRepository(accounts: const [account]);
 
       await _pumpCompose(
         tester,
@@ -394,9 +393,9 @@ void main() {
     });
 
     testWidgets('re-applies for the newly selected Kimden account', (tester) async {
-      await SignatureStore.save('a@example.com', 'İmza A');
-      await SignatureStore.save('b@example.com', 'İmza B');
-      final repo = _FakeMailRepository(accounts: const [_accountA, _accountB]);
+      const accountA = MailAccount(id: 'acc-a', email: 'a@example.com', signature: 'İmza A');
+      const accountB = MailAccount(id: 'acc-b', email: 'b@example.com', signature: 'İmza B');
+      final repo = _FakeMailRepository(accounts: const [accountA, accountB]);
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
       expect(
@@ -416,9 +415,9 @@ void main() {
     });
 
     testWidgets('never clobbers body text the user already typed', (tester) async {
-      await SignatureStore.save('a@example.com', 'İmza A');
-      await SignatureStore.save('b@example.com', 'İmza B');
-      final repo = _FakeMailRepository(accounts: const [_accountA, _accountB]);
+      const accountA = MailAccount(id: 'acc-a', email: 'a@example.com', signature: 'İmza A');
+      const accountB = MailAccount(id: 'acc-b', email: 'b@example.com', signature: 'İmza B');
+      final repo = _FakeMailRepository(accounts: const [accountA, accountB]);
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
       final withSignature =
