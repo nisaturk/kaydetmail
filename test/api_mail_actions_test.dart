@@ -341,20 +341,84 @@ void main() {
       expect(await service.refreshFolders(), 7);
     });
 
-    test('syncFolderId POSTs a bodyless folder sync', () async {
-      late http.Request sent;
+    test('syncFolderId waits for job completion before returning', () async {
+      final requests = <String>[];
+      var polls = 0;
       final service = ApiMailService(
         _client((request) async {
-          sent = request;
-          return http.Response('', 202);
+          requests.add('${request.method} ${request.url.path}');
+          if (request.method == 'POST') {
+            return http.Response(
+              jsonEncode({
+                'jobId': 'job-1',
+                'status': 'queued',
+                'errorCode': null,
+              }),
+              202,
+            );
+          }
+          return http.Response(
+            jsonEncode({
+              'jobId': 'job-1',
+              'status': ++polls == 1 ? 'running' : 'succeeded',
+              'errorCode': null,
+            }),
+            200,
+          );
         }),
+        syncPollInterval: Duration.zero,
       );
 
       await service.syncFolderId('f-1');
+      expect(requests, [
+        'POST /api/folders/f-1/sync',
+        'GET /api/folders/sync-jobs/job-1',
+        'GET /api/folders/sync-jobs/job-1',
+      ]);
+    });
 
-      expect(sent.method, 'POST');
-      expect(sent.url.path, '/api/folders/f-1/sync');
-      expect(sent.body, isEmpty);
+    test('failed sync does not report success', () async {
+      final service = ApiMailService(
+        _client((request) async => request.method == 'POST'
+            ? http.Response(jsonEncode({'jobId': 'job-1'}), 202)
+            : http.Response(
+                jsonEncode({
+                  'jobId': 'job-1',
+                  'status': 'failed',
+                  'errorCode': 'mail_authentication_failed',
+                }),
+                200,
+              )),
+      );
+
+      await expectLater(
+        service.syncFolderId('f-1'),
+        throwsA(
+          isA<ApiException>().having(
+            (error) => error.code,
+            'code',
+            'mail_authentication_failed',
+          ),
+        ),
+      );
+    });
+
+    test('lost job returns 404 rather than claiming cached data is fresh', () async {
+      final service = ApiMailService(
+        _client((request) async => request.method == 'POST'
+            ? http.Response(jsonEncode({'jobId': 'job-1'}), 202)
+            : http.Response(
+                jsonEncode({'code': 'sync_job_not_found'}),
+                404,
+              )),
+      );
+
+      await expectLater(
+        service.syncFolderId('f-1'),
+        throwsA(
+          isA<ApiException>().having((error) => error.status, 'status', 404),
+        ),
+      );
     });
   });
 }

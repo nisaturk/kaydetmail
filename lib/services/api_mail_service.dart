@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -10,11 +11,18 @@ import '../models/scheduled_send.dart';
 import '../utils/html_to_text.dart';
 import 'api_auth_service.dart';
 import 'api_client.dart';
+import 'api_exception.dart';
 
 class ApiMailService {
-  ApiMailService(this._client);
+  ApiMailService(
+    this._client, {
+    this.syncPollInterval = const Duration(seconds: 1),
+    this.syncTimeout = const Duration(minutes: 2),
+  });
 
   final ApiClient _client;
+  final Duration syncPollInterval;
+  final Duration syncTimeout;
 
   Future<MailAccount> getAccount() async {
     final body = await _client.get('/api/account');
@@ -276,11 +284,45 @@ class ApiMailService {
     return (body['folders'] as num?)?.toInt() ?? 0;
   }
 
-  /// Queues a sync of one folder by raw API folder id (`202 Accepted`, no
-  /// body, no completion notification — re-fetch the list afterwards, or wait
-  /// for an FCM `new_mail`). Ideal for pull-to-refresh.
-  Future<void> syncFolderId(String folderId) =>
-      _client.post('/api/folders/${Uri.encodeComponent(folderId)}/sync');
+  /// Queues a server sync and waits for its terminal result. A lost/expired
+  /// job cannot be mistaken for success; the caller may retry explicitly.
+  Future<void> syncFolderId(String folderId) async {
+    final accepted = await _client.postWithHeaders(
+      '/api/folders/${Uri.encodeComponent(folderId)}/sync',
+      const {},
+    );
+    final jobId = accepted['jobId'];
+    if (jobId is! String || jobId.isEmpty) {
+      throw const FormatException('Missing folder sync job id');
+    }
+    final deadline = DateTime.now().add(syncTimeout);
+    while (true) {
+      if (DateTime.now().isAfter(deadline)) {
+        throw TimeoutException('Folder sync did not finish', syncTimeout);
+      }
+      final job = await _client.get(
+        '/api/folders/sync-jobs/${Uri.encodeComponent(jobId)}',
+      );
+      if (job['jobId'] != jobId) {
+        throw const FormatException('Mismatched folder sync job id');
+      }
+      switch (job['status']) {
+        case 'succeeded':
+          return;
+        case 'failed':
+          final code = job['errorCode'];
+          throw ApiException(
+            status: 503,
+            code: code is String && code.isNotEmpty ? code : 'sync_failed',
+          );
+        case 'queued':
+        case 'running':
+          await Future<void>.delayed(syncPollInterval);
+        default:
+          throw const FormatException('Unexpected folder sync status');
+      }
+    }
+  }
 
   /// Applies [action] (read, unread, star, unstar, archive, trash, restore,
   /// spam, not-spam, delete, or move) to every id in

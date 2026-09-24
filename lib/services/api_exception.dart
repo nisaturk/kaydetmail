@@ -119,6 +119,9 @@ class ApiException implements Exception {
     'too_many_attachments' => 'Ek dosya sınırı aşıldı.',
     'mail_folder_unavailable' => 'Klasör sunucudan kaldırılmış.',
     'sync_queue_full' => 'Eşitleme kuyruğu dolu. Birazdan tekrar deneyin.',
+    'sync_retry_deferred' => 'Eşitleme ertelendi. Birazdan tekrar deneyin.',
+    'sync_interrupted' => 'Eşitleme yarıda kesildi. Tekrar deneyin.',
+    'sync_failed' => 'Eşitleme tamamlanamadı. Tekrar deneyin.',
     'mail_account_needs_reauthentication' ||
     'credential_missing' => 'Hesap yeniden bağlanmayı istiyor.',
     'unsupported_authentication_method' => 'Bu giriş yöntemi desteklenmiyor.',

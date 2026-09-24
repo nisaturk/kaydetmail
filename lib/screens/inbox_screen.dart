@@ -9,10 +9,12 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
+import '../services/api_exception.dart';
 import '../services/mail_rules_engine.dart';
 import '../state/app_settings_controller.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/error_messages.dart';
 import '../utils/mail_threads.dart';
 import '../widgets/mail_list_item.dart';
 import '../widgets/permanent_delete_dialog.dart';
@@ -245,20 +247,20 @@ class _InboxScreenState extends State<InboxScreen>
   }
 
   Future<void> _refresh() async {
-    // Server sync first (sync-queue pressure is swallowed — there is no
-    // completion notification; the reload below is what actually shows new
-    // mail), then reload the list. Read/star/pin/folder state and the
-    // already-loaded page stay untouched.
     try {
       await _repo.syncFolder(widget.folder);
-    } catch (_) {
-      // Fall through to the reload — the current snapshot still shows.
+      await _repo.refreshEmails(widget.folder);
+      // Rules and widgets only observe a completed sync with a fresh list.
+      unawaited(MailRulesEngine.runAfterSync(_repo));
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is ApiException && error.status == 404
+          ? 'Eşitleme durumu bulunamadı. Tekrar deneyin.'
+          : friendlyErrorMessage(error);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
     }
-    await _repo.refreshEmails(widget.folder);
-    // Manual refresh is one of the three refresh paths rules/the home
-    // widget must react to (see `MailRulesEngine.runAfterSync`) — periodic
-    // sync and push-triggered refresh already funnel through it.
-    unawaited(MailRulesEngine.runAfterSync(_repo));
   }
 
   void _onScroll() {

@@ -194,18 +194,13 @@ abstract class MailRepository extends ChangeNotifier {
   /// page for [folder].
   bool hasMoreEmails(MailFolder folder);
 
-  /// Re-syncs [folder] from the source without touching the existing page.
-  ///
-  /// Pull-to-refresh must never duplicate already-loaded mails nor change
-  /// read/star/pin/folder state; it only simulates the network round-trip and
-  /// notifies listeners so the UI re-reads the current snapshot.
+  /// Re-fetches [folder] after a completed server sync without changing the
+  /// existing page until the network responds.
   Future<void> refreshEmails(MailFolder folder);
 
-  /// Triggers a server-side sync of [folder] before the next [refreshEmails].
-  ///
-  /// Queues a sync job on the backend (no completion notification).
-  /// Failures (e.g. a full sync queue) are for the caller to swallow — the
-  /// refresh that follows still shows the current snapshot.
+  /// Waits for the server's sync job to succeed for every account in scope.
+  /// A failed, timed-out or unavailable job throws; the caller must not
+  /// report the current cached snapshot as freshly synchronized.
   Future<void> syncFolder(MailFolder folder);
 
   /// Timestamp of the most recent successful sync for [folder] in the
