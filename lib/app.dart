@@ -236,7 +236,7 @@ class _AuthGateState extends State<_AuthGate> {
     });
   }
 
-  /// The Settings "Senkronizasyon" section only ever changes
+  /// The Settings "Otomatik Yenileme" section only ever changes
   /// [AppSettingsController.syncInterval] while logged in, so this only
   /// reschedules — it never needs to start a session on its own.
   void _onSettingsChanged() {

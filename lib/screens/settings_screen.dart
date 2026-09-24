@@ -85,8 +85,8 @@ class SettingsScreen extends StatelessWidget {
           ),
           _CategoryTile(
             icon: LucideIcons.refreshCw,
-            title: 'Senkronizasyon',
-            subtitle: 'Posta kutusunu güncelleme sıklığı',
+            title: 'Otomatik Yenileme',
+            subtitle: 'Uygulama açıkken listeyi yenileme sıklığı',
             page: (_) => [_SyncSection()],
           ),
           _CategoryTile(
@@ -778,8 +778,20 @@ class _SyncSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
+    final secondaryText = AppTheme.colors(context).secondaryText;
     return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Text(
+            'Bu ayar yalnızca uygulama açıkken görünen listeyi ne sıklıkla '
+            'yenileyeceğinizi belirler. Sunucu, bu ayardan bağımsız olarak '
+            'e-postalarınızı düzenli aralıklarla arka planda zaten '
+            'senkronize eder; yeni posta bildirimleri bu ayarı beklemez.',
+            style: TextStyle(fontSize: 12.5, color: secondaryText),
+          ),
+        ),
         for (final interval in SyncInterval.values)
           ListTile(
             dense: true,
