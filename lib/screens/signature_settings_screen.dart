@@ -3,14 +3,13 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/mail_account.dart';
-import '../services/signature_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 
 /// Per-account email signature, auto-inserted into new compose bodies (see
 /// `_ComposeScreenState`'s signature handling in `compose_screen.dart`).
-/// Purely client-side ([SignatureStore]) — no backend endpoint exists for
-/// this, same as labels/rules.
+/// Synced to the backend (`MailAccount.signature`) — every device signed
+/// into the account sees the same value.
 class SignatureSettingsScreen extends StatefulWidget {
   const SignatureSettingsScreen({super.key});
 
@@ -32,20 +31,13 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
     _load();
   }
 
-  Future<void> _load() async {
-    final accounts = _accounts;
-    final signatures = await Future.wait(
-      accounts.map((account) => SignatureStore.load(account.email)),
-    );
-    if (!mounted) return;
-    setState(() {
-      for (var i = 0; i < accounts.length; i++) {
-        _controllers[accounts[i].email] = TextEditingController(
-          text: signatures[i],
-        );
-      }
-      _loading = false;
-    });
+  void _load() {
+    for (final account in _accounts) {
+      _controllers[account.id] = TextEditingController(
+        text: account.signature ?? '',
+      );
+    }
+    setState(() => _loading = false);
   }
 
   @override
@@ -56,12 +48,12 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
     super.dispose();
   }
 
-  Future<void> _save(String accountEmail) async {
-    final controller = _controllers[accountEmail];
-    if (controller == null || _saving.contains(accountEmail)) return;
-    setState(() => _saving.add(accountEmail));
+  Future<void> _save(String accountId) async {
+    final controller = _controllers[accountId];
+    if (controller == null || _saving.contains(accountId)) return;
+    setState(() => _saving.add(accountId));
     try {
-      await SignatureStore.save(accountEmail, controller.text);
+      await AppConfig.mailRepository.setSignature(accountId, controller.text);
       if (!mounted) return;
       ScaffoldMessenger.of(
         context,
@@ -72,7 +64,7 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
         SnackBar(content: Text('İmza kaydedilemedi: ${friendlyErrorMessage(e)}')),
       );
     } finally {
-      if (mounted) setState(() => _saving.remove(accountEmail));
+      if (mounted) setState(() => _saving.remove(accountId));
     }
   }
 
@@ -92,9 +84,9 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
               itemBuilder: (context, index) =>
                   _AccountSignatureEditor(
                     account: _accounts[index],
-                    controller: _controllers[_accounts[index].email]!,
-                    saving: _saving.contains(_accounts[index].email),
-                    onSave: () => _save(_accounts[index].email),
+                    controller: _controllers[_accounts[index].id]!,
+                    saving: _saving.contains(_accounts[index].id),
+                    onSave: () => _save(_accounts[index].id),
                   ),
             ),
     );

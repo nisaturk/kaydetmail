@@ -18,6 +18,7 @@ import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
 import '../services/local_mail_flags_store.dart';
 import '../services/mail_cache.dart';
+import '../services/signature_store.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
 
@@ -638,6 +639,7 @@ class ApiMailRepository extends MailRepository {
       await _seedStarred(session);
       unawaited(_seedThreadSizes(session));
       session.account = await accountFuture ?? session.account;
+      unawaited(_migrateLegacySignature(session));
       // Cached mail is already on screen; quietly bring it up to date.
       if (hydrated) {
         unawaited(
@@ -661,6 +663,25 @@ class ApiMailRepository extends MailRepository {
       return await _openCache?.call() ?? MailCache.inMemory();
     } catch (_) {
       return MailCache.inMemory();
+    }
+  }
+
+  /// One-time migration for pre-cutover installs: if the backend has no
+  /// signature yet but the old per-device SharedPreferences store does,
+  /// push it once so it starts syncing. Best-effort — a failure here must
+  /// never affect login.
+  Future<void> _migrateLegacySignature(_Session session) async {
+    if (session.account.signature != null) return;
+    try {
+      final legacy = await SignatureStore.load(session.account.email);
+      if (legacy.trim().isEmpty) return;
+      await session.mailService.updateSignature(legacy);
+      session.account = session.account.copyWith(signature: legacy);
+      await SignatureStore.save(session.account.email, '');
+      notifyListeners();
+    } catch (_) {
+      // Best-effort; the legacy value stays local and compose still finds
+      // it via SignatureStore until the next successful login.
     }
   }
 
@@ -1697,6 +1718,16 @@ class ApiMailRepository extends MailRepository {
         ]..sort((a, b) => a.sendAt.compareTo(b.sendAt));
       }),
     );
+    notifyListeners();
+  }
+
+  @override
+  Future<void> setSignature(String accountId, String? signature) async {
+    final session = _sessionForAccountId(accountId);
+    final trimmed = signature?.trim();
+    final normalized = trimmed == null || trimmed.isEmpty ? null : trimmed;
+    await session.mailService.updateSignature(normalized);
+    session.account = session.account.copyWith(signature: normalized);
     notifyListeners();
   }
 

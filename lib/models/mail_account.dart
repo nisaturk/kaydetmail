@@ -73,6 +73,7 @@ class MailAccount {
     this.displayName,
     this.provider = AccountProvider.other,
     this.status = MailAccountStatus.active,
+    this.signature,
   });
 
   final String id;
@@ -81,5 +82,27 @@ class MailAccount {
   final AccountProvider provider;
   final MailAccountStatus status;
 
+  /// Text appended to outgoing mail sent from this account. Synced to the
+  /// backend — every device signed into this account sees the same value.
+  final String? signature;
+
   String get label => displayName ?? email;
+
+  /// `signature: null` clears it — unlike most copyWith patterns, omitting
+  /// the parameter (not passing it at all) keeps the current value.
+  MailAccount copyWith({
+    String? displayName,
+    Object? signature = _unset,
+  }) => MailAccount(
+    id: id,
+    email: email,
+    displayName: displayName ?? this.displayName,
+    provider: provider,
+    status: status,
+    signature: identical(signature, _unset)
+        ? this.signature
+        : signature as String?,
+  );
 }
+
+const _unset = Object();

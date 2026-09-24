@@ -8,7 +8,6 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
-import '../services/signature_store.dart';
 import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
@@ -122,7 +121,7 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
 /// Three more behaviors live here:
 /// - **Signature**: when [editingDraftId] is null (a genuinely new send, not
 ///   restoring a stored draft), the signature saved for the selected Kimden
-///   account ([SignatureStore]) is appended to the body automatically, and
+///   account ([MailAccount.signature]) is appended to the body automatically, and
 ///   re-applied if Kimden changes — but only while the body still matches
 ///   exactly what auto-insertion put there, so real typing is never
 ///   clobbered. See `_syncSignature`.
@@ -502,7 +501,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (_bodyController.text != expected) return;
     final account = _fromAccount;
     if (account == null) return;
-    final signature = await SignatureStore.load(account);
+    final match = _repo.accounts.where((a) => a.email == account);
+    final signature = match.isEmpty ? '' : (match.first.signature ?? '');
     if (!mounted || _fromAccount != account) return;
     if (_bodyController.text != expected) return;
     setState(() {
