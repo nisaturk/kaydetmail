@@ -8,6 +8,7 @@ import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/models/mail_session.dart';
+import 'package:kaydetmail/models/manual_contact.dart';
 import 'package:kaydetmail/models/scheduled_send.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/compose_screen.dart';
@@ -264,6 +265,29 @@ class _FakeMailRepository extends MailRepository {
     List<String> emailIds,
     List<String> labelIds,
   ) async {}
+
+  @override
+  List<ManualContact> getManualContacts() => const [];
+
+  @override
+  List<ManualContact> getManualContactsForAccount(String accountId) =>
+      const [];
+
+  @override
+  Future<ManualContact> addManualContact({
+    required String email,
+    String? displayName,
+  }) async => throw UnimplementedError();
+
+  @override
+  Future<void> updateManualContact({
+    required String id,
+    required String email,
+    String? displayName,
+  }) async {}
+
+  @override
+  Future<void> deleteManualContact(String id) async {}
 
   @override
   Future<List<Email>> searchEmailsOnServer({

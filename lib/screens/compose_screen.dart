@@ -265,16 +265,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
       .map((e) => _Recipient(e, valid: _emailShapePattern.hasMatch(e)))
       .toList();
 
-  /// Recomputes [_contacts] from the persisted address book merged with
-  /// whatever mail is currently in memory — re-run every time [_repo]
-  /// notifies (registered in [initState]) so a contact from mail synced
-  /// after this screen opened still shows up in the suggestion overlay,
-  /// without needing to reopen compose. Deliberately not wrapped in
-  /// `setState`: [_contacts] never drives `build()` directly, only the
+  /// Recomputes [_contacts] from the persisted address book, manually-added
+  /// contacts and whatever mail is currently in memory — re-run every time
+  /// [_repo] notifies (registered in [initState]) so a contact from mail
+  /// synced after this screen opened still shows up in the suggestion
+  /// overlay, without needing to reopen compose. Deliberately not wrapped
+  /// in `setState`: [_contacts] never drives `build()` directly, only the
   /// imperative overlay in [_updateSuggestions].
+  ///
+  /// Manually-added contacts get a synthetic far-future [Contact.lastSeen]
+  /// so they always win [ContactsStore.merge] over a same-address mail
+  /// sighting — a manually curated display name should never be silently
+  /// overridden by a sender-name heuristic.
+  static final DateTime _manualContactRank = DateTime.utc(9999);
+
   void _refreshContacts() {
+    final manual = [
+      for (final c in _repo.getManualContacts())
+        Contact(
+          email: c.email,
+          displayName: c.label,
+          lastSeen: _manualContactRank,
+        ),
+    ];
     _contacts = ContactsStore.merge(
-      ContactsStore.cachedPersisted,
+      ContactsStore.merge(ContactsStore.cachedPersisted, manual),
       ContactsStore.fromEmails(_repo.getAllEmails()),
     );
   }

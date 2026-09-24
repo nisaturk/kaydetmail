@@ -332,6 +332,7 @@ class _RecordingMailService extends ApiMailService {
 
   final List<Map<String, dynamic>> folders;
   final Map<String, MailListPage> pagesByFolderId;
+  final Map<String, DateTime> snoozedMailIds = {};
 
   @override
   Future<List<ApiMailFolder>> getFolders() async => folders
@@ -367,6 +368,18 @@ class _RecordingMailService extends ApiMailService {
     List<String> mailIds, {
     String? folderId,
   }) async => mailIds.map((id) => BulkActionResult(mailId: id, success: true)).toList();
+
+  @override
+  Future<void> setSnooze(String mailId, DateTime untilUtc) async =>
+      snoozedMailIds[mailId] = untilUtc;
+
+  @override
+  Future<void> clearSnooze(String mailId) async =>
+      snoozedMailIds.remove(mailId);
+
+  @override
+  Future<Map<String, DateTime>> getSnoozed() async =>
+      Map<String, DateTime>.from(snoozedMailIds);
 }
 
 class _MemoryTokenStorage implements TokenStorage {

@@ -10,6 +10,7 @@ import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
+import '../models/manual_contact.dart';
 import '../models/scheduled_send.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -42,6 +43,9 @@ class _Session {
   String? deviceId;
   LocalMailFlagsStore? flagsStore;
 
+  /// See [ApiMailRepository.offlineMutationConflicts].
+  final Set<String> mutationConflicts = {};
+
   final Map<MailFolder, String> folderIds = {};
   final Map<String, MailFolder> folderTypeById = {};
   final Map<MailFolder, List<Email>> emails = {};
@@ -67,6 +71,7 @@ class _Session {
 
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
+  List<ManualContact> manualContacts = [];
 
   /// Mail id -> epoch millis it should reappear (client-only, see
   /// [LocalMailFlagsStore.readSnoozed]). A mail past its timestamp is
@@ -595,23 +600,15 @@ class ApiMailRepository extends MailRepository {
       _cache ??= await _openCacheOrMemory();
       final flags = LocalMailFlagsStore(account.id, _cache!);
       await flags.migrateLegacyPrefs();
-      session.pinnedIds = await flags.readPinned();
+      session.pinnedIds = await _loadPinnedIds(session, flags);
       session.repliedIds = await flags.readReplied();
       session.forwardedIds = await flags.readForwarded();
       session.repliedThreadIds = await flags.readRepliedThreads();
       session.forwardedThreadIds = await flags.readForwardedThreads();
       session.answeredThreadIds = await flags.readAnsweredThreads();
-      await flags.seedDefaultLabels();
-      session.labels = [
-        for (final d in await flags.readLabelDefs())
-          MailLabel(
-            id: d['id'] as String,
-            name: d['name'] as String,
-            color: Color(d['color'] as int),
-          ),
-      ];
-      session.labelMap = await flags.readLabelMap();
-      session.snoozedUntil = await flags.readSnoozed();
+      await _loadLabels(session, flags);
+      await _loadManualContacts(session, flags);
+      session.snoozedUntil = await _loadSnoozedUntil(session, flags);
       session.flagsStore = flags;
       _recomputeWatchedSnoozeDeadline();
       _startSnoozeExpiryTimerIfNeeded();
@@ -663,6 +660,155 @@ class ApiMailRepository extends MailRepository {
       return await _openCache?.call() ?? MailCache.inMemory();
     } catch (_) {
       return MailCache.inMemory();
+    }
+  }
+
+  /// Pin state is account-scoped on the backend now; falls back to the
+  /// local cache (and re-seeds it on success) so pins still show while
+  /// offline.
+  Future<Set<String>> _loadPinnedIds(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    try {
+      final ids = (await session.mailService.getPinnedMailIds()).toSet();
+      await flags.writePinned(ids);
+      return ids;
+    } catch (_) {
+      return flags.readPinned();
+    }
+  }
+
+  /// Same backend-first, cache-fallback shape as [_loadPinnedIds] for
+  /// snooze deadlines (stored as UTC epoch millis locally).
+  Future<Map<String, int>> _loadSnoozedUntil(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    try {
+      final snoozed = await session.mailService.getSnoozed();
+      final asMillis = {
+        for (final entry in snoozed.entries)
+          entry.key: entry.value.millisecondsSinceEpoch,
+      };
+      await flags.writeSnoozed(asMillis);
+      return asMillis;
+    } catch (_) {
+      return flags.readSnoozed();
+    }
+  }
+
+  /// Backend-first load of label definitions and the mail-id -> label-ids
+  /// assignment map, same shape as [_loadPinnedIds]/[_loadSnoozedUntil]:
+  /// migrate any pre-cutover local labels once, then fetch the backend's
+  /// view and re-seed the local cache from it so labels still show while
+  /// offline.
+  Future<void> _loadLabels(_Session session, LocalMailFlagsStore flags) async {
+    await _migrateLegacyLabels(session, flags);
+    try {
+      final defs = await session.mailService.getLabels();
+      session.labels = [
+        for (final d in defs)
+          MailLabel(
+            id: d['id'] as String,
+            name: d['name'] as String,
+            color: Color(d['color'] as int),
+          ),
+      ];
+      session.labelMap = await session.mailService.getLabelAssignments();
+      await flags.writeLabelDefs([
+        for (final l in session.labels)
+          {'id': l.id, 'name': l.name, 'color': l.color.toARGB32()},
+      ]);
+      await flags.writeLabelMap(session.labelMap);
+    } catch (_) {
+      session.labels = [
+        for (final d in await flags.readLabelDefs())
+          MailLabel(
+            id: d['id'] as String,
+            name: d['name'] as String,
+            color: Color(d['color'] as int),
+          ),
+      ];
+      session.labelMap = await flags.readLabelMap();
+    }
+  }
+
+  /// Backend-first load of manually-added contacts, same shape as
+  /// [_loadLabels] minus any migration — this is a new feature with no
+  /// pre-cutover local data to carry forward.
+  Future<void> _loadManualContacts(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    try {
+      final defs = await session.mailService.getContacts();
+      session.manualContacts = [
+        for (final d in defs)
+          ManualContact(
+            id: d['id'] as String,
+            accountId: session.account.id,
+            email: d['email'] as String,
+            displayName: d['displayName'] as String?,
+          ),
+      ];
+      await flags.writeContacts([
+        for (final c in session.manualContacts)
+          {'id': c.id, 'email': c.email, 'displayName': c.displayName},
+      ]);
+    } catch (_) {
+      session.manualContacts = [
+        for (final d in await flags.readContacts())
+          ManualContact(
+            id: d['id'] as String,
+            accountId: session.account.id,
+            email: d['email'] as String,
+            displayName: d['displayName'] as String?,
+          ),
+      ];
+    }
+  }
+
+  /// One-time migration for pre-cutover installs: if the backend has no
+  /// labels yet, push the local set once — the account's own pre-existing
+  /// labels (including any the user renamed/deleted from the defaults) if
+  /// there are any, otherwise [LocalMailFlagsStore.defaultLabels] for a
+  /// brand-new account — then replay the local mail-to-label assignments
+  /// against the newly created backend ids. Best-effort; a failure here
+  /// must never affect login, and [_loadLabels] falls back to the local
+  /// cache regardless.
+  Future<void> _migrateLegacyLabels(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    try {
+      if ((await session.mailService.getLabels()).isNotEmpty) return;
+      final localDefs = await flags.readLabelDefs();
+      final defs = localDefs.isNotEmpty
+          ? localDefs
+          : LocalMailFlagsStore.defaultLabels;
+      final idRemap = <String, String>{};
+      for (final d in defs) {
+        final created = await session.mailService.createLabel(
+          d['name'] as String,
+          d['color'] as int,
+        );
+        idRemap[d['id'] as String] = created['id'] as String;
+      }
+      if (localDefs.isEmpty) return;
+      for (final entry in (await flags.readLabelMap()).entries) {
+        final remapped = [
+          for (final oldId in entry.value)
+            if (idRemap[oldId] != null) idRemap[oldId]!,
+        ];
+        if (remapped.isNotEmpty) {
+          await session.mailService.assignLabels([entry.key], remapped);
+        }
+      }
+    } catch (_) {
+      // Best-effort — a failure here must never affect login. Labels stay
+      // local-only (via the [_loadLabels] fallback) until the next
+      // successful login re-attempts the migration.
     }
   }
 
@@ -864,6 +1010,7 @@ class ApiMailRepository extends MailRepository {
     }
     _cancelReconnectRetry(session);
     session.offline = false;
+    await _replayQueuedMutations(session);
     _persistFolderMap(session);
     notifyListeners();
   }
@@ -1040,6 +1187,94 @@ class ApiMailRepository extends MailRepository {
     apply(succeeded);
     notifyListeners();
     unawaited(_refreshCountsFor(session));
+  }
+
+  /// Same contract as [_bulkAndApply], but only for [markAsRead]/
+  /// [markAsUnread]: a transport failure still applies [isRead] to the
+  /// local cache and queues it in [LocalMailFlagsStore] for replay once
+  /// the account reconnects (see [_replayQueuedMutations]), instead of
+  /// throwing. Every other mutation (star, move, trash, ...) has no
+  /// offline queue — read/unread is reversible and low-risk, so it was
+  /// picked first.
+  Future<void> _bulkAndApplyOrQueue(
+    _Session session,
+    String action,
+    bool isRead,
+    List<String> ids,
+  ) async {
+    if (ids.isEmpty) return;
+    List<BulkActionResult> results;
+    try {
+      results = await session.mailService.bulkAction(action, ids);
+    } catch (_) {
+      session.offline = true;
+      _scheduleReconnectRetry(session);
+      final store = session.flagsStore;
+      if (store != null) {
+        for (final id in ids) {
+          await store.queueReadMutation(id, isRead);
+        }
+      }
+      _replaceMany(session, ids, (m) => m.copyWith(isRead: isRead));
+      notifyListeners();
+      return;
+    }
+    final succeeded = results
+        .where((r) => r.success)
+        .map((r) => r.mailId)
+        .toList();
+    final store = session.flagsStore;
+    if (store != null) {
+      for (final id in succeeded) {
+        await store.clearQueuedMutation(id);
+      }
+    }
+    _replaceMany(session, succeeded, (m) => m.copyWith(isRead: isRead));
+    notifyListeners();
+    unawaited(_refreshCountsFor(session));
+  }
+
+  /// Replays every read/unread mutation [session] queued while offline.
+  /// Best-effort and fire-and-forget from every call site: a further
+  /// transport failure just leaves the queue for the next reconnect. A
+  /// `mail_operation_conflict`/`mailbox_changed`/`mail_not_found` result —
+  /// the mailbox changed underneath the queued mutation, or the mail is
+  /// gone — is NOT retried: it's dropped from the queue and surfaced via
+  /// [offlineMutationConflicts] instead, so a stale queued mutation never
+  /// silently lands on the wrong message.
+  Future<void> _replayQueuedMutations(_Session session) async {
+    final store = session.flagsStore;
+    if (store == null) return;
+    final queued = await store.readQueuedMutations();
+    if (queued.isEmpty) return;
+    final byState = <bool, List<String>>{};
+    for (final entry in queued) {
+      byState.putIfAbsent(entry.value, () => []).add(entry.key);
+    }
+    var changed = false;
+    for (final entry in byState.entries) {
+      final action = entry.key ? 'read' : 'unread';
+      List<BulkActionResult> results;
+      try {
+        results = await session.mailService.bulkAction(action, entry.value);
+      } catch (_) {
+        continue; // Still offline; the next reconnect retries.
+      }
+      for (final r in results) {
+        if (r.success) {
+          await store.clearQueuedMutation(r.mailId);
+          changed = true;
+        } else if (r.code == 'mail_operation_conflict' ||
+            r.code == 'mailbox_changed' ||
+            r.code == 'mail_not_found') {
+          await store.clearQueuedMutation(r.mailId);
+          session.mutationConflicts.add(r.mailId);
+          changed = true;
+        }
+        // Any other failure (e.g. reauthentication needed) stays queued.
+      }
+    }
+    if (changed) notifyListeners();
   }
 
   static bool _pinned(Email email) => email.isPinned;
@@ -1278,6 +1513,7 @@ class ApiMailRepository extends MailRepository {
     session.lastSynced[folder] = DateTime.now();
     _cancelReconnectRetry(session);
     session.offline = false;
+    await _replayQueuedMutations(session);
     notifyListeners();
     return List.unmodifiable(fresh);
   }
@@ -1300,6 +1536,7 @@ class ApiMailRepository extends MailRepository {
     };
     _cancelReconnectRetry(session);
     session.offline = false;
+    await _replayQueuedMutations(session);
     final refreshed = [
       for (final e in result.items)
         // List items carry no body or star state; keep what we already know.
@@ -2264,13 +2501,7 @@ class ApiMailRepository extends MailRepository {
   Future<void> markAsRead(List<String> ids) async {
     await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApply(
-          e.key,
-          'read',
-          e.value,
-          (succeeded) =>
-              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: true)),
-        ),
+        (e) => _bulkAndApplyOrQueue(e.key, 'read', true, e.value),
       ),
     );
   }
@@ -2279,56 +2510,60 @@ class ApiMailRepository extends MailRepository {
   Future<void> markAsUnread(List<String> ids) async {
     await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApply(
-          e.key,
-          'unread',
-          e.value,
-          (succeeded) =>
-              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: false)),
-        ),
+        (e) => _bulkAndApplyOrQueue(e.key, 'unread', false, e.value),
       ),
     );
   }
 
-  /// Pinning never reaches the network — see [LocalMailFlagsStore]. The
-  /// `maxPinnedMails` cap is global across every connected account; pinning
-  /// only changes sort priority inside a mail's existing folder.
+  @override
+  List<String> get offlineMutationConflicts => [
+    for (final session in _scopedSessions) ...session.mutationConflicts,
+  ];
+
+  @override
+  void dismissMutationConflict(String mailId) {
+    for (final session in _sessions.values) {
+      if (session.mutationConflicts.remove(mailId)) {
+        notifyListeners();
+        return;
+      }
+    }
+  }
+
+  /// Writes through to the backend first (it enforces the
+  /// [MailRepository.maxPinnedMails]-per-account cap authoritatively); only
+  /// mails the server actually confirmed are applied locally, so a partial
+  /// failure (e.g. cap already full on another device) never desyncs the
+  /// ones that did succeed. Same silent-partial-success shape as
+  /// [_bulkAndApply]/[setStarred].
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     if (ids.isEmpty) return;
-    final grouped = _groupBySession(ids);
-    if (pinned) {
-      var free = MailRepository.maxPinnedMails - _totalPinnedCount();
-      for (final entry in grouped.entries) {
+    await Future.wait(
+      _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
-        final store = session.flagsStore;
-        if (store == null) continue;
-        for (final id in entry.value) {
-          if (free <= 0) break;
-          if (session.pinnedIds.add(id)) free--;
-        }
-        await store.writePinned(session.pinnedIds);
+        final results = await session.mailService.setPinned(
+          entry.value,
+          pinned,
+        );
+        final succeeded = results
+            .where((r) => r.success)
+            .map((r) => r.mailId)
+            .toSet();
+        if (succeeded.isEmpty) return;
+        pinned
+            ? session.pinnedIds.addAll(succeeded)
+            : session.pinnedIds.removeAll(succeeded);
+        await session.flagsStore?.writePinned(session.pinnedIds);
         _replaceMany(
           session,
-          entry.value,
+          succeeded,
           (e) => e.copyWith(isPinned: session.pinnedIds.contains(e.id)),
         );
-      }
-    } else {
-      for (final entry in grouped.entries) {
-        final session = entry.key;
-        final store = session.flagsStore;
-        if (store == null) continue;
-        session.pinnedIds.removeAll(entry.value);
-        await store.writePinned(session.pinnedIds);
-        _replaceMany(session, entry.value, (e) => e.copyWith(isPinned: false));
-      }
-    }
+      }),
+    );
     notifyListeners();
   }
-
-  int _totalPinnedCount() =>
-      _sessions.values.fold(0, (sum, s) => sum + s.pinnedIds.length);
 
   @override
   Future<void> setStarred(List<String> ids, bool starred) async {
@@ -2379,26 +2614,46 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  /// Snooze never reaches the network — see [LocalMailFlagsStore]. Unlike
-  /// pin/star it changes which folder view a mail is even visible in (see
-  /// [_buildFolderView]), so a write always touches the view cache.
+  /// Unlike pin/star, snoozing changes which folder view a mail is even
+  /// visible in (see [_buildFolderView]), so a write always touches the
+  /// view cache. Writes each id through to the backend individually (there
+  /// is no bulk snooze endpoint); only ids the server actually confirmed
+  /// are applied locally — same silent-partial-success shape as
+  /// [setPinned].
   @override
   Future<void> setSnoozed(List<String> ids, DateTime? until) async {
     if (ids.isEmpty) return;
-    for (final entry in _groupBySession(ids).entries) {
-      final session = entry.key;
-      final store = session.flagsStore;
-      if (store == null) continue;
-      if (until == null) {
-        session.snoozedUntil.removeWhere((id, _) => entry.value.contains(id));
-      } else {
-        final ms = until.toUtc().millisecondsSinceEpoch;
-        for (final id in entry.value) {
-          session.snoozedUntil[id] = ms;
+    await Future.wait(
+      _groupBySession(ids).entries.map((entry) async {
+        final session = entry.key;
+        final succeeded = <String>[];
+        await Future.wait(
+          entry.value.map((id) async {
+            try {
+              if (until == null) {
+                await session.mailService.clearSnooze(id);
+              } else {
+                await session.mailService.setSnooze(id, until);
+              }
+              succeeded.add(id);
+            } catch (_) {
+              // Not owned by this account, or a transient failure — leave
+              // its existing snooze state untouched.
+            }
+          }),
+        );
+        if (succeeded.isEmpty) return;
+        if (until == null) {
+          session.snoozedUntil.removeWhere((id, _) => succeeded.contains(id));
+        } else {
+          final ms = until.toUtc().millisecondsSinceEpoch;
+          for (final id in succeeded) {
+            session.snoozedUntil[id] = ms;
+          }
         }
-      }
-      await store.writeSnoozed(session.snoozedUntil);
-    }
+        await session.flagsStore?.writeSnoozed(session.snoozedUntil);
+      }),
+    );
     _recomputeWatchedSnoozeDeadline();
     _touch();
     notifyListeners();
@@ -2453,6 +2708,8 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
+  /// Mirrors backend-confirmed label state into the local cache so labels
+  /// still show while offline. Never the source of truth — see [_loadLabels].
   Future<void> _persistLabels(_Session session) async {
     final store = session.flagsStore;
     if (store == null) return;
@@ -2494,10 +2751,23 @@ class ApiMailRepository extends MailRepository {
   }) async {
     final session = _primarySession;
     _assertLabelNameIsFree(session, name);
+    final trimmed = name.trim();
+    Map<String, dynamic> created;
+    try {
+      created = await session.mailService.createLabel(
+        trimmed,
+        color.toARGB32(),
+      );
+    } on ApiException catch (e) {
+      if (e.code == 'label_name_taken') {
+        throw ArgumentError('Bu isimde bir etiket zaten var.');
+      }
+      rethrow;
+    }
     final label = MailLabel(
-      id: 'label-${DateTime.now().microsecondsSinceEpoch}',
-      name: name.trim(),
-      color: color,
+      id: created['id'] as String,
+      name: created['name'] as String,
+      color: Color(created['color'] as int),
     );
     session.labels = [...session.labels, label];
     await _persistLabels(session);
@@ -2516,8 +2786,17 @@ class ApiMailRepository extends MailRepository {
     final index = session.labels.indexWhere((l) => l.id == id);
     if (index < 0) return;
     _assertLabelNameIsFree(session, name, selfId: id);
+    final trimmed = name.trim();
+    try {
+      await session.mailService.updateLabel(id, trimmed, color.toARGB32());
+    } on ApiException catch (e) {
+      if (e.code == 'label_name_taken') {
+        throw ArgumentError('Bu isimde bir etiket zaten var.');
+      }
+      rethrow;
+    }
     session.labels = [...session.labels]
-      ..[index] = MailLabel(id: id, name: name.trim(), color: color);
+      ..[index] = MailLabel(id: id, name: trimmed, color: color);
     await _persistLabels(session);
     notifyListeners();
   }
@@ -2526,6 +2805,12 @@ class ApiMailRepository extends MailRepository {
   Future<void> deleteLabel(String labelId) async {
     final session = _sessionForLabel(labelId);
     if (session == null) return;
+    try {
+      await session.mailService.deleteLabel(labelId);
+    } catch (_) {
+      // Never desync: a failed server delete leaves local state untouched.
+      return;
+    }
     session.labels = session.labels.where((l) => l.id != labelId).toList();
     final touched = [
       for (final e in session.labelMap.entries)
@@ -2553,6 +2838,15 @@ class ApiMailRepository extends MailRepository {
           if (labelIds.contains(label.id)) label.id,
       };
       if (ownedLabelIds.isEmpty) continue;
+      try {
+        await session.mailService.assignLabels(
+          entry.value,
+          ownedLabelIds.toList(),
+        );
+      } catch (_) {
+        // Never desync: skip the local update for this account on failure.
+        continue;
+      }
       for (final id in entry.value) {
         final cur = session.labelMap[id] ?? const <String>[];
         session.labelMap[id] = [
@@ -2573,6 +2867,11 @@ class ApiMailRepository extends MailRepository {
   ) async {
     for (final entry in _groupBySession(emailIds).entries) {
       final session = entry.key;
+      try {
+        await session.mailService.unassignLabels(entry.value, labelIds);
+      } catch (_) {
+        continue;
+      }
       for (final id in entry.value) {
         session.labelMap[id] = (session.labelMap[id] ?? const <String>[])
             .where((l) => !labelIds.contains(l))
@@ -2581,6 +2880,146 @@ class ApiMailRepository extends MailRepository {
       await _persistLabels(session);
       _restampLabels(session, entry.value);
     }
+    notifyListeners();
+  }
+
+  void _assertContactEmailIsValid(
+    _Session session,
+    String email, {
+    String? selfId,
+  }) {
+    if (email.isEmpty || !email.contains('@')) {
+      throw ArgumentError('Geçerli bir e-posta adresi girin.');
+    }
+    final canonical = email.toLowerCase();
+    if (session.manualContacts.any(
+      (c) => c.id != selfId && c.email.toLowerCase() == canonical,
+    )) {
+      throw ArgumentError('Bu e-posta zaten kayıtlı.');
+    }
+  }
+
+  Future<void> _persistManualContacts(_Session session) async {
+    final store = session.flagsStore;
+    if (store == null) return;
+    await store.writeContacts([
+      for (final c in session.manualContacts)
+        {'id': c.id, 'email': c.email, 'displayName': c.displayName},
+    ]);
+  }
+
+  /// The session that owns manual contact [id], if any.
+  _Session? _sessionForManualContact(String id) {
+    for (final s in _sessions.values) {
+      if (s.manualContacts.any((c) => c.id == id)) return s;
+    }
+    return null;
+  }
+
+  /// Manually-added contacts from every account in scope — the unified
+  /// view unions them (dedup by id; account-local ids never collide in
+  /// practice), same shape as [getLabels].
+  @override
+  List<ManualContact> getManualContacts() {
+    final seen = <String>{};
+    final result = <ManualContact>[];
+    for (final session in _scopedSessions) {
+      for (final c in session.manualContacts) {
+        if (seen.add(c.id)) result.add(c);
+      }
+    }
+    return List.unmodifiable(result);
+  }
+
+  @override
+  List<ManualContact> getManualContactsForAccount(String accountId) =>
+      List.unmodifiable(
+        _sessions[accountId]?.manualContacts ?? const <ManualContact>[],
+      );
+
+  @override
+  Future<ManualContact> addManualContact({
+    required String email,
+    String? displayName,
+  }) async {
+    final session = _primarySession;
+    final trimmedEmail = email.trim();
+    final trimmedName = displayName?.trim();
+    _assertContactEmailIsValid(session, trimmedEmail);
+    Map<String, dynamic> created;
+    try {
+      created = await session.mailService.createContact(
+        trimmedEmail,
+        (trimmedName == null || trimmedName.isEmpty) ? null : trimmedName,
+      );
+    } on ApiException catch (e) {
+      if (e.code == 'contact_already_exists') {
+        throw ArgumentError('Bu e-posta zaten kayıtlı.');
+      }
+      rethrow;
+    }
+    final contact = ManualContact(
+      id: created['id'] as String,
+      accountId: session.account.id,
+      email: created['email'] as String,
+      displayName: created['displayName'] as String?,
+    );
+    session.manualContacts = [...session.manualContacts, contact];
+    await _persistManualContacts(session);
+    notifyListeners();
+    return contact;
+  }
+
+  @override
+  Future<void> updateManualContact({
+    required String id,
+    required String email,
+    String? displayName,
+  }) async {
+    final session = _sessionForManualContact(id);
+    if (session == null) return;
+    final index = session.manualContacts.indexWhere((c) => c.id == id);
+    if (index < 0) return;
+    final trimmedEmail = email.trim();
+    final trimmedName = displayName?.trim();
+    _assertContactEmailIsValid(session, trimmedEmail, selfId: id);
+    Map<String, dynamic> updated;
+    try {
+      updated = await session.mailService.updateContact(
+        id,
+        trimmedEmail,
+        (trimmedName == null || trimmedName.isEmpty) ? null : trimmedName,
+      );
+    } on ApiException catch (e) {
+      if (e.code == 'contact_already_exists') {
+        throw ArgumentError('Bu e-posta zaten kayıtlı.');
+      }
+      rethrow;
+    }
+    session.manualContacts = [...session.manualContacts]
+      ..[index] = ManualContact(
+        id: id,
+        accountId: session.account.id,
+        email: updated['email'] as String,
+        displayName: updated['displayName'] as String?,
+      );
+    await _persistManualContacts(session);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> deleteManualContact(String id) async {
+    final session = _sessionForManualContact(id);
+    if (session == null) return;
+    try {
+      await session.mailService.deleteContact(id);
+    } catch (_) {
+      return;
+    }
+    session.manualContacts = session.manualContacts
+        .where((c) => c.id != id)
+        .toList();
+    await _persistManualContacts(session);
     notifyListeners();
   }
 }

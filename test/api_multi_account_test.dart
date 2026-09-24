@@ -292,6 +292,9 @@ class _RecordingMailService extends ApiMailService {
   final List<String> mailIds;
   bool deleteAccountCalled = false;
   final List<String> bulkActionCalls = [];
+  final List<Map<String, dynamic>> labelDefs = [];
+  final Map<String, List<String>> labelAssignments = {};
+  int _labelSeq = 0;
 
   @override
   Future<List<ApiMailFolder>> getFolders() async => [
@@ -389,6 +392,68 @@ class _RecordingMailService extends ApiMailService {
     return mailIds
         .map((id) => BulkActionResult(mailId: id, success: true))
         .toList();
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getLabels() async =>
+      List.from(labelDefs);
+
+  @override
+  Future<Map<String, dynamic>> createLabel(String name, int color) async {
+    final created = {
+      'id': 'label-$accountId-${_labelSeq++}',
+      'name': name,
+      'color': color,
+    };
+    labelDefs.add(created);
+    return created;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateLabel(
+    String id,
+    String name,
+    int color,
+  ) async {
+    final index = labelDefs.indexWhere((d) => d['id'] == id);
+    final updated = {'id': id, 'name': name, 'color': color};
+    if (index >= 0) labelDefs[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteLabel(String id) async {
+    labelDefs.removeWhere((d) => d['id'] == id);
+    for (final key in labelAssignments.keys.toList()) {
+      labelAssignments[key]!.remove(id);
+    }
+  }
+
+  @override
+  Future<Map<String, List<String>>> getLabelAssignments() async =>
+      Map.from(labelAssignments);
+
+  @override
+  Future<void> assignLabels(
+    List<String> mailIds,
+    List<String> labelIds,
+  ) async {
+    for (final id in mailIds) {
+      final cur = labelAssignments.putIfAbsent(id, () => []);
+      for (final labelId in labelIds) {
+        if (!cur.contains(labelId)) cur.add(labelId);
+      }
+    }
+  }
+
+  @override
+  Future<void> unassignLabels(
+    List<String> mailIds,
+    List<String> labelIds,
+  ) async {
+    for (final id in mailIds) {
+      labelAssignments[id]?.removeWhere(labelIds.contains);
+    }
   }
 }
 

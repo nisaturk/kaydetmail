@@ -73,13 +73,35 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _shareIntake.start();
+    AppConfig.mailRepository.addListener(_checkMutationConflicts);
   }
 
   @override
   void dispose() {
+    AppConfig.mailRepository.removeListener(_checkMutationConflicts);
     _shareIntake.dispose();
     _selection.dispose();
     super.dispose();
+  }
+
+  /// Surfaces every mail an offline read/unread mutation failed to replay
+  /// for (see [MailRepository.offlineMutationConflicts]) as a one-shot
+  /// snackbar, then dismisses it — called on every repository change, so
+  /// this only does work the tick a conflict actually appears.
+  void _checkMutationConflicts() {
+    final repo = AppConfig.mailRepository;
+    for (final id in repo.offlineMutationConflicts.toList()) {
+      repo.dismissMutationConflict(id);
+      if (!mounted) continue;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Çevrimdışıyken yapılan bir okundu/okunmadı işlemi uygulanamadı: '
+            'posta kutusu değişmiş.',
+          ),
+        ),
+      );
+    }
   }
 
   MailRepository get _repo => AppConfig.mailRepository;

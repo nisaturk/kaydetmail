@@ -5,13 +5,15 @@ import 'package:sqlite3/common.dart';
 
 import 'mail_cache.dart';
 
-/// Persists mail state the backend has no concept of, in the on-device
-/// SQLite database ([MailCache]).
+/// Local cache for mail state, in the on-device SQLite database
+/// ([MailCache]).
 ///
-/// Pinning is a purely client-side favoriting feature — the API never sees
-/// it. "Replied"/"forwarded" mark the moment the user opened the reply/
-/// forward compose screen, and labels are user-defined tags; no API response
-/// carries an equivalent. Everything is scoped per account so switching
+/// Pin/snooze/labels are synced through the backend now (see
+/// [ApiMailRepository]); this store is their offline-read fallback and
+/// write-behind mirror, re-seeded from the server on every successful
+/// fetch. "Replied"/"forwarded" mark the moment the user opened the
+/// reply/forward compose screen and have no backend equivalent, so they
+/// stay purely local. Everything is scoped per account so switching
 /// accounts never leaks one inbox's state into another's.
 class LocalMailFlagsStore {
   LocalMailFlagsStore(this._accountId, MailCache cache) : _db = cache.db;
@@ -81,6 +83,34 @@ class LocalMailFlagsStore {
   Future<void> writeAnsweredThreads(Set<String> ids) async =>
       _write('answered_threads', ids);
 
+  Future<List<Map<String, dynamic>>> readContacts() async => [
+    for (final r in _db.select(
+      'SELECT id, email, display_name FROM manual_contacts WHERE account_id = ?',
+      [_accountId],
+    ))
+      {'id': r['id'], 'email': r['email'], 'displayName': r['display_name']},
+  ];
+
+  Future<void> writeContacts(List<Map<String, dynamic>> contacts) async =>
+      _tx(() {
+        _db.execute(
+          'DELETE FROM manual_contacts WHERE account_id = ?',
+          [_accountId],
+        );
+        final stmt = _db.prepare(
+          'INSERT INTO manual_contacts VALUES (?, ?, ?, ?)',
+        );
+        for (final c in contacts) {
+          stmt.execute([
+            _accountId,
+            c['id'],
+            c['email'],
+            c['displayName'],
+          ]);
+        }
+        stmt.close();
+      });
+
   Future<List<Map<String, dynamic>>> readLabelDefs() async => [
     for (final r in _db.select(
       'SELECT id, name, color FROM labels WHERE account_id = ? ORDER BY sort',
@@ -106,16 +136,6 @@ class LocalMailFlagsStore {
     {'id': 'label-default-shopping', 'name': 'Alışveriş', 'color': 0xFF8E7CC3},
     {'id': 'label-default-travel', 'name': 'Seyahat', 'color': 0xFF1B998B},
   ];
-
-  /// Gives a fresh account the default labels exactly once. They are ordinary
-  /// labels afterwards (editable, deletable) and are never re-added, so a
-  /// deletion sticks. Accounts that already have labels are left untouched.
-  Future<void> seedDefaultLabels() async {
-    final seeded = await _read('labels_seeded');
-    if (seeded.isNotEmpty) return;
-    if ((await readLabelDefs()).isEmpty) await writeLabelDefs(defaultLabels);
-    _write('labels_seeded', {'1'});
-  }
 
   Future<Map<String, List<String>>> readLabelMap() async {
     final map = <String, List<String>>{};
@@ -156,6 +176,41 @@ class LocalMailFlagsStore {
       stmt.execute([_accountId, entry.key, entry.value]);
     }
     stmt.close();
+  });
+
+  /// Queues a read/unread mutation for [mailId] that a network failure
+  /// stopped from reaching the backend, so it can be replayed once the
+  /// account reconnects (see `ApiMailRepository._replayQueuedMutations`).
+  /// A later call for the same mail overwrites the earlier one — only the
+  /// final desired state ever needs to replay.
+  Future<void> queueReadMutation(String mailId, bool isRead) async => _tx(() {
+    _db.execute('INSERT OR REPLACE INTO offline_mutations VALUES (?, ?, ?, ?)', [
+      _accountId,
+      mailId,
+      isRead ? 1 : 0,
+      DateTime.now().millisecondsSinceEpoch,
+    ]);
+  });
+
+  /// Every queued read/unread mutation, oldest first: mail id -> desired
+  /// `isRead` state.
+  Future<List<MapEntry<String, bool>>> readQueuedMutations() async => [
+    for (final r in _db.select(
+      'SELECT mail_id, is_read FROM offline_mutations WHERE account_id = ? '
+      'ORDER BY queued_at_ms',
+      [_accountId],
+    ))
+      MapEntry(r['mail_id'] as String, (r['is_read'] as int) == 1),
+  ];
+
+  /// Clears one mail's queued mutation — either it replayed successfully,
+  /// or it came back as an unretryable conflict (see
+  /// `ApiMailRepository.offlineMutationConflicts`).
+  Future<void> clearQueuedMutation(String mailId) async => _tx(() {
+    _db.execute(
+      'DELETE FROM offline_mutations WHERE account_id = ? AND mail_id = ?',
+      [_accountId, mailId],
+    );
   });
 
   /// One-time import of the SharedPreferences storage this class used before
