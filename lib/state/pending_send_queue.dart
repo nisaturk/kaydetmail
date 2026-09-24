@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
+import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,16 +9,12 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../config/app_config.dart';
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
+import '../services/api_exception.dart';
 import '../utils/error_messages.dart';
+import 'outbox_store.dart';
 
-/// Snapshot of everything a send needs, captured the moment "Gönder" is
-/// tapped so the fields survive the compose screen popping and can rebuild
-/// an identical compose screen if the user taps "Geri Al".
-///
-/// Also the durable persistence shape (see [toJson]/[fromJson]) written to
-/// disk the moment it's queued, so a hard kill during [PendingSendQueue.
-/// undoWindow] never silently loses the mail — see
-/// [PendingSendQueue._persistAll]/[PendingSendQueue.recoverPersisted].
+/// Complete send snapshot. Metadata lives in the outbox journal; attachment
+/// bytes are stored separately as SQLite BLOBs.
 @immutable
 class PendingSend {
   const PendingSend({
@@ -33,9 +31,11 @@ class PendingSend {
     this.threadId,
     this.inReplyToId,
     this.draftId,
+    this.idempotencyKey,
   });
 
   final String id;
+  final String? idempotencyKey;
   final List<String> to;
   final List<String> cc;
   final List<String> bcc;
@@ -61,13 +61,10 @@ class PendingSend {
   /// (a cancelled send must never lose the draft it was edited from).
   final String? draftId;
 
-  /// Serializes this send for durable local storage. Attachment bytes are
-  /// base64-encoded inline: pending sends are small and short-lived (gone
-  /// within [PendingSendQueue.undoWindow] in the common case), so trading a
-  /// little storage bloat for never losing an attachment a kill-recovered
-  /// send still needs to upload is the right side of that trade.
-  Map<String, dynamic> toJson() => {
+  /// The outbox stores attachment bytes as SQLite BLOBs instead of JSON.
+  Map<String, dynamic> toJson({bool includeAttachmentBytes = true}) => {
     'id': id,
+    'idempotencyKey': idempotencyKey,
     'to': to,
     'cc': cc,
     'bcc': bcc,
@@ -81,7 +78,9 @@ class PendingSend {
           'name': a.name,
           'size': a.sizeBytes,
           'mime': a.mimeType,
-          'bytes': a.bytes == null ? null : base64Encode(a.bytes!),
+          'bytes': includeAttachmentBytes && a.bytes != null
+              ? base64Encode(a.bytes!)
+              : null,
         },
     ],
     'from': from,
@@ -91,8 +90,12 @@ class PendingSend {
     'draftId': draftId,
   };
 
-  factory PendingSend.fromJson(Map<String, dynamic> json) => PendingSend(
+  factory PendingSend.fromJson(
+    Map<String, dynamic> json, {
+    Map<int, Uint8List> attachmentBytes = const {},
+  }) => PendingSend(
     id: json['id'] as String,
+    idempotencyKey: json['idempotencyKey'] as String?,
     to: (json['to'] as List).cast<String>(),
     cc: (json['cc'] as List? ?? const []).cast<String>(),
     bcc: (json['bcc'] as List? ?? const []).cast<String>(),
@@ -100,16 +103,18 @@ class PendingSend {
     body: json['body'] as String,
     bodyHtml: json['bodyHtml'] as String?,
     attachments: [
-      for (final a in (json['attachments'] as List? ?? const [])
-          .cast<Map<String, dynamic>>())
+      for (final (index, a)
+          in (json['attachments'] as List? ?? const [])
+              .cast<Map<String, dynamic>>()
+              .indexed)
         Attachment(
           id: a['id'] as String?,
           name: a['name'] as String,
           sizeBytes: a['size'] as int,
           mimeType: a['mime'] as String?,
-          bytes: a['bytes'] == null
-              ? null
-              : base64Decode(a['bytes'] as String),
+          bytes:
+              attachmentBytes[index] ??
+              (a['bytes'] == null ? null : base64Decode(a['bytes'] as String)),
         ),
     ],
     from: json['from'] as String?,
@@ -120,63 +125,21 @@ class PendingSend {
   );
 }
 
-/// Signature of [MailRepository.sendEmail], torn off instead of requiring a
-/// whole fake [MailRepository] in tests.
-typedef SendEmail =
-    Future<Email> Function({
-      required List<String> to,
-      List<String> cc,
-      List<String> bcc,
-      required String subject,
-      required String body,
-      String? bodyHtml,
-      List<Attachment> attachments,
-      String? from,
-      String? fromAccountId,
-      String? threadId,
-      String? inReplyToId,
-    });
+typedef SendEmail = Future<Email> Function({
+  required List<String> to,
+  List<String> cc,
+  List<String> bcc,
+  required String subject,
+  required String body,
+  String? bodyHtml,
+  List<Attachment> attachments,
+  String? from,
+  String? fromAccountId,
+  String? threadId,
+  String? inReplyToId,
+  String? idempotencyKey,
+});
 
-/// One outbox failure surfaced to the user — a pending send that was
-/// recovered (after a kill) or flushed (on backgrounding) but then failed to
-/// actually reach the server. Not a full outbox UI: just enough that the
-/// failure is never silently swallowed (see [PendingSendQueue.
-/// readOutboxErrors]). The originating draft, if any, was never deleted (see
-/// [PendingSendQueue._dispatch]), so the mail itself is never lost — only
-/// this record of "something needs your attention" would be, without this.
-@immutable
-class OutboxFailure {
-  const OutboxFailure({
-    required this.subject,
-    required this.to,
-    required this.failedAt,
-    required this.error,
-  });
-
-  final String subject;
-  final List<String> to;
-  final DateTime failedAt;
-  final String error;
-
-  Map<String, dynamic> toJson() => {
-    'subject': subject,
-    'to': to,
-    'failedAtMs': failedAt.millisecondsSinceEpoch,
-    'error': error,
-  };
-
-  factory OutboxFailure.fromJson(Map<String, dynamic> json) => OutboxFailure(
-    subject: json['subject'] as String,
-    to: (json['to'] as List? ?? const []).cast<String>(),
-    failedAt: DateTime.fromMillisecondsSinceEpoch(json['failedAtMs'] as int),
-    error: json['error'] as String,
-  );
-}
-
-/// One still-counting-down (or just-recovered) send: the timer, the
-/// snapshot, and the exact callbacks [PendingSendQueue.enqueue] resolved for
-/// it — so [PendingSendQueue.flushPending] can fire early using the very
-/// same [doSend]/[doDeleteDraft] the timer would have used.
 class _PendingEntry {
   _PendingEntry({
     required this.timer,
@@ -193,63 +156,68 @@ class _PendingEntry {
   final ScaffoldMessengerState? messenger;
 }
 
-/// Holds every "Gönder" tap for [undoWindow] before it actually reaches
-/// [MailRepository.sendEmail], so a mis-addressed mail can be recalled with
-/// "Geri Al" on the confirmation SnackBar.
-///
-/// A singleton: the countdown/timer must outlive the compose screen, which
-/// pops immediately after queuing (an optimistic send). Compose shows the
-/// countdown SnackBar itself, right before popping, through the app's
-/// single shared [ScaffoldMessenger] — that messenger instance keeps living
-/// after compose's own route is gone, so both the countdown and "Geri Al"
-/// keep working (see `_ComposeScreenState._send`).
-///
-/// Durability: every enqueued send is also written to [SharedPreferences]
-/// (see [_persistAll]) the moment it's queued and removed again once it
-/// fires or is cancelled — a `shared_preferences` JSON blob rather than a
-/// SQLite table because a pending send is small, short-lived (normally gone
-/// within [undoWindow]), and there's at most a handful of them at once, so
-/// the extra read/write ceremony a table would need buys nothing here. This
-/// class also mixes in [WidgetsBindingObserver] and registers itself once
-/// (it's a permanent singleton, never disposed) purely to catch
-/// backgrounding — see [didChangeAppLifecycleState]/[flushPending].
+/// Keeps the complete send and its attachments until delivery is confirmed.
+/// A process killed while a request is in flight leaves an uncertain item for
+/// the user to inspect; it is never silently retried with a new key.
 class PendingSendQueue with WidgetsBindingObserver {
   PendingSendQueue._() {
     WidgetsBinding.instance.addObserver(this);
   }
 
+  PendingSendQueue.forTest(OutboxStore store)
+    : _storeFuture = Future.value(store);
+
   static final PendingSendQueue instance = PendingSendQueue._();
-
   static const Duration undoWindow = Duration(seconds: 5);
+  static const String _legacyPrefsKey = 'pending_send_queue_v1';
 
-  static const String _prefsKey = 'pending_send_queue_v1';
-  static const String _outboxErrorsKey = 'pending_send_outbox_errors_v1';
-
+  Future<OutboxStore>? _storeFuture;
+  OutboxStore? _loadedStore;
   final Map<String, _PendingEntry> _entries = {};
-  int _sequence = 0;
+  final Set<String> _inFlight = {};
+  @visibleForTesting
+  void useStoreForTest(OutboxStore store) {
+    cancelAll();
+    _storeFuture = Future.value(store);
+    _loadedStore = store;
+  }
 
-  /// A fresh id for a new pending send.
-  String nextId() =>
-      'pending-send-${DateTime.now().microsecondsSinceEpoch}-${_sequence++}';
+  Future<OutboxStore> get _store async =>
+      _loadedStore ??= await (_storeFuture ??= OutboxStore.open());
 
-  /// True while [id] is still counting down (not yet sent or cancelled).
+  String nextId() {
+    final random = Random.secure();
+    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    final hex = bytes
+        .map((value) => value.toRadixString(16).padLeft(2, '0'))
+        .join();
+    return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-'
+        '${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
+  }
+
   bool isPending(String id) => _entries.containsKey(id);
 
-  /// Queues [send]; fires the real [MailRepository.sendEmail] after
-  /// [undoWindow] unless [cancel] is called first, and durably persists
-  /// [send] in the meantime (see class doc).
-  ///
-  /// [sendEmail]/[deleteDraft] default to [AppConfig.mailRepository]'s
-  /// methods and only need overriding in tests. [messenger], if given and
-  /// still mounted when the deferred send fails, surfaces a friendly error
-  /// — best effort, since compose is long gone by then and nothing else is
-  /// watching.
-  void enqueue(
+  /// Persist before showing undo or closing compose. A failed disk write
+  /// leaves the original compose screen intact.
+  Future<void> enqueue(
     PendingSend send, {
     SendEmail? sendEmail,
     Future<void> Function(String draftId)? deleteDraft,
     ScaffoldMessengerState? messenger,
-  }) {
+    String? replacesId,
+  }) async {
+    final store = await _store;
+    if (store.contains(send.id)) throw StateError('Send already queued');
+    store.save(
+      OutboxItem(
+        send: send,
+        status: OutboxStatus.pending,
+        undoUntil: DateTime.now().add(undoWindow),
+      ),
+      replacesId: replacesId,
+    );
     final doSend = sendEmail ?? AppConfig.mailRepository.sendEmail;
     final doDeleteDraft = deleteDraft ?? AppConfig.mailRepository.deleteDraft;
     final timer = Timer(undoWindow, () => unawaited(_fire(send.id)));
@@ -260,27 +228,40 @@ class PendingSendQueue with WidgetsBindingObserver {
       doDeleteDraft: doDeleteDraft,
       messenger: messenger,
     );
-    unawaited(_persistAll());
   }
 
   Future<void> _fire(String id) async {
     final entry = _entries.remove(id);
     if (entry == null) return;
-    unawaited(_persistAll());
-    await _dispatch(entry.send, entry.doSend, entry.doDeleteDraft, entry.messenger);
+    entry.timer.cancel();
+    await _dispatch(
+      entry.send,
+      entry.doSend,
+      entry.doDeleteDraft,
+      entry.messenger,
+    );
   }
 
-  /// Shared by the undo-window timer, [flushPending], and
-  /// [recoverPersisted]: actually calls [doSend], retires the originating
-  /// draft on success, and records an [OutboxFailure] (plus best-effort
-  /// SnackBar) on failure — the draft is simply never deleted in that case,
-  /// so it stays right where "Geri Al" would have restored it.
   Future<void> _dispatch(
     PendingSend send,
     SendEmail doSend,
     Future<void> Function(String draftId) doDeleteDraft,
     ScaffoldMessengerState? messenger,
   ) async {
+    if (!_inFlight.add(send.id)) return;
+    late final OutboxStore store;
+    try {
+      store = await _store;
+      store.updateStatus(send.id, OutboxStatus.sending);
+    } catch (error) {
+      _inFlight.remove(send.id);
+      if (messenger != null && messenger.mounted) {
+        messenger.showSnackBar(SnackBar(
+          content: Text('Giden Kutusu kaydedilemedi: ${friendlyErrorMessage(error)}'),
+        ));
+      }
+      rethrow;
+    }
     try {
       await doSend(
         to: send.to,
@@ -294,63 +275,67 @@ class PendingSendQueue with WidgetsBindingObserver {
         fromAccountId: send.fromAccountId,
         threadId: send.threadId,
         inReplyToId: send.inReplyToId,
+        idempotencyKey: send.idempotencyKey ?? send.id,
       );
-      final draftId = send.draftId;
-      if (draftId != null) {
+      store.remove(send.id);
+      if (send.draftId != null) {
         try {
-          await doDeleteDraft(draftId);
+          await doDeleteDraft(send.draftId!);
         } catch (_) {
-          // Sent already; a stale draft row is harmless and reconciles
-          // on the next refresh — same rationale as the old synchronous
-          // send flow.
+          // Delivery is confirmed; a stale draft is safer than resending.
         }
       }
-    } catch (e) {
+    } catch (error) {
+      final uncertain =
+          error is! SendBeforeDeliveryException &&
+          (error is! ApiException ||
+              error.isTransient ||
+              const [
+                'delivery_unknown',
+                'send_in_progress',
+                'idempotency_conflict',
+              ].contains(error.code));
+      store.updateStatus(
+        send.id,
+        uncertain ? OutboxStatus.uncertain : OutboxStatus.failed,
+        error: friendlyErrorMessage(error),
+      );
       if (messenger != null && messenger.mounted) {
         messenger.showSnackBar(
           SnackBar(
-            content: Text('Gönderilemedi: ${friendlyErrorMessage(e)}'),
+            content: Text(
+              uncertain
+                  ? 'Gönderim belirsiz. Giden Kutusu ve Gönderilenler’i kontrol edin.'
+                  : 'Gönderilemedi. Mesaj Giden Kutusu’nda saklandı.',
+            ),
           ),
         );
       }
-      await _recordOutboxFailure(send, e);
+    } finally {
+      _inFlight.remove(send.id);
     }
   }
 
-  /// Cancels a still-pending send (Geri Al). Returns false when it already
-  /// fired or was already cancelled.
   bool cancel(String id) {
-    final entry = _entries.remove(id);
-    if (entry == null) return false;
+    final entry = _entries[id];
+    if (entry == null || _loadedStore == null) return false;
+    _loadedStore!.remove(id);
     entry.timer.cancel();
-    unawaited(_persistAll());
+    _entries.remove(id);
     return true;
   }
 
-  /// Cancels every pending timer without sending — test teardown only.
   @visibleForTesting
   void cancelAll() {
     for (final entry in _entries.values) {
       entry.timer.cancel();
     }
     _entries.clear();
-    unawaited(_persistAll());
   }
 
-  /// Sends every still-counting-down pending send right now instead of
-  /// waiting for its timer, using the exact callbacks each was queued with.
-  /// Called when the app is about to leave the foreground (see
-  /// [didChangeAppLifecycleState]) so backgrounding never silently drops a
-  /// queued send — the whole point of the undo window is a few seconds of
-  /// visible countdown, not a place for mail to quietly vanish.
   Future<void> flushPending() async {
-    final ids = _entries.keys.toList();
-    for (final id in ids) {
-      final entry = _entries.remove(id);
-      if (entry == null) continue;
-      entry.timer.cancel();
-      unawaited(_persistAll());
-      await _dispatch(entry.send, entry.doSend, entry.doDeleteDraft, entry.messenger);
+    for (final id in _entries.keys.toList()) {
+      await _fire(id);
     }
   }
 
@@ -362,84 +347,90 @@ class PendingSendQueue with WidgetsBindingObserver {
     }
   }
 
-  // --- Durability across process death ---------------------------------
+  Future<List<OutboxItem>> items() async => (await _store).load();
 
-  Future<void> _persistAll() async {
-    final prefs = await SharedPreferences.getInstance();
-    if (_entries.isEmpty) {
-      await prefs.remove(_prefsKey);
-      return;
+  /// Only a confirmed pre-send failure is eligible for retry, with the same
+  /// payload and idempotency key. Unknown delivery requires manual inspection.
+  Future<void> retry(String id) async {
+    final items = await this.items();
+    final item = items.where((item) => item.send.id == id).single;
+    if (item.status != OutboxStatus.failed) {
+      throw StateError('Only failed sends may be retried');
     }
-    final json = jsonEncode([
-      for (final e in _entries.values) e.send.toJson(),
-    ]);
-    await prefs.setString(_prefsKey, json);
+    await _dispatch(
+      item.send,
+      AppConfig.mailRepository.sendEmail,
+      AppConfig.mailRepository.deleteDraft,
+      null,
+    );
   }
 
-  /// Recovers pending sends a previous run persisted but never finished —
-  /// the app was killed mid undo-window, or mid [flushPending] itself.
-  /// Best-effort: each is sent immediately; a failure is recorded as an
-  /// [OutboxFailure] instead of silently dropping the mail. Call once at
-  /// startup, after the session is restored (a pending send needs an
-  /// active account to resolve against — see
-  /// `_AuthGateState._setAuthenticated`).
-  ///
-  /// [sendEmail]/[deleteDraft] default to [AppConfig.mailRepository]'s
-  /// methods, same as [enqueue] — only overridden in tests.
+  Future<void> discard(String id) async {
+    final store = await _store;
+    if (_inFlight.contains(id)) {
+      throw StateError('An active send cannot be discarded');
+    }
+    final item = store.load().where((item) => item.send.id == id).single;
+    if (item.status == OutboxStatus.pending ||
+        item.status == OutboxStatus.sending) {
+      throw StateError('An active send cannot be discarded');
+    }
+    store.remove(id);
+  }
+
+  /// Import a previous version's pending messages before retiring its key.
   Future<void> recoverPersisted({
     SendEmail? sendEmail,
     Future<void> Function(String draftId)? deleteDraft,
   }) async {
+    final store = await _store;
     final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getString(_prefsKey);
-    if (raw == null) return;
-    // Claim immediately so a crash mid-recovery can't replay the same sends
-    // on the next launch too.
-    await prefs.remove(_prefsKey);
-    List<dynamic> decoded;
-    try {
-      decoded = jsonDecode(raw) as List;
-    } catch (_) {
-      return;
+    final raw = prefs.getString(_legacyPrefsKey);
+    if (raw != null) {
+      final existingIds = store.load().map((item) => item.send.id).toSet();
+      for (final value in jsonDecode(raw) as List<dynamic>) {
+        final json = value as Map<String, dynamic>;
+        json['idempotencyKey'] ??= nextId();
+        final send = PendingSend.fromJson(json);
+        if (existingIds.add(send.id)) {
+          store.save(
+            OutboxItem(
+              send: send,
+              status: OutboxStatus.pending,
+              undoUntil: DateTime.now(),
+            ),
+          );
+        }
+      }
+      await prefs.remove(_legacyPrefsKey);
     }
     final doSend = sendEmail ?? AppConfig.mailRepository.sendEmail;
     final doDeleteDraft = deleteDraft ?? AppConfig.mailRepository.deleteDraft;
-    for (final item in decoded) {
-      final send = PendingSend.fromJson(item as Map<String, dynamic>);
-      await _dispatch(send, doSend, doDeleteDraft, null);
+    for (final item in store.load()) {
+      if (_entries.containsKey(item.send.id) ||
+          _inFlight.contains(item.send.id)) {
+        continue;
+      }
+      if (item.status == OutboxStatus.sending) {
+        store.updateStatus(
+          item.send.id,
+          OutboxStatus.uncertain,
+          error: 'Önceki gönderimin sonucu bilinmiyor. Gönderilenler’i kontrol edin.',
+        );
+      } else if (item.status == OutboxStatus.pending) {
+        final remaining = item.undoUntil.difference(DateTime.now());
+        if (remaining.isNegative) {
+          await _dispatch(item.send, doSend, doDeleteDraft, null);
+        } else {
+          final timer = Timer(remaining, () => unawaited(_fire(item.send.id)));
+          _entries[item.send.id] = _PendingEntry(
+            timer: timer,
+            send: item.send,
+            doSend: doSend,
+            doDeleteDraft: doDeleteDraft,
+          );
+        }
+      }
     }
-  }
-
-  Future<void> _recordOutboxFailure(PendingSend send, Object error) async {
-    final prefs = await SharedPreferences.getInstance();
-    final existing = prefs.getStringList(_outboxErrorsKey) ?? const [];
-    final failure = OutboxFailure(
-      subject: send.subject,
-      to: send.to,
-      failedAt: DateTime.now(),
-      error: friendlyErrorMessage(error),
-    );
-    await prefs.setStringList(_outboxErrorsKey, [
-      ...existing,
-      jsonEncode(failure.toJson()),
-    ]);
-  }
-
-  /// Every outbox failure recorded since the last [clearOutboxErrors] —
-  /// meant to be surfaced as a SnackBar the next time a relevant screen
-  /// opens (see `_AuthGateState`). Not a full outbox UI — just enough that a
-  /// failed recovery/flush send is never silently swallowed.
-  static Future<List<OutboxFailure>> readOutboxErrors() async {
-    final prefs = await SharedPreferences.getInstance();
-    final raw = prefs.getStringList(_outboxErrorsKey) ?? const [];
-    return [
-      for (final item in raw)
-        OutboxFailure.fromJson(jsonDecode(item) as Map<String, dynamic>),
-    ];
-  }
-
-  static Future<void> clearOutboxErrors() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_outboxErrorsKey);
   }
 }

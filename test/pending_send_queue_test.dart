@@ -1,12 +1,16 @@
 import 'dart:convert';
+import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/models/email.dart';
+import 'package:kaydetmail/repositories/mail_repository.dart';
+import 'package:kaydetmail/services/api_exception.dart';
+import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Email _dummyEmail() => Email(
+Email _sent() => Email(
   id: 'sent-1',
   senderName: 'Me',
   senderEmail: 'me@example.com',
@@ -16,359 +20,247 @@ Email _dummyEmail() => Email(
   timestamp: DateTime(2024, 1, 1),
 );
 
+SendEmail _send(Future<Email> Function(String? key) action) =>
+    ({
+      required List<String> to,
+      List<String> cc = const [],
+      List<String> bcc = const [],
+      required String subject,
+      required String body,
+      String? bodyHtml,
+      List<Attachment> attachments = const [],
+      String? from,
+      String? fromAccountId,
+      String? threadId,
+      String? inReplyToId,
+      String? idempotencyKey,
+    }) => action(idempotencyKey);
+
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
-  tearDown(() => PendingSendQueue.instance.cancelAll());
 
-  testWidgets('enqueue fires the real send only after the undo window elapses', (
+  testWidgets('undo only cancels a persisted send before dispatch', (
     tester,
   ) async {
     await tester.pumpWidget(const SizedBox());
-    var sendCalls = 0;
-    List<String>? sentTo;
-
-    PendingSendQueue.instance.enqueue(
-      const PendingSend(id: 't1', to: ['a@b.com'], subject: 'S', body: 'B'),
-      sendEmail:
-          ({
-            required List<String> to,
-            List<String> cc = const [],
-            List<String> bcc = const [],
-            required String subject,
-            required String body,
-            String? bodyHtml,
-            List<Attachment> attachments = const [],
-            String? from,
-            String? fromAccountId,
-            String? threadId,
-            String? inReplyToId,
-          }) async {
-            sendCalls++;
-            sentTo = to;
-            return _dummyEmail();
-          },
+    final store = OutboxStore.inMemory();
+    final queue = PendingSendQueue.forTest(store);
+    var sent = 0;
+    await queue.enqueue(
+      const PendingSend(id: 'send-1', to: ['a@b.com'], subject: 'S', body: 'B'),
+      sendEmail: _send((_) async {
+        sent++;
+        return _sent();
+      }),
     );
-
-    expect(PendingSendQueue.instance.isPending('t1'), isTrue);
+    expect(store.load().single.send.body, 'B');
     await tester.pump(PendingSendQueue.undoWindow - const Duration(seconds: 1));
-    expect(sendCalls, 0, reason: 'must not send before the undo window elapses');
-
+    expect(sent, 0);
+    expect(queue.cancel('send-1'), isTrue);
     await tester.pump(const Duration(seconds: 2));
-    expect(sendCalls, 1);
-    expect(sentTo, ['a@b.com']);
-    expect(PendingSendQueue.instance.isPending('t1'), isFalse);
-  });
-
-  testWidgets('cancel prevents the deferred send from ever firing', (tester) async {
-    await tester.pumpWidget(const SizedBox());
-    var sendCalls = 0;
-    final id = PendingSendQueue.instance.nextId();
-
-    PendingSendQueue.instance.enqueue(
-      PendingSend(id: id, to: const ['a@b.com'], subject: 'S', body: 'B'),
-      sendEmail:
-          ({
-            required List<String> to,
-            List<String> cc = const [],
-            List<String> bcc = const [],
-            required String subject,
-            required String body,
-            String? bodyHtml,
-            List<Attachment> attachments = const [],
-            String? from,
-            String? fromAccountId,
-            String? threadId,
-            String? inReplyToId,
-          }) async {
-            sendCalls++;
-            return _dummyEmail();
-          },
-    );
-
-    expect(PendingSendQueue.instance.cancel(id), isTrue);
-    expect(
-      PendingSendQueue.instance.cancel(id),
-      isFalse,
-      reason: 'already cancelled — cancelling twice reports false',
-    );
-
-    await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
-    expect(sendCalls, 0);
-  });
-
-  testWidgets('the originating draft is deleted only once the deferred send succeeds', (
-    tester,
-  ) async {
-    await tester.pumpWidget(const SizedBox());
-    final deletedDrafts = <String>[];
-
-    PendingSendQueue.instance.enqueue(
-      const PendingSend(
-        id: 't3',
-        to: ['a@b.com'],
-        subject: 'S',
-        body: 'B',
-        draftId: 'd1',
-      ),
-      sendEmail:
-          ({
-            required List<String> to,
-            List<String> cc = const [],
-            List<String> bcc = const [],
-            required String subject,
-            required String body,
-            String? bodyHtml,
-            List<Attachment> attachments = const [],
-            String? from,
-            String? fromAccountId,
-            String? threadId,
-            String? inReplyToId,
-          }) async => _dummyEmail(),
-      deleteDraft: (draftId) async => deletedDrafts.add(draftId),
-    );
-
-    expect(deletedDrafts, isEmpty);
-    await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
-    expect(deletedDrafts, ['d1']);
+    expect(sent, 0);
+    expect(store.load(), isEmpty);
   });
 
   testWidgets(
-    'cancelling a send never touches the draft it was edited from',
+    'confirmed delivery clears the record and deletes the source draft',
     (tester) async {
       await tester.pumpWidget(const SizedBox());
-      final deletedDrafts = <String>[];
-      final id = PendingSendQueue.instance.nextId();
-
-      PendingSendQueue.instance.enqueue(
-        PendingSend(
-          id: id,
-          to: const ['a@b.com'],
+      final store = OutboxStore.inMemory();
+      final queue = PendingSendQueue.forTest(store);
+      final drafts = <String>[];
+      String? key;
+      await queue.enqueue(
+        const PendingSend(
+          id: 'send-2',
+          to: ['a@b.com'],
           subject: 'S',
           body: 'B',
-          draftId: 'd1',
+          draftId: 'draft-1',
         ),
-        sendEmail:
-            ({
-              required List<String> to,
-              List<String> cc = const [],
-              List<String> bcc = const [],
-              required String subject,
-              required String body,
-              String? bodyHtml,
-              List<Attachment> attachments = const [],
-              String? from,
-              String? fromAccountId,
-              String? threadId,
-              String? inReplyToId,
-            }) async => _dummyEmail(),
-        deleteDraft: (draftId) async => deletedDrafts.add(draftId),
+        sendEmail: _send((value) async {
+          key = value;
+          return _sent();
+        }),
+        deleteDraft: (id) async => drafts.add(id),
       );
-
-      PendingSendQueue.instance.cancel(id);
-      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
-      expect(deletedDrafts, isEmpty);
+      await tester.pump(PendingSendQueue.undoWindow);
+      expect(key, 'send-2');
+      expect(store.load(), isEmpty);
+      expect(drafts, ['draft-1']);
     },
   );
 
-  group('durability', () {
-    testWidgets('a queued send is written to durable storage the moment it is enqueued', (
-      tester,
-    ) async {
+  testWidgets(
+    'definite failure preserves the complete message and attachment bytes',
+    (tester) async {
       await tester.pumpWidget(const SizedBox());
-
-      PendingSendQueue.instance.enqueue(
-        const PendingSend(id: 'durable-1', to: ['a@b.com'], subject: 'S', body: 'B'),
-        sendEmail:
-            ({
-              required List<String> to,
-              List<String> cc = const [],
-              List<String> bcc = const [],
-              required String subject,
-              required String body,
-              String? bodyHtml,
-              List<Attachment> attachments = const [],
-              String? from,
-              String? fromAccountId,
-              String? threadId,
-              String? inReplyToId,
-            }) async => _dummyEmail(),
+      final store = OutboxStore.inMemory();
+      final queue = PendingSendQueue.forTest(store);
+      final bytes = Uint8List.fromList([1, 2, 3, 4]);
+      await queue.enqueue(
+        PendingSend(
+          id: 'send-3',
+          to: const ['a@b.com'],
+          cc: const ['cc@b.com'],
+          subject: 'S',
+          body: 'Important body',
+          bodyHtml: '<p>Important body</p>',
+          attachments: [
+            Attachment(name: 'file.bin', sizeBytes: 4, bytes: bytes),
+          ],
+        ),
+        sendEmail: _send(
+          (_) async =>
+              throw const ApiException(status: 400, code: 'invalid_recipient'),
+        ),
       );
-      // Let the persistence write-behind (fire-and-forget inside enqueue)
-      // actually land before reading it back.
-      await tester.pump();
+      await queue.flushPending();
+      final item = store.load().single;
+      expect(item.status, OutboxStatus.failed);
+      expect(item.send.body, 'Important body');
+      expect(item.send.cc, ['cc@b.com']);
+      expect(item.send.bodyHtml, '<p>Important body</p>');
+      expect(item.send.attachments.single.bytes, orderedEquals(bytes));
+    },
+  );
 
-      final prefs = await SharedPreferences.getInstance();
-      final raw = prefs.getString('pending_send_queue_v1');
-      expect(raw, isNotNull);
-      final decoded = jsonDecode(raw!) as List;
-      expect(decoded.single['id'], 'durable-1');
-      expect(decoded.single['subject'], 'S');
-
-      PendingSendQueue.instance.cancel('durable-1');
-    });
-
-    testWidgets('cancelling or completing a send removes it from durable storage', (
-      tester,
-    ) async {
-      await tester.pumpWidget(const SizedBox());
-
-      PendingSendQueue.instance.enqueue(
-        const PendingSend(id: 'durable-2', to: ['a@b.com'], subject: 'S', body: 'B'),
-        sendEmail:
-            ({
-              required List<String> to,
-              List<String> cc = const [],
-              List<String> bcc = const [],
-              required String subject,
-              required String body,
-              String? bodyHtml,
-              List<Attachment> attachments = const [],
-              String? from,
-              String? fromAccountId,
-              String? threadId,
-              String? inReplyToId,
-            }) async => _dummyEmail(),
-      );
-      await tester.pump();
-
-      PendingSendQueue.instance.cancel('durable-2');
-      await tester.pump();
-
-      final prefs = await SharedPreferences.getInstance();
-      expect(prefs.getString('pending_send_queue_v1'), isNull);
-    });
-
-    testWidgets(
-      'a pending send left in storage by a killed run is recovered and sent on next startup',
-      (tester) async {
-        await tester.pumpWidget(const SizedBox());
-        // Simulates a previous run that enqueued this send, wrote it to
-        // disk, and was killed before its undo-window timer (or its own
-        // recovery) ever fired — no corresponding in-memory timer exists in
-        // this fresh process, only the durable record.
-        const killed = PendingSend(
-          id: 'killed-1',
-          to: ['a@b.com'],
-          subject: 'Kill sırasında bekleyen',
-          body: 'B',
-          draftId: 'd-killed',
-        );
-        SharedPreferences.setMockInitialValues({
-          'pending_send_queue_v1': jsonEncode([killed.toJson()]),
-        });
-
-        var sendCalls = 0;
-        List<String>? sentSubject;
-        final deletedDrafts = <String>[];
-
-        await PendingSendQueue.instance.recoverPersisted(
-          sendEmail:
-              ({
-                required List<String> to,
-                List<String> cc = const [],
-                List<String> bcc = const [],
-                required String subject,
-                required String body,
-                String? bodyHtml,
-                List<Attachment> attachments = const [],
-                String? from,
-                String? fromAccountId,
-                String? threadId,
-                String? inReplyToId,
-              }) async {
-                sendCalls++;
-                sentSubject = [subject];
-                return _dummyEmail();
-              },
-          deleteDraft: (draftId) async => deletedDrafts.add(draftId),
-        );
-
-        expect(sendCalls, 1, reason: 'the killed-run send must be recovered, not lost');
-        expect(sentSubject, ['Kill sırasında bekleyen']);
-        expect(deletedDrafts, ['d-killed']);
-
-        final prefs = await SharedPreferences.getInstance();
-        expect(
-          prefs.getString('pending_send_queue_v1'),
-          isNull,
-          reason: 'recovered sends must not be replayed on a later recovery too',
-        );
-      },
+  testWidgets('confirmed pre-delivery failure remains safely retryable', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const SizedBox());
+    final store = OutboxStore.inMemory();
+    final queue = PendingSendQueue.forTest(store);
+    await queue.enqueue(
+      const PendingSend(
+        id: 'send-not-delivered',
+        to: ['a@b.com'],
+        subject: 'S',
+        body: 'B',
+      ),
+      sendEmail: _send((_) async => throw const SendBeforeDeliveryException()),
     );
+    await queue.flushPending();
+    expect(store.load().single.status, OutboxStatus.failed);
+    expect(store.load().single.send.body, 'B');
+  });
 
-    testWidgets(
-      'a recovery failure is recorded as an outbox error instead of being swallowed',
-      (tester) async {
-        await tester.pumpWidget(const SizedBox());
-        const killed = PendingSend(
-          id: 'killed-2',
-          to: ['a@b.com'],
-          subject: 'Başarısız kurtarma',
-          body: 'B',
-        );
-        SharedPreferences.setMockInitialValues({
-          'pending_send_queue_v1': jsonEncode([killed.toJson()]),
-        });
-
-        await PendingSendQueue.instance.recoverPersisted(
-          sendEmail:
-              ({
-                required List<String> to,
-                List<String> cc = const [],
-                List<String> bcc = const [],
-                required String subject,
-                required String body,
-                String? bodyHtml,
-                List<Attachment> attachments = const [],
-                String? from,
-                String? fromAccountId,
-                String? threadId,
-                String? inReplyToId,
-              }) async => throw Exception('network down'),
-          deleteDraft: (draftId) async {},
-        );
-
-        final failures = await PendingSendQueue.readOutboxErrors();
-        expect(failures, hasLength(1));
-        expect(failures.single.subject, 'Başarısız kurtarma');
-
-        await PendingSendQueue.clearOutboxErrors();
-        expect(await PendingSendQueue.readOutboxErrors(), isEmpty);
-      },
+  testWidgets('timeout or interrupted delivery is never retried on recovery', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const SizedBox());
+    final store = OutboxStore.inMemory();
+    final queue = PendingSendQueue.forTest(store);
+    var calls = 0;
+    await queue.enqueue(
+      const PendingSend(id: 'send-4', to: ['a@b.com'], subject: 'S', body: 'B'),
+      sendEmail: _send((_) async {
+        calls++;
+        throw const ApiException(status: 408, code: 'request_timeout');
+      }),
     );
+    await queue.flushPending();
+    expect(store.load().single.status, OutboxStatus.uncertain);
+    final restarted = PendingSendQueue.forTest(store);
+    await restarted.recoverPersisted(
+      sendEmail: _send((_) async {
+        calls++;
+        return _sent();
+      }),
+    );
+    expect(calls, 1);
+    expect(store.load().single.status, OutboxStatus.uncertain);
+    await expectLater(restarted.retry('send-4'), throwsStateError);
+  });
 
-    testWidgets('flushPending sends every still-counting-down entry immediately', (
-      tester,
-    ) async {
+  testWidgets('a killed in-flight send is marked uncertain, not replayed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const SizedBox());
+    final store = OutboxStore.inMemory();
+    store.save(
+      OutboxItem(
+        send: const PendingSend(
+          id: 'send-5',
+          to: ['a@b.com'],
+          subject: 'S',
+          body: 'B',
+        ),
+        status: OutboxStatus.sending,
+        undoUntil: DateTime.now(),
+      ),
+    );
+    var calls = 0;
+    await PendingSendQueue.forTest(store).recoverPersisted(
+      sendEmail: _send((_) async {
+        calls++;
+        return _sent();
+      }),
+    );
+    expect(calls, 0);
+    expect(store.load().single.status, OutboxStatus.uncertain);
+  });
+
+  testWidgets(
+    'editing a failed send atomically replaces it with a new pending send',
+    (tester) async {
       await tester.pumpWidget(const SizedBox());
-      var sendCalls = 0;
-
-      PendingSendQueue.instance.enqueue(
-        const PendingSend(id: 'flush-1', to: ['a@b.com'], subject: 'S', body: 'B'),
-        sendEmail:
-            ({
-              required List<String> to,
-              List<String> cc = const [],
-              List<String> bcc = const [],
-              required String subject,
-              required String body,
-              String? bodyHtml,
-              List<Attachment> attachments = const [],
-              String? from,
-              String? fromAccountId,
-              String? threadId,
-              String? inReplyToId,
-            }) async {
-              sendCalls++;
-              return _dummyEmail();
-            },
+      final store = OutboxStore.inMemory();
+      store.save(
+        OutboxItem(
+          send: const PendingSend(
+            id: 'old',
+            to: ['a@b.com'],
+            subject: 'Old',
+            body: 'B',
+          ),
+          status: OutboxStatus.failed,
+          undoUntil: DateTime.now(),
+        ),
       );
+      final queue = PendingSendQueue.forTest(store);
+      await queue.enqueue(
+        const PendingSend(
+          id: 'new',
+          to: ['b@c.com'],
+          subject: 'Edited',
+          body: 'New',
+        ),
+        replacesId: 'old',
+        sendEmail: _send((_) async => _sent()),
+      );
+      expect(store.load().single.send.subject, 'Edited');
+      expect(store.contains('old'), isFalse);
+      queue.cancelAll();
+    },
+  );
 
-      expect(PendingSendQueue.instance.isPending('flush-1'), isTrue);
-      await PendingSendQueue.instance.flushPending();
-
-      expect(sendCalls, 1, reason: 'backgrounding must not wait out the undo window');
-      expect(PendingSendQueue.instance.isPending('flush-1'), isFalse);
+  testWidgets('legacy persisted send migrates before being dispatched', (
+    tester,
+  ) async {
+    await tester.pumpWidget(const SizedBox());
+    final store = OutboxStore.inMemory();
+    const legacy = PendingSend(
+      id: 'old-id',
+      to: ['a@b.com'],
+      subject: 'Legacy',
+      body: 'Saved body',
+    );
+    SharedPreferences.setMockInitialValues({
+      'pending_send_queue_v1': jsonEncode([legacy.toJson()]),
     });
+    final queue = PendingSendQueue.forTest(store);
+    String? key;
+    await queue.recoverPersisted(
+      sendEmail: _send((value) async {
+        key = value;
+        return _sent();
+      }),
+    );
+    expect(key, isNotNull);
+    expect(key, isNot('old-id'));
+    expect(store.load(), isEmpty);
+    final prefs = await SharedPreferences.getInstance();
+    expect(prefs.getString('pending_send_queue_v1'), isNull);
   });
 }
