@@ -985,6 +985,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
                                 tooltip: 'Cc / Bcc ekle',
                                 padding: EdgeInsets.zero,
                                 enabled: !_sending,
+                                style: IconButton.styleFrom(
+                                  minimumSize: const Size(32, 32),
+                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                ),
                                 icon: Icon(
                                   LucideIcons.chevronDown,
                                   size: 18,
@@ -1260,8 +1264,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       enabled: enabled,
                       onDeleted: () => onRemove(recipient),
                     ),
-                  SizedBox(
-                    width: 140,
+                  ConstrainedBox(
+                    constraints: const BoxConstraints(minWidth: 120),
                     child: TextField(
                       key: fieldKey,
                       controller: inputController,
