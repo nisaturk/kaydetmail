@@ -230,9 +230,6 @@ void main() {
         await tester.pumpWidget(
           harness(sentEmail(answered: false, timestamp: old)),
         );
-        // MailRepository.unansweredReminderEnabled is off for now (product
-        // decision) — see mail_repository.dart. Flip it to re-enable and
-        // this assertion flips to findsOneWidget.
         expect(find.text('Yanıt bekliyor'), findsNothing);
       },
     );
