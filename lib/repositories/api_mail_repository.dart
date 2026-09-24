@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models/email.dart';
 import '../models/mail_account.dart';
+import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
@@ -74,6 +75,14 @@ class _Session {
   /// Scheduled sends known for this account, soonest first. Populated by
   /// [ApiMailRepository.refreshScheduledSends].
   List<ScheduledSend> scheduledSends = [];
+
+  /// Non-standard IMAP folders reported for this account by the last
+  /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
+  /// every login, since most accounts never open the custom-folders screen.
+  List<ApiMailFolder> customFolders = [];
+  final Map<String, List<Email>> customFolderEmails = {};
+  final Map<String, int> customFolderPages = {};
+  final Map<String, bool> customFolderHasMore = {};
 
   // Debounced whole-mailbox cache write-behind, mirrored per account so one
   // account's writes never race another's.
@@ -1690,6 +1699,106 @@ class ApiMailRepository extends MailRepository {
     );
     notifyListeners();
   }
+
+  // --- Custom folders -------------------------------------------------
+
+  _Session _sessionForAccountId(String accountId) {
+    final session = _sessions[accountId];
+    if (session == null) {
+      throw ArgumentError('Unknown account for custom folders: $accountId');
+    }
+    return session;
+  }
+
+  @override
+  List<MailCustomFolder> getCustomFolders() {
+    final result = <MailCustomFolder>[
+      for (final session in _scopedSessions)
+        for (final f in session.customFolders)
+          MailCustomFolder(
+            accountId: session.account.id,
+            folderId: f.id,
+            name: f.name,
+            fullName: f.fullName,
+            isSyncEnabled: f.isSyncEnabled,
+            unreadCount: f.unreadCount,
+            totalCount: f.totalCount,
+          ),
+    ]..sort((a, b) => a.fullName.compareTo(b.fullName));
+    return result;
+  }
+
+  @override
+  Future<void> refreshCustomFolders() async {
+    await Future.wait(
+      _scopedSessions.map((session) async {
+        final folders = await session.mailService.getFolders();
+        session.customFolders = folders
+            .where((f) => f.type == 'Custom' && f.isAvailable)
+            .toList();
+      }),
+    );
+    notifyListeners();
+  }
+
+  @override
+  Future<List<Email>> getCustomFolderMails({
+    required String accountId,
+    required String folderId,
+  }) => _fetchCustomFolderPage(
+    session: _sessionForAccountId(accountId),
+    folderId: folderId,
+    page: 1,
+  );
+
+  @override
+  bool hasMoreCustomFolderMails(String accountId, String folderId) =>
+      _sessionForAccountId(accountId).customFolderHasMore[folderId] ?? false;
+
+  @override
+  Future<List<Email>> loadMoreCustomFolderMails({
+    required String accountId,
+    required String folderId,
+  }) {
+    final session = _sessionForAccountId(accountId);
+    if (session.customFolderHasMore[folderId] == false) {
+      return Future.value(session.customFolderEmails[folderId] ?? const []);
+    }
+    final nextPage = (session.customFolderPages[folderId] ?? 0) + 1;
+    return _fetchCustomFolderPage(
+      session: session,
+      folderId: folderId,
+      page: nextPage,
+    );
+  }
+
+  Future<List<Email>> _fetchCustomFolderPage({
+    required _Session session,
+    required String folderId,
+    required int page,
+  }) async {
+    final result = await session.mailService.getMails(
+      folderId: folderId,
+      resolveFolder: session.resolveFolder,
+      page: page,
+    );
+    final fetched = result.items.map(session.stampLocalFlags).toList();
+    session.customFolderPages[folderId] = page;
+    session.customFolderHasMore[folderId] =
+        page * result.pageSize < result.total;
+    final accumulated = page == 1
+        ? fetched
+        : [...?session.customFolderEmails[folderId], ...fetched];
+    session.customFolderEmails[folderId] = accumulated;
+    notifyListeners();
+    return accumulated;
+  }
+
+  @override
+  Future<void> syncCustomFolder({
+    required String accountId,
+    required String folderId,
+  }) => _sessionForAccountId(accountId).mailService.syncFolderId(folderId);
 
   /// Tail of the draft write queue — see [_serializeDraftWrite].
   Future<void> _draftWrites = Future.value();
