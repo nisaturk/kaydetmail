@@ -88,8 +88,11 @@ class ApiMailService {
             id: item['id'] as String,
             mailAccountId: item['mailAccountId'] as String,
             name: item['name'] as String,
+            fullName: item['fullName'] as String? ?? item['name'] as String,
             type: item['folderType'] as String,
             unreadCount: (item['unreadCount'] as num?)?.toInt(),
+            totalCount: (item['totalCount'] as num?)?.toInt(),
+            isSyncEnabled: item['isSyncEnabled'] as bool? ?? false,
             isAvailable: item['isAvailable'] as bool? ?? true,
           ),
         )
@@ -920,18 +923,31 @@ class ApiMailFolder {
     required this.id,
     required this.mailAccountId,
     required this.name,
+    String? fullName,
     required this.type,
     this.unreadCount,
+    this.totalCount,
+    this.isSyncEnabled = false,
     this.isAvailable = true,
-  });
+  }) : fullName = fullName ?? name;
 
   final String id;
   final String mailAccountId;
   final String name;
+
+  /// Full IMAP path (e.g. `Projeler/Arşiv`).
+  final String fullName;
   final String type;
 
   /// Server-side count (deleted mails excluded); null when the backend omits it.
   final int? unreadCount;
+
+  /// Total live mail count; null when the backend omits it.
+  final int? totalCount;
+
+  /// Whether this folder is included in the backend's periodic background
+  /// sync (Inbox/Sent by default).
+  final bool isSyncEnabled;
 
   /// `false` means the folder was deleted on the mail server — hide it.
   final bool isAvailable;

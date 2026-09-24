@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../models/email.dart';
 import '../models/mail_account.dart';
+import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
@@ -446,4 +447,42 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Re-fetches the scheduled-send list from the backend.
   Future<void> refreshScheduledSends() async {}
+
+  // --- Custom folders -------------------------------------------------
+
+  /// Non-standard IMAP folders across every account in the active mailbox
+  /// scope — distinct from [MailFolder]'s fixed set and from virtual
+  /// groupings like starred/pinned. Populated by [refreshCustomFolders].
+  List<MailCustomFolder> getCustomFolders() => const [];
+
+  /// Re-fetches the custom folder list for every account in scope.
+  Future<void> refreshCustomFolders() async {}
+
+  /// One page of mail from one custom folder, newest first. Independent of
+  /// the [MailFolder]-keyed paging used elsewhere — custom folders are
+  /// browsed directly by (accountId, folderId), not through a logical
+  /// folder. Throws [ArgumentError] for an unknown accountId.
+  Future<List<Email>> getCustomFolderMails({
+    required String accountId,
+    required String folderId,
+  }) async => const [];
+
+  /// Whether another page exists for [folderId] after the last
+  /// [getCustomFolderMails] call.
+  bool hasMoreCustomFolderMails(String accountId, String folderId) => false;
+
+  /// Loads the next page into the same folder's cache; returns the full
+  /// accumulated list so far, like [getCustomFolderMails].
+  Future<List<Email>> loadMoreCustomFolderMails({
+    required String accountId,
+    required String folderId,
+  }) async => const [];
+
+  /// Requests a server sync of one custom folder and waits for it to
+  /// finish — same job-based contract as [syncFolder]. Callers must
+  /// re-fetch with [getCustomFolderMails] afterwards.
+  Future<void> syncCustomFolder({
+    required String accountId,
+    required String folderId,
+  }) async {}
 }

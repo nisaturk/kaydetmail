@@ -15,6 +15,7 @@ import '../widgets/label_picker_sheet.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
+import 'custom_folders_screen.dart';
 import 'inbox_screen.dart';
 import 'mail_detail_screen.dart';
 import 'outbox_screen.dart';
@@ -128,6 +129,13 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_isRailLayout) Navigator.of(context).pop();
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const OutboxScreen()));
+  }
+
+  void _openCustomFolders() {
+    if (!_isRailLayout) Navigator.of(context).pop();
+    Navigator.of(
+      context,
+    ).push(MaterialPageRoute(builder: (_) => const CustomFoldersScreen()));
   }
 
   void _showMailboxSelector() {
@@ -471,6 +479,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onOpenAccounts: _openAccounts,
           onOpenScheduledSends: _openScheduledSends,
           onOpenOutbox: _openOutbox,
+          onOpenCustomFolders: _openCustomFolders,
         );
         return Scaffold(
           appBar: _selection.isActive

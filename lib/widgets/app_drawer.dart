@@ -21,6 +21,7 @@ class AppDrawer extends StatelessWidget {
     required this.onOpenAccounts,
     required this.onOpenScheduledSends,
     required this.onOpenOutbox,
+    required this.onOpenCustomFolders,
   });
 
   final MailFolder selectedFolder;
@@ -30,6 +31,7 @@ class AppDrawer extends StatelessWidget {
   final VoidCallback onOpenAccounts;
   final VoidCallback onOpenScheduledSends;
   final VoidCallback onOpenOutbox;
+  final VoidCallback onOpenCustomFolders;
 
   @override
   Widget build(BuildContext context) {
@@ -116,6 +118,11 @@ class AppDrawer extends StatelessWidget {
                     icon: LucideIcons.send,
                     label: 'Giden Kutusu',
                     onTap: onOpenOutbox,
+                  ),
+                  _SectionTile(
+                    icon: LucideIcons.folder,
+                    label: 'Diğer Klasörler',
+                    onTap: onOpenCustomFolders,
                   ),
                   _SectionTile(
                     icon: LucideIcons.settings,
