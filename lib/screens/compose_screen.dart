@@ -679,11 +679,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final messenger = ScaffoldMessenger.of(context);
     PendingSendQueue.instance.enqueue(pending, messenger: messenger);
 
-    messenger.showSnackBar(
+    final controller = messenger.showSnackBar(
       SnackBar(
         key: const Key('undo-send-snackbar'),
         duration: PendingSendQueue.undoWindow,
-        content: const _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
+        content: _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
         action: SnackBarAction(
           label: 'Geri Al',
           onPressed: () {
@@ -708,6 +708,27 @@ class _ComposeScreenState extends State<ComposeScreen> {
           },
         ),
       ),
+    );
+    // The SnackBar's own `duration` timer nominally auto-dismisses it at
+    // the same instant, but that timer can get lost across the route
+    // changes this app does while the undo window is still counting down
+    // (compose pops immediately on send) — explicitly closing this specific
+    // controller means "0 sn" is never left stuck on screen. Using this
+    // controller (not `messenger.hideCurrentSnackBar()`) means it can never
+    // rip away a *different* SnackBar that has since taken its place — e.g.
+    // the "Gönderilemedi" failure one `PendingSendQueue._dispatch` can show
+    // at the very same instant the undo window elapses. And since the
+    // passive `duration` dismissal usually *does* still fire right at that
+    // same instant, `ScaffoldMessengerState` can throw closing an
+    // already-removed SnackBar a second time — harmless, so swallowed.
+    unawaited(
+      Future<void>.delayed(PendingSendQueue.undoWindow, () {
+        try {
+          controller.close();
+        } catch (_) {
+          // Already gone.
+        }
+      }),
     );
 
     navigator.pop(true);
@@ -1469,8 +1490,9 @@ class _AttachmentRow extends StatelessWidget {
 
 /// Live "N sn içinde gönderilecek" countdown shown inside the undo-send
 /// SnackBar. Purely cosmetic — the actual send fires from
-/// [PendingSendQueue]'s own timer, matching [PendingSendQueue.undoWindow];
-/// this only mirrors it visually.
+/// [PendingSendQueue]'s own timer, and the SnackBar itself is dismissed by
+/// the controller `_ComposeScreenState._send` captured from `showSnackBar`,
+/// both on [PendingSendQueue.undoWindow]; this only mirrors it visually.
 class _UndoSendSnackContent extends StatefulWidget {
   const _UndoSendSnackContent({required this.duration});
 
