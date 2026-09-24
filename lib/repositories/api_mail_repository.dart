@@ -1017,8 +1017,10 @@ class ApiMailRepository extends MailRepository {
   /// Sent items open past [MailRepository.unansweredReminderThreshold] with
   /// no inbound reply float to the top of the Sent view (below pinned) —
   /// same age gate as the "Yanıtlanmadı" badge in `MailListItem`, so the
-  /// sort order and the badge never disagree.
+  /// sort order and the badge never disagree. Gated by
+  /// [MailRepository.unansweredReminderEnabled], currently off.
   static bool _isStaleUnanswered(Email email) =>
+      MailRepository.unansweredReminderEnabled &&
       !email.isAnswered &&
       DateTime.now().difference(email.timestamp) >
           MailRepository.unansweredReminderThreshold;

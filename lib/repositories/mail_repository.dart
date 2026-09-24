@@ -58,6 +58,12 @@ abstract class MailRepository extends ChangeNotifier {
   /// Unpinning frees a slot again.
   static const int maxPinnedMails = 3;
 
+  /// Master switch for the "Yanıt bekliyor"/"Yanıtlanmadı" nudge (badge +
+  /// Sent-folder stale sort) — off for now per product decision, without
+  /// deleting the feature: flip back to `true` to re-enable everywhere,
+  /// see `MailListItem._needsReply` and `ApiMailRepository._isStaleUnanswered`.
+  static const bool unansweredReminderEnabled = false;
+
   /// Age past which an Inbox mail with no reply, or a Sent mail with no
   /// reply received, earns the "Yanıt bekliyor"/"Yanıtlanmadı" nudge — see
   /// `MailListItem._needsReply` and `ApiMailRepository`'s Sent-folder sort.

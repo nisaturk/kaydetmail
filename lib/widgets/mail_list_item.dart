@@ -69,6 +69,7 @@ class MailListItem extends StatelessWidget {
   static const Duration _nudgeThreshold = MailRepository.unansweredReminderThreshold;
 
   bool get _needsReply {
+    if (!MailRepository.unansweredReminderEnabled) return false;
     if (DateTime.now().difference(email.timestamp) <= _nudgeThreshold) {
       return false;
     }
