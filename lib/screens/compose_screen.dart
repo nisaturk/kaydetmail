@@ -129,7 +129,12 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
 /// - **Undo send**: "Gönder" doesn't call `MailRepository.sendEmail`
 ///   directly — it hands the fields to [PendingSendQueue], which holds them
 ///   for a few seconds (with a "Geri Al" SnackBar) before the real send
-///   fires, and pops this screen immediately. See `_send`.
+///   fires, and pops this screen immediately. See `_send`, which closes the
+///   captured `SnackBar` controller itself once the window elapses (the
+///   SnackBar's own passive `duration` dismissal doesn't reliably survive
+///   the route changes this app does mid-countdown) — closing that specific
+///   controller rather than "whatever's current" so a same-instant
+///   `PendingSendQueue` failure SnackBar is never wrongly dismissed with it.
 /// - **Zamanla**: the small chevron next to "Gönder" offers scheduling
 ///   through `MailRepository.scheduleSend` with a date/time picker instead.
 ///   See `_scheduleSend`.
@@ -679,11 +684,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final messenger = ScaffoldMessenger.of(context);
     PendingSendQueue.instance.enqueue(pending, messenger: messenger);
 
-    messenger.showSnackBar(
+    final controller = messenger.showSnackBar(
       SnackBar(
         key: const Key('undo-send-snackbar'),
         duration: PendingSendQueue.undoWindow,
-        content: const _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
+        content: _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
         action: SnackBarAction(
           label: 'Geri Al',
           onPressed: () {
@@ -708,6 +713,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
           },
         ),
       ),
+    );
+    unawaited(
+      Future<void>.delayed(PendingSendQueue.undoWindow, () {
+        try {
+          controller.close();
+        } catch (_) {
+          // Already gone.
+        }
+      }),
     );
 
     navigator.pop(true);
@@ -1469,8 +1483,9 @@ class _AttachmentRow extends StatelessWidget {
 
 /// Live "N sn içinde gönderilecek" countdown shown inside the undo-send
 /// SnackBar. Purely cosmetic — the actual send fires from
-/// [PendingSendQueue]'s own timer, matching [PendingSendQueue.undoWindow];
-/// this only mirrors it visually.
+/// [PendingSendQueue]'s own timer, and the SnackBar itself is dismissed by
+/// the controller `_ComposeScreenState._send` captured from `showSnackBar`,
+/// both on [PendingSendQueue.undoWindow]; this only mirrors it visually.
 class _UndoSendSnackContent extends StatefulWidget {
   const _UndoSendSnackContent({required this.duration});
 

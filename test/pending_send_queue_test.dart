@@ -50,7 +50,7 @@ void main() {
     );
 
     expect(PendingSendQueue.instance.isPending('t1'), isTrue);
-    await tester.pump(const Duration(seconds: 7));
+    await tester.pump(PendingSendQueue.undoWindow - const Duration(seconds: 1));
     expect(sendCalls, 0, reason: 'must not send before the undo window elapses');
 
     await tester.pump(const Duration(seconds: 2));

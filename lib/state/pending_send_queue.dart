@@ -220,7 +220,7 @@ class PendingSendQueue with WidgetsBindingObserver {
 
   static final PendingSendQueue instance = PendingSendQueue._();
 
-  static const Duration undoWindow = Duration(seconds: 8);
+  static const Duration undoWindow = Duration(seconds: 5);
 
   static const String _prefsKey = 'pending_send_queue_v1';
   static const String _outboxErrorsKey = 'pending_send_outbox_errors_v1';
