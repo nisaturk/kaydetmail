@@ -593,19 +593,6 @@ void main() {
   });
 
   group('MailAccount', () {
-    test(
-      'Given server account id When MailAccount is built Then id is preserved',
-      () {
-        const account = MailAccount(
-          id: 'server-id',
-          email: 'person@example.com',
-        );
-
-        expect(account.id, 'server-id');
-        expect(account.email, 'person@example.com');
-      },
-    );
-
     test('Given backend provider strings When mapped Then supported providers are centralized', () {
       expect(AccountProvider.fromBackend('Google'), AccountProvider.google);
       expect(

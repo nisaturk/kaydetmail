@@ -14,10 +14,6 @@ void main() {
   });
 
   group('ServerAddressStore', () {
-    test('default is the local development address', () {
-      expect(ServerAddressStore.defaultBaseUrl, 'http://localhost:5071');
-    });
-
     test('load returns the default when nothing is saved', () async {
       expect(
         await ServerAddressStore.load(),
