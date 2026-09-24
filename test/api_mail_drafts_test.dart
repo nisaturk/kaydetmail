@@ -352,6 +352,7 @@ class _RecordingMailService extends ApiMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async => const DraftResult(created: true, mailId: 'draft-old');
@@ -364,6 +365,7 @@ class _RecordingMailService extends ApiMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async => const DraftResult(created: false, mailId: 'draft-new');
@@ -398,6 +400,7 @@ class _VersioningMailService extends _RecordingMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async {
@@ -421,6 +424,7 @@ class _PendingUpdateMailService extends _RecordingMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async => const DraftResult(created: false, mailId: null);

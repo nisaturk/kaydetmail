@@ -63,6 +63,13 @@ class LocalMailFlagsStore {
   Future<Set<String>> readRepliedThreads() => _read('replied_threads');
   Future<Set<String>> readForwardedThreads() => _read('forwarded_threads');
 
+  /// ThreadId-keyed set of Sent-folder conversations that have received an
+  /// inbound reply — the mirror direction of [readRepliedThreads]: that one
+  /// marks a thread the user replied *into*, this one marks a thread the
+  /// user *sent* that got answered back. Powers the Sent-folder
+  /// "Yanıtlanmadı" nudge in `MailListItem`. See
+  /// `ApiMailRepository._markSentThreadsAnswered`.
+  Future<Set<String>> readAnsweredThreads() => _read('answered_threads');
   Future<void> writePinned(Set<String> ids) async => _write('pinned', ids);
   Future<void> writeReplied(Set<String> ids) async => _write('replied', ids);
   Future<void> writeForwarded(Set<String> ids) async =>
@@ -71,6 +78,8 @@ class LocalMailFlagsStore {
       _write('replied_threads', ids);
   Future<void> writeForwardedThreads(Set<String> ids) async =>
       _write('forwarded_threads', ids);
+  Future<void> writeAnsweredThreads(Set<String> ids) async =>
+      _write('answered_threads', ids);
 
   Future<List<Map<String, dynamic>>> readLabelDefs() async => [
     for (final r in _db.select(

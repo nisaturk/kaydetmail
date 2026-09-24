@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
+import '../services/mail_rules_engine.dart';
 import '../state/app_settings_controller.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
@@ -253,6 +255,10 @@ class _InboxScreenState extends State<InboxScreen>
       // Fall through to the reload — the current snapshot still shows.
     }
     await _repo.refreshEmails(widget.folder);
+    // Manual refresh is one of the three refresh paths rules/the home
+    // widget must react to (see `MailRulesEngine.runAfterSync`) — periodic
+    // sync and push-triggered refresh already funnel through it.
+    unawaited(MailRulesEngine.runAfterSync(_repo));
   }
 
   void _onScroll() {

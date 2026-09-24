@@ -1,8 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!-- Layout for MailWidgetProvider: KAYDET wordmark + unread count on one
      row, followed by up to three single-line recent inbox subject/sender
-     rows. Values are populated in MailWidgetProvider.onUpdate from the
-     SharedPreferences written by HomeWidgetService (lib/services/home_widget_service.dart). -->
+     rows, and a "Yaz" compose shortcut row. Values are populated in
+     MailWidgetProvider.onUpdate from the SharedPreferences written by
+     HomeWidgetService (lib/services/home_widget_service.dart). The compose
+     row has its own click target (mail_widget_compose_button) separate
+     from mail_widget_root's — tapping it launches straight into Compose,
+     everywhere else still just opens the app. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/mail_widget_root"
@@ -70,4 +74,43 @@
         android:textSize="12sp"
         android:textColor="#6B7280"
         tools:text="Destek — Hesabınız doğrulandı" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="end">
+
+        <LinearLayout
+            android:id="@+id/mail_widget_compose_button"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:background="@drawable/mail_widget_compose_button_background"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:paddingTop="8dp"
+            android:paddingBottom="8dp"
+            android:contentDescription="Yeni e-posta yaz">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginEnd="6dp"
+                android:importantForAccessibility="no"
+                android:text="✎"
+                android:textColor="#FFFFFF"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Yaz"
+                android:textColor="#FFFFFF"
+                android:textSize="13sp"
+                android:textStyle="bold" />
+        </LinearLayout>
+    </LinearLayout>
 </LinearLayout>

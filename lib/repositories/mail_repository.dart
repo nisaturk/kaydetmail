@@ -58,6 +58,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// Unpinning frees a slot again.
   static const int maxPinnedMails = 3;
 
+  /// Age past which an Inbox mail with no reply, or a Sent mail with no
+  /// reply received, earns the "Yanıt bekliyor"/"Yanıtlanmadı" nudge — see
+  /// `MailListItem._needsReply` and `ApiMailRepository`'s Sent-folder sort.
+  static const Duration unansweredReminderThreshold = Duration(days: 3);
+
   // --- Auth ---------------------------------------------------------
 
   /// Attempts to sign in. Returns `true` on success, `false` on failure.
@@ -233,6 +238,10 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> bcc = const [],
     required String subject,
     required String body,
+    // HTML alternative to [body], sent alongside it (multipart/alternative)
+    // when the user actually used compose's formatting toolbar. Null sends
+    // plain text only — see `_ComposeScreenState._bodyHtmlFor`.
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -252,6 +261,7 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> bcc = const [],
     String subject = '',
     String body = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -410,6 +420,7 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> bcc = const [],
     required String subject,
     required String body,
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
