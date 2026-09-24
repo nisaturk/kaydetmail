@@ -17,6 +17,7 @@ import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'inbox_screen.dart';
 import 'mail_detail_screen.dart';
+import 'outbox_screen.dart';
 import 'scheduled_sends_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
@@ -119,9 +120,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openScheduledSends() {
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const ScheduledSendsScreen()),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const ScheduledSendsScreen()));
+  }
+
+  void _openOutbox() {
+    if (!_isRailLayout) Navigator.of(context).pop();
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const OutboxScreen()));
   }
 
   void _showMailboxSelector() {
@@ -264,9 +270,9 @@ class _HomeScreenState extends State<HomeScreen> {
       await Future.wait(ids.map(_repo.deleteDraft));
       _selection.exit();
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${ids.length} taslak silindi')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('${ids.length} taslak silindi')));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -464,6 +470,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onOpenSettings: _openSettings,
           onOpenAccounts: _openAccounts,
           onOpenScheduledSends: _openScheduledSends,
+          onOpenOutbox: _openOutbox,
         );
         return Scaffold(
           appBar: _selection.isActive
@@ -518,10 +525,7 @@ class _HomeScreenState extends State<HomeScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               SizedBox(width: 440, child: list),
-              VerticalDivider(
-                width: 1,
-                color: AppTheme.colors(context).border,
-              ),
+              VerticalDivider(width: 1, color: AppTheme.colors(context).border),
               Expanded(
                 child: _selectedMailId == null
                     ? const _DetailPanePlaceholder()
@@ -665,10 +669,7 @@ class _HomeScreenState extends State<HomeScreen> {
         child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
       ),
       if (_showMarkAsSpamAction)
-        const PopupMenuItem(
-          value: 'spam',
-          child: Text('Spam kutusuna gönder'),
-        ),
+        const PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
       if (_showMarkNotSpamAction)
         const PopupMenuItem(value: 'not_spam', child: Text('Spam değil')),
       if (anyLabeled(_repo, expandThreadIds(_repo, _selection.selectedIds)))

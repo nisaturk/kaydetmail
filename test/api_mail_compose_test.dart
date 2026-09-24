@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/api_mail_repository.dart';
+import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/services/api_auth_service.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
@@ -201,6 +202,23 @@ void main() {
       expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
     });
 
+    test('sendEmail keeps unsuccessful pre-delivery send out of Sent', () async {
+      final mailService = _RecordingMailService()..sent = false;
+      final repo = await _loggedInRepository(mailService);
+
+      await expectLater(
+        repo.sendEmail(
+          to: ['a@example.com'],
+          subject: 'Konu',
+          body: 'Gövde',
+          idempotencyKey: 'stable-key',
+        ),
+        throwsA(isA<SendBeforeDeliveryException>()),
+      );
+      expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
+      expect(mailService.sendCalls.single.idempotencyKey, 'stable-key');
+    });
+
     test('saveDraft uses the server-assigned mailId and caches it under Drafts', () async {
       final mailService = _RecordingMailService()..draftMailId = 'draft-42';
       final repo = await _loggedInRepository(mailService);
@@ -261,6 +279,7 @@ class _RecordingMailService extends ApiMailService {
     : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
 
   bool sentCopySaved = true;
+  bool sent = true;
   String draftMailId = 'draft-1';
   bool deleteAccountCalled = false;
   final List<_SendCall> sendCalls = [];
@@ -298,7 +317,7 @@ class _RecordingMailService extends ApiMailService {
     required String idempotencyKey,
   }) async {
     sendCalls.add(_SendCall(idempotencyKey, bodyHtml));
-    return SendResult(sent: true, sentCopySaved: sentCopySaved);
+    return SendResult(sent: sent, sentCopySaved: sentCopySaved);
   }
 }
 

@@ -138,6 +138,7 @@ class _StubMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? idempotencyKey,
   }) async => throw UnimplementedError();
 
   @override

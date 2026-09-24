@@ -7,10 +7,12 @@ import '../config/app_config.dart';
 import '../models/mail_folder.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
+import '../state/outbox_store.dart';
 import '../state/pending_send_queue.dart';
 import 'screens/compose_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
+import 'screens/outbox_screen.dart';
 import 'screens/mail_detail_screen.dart';
 import 'services/home_widget_compose_router.dart';
 import 'services/mail_rules_engine.dart';
@@ -173,32 +175,47 @@ class _AuthGateState extends State<_AuthGate> {
     _composeRouter.resolveAuth(true);
   }
 
-  /// Best-effort at every (re)login: sends any pending mail a previous run
-  /// left durably queued but never finished (killed mid undo-window, or
-  /// mid [PendingSendQueue.flushPending] itself — see
-  /// [PendingSendQueue.recoverPersisted]), then surfaces any resulting
-  /// outbox failure as a one-off SnackBar. Deliberately minimal: no outbox
-  /// screen, just enough that a failed recovery send is never silently
-  /// swallowed.
   Future<void> _recoverPendingSends() async {
-    await PendingSendQueue.instance.recoverPersisted();
-    final failures = await PendingSendQueue.readOutboxErrors();
-    if (failures.isEmpty || !mounted) return;
-    await PendingSendQueue.clearOutboxErrors();
-    final context = _navigatorKey.currentContext;
-    if (context == null || !context.mounted) return;
-    final subjectPreview = failures.first.subject.trim().isEmpty
-        ? '(konu yok)'
-        : failures.first.subject;
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          failures.length == 1
-              ? '"$subjectPreview" e-postası gönderilemedi.'
-              : '${failures.length} e-posta gönderilemedi (son: "$subjectPreview").',
+    try {
+      await PendingSendQueue.instance.recoverPersisted();
+      final ids = AppConfig.mailRepository.accounts
+          .map((account) => account.id)
+          .toSet();
+      final items = await PendingSendQueue.instance.items();
+      final attention = items
+          .where(
+            (item) =>
+                ids.contains(item.send.fromAccountId) &&
+                (item.status == OutboxStatus.failed ||
+                    item.status == OutboxStatus.uncertain),
+          )
+          .length;
+      if (attention == 0 || !mounted) return;
+      final context = _navigatorKey.currentContext;
+      if (context == null || !context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            '$attention gönderi Giden Kutusu’nda incelenmeyi bekliyor.',
+          ),
+          action: SnackBarAction(
+            label: 'Aç',
+            onPressed: () => _navigatorKey.currentState?.push(
+              MaterialPageRoute(builder: (_) => const OutboxScreen()),
+            ),
+          ),
         ),
-      ),
-    );
+      );
+    } catch (_) {
+      final context = _navigatorKey.currentContext;
+      if (context != null && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Giden Kutusu açılamadı. Yeniden deneyin.'),
+          ),
+        );
+      }
+    }
   }
 
   void _onRepositoryChanged() {

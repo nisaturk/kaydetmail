@@ -20,6 +20,7 @@ class AppDrawer extends StatelessWidget {
     required this.onOpenSettings,
     required this.onOpenAccounts,
     required this.onOpenScheduledSends,
+    required this.onOpenOutbox,
   });
 
   final MailFolder selectedFolder;
@@ -28,6 +29,7 @@ class AppDrawer extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenAccounts;
   final VoidCallback onOpenScheduledSends;
+  final VoidCallback onOpenOutbox;
 
   @override
   Widget build(BuildContext context) {
@@ -109,6 +111,11 @@ class AppDrawer extends StatelessWidget {
                     icon: LucideIcons.calendarClock,
                     label: 'Zamanlanmış Gönderimler',
                     onTap: onOpenScheduledSends,
+                  ),
+                  _SectionTile(
+                    icon: LucideIcons.send,
+                    label: 'Giden Kutusu',
+                    onTap: onOpenOutbox,
                   ),
                   _SectionTile(
                     icon: LucideIcons.settings,

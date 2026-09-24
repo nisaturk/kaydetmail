@@ -11,7 +11,9 @@ import 'package:kaydetmail/models/mail_session.dart';
 import 'package:kaydetmail/models/scheduled_send.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/compose_screen.dart';
+import 'package:kaydetmail/screens/outbox_screen.dart';
 import 'package:kaydetmail/services/signature_store.dart';
+import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
 import 'package:kaydetmail/utils/markdown_lite_to_html.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -150,6 +152,7 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? idempotencyKey,
   }) async {
     final email = Email(
       id: 'sent-${sent.length}',
@@ -355,6 +358,7 @@ void main() {
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     AppConfig.resetForTest();
+    PendingSendQueue.instance.useStoreForTest(OutboxStore.inMemory());
   });
 
   tearDown(() {
@@ -601,6 +605,75 @@ void main() {
         'Konu',
       );
     });
+  });
+
+  testWidgets('outbox exposes failed message and reopens its content for editing', (tester) async {
+    final store = OutboxStore.inMemory();
+    PendingSendQueue.instance.useStoreForTest(store);
+    final repo = _FakeMailRepository(accounts: const [_accountA]);
+    await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    navigator.pop();
+    store.save(OutboxItem(
+      send: const PendingSend(
+        id: 'failed-1',
+        from: 'a@example.com',
+        fromAccountId: 'acc-a',
+        to: ['x@y.com'],
+        subject: 'Saklanan konu',
+        body: 'Saklanan gövde',
+      ),
+      status: OutboxStatus.failed,
+      undoUntil: DateTime.now(),
+      error: 'Alıcı reddedildi',
+    ));
+    navigator.push(MaterialPageRoute(builder: (_) => const OutboxScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Saklanan konu'), findsOneWidget);
+    expect(find.text('Alıcı reddedildi'), findsOneWidget);
+    await tester.tap(find.text('Düzenle'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComposeScreen), findsOneWidget);
+    expect(
+      tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text,
+      'Saklanan gövde',
+    );
+  });
+
+  testWidgets('uncertain outbox requires explicit duplicate-risk confirmation', (tester) async {
+    final store = OutboxStore.inMemory();
+    PendingSendQueue.instance.useStoreForTest(store);
+    final repo = _FakeMailRepository(accounts: const [_accountA]);
+    await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    navigator.pop();
+    store.save(OutboxItem(
+      send: const PendingSend(
+        id: 'unknown-1',
+        from: 'a@example.com',
+        fromAccountId: 'acc-a',
+        to: ['x@y.com'],
+        subject: 'Sonucu belirsiz',
+        body: 'Gövde saklandı',
+      ),
+      status: OutboxStatus.uncertain,
+      undoUntil: DateTime.now(),
+    ));
+    navigator.push(MaterialPageRoute(builder: (_) => const OutboxScreen()));
+    await tester.pumpAndSettle();
+    expect(find.text('Tekrar dene'), findsNothing);
+    await tester.tap(find.text('Elle yeniden oluştur'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('ikinci bir kopya'), findsOneWidget);
+    await tester.tap(find.text('Vazgeç'));
+    await tester.pumpAndSettle();
+    expect(find.byType(ComposeScreen), findsNothing);
+    await tester.tap(find.text('Elle yeniden oluştur'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Yeni gönderi').last);
+    await tester.pumpAndSettle();
+    expect(find.byType(ComposeScreen), findsOneWidget);
+    expect(store.load().single.status, OutboxStatus.uncertain);
   });
 
   group('schedule send (Zamanla)', () {

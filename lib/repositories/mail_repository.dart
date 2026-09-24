@@ -45,6 +45,12 @@ class MailServerSettings {
   }
 }
 
+/// The server confirmed that SMTP delivery never started; resending the
+/// identical message with the same idempotency key is safe.
+class SendBeforeDeliveryException implements Exception {
+  const SendBeforeDeliveryException();
+}
+
 /// The single interface the UI depends on.
 ///
 /// `ApiMailRepository` is the only implementation; `AppConfig.mailRepository`
@@ -253,6 +259,7 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? idempotencyKey,
   });
 
   /// Creates a new draft, or — when [draftId] is given — updates the

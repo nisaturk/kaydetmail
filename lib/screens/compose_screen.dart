@@ -150,6 +150,7 @@ class ComposeScreen extends StatefulWidget {
     this.initialBody = '',
     this.initialAttachments = const [],
     this.editingDraftId,
+    this.replacesOutboxId,
     this.composeTitle,
     this.initialThreadId,
     this.inReplyToId,
@@ -168,6 +169,7 @@ class ComposeScreen extends StatefulWidget {
 
   /// Id of the draft being edited, or null for a new mail/reply/forward.
   final String? editingDraftId;
+  final String? replacesOutboxId;
   final String? composeTitle;
 
   /// When replying: the conversation this message continues. Null/empty means
@@ -642,12 +644,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return true;
   }
 
-  /// Queues the mail through [PendingSendQueue] instead of sending it right
-  /// away, shows the "Geri Al" countdown SnackBar through the app's shared
-  /// [ScaffoldMessenger] (so it survives this screen popping), and pops
-  /// immediately — an optimistic send. Tapping "Geri Al" within the window
-  /// cancels the queued send and reopens compose with the same content.
-  void _send() {
+  /// Persist the full message before leaving compose and starting undo.
+  /// A storage failure leaves the editor open.
+  Future<void> _send() async {
+    if (_sending) return;
     if (!_validateRecipients()) return;
 
     final to = _addressStrings(_toRecipients);
@@ -682,7 +682,23 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
     final navigator = Navigator.of(context);
     final messenger = ScaffoldMessenger.of(context);
-    PendingSendQueue.instance.enqueue(pending, messenger: messenger);
+    setState(() => _sending = true);
+    try {
+      await PendingSendQueue.instance.enqueue(
+        pending,
+        messenger: messenger,
+        replacesId: widget.replacesOutboxId,
+      );
+    } catch (error) {
+      if (mounted) {
+        setState(() => _sending = false);
+        messenger.showSnackBar(SnackBar(
+          content: Text('Gönderi kaydedilemedi: ${friendlyErrorMessage(error)}'),
+        ));
+      }
+      return;
+    }
+    if (!mounted) return;
 
     final controller = messenger.showSnackBar(
       SnackBar(

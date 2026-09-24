@@ -1571,6 +1571,7 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? idempotencyKey,
   }) async {
     final session = _sessionForCompose(
       from: from,
@@ -1585,8 +1586,9 @@ class ApiMailRepository extends MailRepository {
       bodyHtml: bodyHtml,
       attachments: attachments,
       replySourceMailId: inReplyToId,
-      idempotencyKey: _newIdempotencyKey(),
+      idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
     );
+    if (!result.sent) throw const SendBeforeDeliveryException();
     // The endpoint confirms send/save outcome but never returns the created
     // mail — build the local copy from what we sent and echo it into the
     // Sent cache so the UI reflects it before the next refresh reconciles.

@@ -19,6 +19,11 @@ one unified inbox.
 - **Compose.** Attachments (paperclip, multiple files, size shown, removable), drafts,
   reply/reply-all/forward with quoted history, and OS share-sheet intake (share a file
   or link into the app to open compose pre-filled).
+- **Undo send and outbox.** Gönder waits five seconds for “Geri Al”; the complete
+  message and attachment bytes are persisted locally before compose closes.
+  Definitive pre-delivery failures can be retried or edited from Giden Kutusu.
+  If delivery is uncertain, the app does not resend automatically; check
+  Gönderilenler before deleting the local copy or composing another message.
 - **Search.** Server-backed, always spans every connected account, with an inline label
   filter row.
 - **Offline cache.** An on-device SQLite mirror of loaded mail (metadata only, no
