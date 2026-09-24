@@ -224,14 +224,18 @@ void main() {
     final old = DateTime.now().subtract(const Duration(days: 5));
     final recent = DateTime.now().subtract(const Duration(hours: 1));
 
-    testWidgets('shows the badge for an old, unanswered Sent mail', (
-      tester,
-    ) async {
-      await tester.pumpWidget(
-        harness(sentEmail(answered: false, timestamp: old)),
-      );
-      expect(find.text('Yanıt bekliyor'), findsOneWidget);
-    });
+    testWidgets(
+      'hides the badge for an old, unanswered Sent mail while the feature flag is off',
+      (tester) async {
+        await tester.pumpWidget(
+          harness(sentEmail(answered: false, timestamp: old)),
+        );
+        // MailRepository.unansweredReminderEnabled is off for now (product
+        // decision) — see mail_repository.dart. Flip it to re-enable and
+        // this assertion flips to findsOneWidget.
+        expect(find.text('Yanıt bekliyor'), findsNothing);
+      },
+    );
 
     testWidgets('hides the badge once the Sent mail is answered', (
       tester,
