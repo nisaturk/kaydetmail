@@ -1388,23 +1388,21 @@ class ApiMailRepository extends MailRepository {
     return count;
   }
 
-  /// Triggers a server sync of [folder] (pull-to-refresh). No completion
-  /// notification exists — callers re-fetch the list afterwards. Unknown
-  /// folders throw [ArgumentError], matching [moveToFolder].
+  /// Waits until the server has completed [folder]'s sync for each account
+  /// in scope. Unknown folders throw [ArgumentError].
   @override
   Future<void> syncFolder(MailFolder folder) async {
     final sessions = _scopedSessions.toList();
     if (sessions.isEmpty) return;
-    var any = false;
-    for (final session in sessions) {
-      final folderId = session.folderIds[folder];
-      if (folderId == null) continue;
-      any = true;
-      await session.mailService.syncFolderId(folderId);
-    }
-    if (!any) {
+    final jobs = [
+      for (final session in sessions)
+        if (session.folderIds[folder] case final String folderId)
+          session.mailService.syncFolderId(folderId),
+    ];
+    if (jobs.isEmpty) {
       throw ArgumentError('Unknown folder for this account: $folder');
     }
+    await Future.wait(jobs);
   }
 
   @override
