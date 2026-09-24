@@ -129,7 +129,12 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
 /// - **Undo send**: "Gönder" doesn't call `MailRepository.sendEmail`
 ///   directly — it hands the fields to [PendingSendQueue], which holds them
 ///   for a few seconds (with a "Geri Al" SnackBar) before the real send
-///   fires, and pops this screen immediately. See `_send`.
+///   fires, and pops this screen immediately. See `_send`, which closes the
+///   captured `SnackBar` controller itself once the window elapses (the
+///   SnackBar's own passive `duration` dismissal doesn't reliably survive
+///   the route changes this app does mid-countdown) — closing that specific
+///   controller rather than "whatever's current" so a same-instant
+///   `PendingSendQueue` failure SnackBar is never wrongly dismissed with it.
 /// - **Zamanla**: the small chevron next to "Gönder" offers scheduling
 ///   through `MailRepository.scheduleSend` with a date/time picker instead.
 ///   See `_scheduleSend`.
@@ -709,18 +714,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ),
       ),
     );
-    // The SnackBar's own `duration` timer nominally auto-dismisses it at
-    // the same instant, but that timer can get lost across the route
-    // changes this app does while the undo window is still counting down
-    // (compose pops immediately on send) — explicitly closing this specific
-    // controller means "0 sn" is never left stuck on screen. Using this
-    // controller (not `messenger.hideCurrentSnackBar()`) means it can never
-    // rip away a *different* SnackBar that has since taken its place — e.g.
-    // the "Gönderilemedi" failure one `PendingSendQueue._dispatch` can show
-    // at the very same instant the undo window elapses. And since the
-    // passive `duration` dismissal usually *does* still fire right at that
-    // same instant, `ScaffoldMessengerState` can throw closing an
-    // already-removed SnackBar a second time — harmless, so swallowed.
     unawaited(
       Future<void>.delayed(PendingSendQueue.undoWindow, () {
         try {
