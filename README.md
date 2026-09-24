@@ -82,6 +82,25 @@ See [`docs/push-notifications.md`](docs/push-notifications.md) for the Firebase 
 Android Gradle wiring, the background message handler, notification-tap navigation, and
 what's still missing (iOS APNs setup).
 
+## Crash and performance monitoring
+
+On configured Android devices, Firebase Crashlytics records uncaught Flutter and
+asynchronous errors, while Firebase Performance collects app lifecycle data and
+an aggregate `api_http` duration trace for API requests. The trace never includes
+mail content, URLs, headers, tokens, or account identifiers. Monitoring does not
+depend on the push-notification toggle. Web/desktop builds skip monitoring;
+without a Firebase configuration the app continues without it.
+
+Use the existing Firebase Android app's `android/app/google-services.json` (ignored
+by Git). Enable Crashlytics and Performance Monitoring in the Firebase console.
+To verify delivery, run an Android build on a test device, trigger a non-sensitive
+test exception, restart the app, and check the Crashlytics dashboard; exercise an
+API request and check the Performance dashboard for `api_http`. Do not place real
+mail or credentials in a test exception. iOS monitoring requires registering the
+iOS app with Firebase and adding its `GoogleService-Info.plist` first; iOS push
+also requires the separate APNs setup described above. No backend changes or
+service-account credentials in the client are needed.
+
 ## Getting started
 
 ```bash

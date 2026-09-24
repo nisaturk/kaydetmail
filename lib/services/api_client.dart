@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import 'api_exception.dart';
+import 'firebase_monitoring.dart';
 import 'server_address_store.dart';
 import 'token_store.dart';
 
@@ -225,9 +226,11 @@ class ApiClient {
     }
     late final http.Response response;
     try {
-      response = await http.Response.fromStream(
-        await _httpClient.send(request).timeout(_requestTimeout),
-      ).timeout(_requestTimeout);
+      response = await FirebaseMonitoring.traceApiRequest(
+        () async => http.Response.fromStream(
+          await _httpClient.send(request).timeout(_requestTimeout),
+        ).timeout(_requestTimeout),
+      );
     } on TimeoutException {
       throw const ApiException(
         status: 408,
