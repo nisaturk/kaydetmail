@@ -209,11 +209,15 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     await _reload();
   }
 
-  /// Shows the pin-limit notice when no slot is left. Returns true when the
-  /// caller may proceed with pinning.
-  bool _ensurePinSlot() {
-    if (_repo.getAllEmails().where((email) => email.isPinned).length >=
-        MailRepository.maxPinnedMails) {
+  /// Shows the pin-limit notice when no slot is left in [accountId]'s own
+  /// cap (each account gets its own 3 slots — matches the backend's
+  /// per-account enforcement). Returns true when the caller may proceed.
+  bool _ensurePinSlot(String accountId) {
+    final pinnedInAccount = _repo
+        .getAllEmails()
+        .where((email) => email.isPinned && email.accountId == accountId)
+        .length;
+    if (pinnedInAccount >= MailRepository.maxPinnedMails) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('En fazla 3 mail sabitlenebilir.')),
       );
@@ -225,7 +229,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   Future<void> _togglePin() async {
     final email = _email;
     if (email == null) return;
-    if (!email.isPinned && !_ensurePinSlot()) return;
+    if (!email.isPinned && !_ensurePinSlot(email.accountId)) return;
     await _repo.setPinned([email.id], !email.isPinned);
   }
 

@@ -8,6 +8,7 @@ import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
+import '../models/manual_contact.dart';
 import '../models/scheduled_send.dart';
 
 /// Server connection settings entered on the login screen.
@@ -59,7 +60,9 @@ class SendBeforeDeliveryException implements Exception {
 /// implementation is active. This class extends [ChangeNotifier] so screens
 /// can rebuild whenever the underlying store changes.
 abstract class MailRepository extends ChangeNotifier {
-  /// Maximum number of mails that can be pinned at the same time.
+  /// Maximum number of mails that can be pinned at the same time, enforced
+  /// per account (each connected account gets its own 3 slots) — matches
+  /// the backend's per-account cap.
   ///
   /// Pinning beyond this is ignored (and the UI explains it in Turkish).
   /// Unpinning frees a slot again.
@@ -121,6 +124,17 @@ abstract class MailRepository extends ChangeNotifier {
   /// mailbox failed and the UI is showing a cached (possibly stale)
   /// snapshot instead. Always false for implementations without a cache.
   bool get isOffline => false;
+
+  /// Mail ids whose offline read/unread mutation could not be replayed
+  /// after reconnecting — the mailbox changed underneath it (stale UID) or
+  /// the mail no longer exists, so replaying it blind risked landing on
+  /// the wrong message. Empty for implementations without an offline
+  /// mutation queue. See [markAsRead]/[markAsUnread].
+  List<String> get offlineMutationConflicts => const [];
+
+  /// Acknowledges one entry from [offlineMutationConflicts] (e.g. after
+  /// showing it to the user) so it isn't surfaced again.
+  void dismissMutationConflict(String mailId) {}
 
   /// Sending accounts for the Compose "Kimden" picker.
   List<MailAccount> get accounts;
@@ -342,6 +356,34 @@ abstract class MailRepository extends ChangeNotifier {
     List<String> emailIds,
     List<String> labelIds,
   );
+
+  // --- Manually-added contacts ---------------------------------------
+
+  /// From every connected account, unified — same shape as [getLabels].
+  List<ManualContact> getManualContacts();
+
+  /// Contacts owned by one account. Contact ids are account-local and must
+  /// never be edited/deleted through another account's session.
+  List<ManualContact> getManualContactsForAccount(String accountId);
+
+  /// Adds a contact to the primary/active account. Throws [ArgumentError]
+  /// (Turkish message) for an invalid or already-saved (case-insensitive)
+  /// email.
+  Future<ManualContact> addManualContact({
+    required String email,
+    String? displayName,
+  });
+
+  /// Edits a contact's email/display name. Same validation as
+  /// [addManualContact].
+  Future<void> updateManualContact({
+    required String id,
+    required String email,
+    String? displayName,
+  });
+
+  /// Removes a contact. Unknown ids are ignored.
+  Future<void> deleteManualContact(String id);
 
   /// Aggregates isReplied/isForwarded across every message sharing
   /// [representative]'s thread, so a thread's single list row reflects the

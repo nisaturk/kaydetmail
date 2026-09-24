@@ -359,6 +359,142 @@ class ApiMailService {
         .toList();
   }
 
+  /// Pins or unpins mails; the backend enforces a 3-pinned-mails-per-account
+  /// cap independently, so read the per-item [BulkActionResult.success]
+  /// (`pinned_limit_reached` on overflow) rather than assuming the whole
+  /// batch succeeded.
+  Future<List<BulkActionResult>> setPinned(
+    List<String> mailIds,
+    bool pinned,
+  ) async {
+    final body = await _client.postJson('/api/mails/pinned', {
+      'mailIds': mailIds,
+      'pinned': pinned,
+    });
+    final results = body['results'] as List;
+    return results
+        .map(
+          (r) => BulkActionResult(
+            mailId: r['mailId'] as String,
+            success: r['success'] as bool,
+            code: r['code'] as String?,
+          ),
+        )
+        .toList();
+  }
+
+  /// Every pinned mail id for the current mailbox.
+  Future<List<String>> getPinnedMailIds() async {
+    final body = await _client.get('/api/mails/pinned');
+    return (body['mailIds'] as List).cast<String>();
+  }
+
+  /// Sets [mailId]'s snooze deadline (UTC). Throws if the mail isn't in
+  /// this account.
+  Future<void> setSnooze(String mailId, DateTime untilUtc) => _client.putJson(
+    '/api/mails/${Uri.encodeComponent(mailId)}/snooze',
+    {'untilUtc': untilUtc.toUtc().toIso8601String()},
+  );
+
+  /// Clears [mailId]'s snooze; idempotent — clearing an already-unsnoozed
+  /// mail also succeeds.
+  Future<void> clearSnooze(String mailId) =>
+      _client.delete('/api/mails/${Uri.encodeComponent(mailId)}/snooze');
+
+  /// Every currently-snoozed mail id in the current mailbox, mapped to its
+  /// UTC deadline.
+  Future<Map<String, DateTime>> getSnoozed() async {
+    final body = await _client.get('/api/mails/snoozed');
+    final snoozed = body['snoozed'] as Map<String, dynamic>;
+    return snoozed.map(
+      (id, until) => MapEntry(id, DateTime.parse(until as String)),
+    );
+  }
+
+  /// Every label defined for the current mailbox, in display order.
+  Future<List<Map<String, dynamic>>> getLabels() async {
+    final body = await _client.get('/api/labels');
+    return (body['items'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Creates a label. Throws [ApiException] with code `label_name_taken`
+  /// when another label in this account already has that name
+  /// (case-insensitive).
+  Future<Map<String, dynamic>> createLabel(String name, int color) =>
+      _client.postJson('/api/labels', {'name': name, 'color': color});
+
+  /// Renames/recolors a label. Same `label_name_taken` conflict as
+  /// [createLabel].
+  Future<Map<String, dynamic>> updateLabel(
+    String id,
+    String name,
+    int color,
+  ) => _client.putJson('/api/labels/${Uri.encodeComponent(id)}', {
+    'name': name,
+    'color': color,
+  });
+
+  /// Deletes a label; also strips it from every mail it was assigned to.
+  Future<void> deleteLabel(String id) =>
+      _client.delete('/api/labels/${Uri.encodeComponent(id)}');
+
+  /// Full mail id -> assigned label ids map for the current mailbox.
+  Future<Map<String, List<String>>> getLabelAssignments() async {
+    final body = await _client.get('/api/labels/assignments');
+    final assignments = body['assignments'] as Map<String, dynamic>;
+    return assignments.map(
+      (mailId, labelIds) => MapEntry(mailId, (labelIds as List).cast<String>()),
+    );
+  }
+
+  /// Assigns [labelIds] to [mailIds]. Pairs outside this account, or
+  /// already-assigned pairs, are silently skipped.
+  Future<void> assignLabels(List<String> mailIds, List<String> labelIds) =>
+      _client.postJson('/api/labels/assignments', {
+        'mailIds': mailIds,
+        'labelIds': labelIds,
+      });
+
+  /// Removes [labelIds] from [mailIds].
+  Future<void> unassignLabels(List<String> mailIds, List<String> labelIds) =>
+      _client.postJson('/api/labels/assignments/remove', {
+        'mailIds': mailIds,
+        'labelIds': labelIds,
+      });
+
+  /// Every manually-added contact for the current mailbox (see
+  /// [ManualContact]).
+  Future<List<Map<String, dynamic>>> getContacts() async {
+    final body = await _client.get('/api/contacts');
+    return (body['items'] as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Adds a contact. Throws [ApiException] with code
+  /// `contact_already_exists` when this mailbox already has a contact with
+  /// that email (case-insensitive).
+  Future<Map<String, dynamic>> createContact(
+    String email,
+    String? displayName,
+  ) => _client.postJson('/api/contacts', {
+    'email': email,
+    'displayName': displayName,
+  });
+
+  /// Edits a contact. Same `contact_already_exists` conflict as
+  /// [createContact].
+  Future<Map<String, dynamic>> updateContact(
+    String id,
+    String email,
+    String? displayName,
+  ) => _client.putJson('/api/contacts/${Uri.encodeComponent(id)}', {
+    'email': email,
+    'displayName': displayName,
+  });
+
+  /// Removes a contact.
+  Future<void> deleteContact(String id) =>
+      _client.delete('/api/contacts/${Uri.encodeComponent(id)}');
+
   /// Full-text + filtered search over cached server mail. All filters are
   /// optional and AND-ed. Note the singular `hasAttachment` — `/mails` uses
   /// the plural `hasAttachments`.

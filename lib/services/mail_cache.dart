@@ -68,6 +68,25 @@ class MailCache {
         account_id TEXT NOT NULL, folder_id TEXT NOT NULL, folder_type TEXT NOT NULL,
         PRIMARY KEY (account_id, folder_id)
       )''');
+    // Manually-added contacts (see ManualContact) — backend-synced, this is
+    // their offline-read fallback, same shape as `labels` above.
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS manual_contacts (
+        account_id TEXT NOT NULL, id TEXT NOT NULL, email TEXT NOT NULL,
+        display_name TEXT,
+        PRIMARY KEY (account_id, id)
+      )''');
+    // Read/unread mutations queued while offline (see
+    // LocalMailFlagsStore.queueReadMutation), replayed once the account
+    // reconnects. One row per mail: a later queued state for the same
+    // mail overwrites the earlier one (`INSERT OR REPLACE`), so only the
+    // final desired state ever replays.
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS offline_mutations (
+        account_id TEXT NOT NULL, mail_id TEXT NOT NULL, is_read INTEGER NOT NULL,
+        queued_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (account_id, mail_id)
+      )''');
   }
 
   final CommonDatabase _db;
@@ -138,7 +157,15 @@ class MailCache {
 
   /// Removes everything stored for a deleted account, user state included.
   void forgetAccount(String accountId) {
-    for (final table in ['mails', 'flags', 'labels', 'mail_labels', 'folders']) {
+    for (final table in [
+      'mails',
+      'flags',
+      'labels',
+      'mail_labels',
+      'folders',
+      'manual_contacts',
+      'offline_mutations',
+    ]) {
       _db.execute('DELETE FROM $table WHERE account_id = ?', [accountId]);
     }
   }

@@ -18,9 +18,9 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  group('pin/reply/forward stay client-only', () {
+  group('pin/reply/forward', () {
     test(
-      'setPinned caps at maxPinnedMails and never calls the network',
+      'setPinned writes through to the backend and caps at maxPinnedMails',
       () async {
         final mailService = _RecordingMailService(
           folders: [_folder('folder-inbox', 'Inbox')],
@@ -43,8 +43,7 @@ void main() {
           inbox.singleWhere((email) => email.id == 'mail-4').isPinned,
           false,
         );
-        expect(mailService.singleActionCalls, isEmpty);
-        expect(mailService.bulkActionCalls, isEmpty);
+        expect(mailService.pinnedMailIds, {'mail-1', 'mail-2', 'mail-3'});
 
         await repo.setPinned(['mail-1'], false);
         expect(
@@ -54,6 +53,7 @@ void main() {
               .isPinned,
           isFalse,
         );
+        expect(mailService.pinnedMailIds, {'mail-2', 'mail-3'});
       },
     );
 
@@ -340,6 +340,11 @@ class _RecordingMailService extends ApiMailService {
   final Map<String, MailListPage> pagesByFolderId;
   final List<String> bulkActionCalls = [];
   final List<String> singleActionCalls = [];
+  final Set<String> pinnedMailIds = {};
+  final Map<String, DateTime> snoozedMailIds = {};
+  final List<Map<String, dynamic>> labelDefs = [];
+  final Map<String, List<String>> labelAssignments = {};
+  int _labelSeq = 0;
 
   @override
   Future<List<ApiMailFolder>> getFolders() async => folders
@@ -381,6 +386,102 @@ class _RecordingMailService extends ApiMailService {
     return mailIds
         .map((id) => BulkActionResult(mailId: id, success: true))
         .toList();
+  }
+
+  /// Mirrors the real backend's per-account 3-pinned cap so callers that
+  /// pin more than the limit see the same "extras silently rejected" shape.
+  @override
+  Future<List<BulkActionResult>> setPinned(
+    List<String> mailIds,
+    bool pinned,
+  ) async {
+    final results = <BulkActionResult>[];
+    for (final id in mailIds) {
+      if (pinned && pinnedMailIds.length >= 3 && !pinnedMailIds.contains(id)) {
+        results.add(BulkActionResult(mailId: id, success: false));
+        continue;
+      }
+      if (pinned) {
+        pinnedMailIds.add(id);
+      } else {
+        pinnedMailIds.remove(id);
+      }
+      results.add(BulkActionResult(mailId: id, success: true));
+    }
+    return results;
+  }
+
+  @override
+  Future<List<String>> getPinnedMailIds() async => pinnedMailIds.toList();
+
+  @override
+  Future<void> setSnooze(String mailId, DateTime untilUtc) async =>
+      snoozedMailIds[mailId] = untilUtc;
+
+  @override
+  Future<void> clearSnooze(String mailId) async =>
+      snoozedMailIds.remove(mailId);
+
+  @override
+  Future<Map<String, DateTime>> getSnoozed() async =>
+      Map<String, DateTime>.from(snoozedMailIds);
+
+  @override
+  Future<List<Map<String, dynamic>>> getLabels() async =>
+      List.from(labelDefs);
+
+  @override
+  Future<Map<String, dynamic>> createLabel(String name, int color) async {
+    final created = {'id': 'label-${_labelSeq++}', 'name': name, 'color': color};
+    labelDefs.add(created);
+    return created;
+  }
+
+  @override
+  Future<Map<String, dynamic>> updateLabel(
+    String id,
+    String name,
+    int color,
+  ) async {
+    final index = labelDefs.indexWhere((d) => d['id'] == id);
+    final updated = {'id': id, 'name': name, 'color': color};
+    if (index >= 0) labelDefs[index] = updated;
+    return updated;
+  }
+
+  @override
+  Future<void> deleteLabel(String id) async {
+    labelDefs.removeWhere((d) => d['id'] == id);
+    for (final key in labelAssignments.keys.toList()) {
+      labelAssignments[key]!.remove(id);
+    }
+  }
+
+  @override
+  Future<Map<String, List<String>>> getLabelAssignments() async =>
+      Map.from(labelAssignments);
+
+  @override
+  Future<void> assignLabels(
+    List<String> mailIds,
+    List<String> labelIds,
+  ) async {
+    for (final id in mailIds) {
+      final cur = labelAssignments.putIfAbsent(id, () => []);
+      for (final labelId in labelIds) {
+        if (!cur.contains(labelId)) cur.add(labelId);
+      }
+    }
+  }
+
+  @override
+  Future<void> unassignLabels(
+    List<String> mailIds,
+    List<String> labelIds,
+  ) async {
+    for (final id in mailIds) {
+      labelAssignments[id]?.removeWhere(labelIds.contains);
+    }
   }
 }
 
