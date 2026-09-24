@@ -37,8 +37,15 @@ class _FakeRepo extends MailRepository {
   final List<(List<String> ids, List<String> labelIds)> labelCalls = [];
 
   @override
-  List<Email> getEmailsInFolder(MailFolder folder) =>
-      folder == MailFolder.inbox ? List.unmodifiable(inbox) : const [];
+  List<Email> getEmailsInFolder(MailFolder folder) => folder == MailFolder.inbox
+      // Simulates an `activeAccountId`-scoped view — only acc-1's mail —
+      // so the multi-account test below can tell whether the engine is
+      // reading this (scoped) or [getAllEmails] (unscoped).
+      ? List.unmodifiable(inbox.where((e) => e.accountId == 'acc-1'))
+      : const [];
+
+  @override
+  List<Email> getAllEmails() => List.unmodifiable(inbox);
 
   @override
   Future<void> moveToFolder(List<String> ids, MailFolder folder) async {
@@ -207,6 +214,61 @@ void main() {
       expect(repo.moveCalls, isEmpty);
       expect(repo.inbox.map((e) => e.id), ['m1']);
     });
+
+    test(
+      'scans every connected account inbox, not just what a scoped '
+      'getEmailsInFolder view would expose',
+      () async {
+        await MailRulesStore.addRule(
+          accountId: 'acc-1',
+          condition: MailRuleCondition.senderContains('promo'),
+          action: MailRuleAction.moveToFolder(MailFolder.trash),
+        );
+        await MailRulesStore.addRule(
+          accountId: 'acc-2',
+          condition: MailRuleCondition.senderContains('promo'),
+          action: MailRuleAction.moveToFolder(MailFolder.archive),
+        );
+        final repo = _FakeRepo([
+          _email(id: 'm1', senderEmail: 'promo@shop.com', accountId: 'acc-1'),
+          // acc-2's mail is invisible through the fake's scoped
+          // getEmailsInFolder (only acc-1) — it must still be reached via
+          // getAllEmails.
+          _email(id: 'm2', senderEmail: 'promo@shop.com', accountId: 'acc-2'),
+        ]);
+
+        await MailRulesEngine.instance.evaluateNewMail(repo);
+
+        expect(repo.moveCalls.length, 2);
+        expect(repo.moveCalls.map((c) => c.$1.single), ['m1', 'm2']);
+        expect(repo.moveCalls.map((c) => c.$2), [
+          MailFolder.trash,
+          MailFolder.archive,
+        ]);
+        expect(repo.inbox, isEmpty);
+      },
+    );
+
+    test(
+      'runAfterSync is the single evaluation point every refresh path '
+      '(periodic sync, manual refresh, push refresh) can share',
+      () async {
+        await MailRulesStore.addRule(
+          accountId: 'acc-1',
+          condition: MailRuleCondition.senderContains('newsletter'),
+          action: MailRuleAction.moveToFolder(MailFolder.archive),
+        );
+        final repo = _FakeRepo([
+          _email(id: 'm1', senderEmail: 'newsletter@shop.com'),
+        ]);
+
+        await MailRulesEngine.runAfterSync(repo);
+
+        expect(repo.moveCalls.length, 1);
+        expect(repo.moveCalls.single.$2, MailFolder.archive);
+        expect(repo.inbox, isEmpty);
+      },
+    );
 
     test('empty inbox is a no-op', () async {
       final repo = _FakeRepo(const []);

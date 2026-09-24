@@ -80,13 +80,50 @@ class _SnoozePickerSheet extends StatelessWidget {
       lastDate: now.add(const Duration(days: 365)),
     );
     if (date == null || !context.mounted) return null;
-    final time = await showTimePicker(
-      context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
-    );
-    if (time == null) return null;
-    return DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    // Same-day picks can still land in the past (e.g. today + an hour
+    // that's already gone) — re-prompt for the time instead of accepting
+    // a snooze deadline that would expire the instant it's set.
+    while (true) {
+      final time = await showTimePicker(
+        context: context,
+        initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+      );
+      if (time == null || !context.mounted) return null;
+      final candidate = combineSnoozeDateTime(
+        date: date,
+        time: time,
+        now: DateTime.now(),
+      );
+      if (candidate != null) return candidate;
+      if (!context.mounted) return null;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Seçilen saat geçmişte kalıyor, lütfen ileri bir saat seçin.',
+          ),
+        ),
+      );
+    }
   }
+}
+
+/// Combines a picked date + time into a deadline, or null when the result
+/// isn't strictly after [now] — a picked date of "today" can otherwise pair
+/// with an hour that has already passed. Extracted so the past-deadline
+/// rejection is testable without driving the date/time picker dialogs.
+DateTime? combineSnoozeDateTime({
+  required DateTime date,
+  required TimeOfDay time,
+  required DateTime now,
+}) {
+  final candidate = DateTime(
+    date.year,
+    date.month,
+    date.day,
+    time.hour,
+    time.minute,
+  );
+  return candidate.isAfter(now) ? candidate : null;
 }
 
 DateTime _todayAt(DateTime now, int hour) =>

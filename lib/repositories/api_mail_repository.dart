@@ -58,6 +58,11 @@ class _Session {
   Set<String> repliedThreadIds = {};
   Set<String> forwardedThreadIds = {};
 
+  /// ThreadId-keyed: Sent-folder conversations that have received an
+  /// inbound reply — the mirror direction of [repliedThreadIds]. See
+  /// [ApiMailRepository._markSentThreadsAnswered].
+  Set<String> answeredThreadIds = {};
+
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
 
@@ -120,6 +125,8 @@ class _Session {
         forwardedIds.contains(email.id) ||
         (email.threadId.isNotEmpty &&
             forwardedThreadIds.contains(email.threadId)),
+    isAnswered:
+        email.threadId.isNotEmpty && answeredThreadIds.contains(email.threadId),
     labelIds: labelMap[email.id] ?? const [],
   );
 }
@@ -140,6 +147,7 @@ class ApiMailRepository extends MailRepository {
     ApiMailService? mailService,
     this._openCache,
     this._sessionFactory,
+    this._snoozeExpiryCheckInterval = const Duration(seconds: 30),
   }) : _initialAuthService = authService,
        _initialMailService = mailService;
 
@@ -163,6 +171,26 @@ class ApiMailRepository extends MailRepository {
   /// `null` selects the unified mailbox (every session); non-null narrows
   /// every read/write below to that one session.
   String? _activeAccountId;
+
+  /// Coarse periodic sweep so a snoozed-folder/inbox view open on screen
+  /// re-invalidates itself the moment a snooze deadline passes, instead of
+  /// only re-filtering on the next explicit [getEmailsInFolder] call (which
+  /// nothing forces while the user just sits looking at the list). Runs
+  /// only while at least one session is connected — see
+  /// [_startSnoozeExpiryTimerIfNeeded]/[logout].
+  Timer? _snoozeExpiryTimer;
+
+  /// Soonest upcoming snooze deadline (epoch millis) across every session,
+  /// or null when nothing is snoozed with a future deadline. Lets the timer
+  /// tick cheaply compare one integer instead of rescanning every session's
+  /// snoozes on every tick — only a tick that actually crosses this
+  /// deadline rescans and fires [notifyListeners].
+  int? _watchedSnoozeDeadlineMs;
+
+  /// How often [_snoozeExpiryTimer] ticks — 30s in production, overridable
+  /// (test-only) so a unit test can observe an expiry sweep in
+  /// milliseconds instead of real seconds.
+  final Duration _snoozeExpiryCheckInterval;
 
   static ({ApiAuthService authService, ApiMailService mailService})
   _buildRealServices() {
@@ -253,6 +281,7 @@ class ApiMailRepository extends MailRepository {
       _sessions.remove(session.account.id);
     }
     _activeAccountId = null;
+    _stopSnoozeExpiryTimer();
     _touch();
     notifyListeners();
   }
@@ -292,6 +321,50 @@ class ApiMailRepository extends MailRepository {
   void _cancelReconnectRetry(_Session session) {
     session.reconnectTimer?.cancel();
     session.reconnectTimer = null;
+  }
+
+  /// Starts the sweep in [_snoozeExpiryTimer] the first time any session
+  /// connects; a no-op while it's already running.
+  void _startSnoozeExpiryTimerIfNeeded() {
+    _snoozeExpiryTimer ??= Timer.periodic(
+      _snoozeExpiryCheckInterval,
+      (_) => _checkSnoozeExpiry(),
+    );
+  }
+
+  void _stopSnoozeExpiryTimer() {
+    _snoozeExpiryTimer?.cancel();
+    _snoozeExpiryTimer = null;
+    _watchedSnoozeDeadlineMs = null;
+  }
+
+  /// Recomputes [_watchedSnoozeDeadlineMs] from every session's current
+  /// snoozes. Called after anything that can change a snooze deadline
+  /// (activating a session, [setSnoozed]) and after the watched deadline
+  /// itself fires, so the timer always knows the next moment worth waking
+  /// up for.
+  void _recomputeWatchedSnoozeDeadline() {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    int? soonest;
+    for (final session in _sessions.values) {
+      for (final ms in session.snoozedUntil.values) {
+        if (ms > now && (soonest == null || ms < soonest)) soonest = ms;
+      }
+    }
+    _watchedSnoozeDeadlineMs = soonest;
+  }
+
+  /// The 30s tick: cheap in the common case (one integer comparison), and
+  /// only rescans/notifies on the tick that actually crosses the soonest
+  /// deadline — that mail just came back from snooze, so any open snoozed
+  /// folder or inbox view must self-update without waiting for the user to
+  /// pull-to-refresh or navigate away and back.
+  void _checkSnoozeExpiry() {
+    final watched = _watchedSnoozeDeadlineMs;
+    if (watched == null) return;
+    if (DateTime.now().millisecondsSinceEpoch < watched) return;
+    _recomputeWatchedSnoozeDeadline();
+    notifyListeners();
   }
 
   Future<void> _retryConnection(_Session session) async {
@@ -517,6 +590,7 @@ class ApiMailRepository extends MailRepository {
       session.forwardedIds = await flags.readForwarded();
       session.repliedThreadIds = await flags.readRepliedThreads();
       session.forwardedThreadIds = await flags.readForwardedThreads();
+      session.answeredThreadIds = await flags.readAnsweredThreads();
       await flags.seedDefaultLabels();
       session.labels = [
         for (final d in await flags.readLabelDefs())
@@ -529,6 +603,8 @@ class ApiMailRepository extends MailRepository {
       session.labelMap = await flags.readLabelMap();
       session.snoozedUntil = await flags.readSnoozed();
       session.flagsStore = flags;
+      _recomputeWatchedSnoozeDeadline();
+      _startSnoozeExpiryTimerIfNeeded();
       _hydrateFolderMapFromCache(session);
       final hydrated = await _hydrateFromCache(session);
       // Best-effort: enrich the token-derived account with the server view
@@ -938,6 +1014,15 @@ class ApiMailRepository extends MailRepository {
 
   static bool _pinned(Email email) => email.isPinned;
 
+  /// Sent items open past [MailRepository.unansweredReminderThreshold] with
+  /// no inbound reply float to the top of the Sent view (below pinned) —
+  /// same age gate as the "Yanıtlanmadı" badge in `MailListItem`, so the
+  /// sort order and the badge never disagree.
+  static bool _isStaleUnanswered(Email email) =>
+      !email.isAnswered &&
+      DateTime.now().difference(email.timestamp) >
+          MailRepository.unansweredReminderThreshold;
+
   /// Sessions the public read/write methods operate on: just the active one
   /// when scoped, every connected session when unified (`null`).
   Iterable<_Session> get _scopedSessions {
@@ -1065,6 +1150,11 @@ class ApiMailRepository extends MailRepository {
       final ha = _pinned(a);
       final hb = _pinned(b);
       if (ha != hb) return ha ? -1 : 1;
+      if (folder == MailFolder.sent) {
+        final ua = _isStaleUnanswered(a);
+        final ub = _isStaleUnanswered(b);
+        if (ua != ub) return ua ? -1 : 1;
+      }
       return b.timestamp.compareTo(a.timestamp);
     });
     return List.unmodifiable(result);
@@ -1226,7 +1316,47 @@ class ApiMailRepository extends MailRepository {
     session.hasMore[folder] =
         (session.emails[folder]?.length ?? 0) < result.total;
     session.lastSynced[folder] = DateTime.now();
+    if (folder == MailFolder.inbox) {
+      final newlyArrived = [
+        for (final e in result.items)
+          if (old[e.id] == null) e,
+      ];
+      if (newlyArrived.isNotEmpty) {
+        await _markSentThreadsAnswered(session, newlyArrived);
+      }
+    }
     notifyListeners();
+  }
+
+  /// A reply landing in Inbox for a thread the user has mail in Sent marks
+  /// that Sent-folder conversation "answered" — the mirror direction of
+  /// [markAsReplied] (replying to something in Inbox marks it via
+  /// [_Session.repliedThreadIds]; here, receiving a reply marks the Sent
+  /// thread via [_Session.answeredThreadIds]). Threads whose Sent message
+  /// hasn't been loaded into memory this session simply can't be detected
+  /// yet — it catches up once Sent is opened and a further reply arrives,
+  /// same best-effort tradeoff as [stampLocalFlags]'s thread-level sets.
+  Future<void> _markSentThreadsAnswered(
+    _Session session,
+    Iterable<Email> newlyArrived,
+  ) async {
+    final sentThreadIds = {
+      for (final e in session.emails[MailFolder.sent] ?? const <Email>[])
+        if (e.threadId.isNotEmpty) e.threadId,
+    };
+    if (sentThreadIds.isEmpty) return;
+    var changed = false;
+    for (final email in newlyArrived) {
+      if (email.threadId.isEmpty) continue;
+      if (!sentThreadIds.contains(email.threadId)) continue;
+      if (session.answeredThreadIds.add(email.threadId)) changed = true;
+    }
+    if (!changed) return;
+    final store = session.flagsStore;
+    if (store != null) {
+      await store.writeAnsweredThreads(session.answeredThreadIds);
+    }
+    _restampFlags(session);
   }
 
   /// Copies cached mails into [folder] server-side, then reloads that folder
@@ -1433,6 +1563,7 @@ class ApiMailRepository extends MailRepository {
     List<String> bcc = const [],
     required String subject,
     required String body,
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -1449,6 +1580,7 @@ class ApiMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       attachments: attachments,
       replySourceMailId: inReplyToId,
       idempotencyKey: _newIdempotencyKey(),
@@ -1466,6 +1598,7 @@ class ApiMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       timestamp: DateTime.now(),
       isRead: true,
       folder: MailFolder.sent,
@@ -1492,6 +1625,7 @@ class ApiMailRepository extends MailRepository {
     List<String> bcc = const [],
     required String subject,
     required String body,
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -1508,6 +1642,7 @@ class ApiMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       attachments: attachments,
       replySourceMailId: inReplyToId,
       sendAtUtc: sendAt,
@@ -1588,6 +1723,7 @@ class ApiMailRepository extends MailRepository {
     List<String> bcc = const [],
     String subject = '',
     String body = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -1601,6 +1737,7 @@ class ApiMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       body: body,
+      bodyHtml: bodyHtml,
       attachments: attachments,
       from: from,
       fromAccountId: fromAccountId,
@@ -1616,6 +1753,7 @@ class ApiMailRepository extends MailRepository {
     required List<String> bcc,
     required String subject,
     required String body,
+    required String? bodyHtml,
     required List<Attachment> attachments,
     required String? from,
     required String? fromAccountId,
@@ -1638,6 +1776,7 @@ class ApiMailRepository extends MailRepository {
         bcc: bcc,
         subject: subject,
         bodyText: body,
+        bodyHtml: bodyHtml,
         attachments: attachments,
         replySourceMailId: inReplyToId,
       );
@@ -1658,6 +1797,7 @@ class ApiMailRepository extends MailRepository {
         bcc: bcc,
         subject: subject,
         bodyText: body,
+        bodyHtml: bodyHtml,
         timestamp: DateTime.now(),
         isRead: true,
         folder: MailFolder.drafts,
@@ -1699,6 +1839,7 @@ class ApiMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       attachments: attachments,
       replySourceMailId: inReplyToId,
     );
@@ -1716,6 +1857,7 @@ class ApiMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       timestamp: DateTime.now(),
       isRead: true,
       folder: MailFolder.drafts,
@@ -2115,6 +2257,7 @@ class ApiMailRepository extends MailRepository {
       }
       await store.writeSnoozed(session.snoozedUntil);
     }
+    _recomputeWatchedSnoozeDeadline();
     _touch();
     notifyListeners();
   }

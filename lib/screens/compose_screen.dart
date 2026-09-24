@@ -13,6 +13,7 @@ import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
+import '../utils/markdown_lite_to_html.dart';
 
 /// Borderless field decoration shared by every compose input.
 ///
@@ -242,7 +243,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ? _repo.currentUser
           : (accounts.isNotEmpty ? accounts.first.email : null);
     }
-    _contacts = ContactsStore.fromEmails(_repo.getAllEmails());
+    ContactsStore.startListening(_repo);
+    _refreshContacts();
+    _repo.addListener(_refreshContacts);
     _toFocus.addListener(() => _handleFieldFocusChange(_toFocus));
     _ccFocus.addListener(() => _handleFieldFocusChange(_ccFocus));
     _bccFocus.addListener(() => _handleFieldFocusChange(_bccFocus));
@@ -256,8 +259,23 @@ class _ComposeScreenState extends State<ComposeScreen> {
       .map((e) => _Recipient(e, valid: _emailShapePattern.hasMatch(e)))
       .toList();
 
+  /// Recomputes [_contacts] from the persisted address book merged with
+  /// whatever mail is currently in memory — re-run every time [_repo]
+  /// notifies (registered in [initState]) so a contact from mail synced
+  /// after this screen opened still shows up in the suggestion overlay,
+  /// without needing to reopen compose. Deliberately not wrapped in
+  /// `setState`: [_contacts] never drives `build()` directly, only the
+  /// imperative overlay in [_updateSuggestions].
+  void _refreshContacts() {
+    _contacts = ContactsStore.merge(
+      ContactsStore.cachedPersisted,
+      ContactsStore.fromEmails(_repo.getAllEmails()),
+    );
+  }
+
   @override
   void dispose() {
+    _repo.removeListener(_refreshContacts);
     _removeSuggestionOverlay();
     _toInputController.dispose();
     _ccInputController.dispose();
@@ -567,6 +585,29 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   // --- Send / schedule -------------------------------------------------
 
+  /// Resolves [_fromAccount]'s connected-account id, captured once at
+  /// send/save time so a later-removed account fails the send explicitly
+  /// instead of silently landing on whichever account happens to be
+  /// primary by then (see `PendingSend.fromAccountId`).
+  String? get _resolvedFromAccountId {
+    final email = _fromAccount;
+    if (email == null) return null;
+    for (final account in _repo.accounts) {
+      if (account.email == email) return account.id;
+    }
+    return null;
+  }
+
+  /// The HTML alternative to send/save alongside the plain-text [body], or
+  /// null when [body] uses none of the formatting-toolbar markup — so a
+  /// plain unformatted mail never carries a redundant html alternative.
+  /// Reply/forward flows through this the same as any other compose: the
+  /// final typed body (toolbar-added markup, or markup already present in
+  /// a quoted/forwarded/draft body) is detected here, at send/save time —
+  /// not tracked separately per compose-open kind.
+  String? _bodyHtmlFor(String body) =>
+      hasMarkdownLiteMarkup(body) ? markdownLiteToHtml(body) : null;
+
   /// Commits pending recipient text into chips, then validates there is at
   /// least one To recipient and every chip looks like a real address.
   /// Shared by [_send] and [_scheduleSend].
@@ -609,8 +650,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final bcc = _addressStrings(_bccRecipients);
     final subject = _subjectController.text.trim();
     final body = _bodyController.text;
+    final bodyHtml = _bodyHtmlFor(body);
     final attachments = List<Attachment>.unmodifiable(_attachments);
     final from = _fromAccount;
+    final fromAccountId = _resolvedFromAccountId;
     final threadId = widget.initialThreadId;
     final inReplyToId = widget.inReplyToId;
     final draftId = _draftId;
@@ -623,8 +666,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
       bcc: bcc,
       subject: subject,
       body: body,
+      bodyHtml: bodyHtml,
       attachments: attachments,
       from: from,
+      fromAccountId: fromAccountId,
       threadId: threadId,
       inReplyToId: inReplyToId,
       draftId: draftId,
@@ -703,8 +748,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
         bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
+        bodyHtml: _bodyHtmlFor(_bodyController.text),
         attachments: List.unmodifiable(_attachments),
         from: _fromAccount,
+        fromAccountId: _resolvedFromAccountId,
         inReplyToId: widget.inReplyToId,
         sendAt: sendAt,
       );
@@ -757,11 +804,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
     try {
       final saved = await _repo.saveDraft(
         from: _fromAccount,
+        fromAccountId: _resolvedFromAccountId,
         to: _addressStrings(_toRecipients),
         cc: _addressStrings(_ccRecipients),
         bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
         body: _bodyController.text,
+        bodyHtml: _bodyHtmlFor(_bodyController.text),
         attachments: List.unmodifiable(_attachments),
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,

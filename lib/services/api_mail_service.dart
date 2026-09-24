@@ -367,6 +367,7 @@ class ApiMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async {
@@ -375,6 +376,7 @@ class ApiMailService {
       fields: _composeFields(
         subject: subject,
         bodyText: bodyText,
+        bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
       ),
       files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -398,6 +400,7 @@ class ApiMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async {
@@ -406,6 +409,7 @@ class ApiMailService {
       fields: _composeFields(
         subject: subject,
         bodyText: bodyText,
+        bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
       ),
       files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -490,6 +494,7 @@ class ApiMailService {
     List<String> bcc = const [],
     required String subject,
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     required String idempotencyKey,
@@ -499,6 +504,7 @@ class ApiMailService {
       fields: _composeFields(
         subject: subject,
         bodyText: bodyText,
+        bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
       ),
       files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -522,6 +528,7 @@ class ApiMailService {
     List<String> bcc = const [],
     required String subject,
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     required DateTime sendAtUtc,
@@ -533,6 +540,7 @@ class ApiMailService {
         ..._composeFields(
           subject: subject,
           bodyText: bodyText,
+          bodyHtml: bodyHtml,
           replySourceMailId: replySourceMailId,
         ),
         'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
@@ -574,10 +582,12 @@ class ApiMailService {
   Map<String, String> _composeFields({
     required String subject,
     required String bodyText,
+    String? bodyHtml,
     String? replySourceMailId,
   }) => {
     'subject': subject,
     'bodyText': bodyText,
+    'bodyHtml': ?bodyHtml,
     'replySourceMailId': ?replySourceMailId,
   };
 

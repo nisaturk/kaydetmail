@@ -114,6 +114,51 @@ void main() {
       expect(result.sent, isTrue);
       expect(result.sentCopySaved, isTrue);
     });
+
+    test('sendMail includes bodyHtml as a form field when given', () async {
+      late http.MultipartRequest sent;
+      final service = ApiMailService(
+        _multipartClient((request) async {
+          sent = request;
+          return http.Response(
+            jsonEncode({'sent': true, 'sentCopySaved': true, 'warning': null}),
+            200,
+          );
+        }),
+      );
+
+      await service.sendMail(
+        to: ['a@example.com'],
+        subject: 'Konu',
+        bodyText: '**Gövde**',
+        bodyHtml: '<p><b>Gövde</b></p>',
+        idempotencyKey: 'key-123',
+      );
+
+      expect(sent.fields['bodyHtml'], '<p><b>Gövde</b></p>');
+    });
+
+    test('sendMail omits the bodyHtml field entirely when null', () async {
+      late http.MultipartRequest sent;
+      final service = ApiMailService(
+        _multipartClient((request) async {
+          sent = request;
+          return http.Response(
+            jsonEncode({'sent': true, 'sentCopySaved': true, 'warning': null}),
+            200,
+          );
+        }),
+      );
+
+      await service.sendMail(
+        to: ['a@example.com'],
+        subject: 'Konu',
+        bodyText: 'Gövde',
+        idempotencyKey: 'key-123',
+      );
+
+      expect(sent.fields.containsKey('bodyHtml'), isFalse);
+    });
   });
 
   group('ApiMailRepository compose', () {
@@ -130,6 +175,21 @@ void main() {
       expect(email.folder, MailFolder.sent);
       expect(repo.getEmailsInFolder(MailFolder.sent).single.id, email.id);
       expect(mailService.sendCalls.single.idempotencyKey, isNotEmpty);
+    });
+
+    test('sendEmail forwards bodyHtml to the service and echoes it locally', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _loggedInRepository(mailService);
+
+      final email = await repo.sendEmail(
+        to: ['a@example.com'],
+        subject: 'Konu',
+        body: '**Gövde**',
+        bodyHtml: '<p><b>Gövde</b></p>',
+      );
+
+      expect(mailService.sendCalls.single.bodyHtml, '<p><b>Gövde</b></p>');
+      expect(email.bodyHtml, '<p><b>Gövde</b></p>');
     });
 
     test('sendEmail does not cache locally when the server reports no saved copy', () async {
@@ -191,8 +251,9 @@ Future<ApiMailRepository> _loggedInRepository(
 }
 
 class _SendCall {
-  _SendCall(this.idempotencyKey);
+  _SendCall(this.idempotencyKey, this.bodyHtml);
   final String idempotencyKey;
+  final String? bodyHtml;
 }
 
 class _RecordingMailService extends ApiMailService {
@@ -219,6 +280,7 @@ class _RecordingMailService extends ApiMailService {
     List<String> bcc = const [],
     String subject = '',
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
   }) async => DraftResult(created: true, mailId: draftMailId);
@@ -230,11 +292,12 @@ class _RecordingMailService extends ApiMailService {
     List<String> bcc = const [],
     required String subject,
     String bodyText = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     required String idempotencyKey,
   }) async {
-    sendCalls.add(_SendCall(idempotencyKey));
+    sendCalls.add(_SendCall(idempotencyKey, bodyHtml));
     return SendResult(sent: true, sentCopySaved: sentCopySaved);
   }
 }

@@ -68,6 +68,7 @@ class Email {
     this.isStarred = false,
     this.isReplied = false,
     this.isForwarded = false,
+    this.isAnswered = false,
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
@@ -108,6 +109,12 @@ class Email {
   final bool isStarred;
   final bool isReplied;
   final bool isForwarded;
+
+  /// Sent-folder-only: whether this conversation has received an inbound
+  /// reply back from the recipient (client-only tracking, mirror of
+  /// [isReplied] — see `ApiMailRepository._markSentThreadsAnswered`).
+  /// Meaningless outside Sent; always false on mail from other folders.
+  final bool isAnswered;
   final MailFolder folder;
 
   /// Ids of the labels attached to this mail (see `MailLabel`).
@@ -187,6 +194,7 @@ class Email {
     bool? isStarred,
     bool? isReplied,
     bool? isForwarded,
+    bool? isAnswered,
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
@@ -213,6 +221,7 @@ class Email {
       isStarred: isStarred ?? this.isStarred,
       isReplied: isReplied ?? this.isReplied,
       isForwarded: isForwarded ?? this.isForwarded,
+      isAnswered: isAnswered ?? this.isAnswered,
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,

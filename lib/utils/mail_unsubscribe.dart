@@ -31,10 +31,12 @@ class UnsubscribeInfo {
 final _angleBracketUrl = RegExp(r'<([^>]+)>');
 
 /// Parses `headers['list-unsubscribe']` (and `list-unsubscribe-post`).
-/// Returns null when the mail carries no `list-unsubscribe` header at all —
-/// the single source of truth for whether the unsubscribe action should be
-/// offered, regardless of whether the value could be parsed into a usable
-/// URL.
+/// Returns null when the mail carries no `list-unsubscribe` header at all.
+/// When non-null, [UnsubscribeInfo.hasAction] is the single source of truth
+/// for whether the unsubscribe action should be offered: it is false when
+/// the header was present but every URL in it was malformed or unsupported
+/// (bad scheme, missing host/recipient) — a menu action would just be a
+/// dead end then.
 UnsubscribeInfo? parseUnsubscribeHeaders(Map<String, String> headers) {
   final raw = headers['list-unsubscribe'];
   if (raw == null || raw.trim().isEmpty) return null;
@@ -46,9 +48,9 @@ UnsubscribeInfo? parseUnsubscribeHeaders(Map<String, String> headers) {
     if (candidate == null || candidate.isEmpty) continue;
     final uri = Uri.tryParse(candidate);
     if (uri == null) continue;
-    if (web == null && (uri.scheme == 'https' || uri.scheme == 'http')) {
+    if (web == null && _isActionableWebUrl(uri)) {
       web = uri;
-    } else if (mailto == null && uri.scheme == 'mailto') {
+    } else if (mailto == null && _isActionableMailto(uri)) {
       mailto = uri;
     }
   }
@@ -58,6 +60,17 @@ UnsubscribeInfo? parseUnsubscribeHeaders(Map<String, String> headers) {
 
   return UnsubscribeInfo(webUrl: web, mailtoUrl: mailto, oneClick: oneClick);
 }
+
+/// True for a `http`/`https` URL that actually has somewhere to send the
+/// request — a bare `<https://>` (no host) parses fine as a [Uri] but is
+/// not something the browser/one-click POST can do anything useful with.
+bool _isActionableWebUrl(Uri uri) =>
+    (uri.scheme == 'https' || uri.scheme == 'http') && uri.host.isNotEmpty;
+
+/// True for a `mailto:` URL that names a recipient — a bare `<mailto:>`
+/// parses fine as a [Uri] but opens a mail app with no "to" address.
+bool _isActionableMailto(Uri uri) =>
+    uri.scheme == 'mailto' && uri.path.isNotEmpty;
 
 /// Fires the unsubscribe action described by [info]:
 ///

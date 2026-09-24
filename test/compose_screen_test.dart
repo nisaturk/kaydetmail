@@ -13,6 +13,7 @@ import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/compose_screen.dart';
 import 'package:kaydetmail/services/signature_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
+import 'package:kaydetmail/utils/markdown_lite_to_html.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal in-memory [MailRepository] double. Every method not exercised by
@@ -143,6 +144,7 @@ class _FakeMailRepository extends MailRepository {
     List<String> bcc = const [],
     required String subject,
     required String body,
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -158,8 +160,10 @@ class _FakeMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       timestamp: DateTime.now(),
       folder: MailFolder.sent,
+      accountId: fromAccountId ?? '',
     );
     sent.add(email);
     return email;
@@ -172,6 +176,7 @@ class _FakeMailRepository extends MailRepository {
     List<String> bcc = const [],
     String subject = '',
     String body = '',
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -188,8 +193,10 @@ class _FakeMailRepository extends MailRepository {
       bcc: bcc,
       subject: subject,
       bodyText: body,
+      bodyHtml: bodyHtml,
       timestamp: DateTime.now(),
       folder: MailFolder.drafts,
+      accountId: fromAccountId ?? '',
     );
     savedDrafts.add(email);
     return email;
@@ -282,6 +289,7 @@ class _FakeMailRepository extends MailRepository {
     List<String> bcc = const [],
     required String subject,
     required String body,
+    String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
     String? fromAccountId,
@@ -503,6 +511,66 @@ void main() {
       expect(repo.sent, hasLength(1));
       expect(repo.sent.single.recipients, ['x@y.com']);
       expect(repo.sent.single.subject, 'Konu');
+    });
+
+    testWidgets('formatted mail delivers bodyHtml matching the toolbar markup, plain mail sends none', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('body-field')), 'Hello');
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('format-bold')));
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.bodyText, 'Hello****');
+      expect(repo.sent.single.bodyHtml, markdownLiteToHtml('Hello****'));
+      expect(repo.sent.single.bodyHtml, isNot(equals('Hello****')));
+    });
+
+    testWidgets('plain unformatted mail sends no bodyHtml alternative', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      await tester.enterText(find.byKey(const Key('body-field')), 'düz metin');
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.bodyHtml, isNull);
+    });
+
+    testWidgets('resolves the picked Kimden account to its id, not just the email', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA, _accountB]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'b@example.com');
+
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.accountId, 'acc-b');
     });
 
     testWidgets('Geri Al cancels the send and reopens compose with the same content', (

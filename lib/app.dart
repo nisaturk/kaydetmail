@@ -7,9 +7,12 @@ import '../config/app_config.dart';
 import '../models/mail_folder.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
+import '../state/pending_send_queue.dart';
+import 'screens/compose_screen.dart';
 import 'screens/home_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/mail_detail_screen.dart';
+import 'services/home_widget_compose_router.dart';
 import 'services/mail_rules_engine.dart';
 import 'services/push_service.dart';
 import 'theme/app_theme.dart';
@@ -64,6 +67,19 @@ class _AuthGateState extends State<_AuthGate> {
 
   bool _handlingLogout = false;
   String? _pendingMailId;
+
+  /// Routes the home-screen widget's "Yaz" compose shortcut, gated on
+  /// [_loggedIn] — see `HomeWidgetComposeRouter`. Deferred to the next
+  /// frame like [_pendingMailId]'s consumption below, since this can fire
+  /// mid-[setState] (from [_setAuthenticated]).
+  late final HomeWidgetComposeRouter _composeRouter = HomeWidgetComposeRouter(
+    onComposeRequested: () {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _pushCompose();
+      });
+    },
+  );
+
   @override
   void initState() {
     super.initState();
@@ -73,11 +89,13 @@ class _AuthGateState extends State<_AuthGate> {
     if (AppConfig.pushEnabled) {
       _mailTapSub = PushService.onMailTapped.listen(_openTappedMail);
     }
+    _composeRouter.start();
   }
 
   @override
   void dispose() {
     _mailTapSub?.cancel();
+    _composeRouter.dispose();
     AppSettingsController.instance.removeListener(_onSettingsChanged);
     AppConfig.mailRepository.removeListener(_onRepositoryChanged);
     _syncTimer?.cancel();
@@ -98,6 +116,12 @@ class _AuthGateState extends State<_AuthGate> {
     );
   }
 
+  void _pushCompose() {
+    _navigatorKey.currentState?.push(
+      MaterialPageRoute(builder: (_) => const ComposeScreen()),
+    );
+  }
+
   Future<void> _check() async {
     await Future.wait([
       AppSettingsController.instance.loadServerAddress(),
@@ -107,6 +131,7 @@ class _AuthGateState extends State<_AuthGate> {
     final emails = await SessionStore.loadEmails();
     if (!mounted) return;
     if (emails.isEmpty) {
+      _composeRouter.resolveAuth(false);
       setState(() => _loggedIn = false);
       return;
     }
@@ -125,6 +150,7 @@ class _AuthGateState extends State<_AuthGate> {
     if (anyRestored) {
       _setAuthenticated();
     } else {
+      _composeRouter.resolveAuth(false);
       setState(() => _loggedIn = false);
     }
   }
@@ -136,6 +162,7 @@ class _AuthGateState extends State<_AuthGate> {
     if (AppConfig.pushEnabled) {
       unawaited(PushService.registerAuthenticatedDevice());
     }
+    unawaited(_recoverPendingSends());
     final pendingMailId = _pendingMailId;
     if (pendingMailId != null) {
       _pendingMailId = null;
@@ -143,6 +170,35 @@ class _AuthGateState extends State<_AuthGate> {
         if (mounted) _pushMailDetail(pendingMailId);
       });
     }
+    _composeRouter.resolveAuth(true);
+  }
+
+  /// Best-effort at every (re)login: sends any pending mail a previous run
+  /// left durably queued but never finished (killed mid undo-window, or
+  /// mid [PendingSendQueue.flushPending] itself — see
+  /// [PendingSendQueue.recoverPersisted]), then surfaces any resulting
+  /// outbox failure as a one-off SnackBar. Deliberately minimal: no outbox
+  /// screen, just enough that a failed recovery send is never silently
+  /// swallowed.
+  Future<void> _recoverPendingSends() async {
+    await PendingSendQueue.instance.recoverPersisted();
+    final failures = await PendingSendQueue.readOutboxErrors();
+    if (failures.isEmpty || !mounted) return;
+    await PendingSendQueue.clearOutboxErrors();
+    final context = _navigatorKey.currentContext;
+    if (context == null || !context.mounted) return;
+    final subjectPreview = failures.first.subject.trim().isEmpty
+        ? '(konu yok)'
+        : failures.first.subject;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failures.length == 1
+              ? '"$subjectPreview" e-postası gönderilemedi.'
+              : '${failures.length} e-posta gönderilemedi (son: "$subjectPreview").',
+        ),
+      ),
+    );
   }
 
   void _onRepositoryChanged() {
@@ -193,7 +249,7 @@ class _AuthGateState extends State<_AuthGate> {
         // the user since the last snapshot stays on screen either way.
       }
     }
-    unawaited(MailRulesEngine.instance.evaluateNewMail(repo));
+    unawaited(MailRulesEngine.runAfterSync(repo));
   }
 
   @override

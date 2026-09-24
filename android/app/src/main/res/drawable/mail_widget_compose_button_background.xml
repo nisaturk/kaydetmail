@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Pill background for the widget's "Yaz" compose shortcut button — solid
+     black fill, fully rounded, matching AppTheme's monochrome black accent
+     (lib/theme/app_theme.dart AppColors light seed 0xFF0B0B0B / bodyText). -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android">
+    <solid android:color="#1F2937" />
+    <corners android:radius="999dp" />
+</shape>

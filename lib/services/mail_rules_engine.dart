@@ -2,15 +2,28 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_rule.dart';
 import '../repositories/mail_repository.dart';
+import 'home_widget_service.dart';
 import 'mail_rules_store.dart';
 
 /// Client-side filter/rule engine: "mail from X -> move to folder / apply
 /// label", evaluated against newly-synced mail. Runs whenever the app is
 /// open and syncing (background timer, pull-to-refresh, a push-triggered
-/// refresh) — see the call site in `app.dart`'s `_syncLoadedFolders`.
+/// refresh) — every one of those paths funnels through [runAfterSync]
+/// rather than calling [evaluateNewMail] directly, so there is exactly one
+/// evaluation point to reason about (see `app.dart`, `inbox_screen.dart`,
+/// `push_service.dart`).
 ///
 /// There is no server-side equivalent (same rationale as labels — see
 /// `LocalMailFlagsStore`): rules only fire while this app is running.
+///
+/// Rules apply in list order (oldest-created first — see
+/// [MailRulesStore.readRules]/`addRule`). When two `moveToFolder` rules
+/// both match the same mail, each runs in turn against the same
+/// pre-evaluation snapshot, so the LAST matching rule's destination is the
+/// one that sticks (it moves the mail after the earlier one already did).
+/// `addLabel` rules don't have this conflict — every matching rule's label
+/// is additive. Reorder rules (delete + recreate, since there is no
+/// priority field) if a specific precedence matters.
 ///
 /// Only Inbox is ever scanned, which makes re-running this on every sync
 /// tick safe without any extra "already processed" bookkeeping: once a
@@ -22,8 +35,24 @@ class MailRulesEngine {
 
   static final MailRulesEngine instance = MailRulesEngine._();
 
+  /// Single call site every refresh path should use instead of calling
+  /// [evaluateNewMail] directly: applies rules across every connected
+  /// account's inbox, then refreshes the Android home-screen widget so it
+  /// never sits stale between pushes.
+  static Future<void> runAfterSync(MailRepository repo) async {
+    await instance.evaluateNewMail(repo);
+    await HomeWidgetService.refreshFromInbox(repo);
+  }
+
+  /// Scans EVERY connected account's Inbox — not just [MailRepository.
+  /// activeAccountId]'s — since rules are configured per account, not per
+  /// view scope. [MailRepository.getAllEmails] is unscoped by the active
+  /// account for exactly this reason.
   Future<void> evaluateNewMail(MailRepository repo) async {
-    final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+    final inbox = repo
+        .getAllEmails()
+        .where((e) => e.folder == MailFolder.inbox)
+        .toList();
     if (inbox.isEmpty) return;
 
     final byAccount = <String, List<Email>>{};

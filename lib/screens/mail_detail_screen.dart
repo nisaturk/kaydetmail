@@ -461,7 +461,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
             value: 'share_pdf',
             child: Text('PDF olarak paylaş'),
           ),
-          if (parseUnsubscribeHeaders(email.headers) != null)
+          if (parseUnsubscribeHeaders(email.headers)?.hasAction ?? false)
             const PopupMenuItem(
               value: 'unsubscribe',
               child: Text('Abonelikten Çık'),

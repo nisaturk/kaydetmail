@@ -11,9 +11,10 @@
 /// link targets are honored, so a stray `javascript:` URL in `[text](url)`
 /// degrades to plain text instead of becoming an anchor.
 ///
-/// Not currently sent to the backend — see the compose PR description for
-/// why `MailRepository.sendEmail`/`saveDraft` still receive the raw
-/// markdown-lite text as `body` instead of this HTML as `bodyHtml`.
+/// Compose calls this (via [hasMarkdownLiteMarkup]) to build the `bodyHtml`
+/// alternative sent alongside the plain `bodyText` whenever the user
+/// actually used the formatting toolbar — see
+/// `_ComposeScreenState._bodyHtmlFor` in `compose_screen.dart`.
 String markdownLiteToHtml(String source) {
   if (source.isEmpty) return '';
   final lines = _escapeHtml(source).split('\n');
@@ -90,3 +91,18 @@ String _escapeHtml(String input) => input
     .replaceAll('<', '&lt;')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;');
+
+/// True when [source] contains any markup this module understands —
+/// bold/italic/underline/bullet/link — used by compose to decide whether a
+/// send/draft/schedule needs an HTML alternative at all, so plain
+/// unformatted mail never carries a redundant one.
+bool hasMarkdownLiteMarkup(String source) {
+  if (source.isEmpty) return false;
+  if (_boldPattern.hasMatch(source) ||
+      _underlinePattern.hasMatch(source) ||
+      _italicPattern.hasMatch(source) ||
+      _linkPattern.hasMatch(source)) {
+    return true;
+  }
+  return source.split('\n').any((line) => _bulletPattern.hasMatch(line));
+}

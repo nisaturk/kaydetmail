@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import 'mail_avatar.dart';
@@ -61,15 +62,22 @@ class MailListItem extends StatelessWidget {
   /// labeled mail is obvious without opening it.
   final List<MailLabel> labels;
 
-  /// Inbox mail older than this with no reply yet gets a "Yanıt bekliyor"
-  /// nudge (Gmail-style) — purely a display hint computed from fields the
-  /// row already has, no repository access needed.
-  static const Duration _nudgeThreshold = Duration(days: 3);
+  /// Mail older than this with no reply gets a "Yanıt bekliyor" nudge
+  /// (Gmail-style) — Inbox mail with no reply sent yet, or Sent mail with
+  /// no reply received back yet. Purely a display hint computed from
+  /// fields the row already has, no repository access needed.
+  static const Duration _nudgeThreshold = MailRepository.unansweredReminderThreshold;
 
-  bool get _needsReply =>
-      email.folder == MailFolder.inbox &&
-      !email.isReplied &&
-      DateTime.now().difference(email.timestamp) > _nudgeThreshold;
+  bool get _needsReply {
+    if (DateTime.now().difference(email.timestamp) <= _nudgeThreshold) {
+      return false;
+    }
+    return switch (email.folder) {
+      MailFolder.inbox => !email.isReplied,
+      MailFolder.sent => !email.isAnswered,
+      _ => false,
+    };
+  }
 
   String _semanticSummary() {
     final parts = <String>[

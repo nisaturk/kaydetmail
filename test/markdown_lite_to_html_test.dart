@@ -58,4 +58,25 @@ void main() {
   test('empty input returns an empty string', () {
     expect(markdownLiteToHtml(''), '');
   });
+
+  group('hasMarkdownLiteMarkup', () {
+    test('detects each formatting kind the toolbar produces', () {
+      expect(hasMarkdownLiteMarkup('**bold**'), isTrue);
+      expect(hasMarkdownLiteMarkup('*italic*'), isTrue);
+      expect(hasMarkdownLiteMarkup('__underline__'), isTrue);
+      expect(hasMarkdownLiteMarkup('- madde'), isTrue);
+      expect(hasMarkdownLiteMarkup('metin\n- madde\ndevam'), isTrue);
+      expect(hasMarkdownLiteMarkup('[site](https://example.com)'), isTrue);
+    });
+
+    test('plain unformatted text is not flagged', () {
+      expect(hasMarkdownLiteMarkup('sadece düz metin, hiçbir işaretleme yok'), isFalse);
+      expect(hasMarkdownLiteMarkup(''), isFalse);
+    });
+
+    test('a lone unpaired dash or star is not mistaken for markup', () {
+      expect(hasMarkdownLiteMarkup('geçen yıl - bu yıl'), isFalse);
+      expect(hasMarkdownLiteMarkup('3 * 4 = 12'), isFalse);
+    });
+  });
 }

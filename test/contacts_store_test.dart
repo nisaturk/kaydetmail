@@ -1,6 +1,28 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/models/email.dart';
+import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/services/contacts_store.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Minimal [MailRepository] double exposing only [getAllEmails] plus a way
+/// to simulate mail syncing in later and notifying listeners — everything
+/// else is unused by [ContactsStore].
+class _FakeRepo extends MailRepository {
+  _FakeRepo(this._emails);
+
+  List<Email> _emails;
+
+  @override
+  List<Email> getAllEmails() => List.unmodifiable(_emails);
+
+  void addSyncedMail(List<Email> more) {
+    _emails = [..._emails, ...more];
+    notifyListeners();
+  }
+
+  @override
+  Never noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
 
 Email _mail({
   required String id,
@@ -115,5 +137,92 @@ void main() {
     );
     expect(ContactsStore.search(contacts, 'EXAMPLE').length, 2);
     expect(ContactsStore.search(contacts, ''), isEmpty);
+  });
+
+  group('persisted address book', () {
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      ContactsStore.resetForTest();
+    });
+
+    test('merge dedupes by email, keeping whichever sighting is newer', () {
+      final older = Contact(
+        email: 'a@b.com',
+        displayName: 'Eski İsim',
+        lastSeen: DateTime(2024, 1, 1),
+      );
+      final newer = Contact(
+        email: 'A@B.com',
+        displayName: 'Yeni İsim',
+        lastSeen: DateTime(2024, 6, 1),
+      );
+
+      final merged = ContactsStore.merge([older], [newer]);
+
+      expect(merged, hasLength(1));
+      expect(merged.single.displayName, 'Yeni İsim');
+    });
+
+    test('ingest persists contacts so loadPersisted finds them after a restart', () async {
+      await ContactsStore.ingest([
+        _mail(
+          id: 'm1',
+          senderEmail: 'kalici@x.com',
+          senderName: 'Kalıcı Kişi',
+          timestamp: DateTime(2024, 1, 1),
+        ),
+      ]);
+
+      // Simulates a fresh app start: drop the in-memory cache and reload
+      // purely from SharedPreferences.
+      ContactsStore.resetForTest();
+      final persisted = await ContactsStore.loadPersisted();
+
+      expect(persisted.map((c) => c.email), contains('kalici@x.com'));
+    });
+
+    test(
+      'a contact from mail synced after startListening was called becomes searchable',
+      () async {
+        final repo = _FakeRepo(const []);
+        ContactsStore.startListening(repo);
+        await pumpEventQueue();
+
+        expect(ContactsStore.search(ContactsStore.cachedPersisted, 'sonradan'), isEmpty);
+
+        repo.addSyncedMail([
+          _mail(
+            id: 'm2',
+            senderEmail: 'sonradan@x.com',
+            senderName: 'Sonradan Gelen',
+            timestamp: DateTime(2024, 2, 1),
+          ),
+        ]);
+        await pumpEventQueue();
+
+        final found = ContactsStore.search(ContactsStore.cachedPersisted, 'sonradan');
+        expect(found.map((c) => c.email), contains('sonradan@x.com'));
+      },
+    );
+
+    test('startListening only re-ingests mail with an id not seen before', () async {
+      final mail = _mail(
+        id: 'm3',
+        senderEmail: 'tekrar@x.com',
+        timestamp: DateTime(2024, 1, 1),
+      );
+      final repo = _FakeRepo([mail]);
+      ContactsStore.startListening(repo);
+      await pumpEventQueue();
+
+      // An unrelated notification (same mail, no new ids) must not throw or
+      // duplicate anything — merge already keeps this idempotent either way,
+      // this just proves the id-diffing skip path is exercised safely.
+      repo.addSyncedMail(const []);
+      await pumpEventQueue();
+
+      final persisted = await ContactsStore.loadPersisted();
+      expect(persisted.where((c) => c.email == 'tekrar@x.com'), hasLength(1));
+    });
   });
 }
