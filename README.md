@@ -12,31 +12,43 @@ one unified inbox.
   folder/label state stays account-local.
 - **Folders + labels.** Standard folders (Gelen Kutusu, Gönderilenler, Taslaklar, Çöp
   Kutusu, Spam, Arşiv) plus a virtual **Yıldızlılar** (pinned) folder that groups pinned
-  mail across real folders, and user-defined colored labels.
+  mail across real folders, user-defined colored labels, and a **Diğer Klasörler**
+  screen that lists and browses any non-standard IMAP folder the server reports
+  (paginated, with manual sync) — read-only for now; creating/renaming/deleting
+  folders isn't supported yet.
 - **Reading, threading & actions.** Conversations render as a collapsible card stack
   (oldest first); read/unread, star/pin (capped at 3 concurrent pins), trash/restore,
   archive, spam, move, and multi-select bulk actions.
 - **Compose.** Attachments (paperclip, multiple files, size shown, removable), drafts,
-  reply/reply-all/forward with quoted history, and OS share-sheet intake (share a file
-  or link into the app to open compose pre-filled).
-- **Undo send and outbox.** Gönder waits five seconds for “Geri Al”; the complete
+  reply/reply-all/forward with quoted history, per-account signatures, and OS
+  share-sheet intake (share a file or link into the app to open compose pre-filled).
+- **Scheduled send.** Queue a message for a future time from Compose; the backend
+  delivers it even if the app is closed and retries recoverable pre-delivery failures
+  with backoff. Failed/delivery-uncertain sends stay visible in Zamanlanmış
+  Gönderimler for manual reschedule or cancel — never resent automatically.
+- **Undo send and outbox.** Gönder waits five seconds for "Geri Al"; the complete
   message and attachment bytes are persisted locally before compose closes.
   Definitive pre-delivery failures can be retried or edited from Giden Kutusu.
   If delivery is uncertain, the app does not resend automatically; check
   Gönderilenler before deleting the local copy or composing another message.
+- **Rules.** Client-side rules (sender contains → move/label) run against mail already
+  loaded into the app; not yet a server-side engine, so a rule only applies to mail the
+  app has actually fetched.
 - **Search.** Server-backed, always spans every connected account, with an inline label
   filter row.
-- **Offline cache.** An on-device SQLite mirror of loaded mail (metadata only, no
-  attachment bytes) paints the last known mailbox instantly on cold start and
-  revalidates against the API in the background; falls back to it when the backend is
-  unreachable.
+- **Offline cache.** An on-device SQLite mirror of loaded mail — including full message
+  bodies, but not attachment bytes — paints the last known mailbox instantly on cold
+  start and revalidates against the API in the background; falls back to it when the
+  backend is unreachable. Pull-to-refresh requests a server sync and waits for it to
+  actually finish (not just be queued) before reloading the list.
 - **Push notifications (FCM).** Device registration, foreground/background message
   routing, and tap-to-open — see [Push notifications](#push-notifications) below.
 - **Account & session management.** OAuth (Google/Microsoft) or password/manual
   IMAP-SMTP setup with auto-discovery; a "Bağlı cihazlar" view lists every device
   session on the account and can revoke them remotely.
-- **Settings.** Configurable server address (with validation), simulated sync interval
-  and swipe-to-delete toggle.
+- **Settings.** Configurable server address (with validation), an in-app-open list
+  refresh interval (independent of the backend's own background IMAP sync — see
+  Otomatik Yenileme in Settings), and a swipe-to-delete toggle.
 
 ## Architecture
 
