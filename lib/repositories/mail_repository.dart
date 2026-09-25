@@ -125,11 +125,12 @@ abstract class MailRepository extends ChangeNotifier {
   /// snapshot instead. Always false for implementations without a cache.
   bool get isOffline => false;
 
-  /// Mail ids whose offline read/unread mutation could not be replayed
-  /// after reconnecting — the mailbox changed underneath it (stale UID) or
-  /// the mail no longer exists, so replaying it blind risked landing on
-  /// the wrong message. Empty for implementations without an offline
-  /// mutation queue. See [markAsRead]/[markAsUnread].
+  /// Mail ids whose offline mutation (read/unread, star/unstar, archive,
+  /// trash, restore, or move) could not be replayed after reconnecting —
+  /// the mailbox changed underneath it (stale UID) or the mail no longer
+  /// exists, so replaying it blind risked landing on the wrong message.
+  /// Empty for implementations without an offline mutation queue. See
+  /// [markAsRead]/[markAsUnread]/[setStarred]/[moveToTrash]/[moveToFolder].
   List<String> get offlineMutationConflicts => const [];
 
   /// Acknowledges one entry from [offlineMutationConflicts] (e.g. after
@@ -315,6 +316,7 @@ abstract class MailRepository extends ChangeNotifier {
   Future<void> deleteDraft(String draftId);
 
   /// Moves the given mails to Trash (does not delete them permanently).
+  /// Queued for replay when offline — see [offlineMutationConflicts].
   Future<void> moveToTrash(List<String> ids);
 
   /// Permanently deletes mails that are in Trash or Spam — expunged on the
@@ -322,14 +324,20 @@ abstract class MailRepository extends ChangeNotifier {
   /// throws when any id could not be deleted (e.g. it isn't in Trash/Spam).
   Future<void> deletePermanently(List<String> ids);
 
+  /// Archive/move/restore, depending on [folder] and each mail's current
+  /// folder — see the implementation doc comment. Queued for replay when
+  /// offline — see [offlineMutationConflicts].
   Future<void> moveToFolder(List<String> ids, MailFolder folder);
 
+  /// Queued for replay when offline — see [offlineMutationConflicts].
   Future<void> markAsRead(List<String> ids);
 
+  /// Queued for replay when offline — see [offlineMutationConflicts].
   Future<void> markAsUnread(List<String> ids);
 
   Future<void> setPinned(List<String> ids, bool pinned);
 
+  /// Queued for replay when offline — see [offlineMutationConflicts].
   Future<void> setStarred(List<String> ids, bool starred);
 
   Future<void> markAsReplied(List<String> ids);

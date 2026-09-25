@@ -84,10 +84,11 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  /// Surfaces every mail an offline read/unread mutation failed to replay
-  /// for (see [MailRepository.offlineMutationConflicts]) as a one-shot
-  /// snackbar, then dismisses it — called on every repository change, so
-  /// this only does work the tick a conflict actually appears.
+  /// Surfaces every mail an offline mutation (read/unread, star, archive,
+  /// trash, restore, move) failed to replay for (see
+  /// [MailRepository.offlineMutationConflicts]) as a one-shot snackbar,
+  /// then dismisses it — called on every repository change, so this only
+  /// does work the tick a conflict actually appears.
   void _checkMutationConflicts() {
     final repo = AppConfig.mailRepository;
     for (final id in repo.offlineMutationConflicts.toList()) {
@@ -96,8 +97,8 @@ class _HomeScreenState extends State<HomeScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Çevrimdışıyken yapılan bir okundu/okunmadı işlemi uygulanamadı: '
-            'posta kutusu değişmiş.',
+            'Çevrimdışıyken yapılan bir işlem uygulanamadı: posta kutusu '
+            'değişmiş.',
           ),
         ),
       );

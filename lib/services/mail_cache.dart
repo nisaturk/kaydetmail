@@ -76,16 +76,19 @@ class MailCache {
         display_name TEXT,
         PRIMARY KEY (account_id, id)
       )''');
-    // Read/unread mutations queued while offline (see
-    // LocalMailFlagsStore.queueReadMutation), replayed once the account
-    // reconnects. One row per mail: a later queued state for the same
-    // mail overwrites the earlier one (`INSERT OR REPLACE`), so only the
-    // final desired state ever replays.
+    // Mail mutations queued while offline (see
+    // LocalMailFlagsStore.queueMutation), replayed once the account
+    // reconnects. One row per (mail, category): a later queued mutation in
+    // the same category for the same mail overwrites the earlier one
+    // (`INSERT OR REPLACE`), so only the final desired state ever replays
+    // (e.g. read->unread->read collapses to `read`; archive->trash
+    // collapses to `trash`) — see LocalMailFlagsStore.mutationCategoryFor.
     _db.execute('''
       CREATE TABLE IF NOT EXISTS offline_mutations (
-        account_id TEXT NOT NULL, mail_id TEXT NOT NULL, is_read INTEGER NOT NULL,
+        account_id TEXT NOT NULL, mail_id TEXT NOT NULL, category TEXT NOT NULL,
+        operation TEXT NOT NULL, folder_id TEXT,
         queued_at_ms INTEGER NOT NULL,
-        PRIMARY KEY (account_id, mail_id)
+        PRIMARY KEY (account_id, mail_id, category)
       )''');
   }
 

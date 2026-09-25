@@ -1165,58 +1165,43 @@ class ApiMailRepository extends MailRepository {
         .toList();
   }
 
-  /// Applies a bulk action within [session] and updates the local cache only
-  /// for the ids the server actually confirmed — a partial failure in [ids]
-  /// never desyncs the ones that succeeded (see the API's bulk semantics).
-  Future<void> _bulkAndApply(
+  /// Applies a bulk action within [session], optimistically and durably
+  /// queueing it for replay when the request cannot reach the backend.
+  /// Used for every operation spec docs-dev §8 requires an offline queue
+  /// for (`read`, `unread`, `star`, `unstar`, `archive`, `trash`, `move`;
+  /// `restore` is handled separately in [moveToFolder] since its offline
+  /// target folder is a placeholder corrected on replay, not the final
+  /// state): a transport failure still applies [apply] to the local cache
+  /// optimistically and queues [operation] in [LocalMailFlagsStore] for
+  /// replay once the account reconnects (see [_replayQueuedMutations]),
+  /// instead of throwing. `delete` is deliberately never queued — it is
+  /// permanent and irreversible, so a silent offline queue for it would be
+  /// unsafe.
+  Future<void> _bulkAndApplyOrQueue(
     _Session session,
-    String action,
+    String operation,
     List<String> ids,
     void Function(List<String> succeededIds) apply, {
     String? folderId,
   }) async {
     if (ids.isEmpty) return;
-    final results = await session.mailService.bulkAction(
-      action,
-      ids,
-      folderId: folderId,
-    );
-    final succeeded = results
-        .where((r) => r.success)
-        .map((r) => r.mailId)
-        .toList();
-    apply(succeeded);
-    notifyListeners();
-    unawaited(_refreshCountsFor(session));
-  }
-
-  /// Same contract as [_bulkAndApply], but only for [markAsRead]/
-  /// [markAsUnread]: a transport failure still applies [isRead] to the
-  /// local cache and queues it in [LocalMailFlagsStore] for replay once
-  /// the account reconnects (see [_replayQueuedMutations]), instead of
-  /// throwing. Every other mutation (star, move, trash, ...) has no
-  /// offline queue — read/unread is reversible and low-risk, so it was
-  /// picked first.
-  Future<void> _bulkAndApplyOrQueue(
-    _Session session,
-    String action,
-    bool isRead,
-    List<String> ids,
-  ) async {
-    if (ids.isEmpty) return;
     List<BulkActionResult> results;
     try {
-      results = await session.mailService.bulkAction(action, ids);
+      results = await session.mailService.bulkAction(
+        operation,
+        ids,
+        folderId: folderId,
+      );
     } catch (_) {
       session.offline = true;
       _scheduleReconnectRetry(session);
       final store = session.flagsStore;
       if (store != null) {
         for (final id in ids) {
-          await store.queueReadMutation(id, isRead);
+          await store.queueMutation(id, operation, folderId: folderId);
         }
       }
-      _replaceMany(session, ids, (m) => m.copyWith(isRead: isRead));
+      apply(ids);
       notifyListeners();
       return;
     }
@@ -1226,54 +1211,74 @@ class ApiMailRepository extends MailRepository {
         .toList();
     final store = session.flagsStore;
     if (store != null) {
+      final category = mutationCategoryFor(operation);
       for (final id in succeeded) {
-        await store.clearQueuedMutation(id);
+        await store.clearQueuedMutation(id, category);
       }
     }
-    _replaceMany(session, succeeded, (m) => m.copyWith(isRead: isRead));
+    apply(succeeded);
     notifyListeners();
     unawaited(_refreshCountsFor(session));
   }
 
-  /// Replays every read/unread mutation [session] queued while offline.
-  /// Best-effort and fire-and-forget from every call site: a further
-  /// transport failure just leaves the queue for the next reconnect. A
-  /// `mail_operation_conflict`/`mailbox_changed`/`mail_not_found` result —
-  /// the mailbox changed underneath the queued mutation, or the mail is
-  /// gone — is NOT retried: it's dropped from the queue and surfaced via
-  /// [offlineMutationConflicts] instead, so a stale queued mutation never
-  /// silently lands on the wrong message.
+  /// Replays every mutation [session] queued while offline (read, unread,
+  /// star, unstar, archive, trash, move — see
+  /// [ApiMailRepository._bulkAndApplyOrQueue] and `moveToFolder`'s inline
+  /// restore handling). Best-effort and fire-and-forget from every call
+  /// site: a further transport failure just leaves that group queued for
+  /// the next reconnect. A `mail_operation_conflict`/`mailbox_changed`/
+  /// `mail_not_found` result — the mailbox changed underneath the queued
+  /// mutation, or the mail is gone — is NOT retried: it's dropped from the
+  /// queue and surfaced via [offlineMutationConflicts] instead, so a stale
+  /// queued mutation never silently lands on the wrong message. Queued
+  /// mutations in the same category for the same mail already collapsed to
+  /// one row at queue time (see `LocalMailFlagsStore.queueMutation`), so
+  /// FIFO ordering across mails is all that's left to preserve here.
   Future<void> _replayQueuedMutations(_Session session) async {
     final store = session.flagsStore;
     if (store == null) return;
     final queued = await store.readQueuedMutations();
     if (queued.isEmpty) return;
-    final byState = <bool, List<String>>{};
-    for (final entry in queued) {
-      byState.putIfAbsent(entry.value, () => []).add(entry.key);
+    final byOp = <(String, String?), List<QueuedMutation>>{};
+    for (final mutation in queued) {
+      byOp
+          .putIfAbsent((mutation.operation, mutation.folderId), () => [])
+          .add(mutation);
     }
     var changed = false;
-    for (final entry in byState.entries) {
-      final action = entry.key ? 'read' : 'unread';
+    for (final entry in byOp.entries) {
+      final (operation, folderId) = entry.key;
+      final ids = [for (final m in entry.value) m.mailId];
+      final category = mutationCategoryFor(operation);
       List<BulkActionResult> results;
       try {
-        results = await session.mailService.bulkAction(action, entry.value);
+        results = await session.mailService.bulkAction(
+          operation,
+          ids,
+          folderId: folderId,
+        );
       } catch (_) {
         continue; // Still offline; the next reconnect retries.
       }
+      final restored = <String>[];
       for (final r in results) {
         if (r.success) {
-          await store.clearQueuedMutation(r.mailId);
+          await store.clearQueuedMutation(r.mailId, category);
           changed = true;
+          if (operation == 'restore') restored.add(r.mailId);
         } else if (r.code == 'mail_operation_conflict' ||
             r.code == 'mailbox_changed' ||
             r.code == 'mail_not_found') {
-          await store.clearQueuedMutation(r.mailId);
+          await store.clearQueuedMutation(r.mailId, category);
           session.mutationConflicts.add(r.mailId);
           changed = true;
         }
         // Any other failure (e.g. reauthentication needed) stays queued.
       }
+      // The offline placeholder filed a queued restore into Inbox (see
+      // `moveToFolder`) — now that the server confirmed it, correct it to
+      // wherever it actually came from, same as the online restore path.
+      if (restored.isNotEmpty) await _fileRestored(session, restored);
     }
     if (changed) notifyListeners();
   }
@@ -2377,7 +2382,7 @@ class ApiMailRepository extends MailRepository {
   Future<void> moveToTrash(List<String> ids) async {
     await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApply(
+        (e) => _bulkAndApplyOrQueue(
           e.key,
           'trash',
           e.value,
@@ -2432,6 +2437,14 @@ class ApiMailRepository extends MailRepository {
   /// action that reverses those two); everything else moves via the bulk
   /// `move`/`archive` actions. Both branches can run per account when [ids]
   /// mixes trashed and non-trashed mails across multiple connected accounts.
+  ///
+  /// `restore`'s true target folder is only known once the server responds
+  /// (a restored draft goes back to Drafts, not Inbox — see
+  /// [_fileRestored]), so it cannot share [_bulkAndApplyOrQueue]'s generic
+  /// "apply this same local effect online or offline" contract: offline, it
+  /// queues the mutation and files the mail into Inbox as a placeholder;
+  /// [_replayQueuedMutations] calls [_fileRestored] once the real answer is
+  /// known, exactly like the immediate-online path below does.
   @override
   Future<void> moveToFolder(List<String> ids, MailFolder folder) async {
     if (ids.isEmpty) return;
@@ -2443,15 +2456,42 @@ class ApiMailRepository extends MailRepository {
       }
       final idsForSession = entry.value;
       final restoring = _idsInTrashOrSpam(session, idsForSession);
-      final restored = <String>[];
-      await _bulkAndApply(session, 'restore', restoring, restored.addAll);
-      await _fileRestored(session, restored);
+      if (restoring.isNotEmpty) {
+        List<BulkActionResult>? results;
+        try {
+          results = await session.mailService.bulkAction('restore', restoring);
+        } catch (_) {
+          session.offline = true;
+          _scheduleReconnectRetry(session);
+          final store = session.flagsStore;
+          if (store != null) {
+            for (final id in restoring) {
+              await store.queueMutation(id, 'restore');
+            }
+          }
+          _moveMany(session, restoring, MailFolder.inbox);
+          notifyListeners();
+        }
+        if (results != null) {
+          final restored = [
+            for (final r in results)
+              if (r.success) r.mailId,
+          ];
+          final store = session.flagsStore;
+          if (store != null) {
+            for (final id in restored) {
+              await store.clearQueuedMutation(id, 'location');
+            }
+          }
+          await _fileRestored(session, restored);
+        }
+      }
 
       final rest = idsForSession
           .where((id) => !restoring.contains(id))
           .toList();
       if (rest.isNotEmpty) {
-        await _bulkAndApply(
+        await _bulkAndApplyOrQueue(
           session,
           folder == MailFolder.archive ? 'archive' : 'move',
           rest,
@@ -2503,7 +2543,13 @@ class ApiMailRepository extends MailRepository {
   Future<void> markAsRead(List<String> ids) async {
     await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApplyOrQueue(e.key, 'read', true, e.value),
+        (e) => _bulkAndApplyOrQueue(
+          e.key,
+          'read',
+          e.value,
+          (succeeded) =>
+              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: true)),
+        ),
       ),
     );
   }
@@ -2512,7 +2558,16 @@ class ApiMailRepository extends MailRepository {
   Future<void> markAsUnread(List<String> ids) async {
     await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApplyOrQueue(e.key, 'unread', false, e.value),
+        (e) => _bulkAndApplyOrQueue(
+          e.key,
+          'unread',
+          e.value,
+          (succeeded) => _replaceMany(
+            e.key,
+            succeeded,
+            (m) => m.copyWith(isRead: false),
+          ),
+        ),
       ),
     );
   }
@@ -2572,18 +2627,21 @@ class ApiMailRepository extends MailRepository {
     await Future.wait(
       _groupBySession(ids).entries.map((e) {
         final session = e.key;
-        return _bulkAndApply(session, starred ? 'star' : 'unstar', e.value, (
-          succeeded,
-        ) {
-          starred
-              ? session.starredIds.addAll(succeeded)
-              : session.starredIds.removeAll(succeeded);
-          _replaceMany(
-            session,
-            succeeded,
-            (m) => m.copyWith(isStarred: starred),
-          );
-        });
+        return _bulkAndApplyOrQueue(
+          session,
+          starred ? 'star' : 'unstar',
+          e.value,
+          (succeeded) {
+            starred
+                ? session.starredIds.addAll(succeeded)
+                : session.starredIds.removeAll(succeeded);
+            _replaceMany(
+              session,
+              succeeded,
+              (m) => m.copyWith(isStarred: starred),
+            );
+          },
+        );
       }),
     );
   }

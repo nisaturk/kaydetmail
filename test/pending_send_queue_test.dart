@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/services/api_exception.dart';
@@ -35,6 +36,42 @@ SendEmail _send(Future<Email> Function(String? key) action) =>
       String? inReplyToId,
       String? idempotencyKey,
     }) => action(idempotencyKey);
+
+/// Only overrides [sendEmail]/[deleteDraft] — the only two
+/// [PendingSendQueue._retryWaitingForNetwork]/`retry()` call on
+/// `AppConfig.mailRepository`.
+class _FakeMailRepository extends MailRepository {
+  int sendCalls = 0;
+  bool succeedNextSend = true;
+
+  @override
+  Future<Email> sendEmail({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    required String body,
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? from,
+    String? fromAccountId,
+    String? threadId,
+    String? inReplyToId,
+    String? idempotencyKey,
+  }) async {
+    sendCalls++;
+    if (!succeedNextSend) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+    return _sent();
+  }
+
+  @override
+  Future<void> deleteDraft(String draftId) async {}
+
+  @override
+  Never noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
 
 void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
@@ -263,4 +300,96 @@ void main() {
     final prefs = await SharedPreferences.getInstance();
     expect(prefs.getString('pending_send_queue_v1'), isNull);
   });
+
+  testWidgets(
+    'a definite network-unavailable failure is marked waitingForNetwork, '
+    'not uncertain, and the message stays intact for auto-retry',
+    (tester) async {
+      await tester.pumpWidget(const SizedBox());
+      final store = OutboxStore.inMemory();
+      final queue = PendingSendQueue.forTest(store);
+      await queue.enqueue(
+        const PendingSend(
+          id: 'send-offline',
+          to: ['a@b.com'],
+          subject: 'S',
+          body: 'B',
+        ),
+        sendEmail: _send(
+          (_) async =>
+              throw const ApiException(status: 0, code: 'network_unavailable'),
+        ),
+      );
+      await queue.flushPending();
+      expect(store.load().single.status, OutboxStatus.waitingForNetwork);
+      expect(store.load().single.send.body, 'B');
+      queue.cancelAll();
+    },
+  );
+
+  testWidgets(
+    'a waitingForNetwork send is eligible for manual retry, unlike failed '
+    'being the only retryable status before',
+    (tester) async {
+      await tester.pumpWidget(const SizedBox());
+      addTearDown(AppConfig.resetForTest);
+      final fake = _FakeMailRepository();
+      AppConfig.mailRepositoryForTest = fake;
+      final store = OutboxStore.inMemory();
+      final queue = PendingSendQueue.forTest(store);
+      await queue.enqueue(
+        const PendingSend(
+          id: 'send-retry',
+          to: ['a@b.com'],
+          subject: 'S',
+          body: 'B',
+        ),
+        sendEmail: _send(
+          (_) async =>
+              throw const ApiException(status: 0, code: 'network_unavailable'),
+        ),
+      );
+      await queue.flushPending();
+      expect(store.load().single.status, OutboxStatus.waitingForNetwork);
+
+      await queue.retry('send-retry');
+      expect(fake.sendCalls, 1);
+      expect(store.load(), isEmpty);
+      queue.cancelAll();
+    },
+  );
+
+  testWidgets(
+    'a waitingForNetwork send is redispatched automatically once the '
+    'network-retry timer fires, with no user action',
+    (tester) async {
+      await tester.pumpWidget(const SizedBox());
+      addTearDown(AppConfig.resetForTest);
+      final fake = _FakeMailRepository()..succeedNextSend = false;
+      AppConfig.mailRepositoryForTest = fake;
+      final store = OutboxStore.inMemory();
+      final queue = PendingSendQueue.forTest(store);
+      await queue.enqueue(
+        const PendingSend(
+          id: 'send-auto',
+          to: ['a@b.com'],
+          subject: 'S',
+          body: 'B',
+        ),
+        sendEmail: _send(
+          (_) async =>
+              throw const ApiException(status: 0, code: 'network_unavailable'),
+        ),
+      );
+      await queue.flushPending();
+      expect(store.load().single.status, OutboxStatus.waitingForNetwork);
+
+      // Network is back by the time the timer fires.
+      fake.succeedNextSend = true;
+      await tester.pump(const Duration(seconds: 16));
+      expect(fake.sendCalls, 1);
+      expect(store.load(), isEmpty);
+      queue.cancelAll();
+    },
+  );
 }
