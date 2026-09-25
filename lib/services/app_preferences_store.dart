@@ -12,6 +12,39 @@ class AppPreferencesStore {
   static const _themeModeKey = 'kaydet.theme.mode';
   static const _biometricLockKey = 'kaydet.security.biometricLockEnabled';
 
+  static const _attachmentAutoDownloadModeKey =
+      'kaydet.attachments.autoDownloadMode';
+  static const _attachmentAutoDownloadLimitKey =
+      'kaydet.attachments.autoDownloadLimit';
+
+  static Future<String?> loadAttachmentAutoDownloadMode() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_attachmentAutoDownloadModeKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveAttachmentAutoDownloadMode(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_attachmentAutoDownloadModeKey, value);
+  }
+
+  static Future<String?> loadAttachmentAutoDownloadLimit() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_attachmentAutoDownloadLimitKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveAttachmentAutoDownloadLimit(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_attachmentAutoDownloadLimitKey, value);
+  }
+
   static Future<String?> loadSyncInterval() async {
     try {
       final preferences = await SharedPreferences.getInstance();

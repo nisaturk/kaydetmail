@@ -10,6 +10,8 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
+import '../models/attachment_download_state.dart';
+import '../services/attachment_auto_download_policy.dart';
 import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
 import '../utils/date_format.dart';
@@ -886,8 +888,7 @@ class _SingleMessage extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 8),
-          for (final attachment in email.attachments)
-            _AttachmentTile(mailId: email.id, attachment: attachment),
+          _AttachmentList(email: email),
         ],
         const Divider(height: 32),
         const SizedBox(height: 4),
@@ -987,48 +988,179 @@ class _LabelChips extends StatelessWidget {
   }
 }
 
+class _AttachmentList extends StatefulWidget {
+  const _AttachmentList({required this.email});
+
+  final Email email;
+
+  @override
+  State<_AttachmentList> createState() => _AttachmentListState();
+}
+
+class _AttachmentListState extends State<_AttachmentList> {
+  @override
+  void initState() {
+    super.initState();
+    _autoDownload();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AttachmentList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.email.id != widget.email.id ||
+        oldWidget.email.attachments != widget.email.attachments) {
+      _autoDownload();
+    }
+  }
+
+  void _autoDownload() {
+    unawaited(
+      AttachmentAutoDownloader().onMailOpened(
+        AppConfig.mailRepository,
+        widget.email,
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      for (final attachment in widget.email.attachments)
+        _AttachmentTile(mailId: widget.email.id, attachment: attachment),
+    ],
+  );
+}
+
 class _AttachmentTile extends StatelessWidget {
   const _AttachmentTile({required this.mailId, required this.attachment});
 
   final String mailId;
   final Attachment attachment;
 
+  Future<void> _download(BuildContext context) async {
+    try {
+      await AppConfig.mailRepository.ensureAttachmentFile(mailId, attachment);
+    } catch (_) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ek indirilemedi. Tekrar deneyin.')),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
-    return InkWell(
-      onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) =>
-              AttachmentPreviewScreen(mailId: mailId, attachment: attachment),
-        ),
-      ),
-      borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 8),
-        child: Row(
-          children: [
-            Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Text(
-                attachment.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
+    final repository = AppConfig.mailRepository;
+    final content = Row(
+      children: [
+        Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
+        const SizedBox(width: 10),
+        Expanded(
+          child: Text(
+            attachment.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 14,
+              color: Theme.of(context).colorScheme.onSurface,
             ),
+          ),
+        ),
+        Text(
+          attachment.sizeLabel,
+          style: TextStyle(fontSize: 13, color: colors.secondaryText),
+        ),
+      ],
+    );
+    Widget tile(AttachmentDownloadState state) {
+      Widget status = const SizedBox.shrink();
+      Widget? action;
+      if (state is AttachmentDownloading) {
+        final percent = state.progress;
+        status = Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            LinearProgressIndicator(value: percent),
+            const SizedBox(height: 4),
             Text(
-              attachment.sizeLabel,
-              style: TextStyle(fontSize: 13, color: colors.secondaryText),
+              percent == null ? 'İndiriliyor…' : '%${(percent * 100).round()}',
             ),
           ],
+        );
+        action = IconButton(
+          tooltip: 'İndirmeyi iptal et',
+          onPressed: () =>
+              repository.cancelAttachmentDownload(mailId, attachment),
+          icon: const Icon(LucideIcons.x, size: 18),
+        );
+      } else if (state is AttachmentCompleted) {
+        status = const Text('Hazır');
+      } else if (state is AttachmentFailed) {
+        status = Text(
+          state.message,
+          style: TextStyle(color: Theme.of(context).colorScheme.error),
+        );
+        if (state.retryable) {
+          action = IconButton(
+            tooltip: 'Tekrar dene',
+            onPressed: () => _download(context),
+            icon: const Icon(LucideIcons.rotateCw, size: 18),
+          );
+        }
+      } else if (state is AttachmentCancelled) {
+        status = const Text('İndirme iptal edildi.');
+        action = IconButton(
+          tooltip: 'Tekrar dene',
+          onPressed: () => _download(context),
+          icon: const Icon(LucideIcons.download, size: 18),
+        );
+      } else {
+        action = IconButton(
+          tooltip: 'Eki indir',
+          onPressed: () => _download(context),
+          icon: const Icon(LucideIcons.download, size: 18),
+        );
+      }
+      return InkWell(
+        onTap: () => Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) =>
+                AttachmentPreviewScreen(mailId: mailId, attachment: attachment),
+          ),
         ),
-      ),
-    );
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(child: content),
+                  ?action,
+                ],
+              ),
+              if (state is AttachmentDownloading ||
+                  state is AttachmentFailed ||
+                  state is AttachmentCancelled ||
+                  state is AttachmentCompleted)
+                Align(alignment: Alignment.centerLeft, child: status),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (attachment.id == null) return tile(const AttachmentIdle());
+    try {
+      return ValueListenableBuilder<AttachmentDownloadState>(
+        valueListenable: repository.attachmentDownloadState(mailId, attachment),
+        builder: (context, state, _) => tile(state),
+      );
+    } on UnimplementedError {
+      return tile(const AttachmentIdle());
+    }
   }
 }
 

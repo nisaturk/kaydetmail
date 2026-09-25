@@ -131,6 +131,7 @@ class _AuthGateState extends State<_AuthGate> {
     await Future.wait([
       AppSettingsController.instance.loadServerAddress(),
       AppSettingsController.instance.loadBehaviorPreferences(),
+      AppSettingsController.instance.loadAttachmentPreferences(),
     ]);
     if (!mounted) return;
     final emails = await SessionStore.loadEmails();

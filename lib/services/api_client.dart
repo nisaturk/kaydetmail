@@ -101,6 +101,145 @@ class ApiClient {
     return response.bodyBytes;
   }
 
+  Future<http.StreamedResponse> getStream(
+    String path, {
+    int? rangeStart,
+    Future<void>? abortTrigger,
+    void Function(int receivedBytes, int? totalBytes)? onProgress,
+  }) async {
+    final accountId = _boundAccountId;
+    var token = await tokenStore.readAccessToken(accountId);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final uri = await _uri(path);
+      final requestAbort = Completer<void>();
+      abortTrigger?.then((_) {
+        if (!requestAbort.isCompleted) requestAbort.complete();
+      });
+      final request = http.AbortableRequest(
+        'GET',
+        uri,
+        abortTrigger: requestAbort.future,
+      )..headers['accept'] = '*/*';
+      if (token != null) request.headers['authorization'] = 'Bearer $token';
+      if (rangeStart != null && rangeStart > 0) {
+        request.headers['range'] = 'bytes=$rangeStart-';
+      }
+      late http.StreamedResponse response;
+      try {
+        response = await _httpClient.send(request).timeout(_requestTimeout);
+      } on TimeoutException {
+        if (!requestAbort.isCompleted) requestAbort.complete();
+        throw const ApiException(
+          status: 408,
+          code: 'request_timeout',
+          title: 'Request timed out',
+        );
+      } on http.ClientException {
+        if (abortTrigger != null) throw http.RequestAbortedException(uri);
+        throw const ApiException(
+          status: 0,
+          code: 'network_unavailable',
+          title: 'Network unavailable',
+        );
+      }
+      if (response.statusCode == 401 && attempt == 0) {
+        await response.stream.listen((_) {}).cancel();
+        final currentToken = await tokenStore.readAccessToken(accountId);
+        if (currentToken == token) await _refreshOnce();
+        token = await tokenStore.readAccessToken(accountId);
+        continue;
+      }
+      if (response.statusCode >= 400) {
+        final body = await response.stream.bytesToString();
+        throw ApiException.fromResponse(response.statusCode, body);
+      }
+      return http.StreamedResponse(
+        _withIdleTimeout(
+          response.stream,
+          requestAbort,
+          totalBytes: response.contentLength,
+          onProgress: onProgress,
+        ),
+        response.statusCode,
+        contentLength: response.contentLength,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    }
+    throw StateError('Unreachable');
+  }
+
+  Stream<List<int>> _withIdleTimeout(
+    Stream<List<int>> source,
+    Completer<void> abort, {
+    int? totalBytes,
+    void Function(int receivedBytes, int? totalBytes)? onProgress,
+  }) {
+    late StreamController<List<int>> controller;
+    StreamSubscription<List<int>>? subscription;
+    Timer? timer;
+    var receivedBytes = 0;
+    var done = false;
+    void finishError(Object error, [StackTrace? stack]) {
+      if (done) return;
+      done = true;
+      timer?.cancel();
+      controller.addError(error, stack);
+      unawaited(controller.close());
+    }
+
+    controller = StreamController<List<int>>(
+      onListen: () {
+        void arm() {
+          timer?.cancel();
+          timer = Timer(const Duration(seconds: 30), () {
+            if (!abort.isCompleted) abort.complete();
+            finishError(
+              const ApiException(
+                status: 408,
+                code: 'request_timeout',
+                title: 'Request timed out',
+              ),
+            );
+          });
+        }
+
+        arm();
+        subscription = source.listen(
+          (chunk) {
+            arm();
+            receivedBytes += chunk.length;
+            onProgress?.call(receivedBytes, totalBytes);
+            controller.add(chunk);
+          },
+          onError: (Object error, StackTrace stack) =>
+              finishError(error, stack),
+          onDone: () {
+            if (done) return;
+            done = true;
+            timer?.cancel();
+            unawaited(controller.close());
+          },
+        );
+      },
+      onPause: () => subscription?.pause(),
+      onResume: () => subscription?.resume(),
+      onCancel: () async {
+        done = true;
+        timer?.cancel();
+        await subscription?.cancel();
+      },
+    );
+    abort.future.then((_) {
+      finishError(http.RequestAbortedException());
+      unawaited(subscription?.cancel());
+    });
+    return controller.stream;
+  }
+
   Future<Map<String, dynamic>> multipart(
     String path, {
     required Map<String, String> fields,

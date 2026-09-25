@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:async';
 import 'dart:math';
 
@@ -28,6 +29,8 @@ import '../services/local_mail_flags_store.dart';
 import '../services/mail_cache.dart';
 import '../services/mail_rules_store.dart';
 import '../services/signature_store.dart';
+import '../models/attachment_download_state.dart';
+import '../services/attachment_download_manager.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
 
@@ -173,8 +176,11 @@ class ApiMailRepository extends MailRepository {
     this._openCache,
     this._sessionFactory,
     this._snoozeExpiryCheckInterval = const Duration(seconds: 30),
+    AttachmentDownloadManager? attachmentDownloadManager,
   }) : _initialAuthService = authService,
-       _initialMailService = mailService;
+       _initialMailService = mailService,
+       _attachmentDownloadManager =
+           attachmentDownloadManager ?? AttachmentDownloadManager.instance;
 
   // Test seams: the first session created (via login/connect/restore) uses
   // the injected auth+mail service pair when present; every session after
@@ -186,6 +192,7 @@ class ApiMailRepository extends MailRepository {
   bool _initialConsumed = false;
 
   final Future<MailCache> Function()? _openCache;
+  final AttachmentDownloadManager _attachmentDownloadManager;
   MailCache? _cache;
 
   /// Every connected account's session, keyed by account id, in connection
@@ -936,6 +943,7 @@ class ApiMailRepository extends MailRepository {
   Future<void> removeAccount(String accountId) async {
     final session = _sessions[accountId];
     if (session == null) return;
+    await _attachmentDownloadManager.removeAccount(accountId);
     await session.mailService.deleteAccount();
     await session.authService.tokenStore.clear(accountId);
     await _unregisterDeviceFor(session);
@@ -1740,8 +1748,68 @@ class ApiMailRepository extends MailRepository {
       return attachment.bytes ?? Uint8List(0);
     }
     final owner = _sessionOwning(mailId) ?? _primarySession;
-    return owner.mailService.downloadAttachment(mailId, id);
+    if (kIsWeb) return owner.mailService.downloadAttachment(mailId, id);
+    final file = await ensureAttachmentFile(mailId, attachment);
+    return file.readAsBytes();
   }
+
+  @override
+  Future<File> ensureAttachmentFile(String mailId, Attachment attachment) {
+    final id = attachment.id;
+    if (id == null) {
+      throw ArgumentError('Attachment has no server id.');
+    }
+    final owner = _sessionOwning(mailId) ?? _primarySession;
+    final key = AttachmentDownloadKey(owner.account.id, mailId, id);
+    final path =
+        '/api/mails/${Uri.encodeComponent(mailId)}/attachments/${Uri.encodeComponent(id)}';
+    return _attachmentDownloadManager.ensureDownloaded(
+      key: key,
+      filename: attachment.name,
+      sizeBytes: attachment.sizeBytes,
+      open: ({rangeStart, abortTrigger}) async {
+        final response = await owner.authService.client.getStream(
+          path,
+          rangeStart: rangeStart,
+          abortTrigger: abortTrigger,
+        );
+        return HttpStreamResult(
+          statusCode: response.statusCode,
+          headers: response.headers,
+          stream: response.stream,
+        );
+      },
+    );
+  }
+
+  @override
+  ValueListenable<AttachmentDownloadState> attachmentDownloadState(
+    String mailId,
+    Attachment attachment,
+  ) {
+    final owner = _sessionOwning(mailId) ?? _primarySession;
+    return _attachmentDownloadManager.stateFor(
+      AttachmentDownloadKey(owner.account.id, mailId, attachment.id ?? ''),
+    );
+  }
+
+  @override
+  Future<void> cancelAttachmentDownload(
+    String mailId,
+    Attachment attachment,
+  ) async {
+    final owner = _sessionOwning(mailId) ?? _primarySession;
+    await _attachmentDownloadManager.cancel(
+      AttachmentDownloadKey(owner.account.id, mailId, attachment.id ?? ''),
+    );
+  }
+
+  @override
+  Future<int> attachmentCacheSize() => _attachmentDownloadManager.cacheSize();
+
+  @override
+  Future<void> clearAttachmentCache() =>
+      _attachmentDownloadManager.clearCache();
 
   /// Stores a full detail object in [session]'s in-memory cache without
   /// notifying: replaces the cached copy in whichever bucket holds it, or

@@ -1,5 +1,6 @@
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/account_notification_settings.dart';
@@ -16,6 +17,7 @@ import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/server_mail_rule.dart';
+import '../models/attachment_download_state.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -256,6 +258,23 @@ abstract class MailRepository extends ChangeNotifier {
   /// the attachment is gone). Attachments picked locally and not yet
   /// uploaded carry no server id — those return the bytes already held.
   Future<Uint8List> downloadAttachment(String mailId, Attachment attachment);
+
+  Future<File> ensureAttachmentFile(String mailId, Attachment attachment) =>
+      throw UnimplementedError('ensureAttachmentFile');
+
+  ValueListenable<AttachmentDownloadState> attachmentDownloadState(
+    String mailId,
+    Attachment attachment,
+  ) => throw UnimplementedError('attachmentDownloadState');
+
+  Future<void> cancelAttachmentDownload(String mailId, Attachment attachment) =>
+      throw UnimplementedError('cancelAttachmentDownload');
+
+  Future<int> attachmentCacheSize() =>
+      throw UnimplementedError('attachmentCacheSize');
+
+  Future<void> clearAttachmentCache() =>
+      throw UnimplementedError('clearAttachmentCache');
 
   /// Every mail belonging to the same conversation, oldest first.
   /// Grouped by [threadId] — never by subject/account, which can coincide

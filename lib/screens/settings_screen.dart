@@ -93,6 +93,12 @@ class SettingsScreen extends StatelessWidget {
             page: (_) => [_SyncSection()],
           ),
           _CategoryTile(
+            icon: LucideIcons.paperclip,
+            title: 'Ekler',
+            subtitle: 'Otomatik indirme ve önbellek',
+            page: (_) => [_AttachmentSettingsSection()],
+          ),
+          _CategoryTile(
             icon: LucideIcons.tag,
             title: 'Etiketler',
             subtitle: 'Etiket oluştur, düzenle, sil',
@@ -1101,6 +1107,140 @@ class _SwipeSection extends StatelessWidget {
       ),
       value: settings.swipeDeleteEnabled,
       onChanged: (v) => settings.swipeDeleteEnabled = v,
+    );
+  }
+}
+
+class _AttachmentSettingsSection extends StatefulWidget {
+  @override
+  State<_AttachmentSettingsSection> createState() =>
+      _AttachmentSettingsSectionState();
+}
+
+class _AttachmentSettingsSectionState
+    extends State<_AttachmentSettingsSection> {
+  int? _cacheBytes;
+  Object? _error;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSize();
+  }
+
+  Future<void> _loadSize() async {
+    try {
+      final size = await AppConfig.mailRepository.attachmentCacheSize();
+      if (mounted) {
+        setState(() {
+          _cacheBytes = size;
+          _error = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    }
+  }
+
+  Future<void> _clear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ek önbelleğini temizle?'),
+        content: Text('$_sizeLabel boyutundaki indirilen ekler silinecek.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Temizle'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    setState(() => _busy = true);
+    try {
+      await AppConfig.mailRepository.clearAttachmentCache();
+      await _loadSize();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ek önbelleği temizlendi.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Önbellek temizlenemedi.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String get _sizeLabel {
+    final bytes = _cacheBytes ?? 0;
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    final secondary = AppTheme.colors(context).secondaryText;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Text(
+            'Ekler yalnızca posta açıldığında, seçilen ağda ve boyut sınırının altındaysa otomatik indirilir.',
+            style: TextStyle(fontSize: 12.5, color: secondary),
+          ),
+        ),
+        for (final mode in AttachmentAutoDownloadMode.values)
+          ListTile(
+            dense: true,
+            title: Text(mode.label),
+            trailing: mode == settings.attachmentAutoDownloadMode
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.attachmentAutoDownloadMode = mode,
+          ),
+        const Divider(height: 1),
+        for (final limit in AttachmentAutoDownloadLimit.values)
+          ListTile(
+            dense: true,
+            title: Text('Otomatik indirme sınırı: ${limit.label}'),
+            trailing: limit == settings.attachmentAutoDownloadLimit
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.attachmentAutoDownloadLimit = limit,
+          ),
+        const Divider(height: 1),
+        ListTile(
+          key: const Key('clear-attachment-cache'),
+          leading: Icon(LucideIcons.trash2, size: 20, color: secondary),
+          title: const Text('Ek önbelleğini temizle'),
+          subtitle: _error != null
+              ? Row(
+                  children: [
+                    const Expanded(child: Text('Boyut alınamadı.')),
+                    TextButton(
+                      onPressed: _loadSize,
+                      child: const Text('Tekrar dene'),
+                    ),
+                  ],
+                )
+              : Text(_cacheBytes == null ? 'Boyut hesaplanıyor…' : _sizeLabel),
+          trailing: _busy || _cacheBytes == null
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : null,
+          onTap: _busy || _cacheBytes == null ? null : _clear,
+        ),
+      ],
     );
   }
 }

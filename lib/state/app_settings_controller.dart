@@ -10,6 +10,27 @@ import '../services/server_address_store.dart';
 /// How often the mailbox refreshes itself in the background while the app
 /// is open. `manual` ([duration] null) means only pull-to-refresh, push
 /// notifications and app-open trigger a refresh.
+enum AttachmentAutoDownloadMode {
+  off('Kapalı'),
+  wifiOnly('Yalnız Wi-Fi'),
+  wifiAndMobile('Wi-Fi ve mobil veri');
+
+  const AttachmentAutoDownloadMode(this.label);
+
+  final String label;
+}
+
+enum AttachmentAutoDownloadLimit {
+  oneMb('1 MB', 1024 * 1024),
+  fiveMb('5 MB', 5 * 1024 * 1024),
+  tenMb('10 MB', 10 * 1024 * 1024);
+
+  const AttachmentAutoDownloadLimit(this.label, this.bytes);
+
+  final String label;
+  final int bytes;
+}
+
 enum SyncInterval {
   manual('Manuel', null),
   every5Minutes('Her 5 dakikada bir', Duration(minutes: 5)),
@@ -44,7 +65,10 @@ class AppSettingsController extends ChangeNotifier {
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
   bool _biometricLockEnabled = false;
-
+  AttachmentAutoDownloadMode _attachmentAutoDownloadMode =
+      AttachmentAutoDownloadMode.off;
+  AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
+      AttachmentAutoDownloadLimit.fiveMb;
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
 
@@ -62,6 +86,25 @@ class AppSettingsController extends ChangeNotifier {
   /// override it. Defaults to `system` — the palette itself never changes
   /// (grayscale by design), only which end of it is the background.
   ThemeMode get themeMode => _themeMode;
+
+  AttachmentAutoDownloadMode get attachmentAutoDownloadMode =>
+      _attachmentAutoDownloadMode;
+  AttachmentAutoDownloadLimit get attachmentAutoDownloadLimit =>
+      _attachmentAutoDownloadLimit;
+
+  set attachmentAutoDownloadMode(AttachmentAutoDownloadMode value) {
+    if (_attachmentAutoDownloadMode == value) return;
+    _attachmentAutoDownloadMode = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveAttachmentAutoDownloadMode(value.name));
+  }
+
+  set attachmentAutoDownloadLimit(AttachmentAutoDownloadLimit value) {
+    if (_attachmentAutoDownloadLimit == value) return;
+    _attachmentAutoDownloadLimit = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveAttachmentAutoDownloadLimit(value.name));
+  }
 
   set notificationsEnabled(bool value) {
     if (_notificationsEnabled == value) return;
@@ -136,6 +179,23 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadAttachmentPreferences() async {
+    final modeName = await AppPreferencesStore.loadAttachmentAutoDownloadMode();
+    final limitName =
+        await AppPreferencesStore.loadAttachmentAutoDownloadLimit();
+    _attachmentAutoDownloadMode =
+        AttachmentAutoDownloadMode.values
+            .where((value) => value.name == modeName)
+            .firstOrNull ??
+        AttachmentAutoDownloadMode.off;
+    _attachmentAutoDownloadLimit =
+        AttachmentAutoDownloadLimit.values
+            .where((value) => value.name == limitName)
+            .firstOrNull ??
+        AttachmentAutoDownloadLimit.fiveMb;
+    notifyListeners();
+  }
+
   /// Loads the persisted theme mode. Awaited before `runApp` in `main()` so
   /// the very first frame already uses the right mode — no light-then-dark
   /// flash.
@@ -170,6 +230,8 @@ class AppSettingsController extends ChangeNotifier {
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
       .._biometricLockEnabled = false
+      .._attachmentAutoDownloadMode = AttachmentAutoDownloadMode.off
+      .._attachmentAutoDownloadLimit = AttachmentAutoDownloadLimit.fiveMb
       ..notifyListeners();
   }
 }
