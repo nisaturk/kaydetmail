@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
+import 'package:kaydetmail/models/account_sync_scope.dart';
 import 'package:kaydetmail/models/folder_sync_status.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
@@ -15,6 +16,47 @@ class _FakeRepo extends MailRepository {
   final Map<String, List<FolderSyncStatus>> syncStatusByAccount = {};
   final Map<String, Object> syncStatusErrorByAccount = {};
   final Map<String, int> queuedMutationsByAccount = {};
+  FolderSyncScope scope = FolderSyncScope.inboxAndSent;
+  final folders = const [
+    SyncScopeFolder(id: 'f-inbox', name: 'INBOX', type: 'Inbox', synced: true),
+    SyncScopeFolder(
+      id: 'f-custom',
+      name: 'Projeler',
+      type: 'Custom',
+      synced: false,
+    ),
+  ];
+  List<String>? lastSelectedFolderIds;
+
+  @override
+  Future<AccountSyncScope> getSyncScope(String accountId) async =>
+      AccountSyncScope(scope: scope, folders: folders);
+
+  @override
+  Future<AccountSyncScope> updateSyncScope(
+    String accountId,
+    FolderSyncScope value, {
+    List<String>? folderIds,
+  }) async {
+    scope = value;
+    lastSelectedFolderIds = folderIds;
+    return AccountSyncScope(
+      scope: scope,
+      folders: [
+        for (final folder in folders)
+          SyncScopeFolder(
+            id: folder.id,
+            name: folder.name,
+            type: folder.type,
+            synced:
+                value == FolderSyncScope.allFolders ||
+                (value == FolderSyncScope.selectedFolders
+                    ? (folderIds?.contains(folder.id) ?? false)
+                    : folder.type == 'Inbox'),
+          ),
+      ],
+    );
+  }
 
   @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {
@@ -143,4 +185,36 @@ void main() {
     expect(find.text('3 işlem bağlantı bekliyor'), findsOneWidget);
     expect(find.text('Hepsi senkronize'), findsNothing);
   });
+
+  testWidgets(
+    'selected folder scope survives navigation and keeps custom selection',
+    (tester) async {
+      final repo = _FakeRepo([_account]);
+      await _pumpScreen(tester, repo);
+      await tester.tap(find.byKey(const Key('sync-scope-acc-1')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('sync-scope-SelectedFolders')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('sync-folder-f-custom')));
+      await tester.tap(find.byKey(const Key('save-sync-scope')));
+      await tester.pumpAndSettle();
+
+      expect(repo.scope, FolderSyncScope.selectedFolders);
+      expect(repo.lastSelectedFolderIds, contains('f-custom'));
+      await tester.ensureVisible(
+        find.textContaining(
+          'Arka planda senkronize edilen klasörler',
+          skipOffstage: false,
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Arka planda senkronize edilen klasörler'),
+        findsOneWidget,
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('Senkronizasyon Durumu'), findsOneWidget);
+    },
+  );
 }

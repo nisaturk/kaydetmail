@@ -6,6 +6,7 @@ import 'package:kaydetmail/models/folder_sync_status.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
+import 'package:kaydetmail/models/remote_search_result.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/search_screen.dart';
 
@@ -32,6 +33,46 @@ class _FakeRepo extends MailRepository {
   final List<_Call> calls = [];
   List<Email> nextResult = const [];
   List<FolderSyncStatus> syncStatusForFirstAccount = const [];
+  int remoteCalls = 0;
+  String? remoteAccountId;
+
+  @override
+  Future<RemoteSearchResult> searchRemote({
+    required String query,
+    String? accountId,
+    MailFolder? folder,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+  }) async {
+    remoteCalls++;
+    remoteAccountId = accountId;
+    nextResult = [
+      Email(
+        id: 'remote-1',
+        senderName: 'Sender',
+        senderEmail: 'sender@example.com',
+        recipients: const ['me@example.com'],
+        subject: 'Sunucudan gelen',
+        bodyText: '',
+        timestamp: DateTime(2026),
+        isRead: false,
+        accountId: accountId ?? _accounts.first.id,
+      ),
+    ];
+    return const RemoteSearchResult(
+      matched: 1,
+      imported: 1,
+      remaining: 0,
+      complete: true,
+    );
+  }
 
   @override
   List<MailAccount> get accounts => _accounts;
@@ -199,5 +240,57 @@ void main() {
       find.textContaining('Posta kutusu hâlâ senkronize ediliyor'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('remote search imports results then reruns cached search', (
+    tester,
+  ) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+    ]);
+    await _pumpSearch(tester, repo);
+    await tester.enterText(find.byType(TextField).first, 'sunucu');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(repo.calls, hasLength(1));
+
+    await tester.tap(find.byKey(const Key('search-remote')));
+    await tester.pumpAndSettle();
+
+    expect(repo.remoteCalls, 1);
+    expect(repo.calls, hasLength(2));
+    expect(find.text('Sunucudan gelen'), findsOneWidget);
+    expect(find.textContaining('1 yeni e-posta eklendi'), findsOneWidget);
+  });
+
+  testWidgets('label-only search cannot trigger remote import', (tester) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+    ]);
+    await _pumpSearch(tester, repo);
+    await tester.tap(find.text('Fatura'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('search-remote')), findsNothing);
+  });
+
+  testWidgets('remote search keeps the selected account scope', (tester) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+      MailAccount(id: 'a2', email: 'b@example.com'),
+    ]);
+    await _pumpSearch(tester, repo);
+    await tester.enterText(find.byType(TextField).first, 'sunucu');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Filtreler'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('b@example.com'));
+    await tester.ensureVisible(find.text('Uygula'));
+    await tester.tap(find.text('Uygula'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('search-remote')));
+    await tester.pumpAndSettle();
+    expect(repo.remoteAccountId, 'a2');
   });
 }

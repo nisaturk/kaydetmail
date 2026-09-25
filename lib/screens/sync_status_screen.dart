@@ -8,6 +8,8 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 
+import 'sync_scope_screen.dart';
+
 class SyncStatusScreen extends StatefulWidget {
   const SyncStatusScreen({super.key});
 
@@ -82,6 +84,15 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
                     account: account,
                     state: _states[account.id],
                     onRetry: () => _loadAccount(account.id),
+                    onConfigure: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => SyncScopeScreen(account: account),
+                        ),
+                      );
+                      if (mounted) _loadAccount(account.id);
+                    },
                   );
                 },
               ),
@@ -96,11 +107,13 @@ class _AccountSyncCard extends StatelessWidget {
     required this.account,
     required this.state,
     required this.onRetry,
+    required this.onConfigure,
   });
 
   final MailAccount account;
   final _AccountSyncState? state;
   final VoidCallback onRetry;
+  final VoidCallback onConfigure;
 
   @override
   Widget build(BuildContext context) {
@@ -114,6 +127,15 @@ class _AccountSyncCard extends StatelessWidget {
           children: [
             Text(account.email, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 12),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                key: Key('sync-scope-${account.id}'),
+                onPressed: onConfigure,
+                icon: const Icon(LucideIcons.settings2, size: 18),
+                label: const Text('Senkronizasyon kapsamı'),
+              ),
+            ),
             _buildBody(context, colors),
           ],
         ),

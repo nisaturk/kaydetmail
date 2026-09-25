@@ -9,6 +9,7 @@ import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
+import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../utils/html_to_text.dart';
 import 'api_auth_service.dart';
@@ -105,6 +106,28 @@ class ApiMailService {
         )
         .toList();
   }
+
+  Future<({String scope, Set<String> syncedFolderIds})> getSyncScope() async =>
+      _mapSyncScope(await _client.get('/api/account/sync-scope'));
+
+  Future<({String scope, Set<String> syncedFolderIds})> updateSyncScope(
+    String scope, {
+    List<String>? folderIds,
+  }) async => _mapSyncScope(
+    await _client.putJson('/api/account/sync-scope', {
+      'scope': scope,
+      'folderIds': ?folderIds,
+    }),
+  );
+
+  static ({String scope, Set<String> syncedFolderIds}) _mapSyncScope(
+    Map<String, dynamic> body,
+  ) => (
+    scope: body['scope'] as String,
+    syncedFolderIds: (body['syncedFolderIds'] as List<dynamic>)
+        .cast<String>()
+        .toSet(),
+  );
 
   Future<List<ApiMailFolder>> getFolders() async {
     final items = await _client.getList('/api/folders');
@@ -532,19 +555,21 @@ class ApiMailService {
     int pageSize = 20,
   }) async {
     final path = _buildQuery('/api/search', {
-      'q': query,
+      ..._searchParams(
+        query: query,
+        folderId: folderId,
+        conversationId: conversationId,
+        from: from,
+        to: to,
+        fromDate: fromDate,
+        toDate: toDate,
+        isRead: isRead,
+        flagged: flagged,
+        hasAttachment: hasAttachment,
+        labelId: labelId,
+      ),
       'page': '$page',
       'pageSize': '$pageSize',
-      'folderId': folderId,
-      'conversationId': conversationId,
-      'from': from,
-      'to': to,
-      'fromDate': fromDate?.toUtc().toIso8601String(),
-      'toDate': toDate?.toUtc().toIso8601String(),
-      'isRead': isRead?.toString(),
-      'flagged': flagged?.toString(),
-      'hasAttachment': hasAttachment?.toString(),
-      'labelId': labelId,
     });
     final body = await _client.get(path);
     final items = body['items'] as List;
@@ -552,6 +577,71 @@ class ApiMailService {
         .map((item) => _mapMail(item as Map<String, dynamic>, resolveFolder))
         .toList();
   }
+
+  Future<RemoteSearchResult> searchRemote({
+    required String query,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+  }) async {
+    final body = await _client.get(
+      _buildQuery(
+        '/api/search/remote',
+        _searchParams(
+          query: query,
+          folderId: folderId,
+          conversationId: conversationId,
+          from: from,
+          to: to,
+          fromDate: fromDate,
+          toDate: toDate,
+          isRead: isRead,
+          flagged: flagged,
+          hasAttachment: hasAttachment,
+          labelId: labelId,
+        ),
+      ),
+    );
+    return RemoteSearchResult(
+      matched: body['matched'] as int,
+      imported: body['imported'] as int,
+      remaining: body['remaining'] as int,
+      complete: body['complete'] as bool,
+    );
+  }
+
+  static Map<String, String?> _searchParams({
+    required String query,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+  }) => {
+    'q': query,
+    'folderId': folderId,
+    'conversationId': conversationId,
+    'from': from,
+    'to': to,
+    'fromDate': fromDate?.toUtc().toIso8601String(),
+    'toDate': toDate?.toUtc().toIso8601String(),
+    'isRead': isRead?.toString(),
+    'flagged': flagged?.toString(),
+    'hasAttachment': hasAttachment?.toString(),
+    'labelId': labelId,
+  };
 
   /// Reads a draft via `GET /api/drafts/{id}` — same shape as
   /// `GET /api/mails/{id}` (`MailDetailResponse`).
