@@ -14,6 +14,7 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/markdown_lite_to_html.dart';
+import '../utils/markdown_lite_editing.dart';
 import '../utils/attachment_mime.dart';
 import '../utils/image_resize.dart';
 
@@ -595,30 +596,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     });
   }
 
-  /// Prefixes every line touched by the current selection (or just the
-  /// line under the cursor) with `- `, skipping lines already prefixed.
-  void _toggleBulletList() {
-    final text = _bodyController.text;
-    final selection = _bodyController.selection;
-    final start = selection.isValid ? selection.start : text.length;
-    final end = selection.isValid ? selection.end : text.length;
-    final newlineBefore = start == 0 ? -1 : text.lastIndexOf('\n', start - 1);
-    final lineStart = newlineBefore + 1;
-    final nextNewline = text.indexOf('\n', end);
-    final lineEnd = nextNewline == -1 ? text.length : nextNewline;
-    final block = text.substring(lineStart, lineEnd);
-    final prefixed = block
-        .split('\n')
-        .map((line) => line.startsWith('- ') ? line : '- $line')
-        .join('\n');
-    final newText = text.replaceRange(lineStart, lineEnd, prefixed);
-    final delta = prefixed.length - block.length;
-    setState(() {
-      _bodyController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: end + delta),
-      );
-    });
+  void _applyBodyEdit(TextEditingValue Function(TextEditingValue value) edit) {
+    setState(() => _bodyController.value = edit(_bodyController.value));
   }
 
   /// Prompts for a URL, then inserts `[selected text](url)` — the selected
@@ -1417,6 +1396,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         controller: _bodyController,
                         focusNode: _bodyFocus,
                         enabled: !_sending,
+                        inputFormatters: [MarkdownLitePasteFormatter()],
                         maxLines: null,
                         textAlignVertical: TextAlignVertical.top,
                         decoration: _flatBodyDecoration,
@@ -1440,9 +1420,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   /// Small toolbar of markdown-lite formatting shortcuts above the body:
-  /// bold/italic/underline wrap the current selection, the list button
-  /// bullet-prefixes the current line(s), and the link button prompts for a
-  /// URL. See `_wrapSelection`/`_toggleBulletList`/`_insertLink`.
+  /// inline buttons wrap the selection, block buttons edit current lines,
+  /// and the link button prompts for a URL.
   Widget _formattingToolbar(AppColors colors) {
     Widget button(
       Key key,
@@ -1462,40 +1441,74 @@ class _ComposeScreenState extends State<ComposeScreen> {
       );
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: [
-        button(
-          const Key('format-bold'),
-          LucideIcons.bold,
-          'Kalın',
-          () => _wrapSelection('**', '**'),
-        ),
-        button(
-          const Key('format-italic'),
-          LucideIcons.italic,
-          'İtalik',
-          () => _wrapSelection('*', '*'),
-        ),
-        button(
-          const Key('format-underline'),
-          LucideIcons.underline,
-          'Altı çizili',
-          () => _wrapSelection('__', '__'),
-        ),
-        button(
-          const Key('format-list'),
-          LucideIcons.list,
-          'Madde işaretli liste',
-          _toggleBulletList,
-        ),
-        button(
-          const Key('format-link'),
-          LucideIcons.link,
-          'Bağlantı ekle',
-          _insertLink,
-        ),
-      ],
+    return SingleChildScrollView(
+      key: const Key('format-toolbar'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: [
+          button(
+            const Key('format-bold'),
+            LucideIcons.bold,
+            'Kalın',
+            () => _wrapSelection('**', '**'),
+          ),
+          button(
+            const Key('format-italic'),
+            LucideIcons.italic,
+            'İtalik',
+            () => _wrapSelection('*', '*'),
+          ),
+          button(
+            const Key('format-underline'),
+            LucideIcons.underline,
+            'Altı çizili',
+            () => _wrapSelection('__', '__'),
+          ),
+          button(
+            const Key('format-list'),
+            LucideIcons.list,
+            'Madde işaretli liste',
+            () => _applyBodyEdit(toggleBulletList),
+          ),
+          button(
+            const Key('format-numbered-list'),
+            LucideIcons.listOrdered,
+            'Numaralı liste',
+            () => _applyBodyEdit(toggleNumberedList),
+          ),
+          button(
+            const Key('format-quote'),
+            LucideIcons.quote,
+            'Alıntı',
+            () => _applyBodyEdit(toggleQuote),
+          ),
+          button(
+            const Key('format-indent-increase'),
+            LucideIcons.indentIncrease,
+            'Girintiyi artır',
+            () => _applyBodyEdit(increaseIndent),
+          ),
+          button(
+            const Key('format-indent-decrease'),
+            LucideIcons.indentDecrease,
+            'Girintiyi azalt',
+            () => _applyBodyEdit(decreaseIndent),
+          ),
+          button(
+            const Key('format-link'),
+            LucideIcons.link,
+            'Bağlantı ekle',
+            _insertLink,
+          ),
+          button(
+            const Key('format-clear'),
+            LucideIcons.removeFormatting,
+            'Biçimlendirmeyi temizle',
+            () => _applyBodyEdit(clearFormatting),
+          ),
+        ],
+      ),
     );
   }
 
