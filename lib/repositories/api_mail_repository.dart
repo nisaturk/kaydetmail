@@ -12,10 +12,12 @@ import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../models/mail_rule.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
+import '../models/server_mail_rule.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
@@ -23,6 +25,7 @@ import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
 import '../services/local_mail_flags_store.dart';
 import '../services/mail_cache.dart';
+import '../services/mail_rules_store.dart';
 import '../services/signature_store.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
@@ -787,8 +790,18 @@ class ApiMailRepository extends MailRepository {
     LocalMailFlagsStore flags,
   ) async {
     try {
-      if ((await session.mailService.getLabels()).isNotEmpty) return;
+      final existing = await session.mailService.getLabels();
       final localDefs = await flags.readLabelDefs();
+      if (existing.isNotEmpty) {
+        await MailRulesStore.remapLabelIds(session.account.id, {
+          for (final local in localDefs)
+            for (final server in existing)
+              if ((local['name'] as String).toLowerCase() ==
+                  (server['name'] as String).toLowerCase())
+                (local['id'] as String): server['id'] as String,
+        });
+        return;
+      }
       final defs = localDefs.isNotEmpty
           ? localDefs
           : LocalMailFlagsStore.defaultLabels;
@@ -800,16 +813,18 @@ class ApiMailRepository extends MailRepository {
         );
         idRemap[d['id'] as String] = created['id'] as String;
       }
-      if (localDefs.isEmpty) return;
-      for (final entry in (await flags.readLabelMap()).entries) {
-        final remapped = [
-          for (final oldId in entry.value)
-            if (idRemap[oldId] != null) idRemap[oldId]!,
-        ];
-        if (remapped.isNotEmpty) {
-          await session.mailService.assignLabels([entry.key], remapped);
+      if (localDefs.isNotEmpty) {
+        for (final entry in (await flags.readLabelMap()).entries) {
+          final remapped = [
+            for (final oldId in entry.value)
+              if (idRemap[oldId] != null) idRemap[oldId]!,
+          ];
+          if (remapped.isNotEmpty) {
+            await session.mailService.assignLabels([entry.key], remapped);
+          }
         }
       }
+      await MailRulesStore.remapLabelIds(session.account.id, idRemap);
     } catch (_) {
       // Best-effort — a failure here must never affect login. Labels stay
       // local-only (via the [_loadLabels] fallback) until the next
@@ -2426,6 +2441,62 @@ class ApiMailRepository extends MailRepository {
       complete: complete,
     );
   }
+
+  @override
+  Future<List<ServerMailRule>> listRules(String accountId) async {
+    final session = _sessionForAccountId(accountId);
+    final legacyRules = await MailRulesStore.readRules(accountId);
+    if (legacyRules.isNotEmpty) {
+      final existing = await session.mailService.getRules();
+      final firstPriority = existing.isEmpty
+          ? 0
+          : existing.map((rule) => rule.priority).reduce(max) + 1;
+      for (var index = 0; index < legacyRules.length; index++) {
+        final legacy = legacyRules[index];
+        final RuleAction action;
+        if (legacy.action.type == MailRuleActionType.addLabel) {
+          final labelId = legacy.action.labelId!;
+          if (!session.labels.any((label) => label.id == labelId)) {
+            throw StateError(
+              'Eski kuralın etiketi bulunamadı. Kural cihazda korundu.',
+            );
+          }
+          action = RuleAction('addLabel', labelId: labelId);
+        } else {
+          action = RuleAction(switch (legacy.action.folder!) {
+            MailFolder.trash => 'trash',
+            MailFolder.spam => 'spam',
+            _ => 'archive',
+          });
+        }
+        final name = 'Gönderen: ${legacy.condition.value.trim()}';
+        final draft = ServerMailRule(
+          id: '',
+          name: name.length > 100 ? name.substring(0, 100) : name,
+          enabled: true,
+          priority: firstPriority + index,
+          logic: 'And',
+          conditions: [RuleCondition('senderContains', legacy.condition.value)],
+          actions: [action],
+        );
+        await session.mailService.createRule(draft, legacyId: legacy.id);
+        await MailRulesStore.deleteRule(accountId, legacy.id);
+      }
+    }
+    return session.mailService.getRules();
+  }
+
+  @override
+  Future<ServerMailRule> createRule(String accountId, ServerMailRule rule) =>
+      _sessionForAccountId(accountId).mailService.createRule(rule);
+
+  @override
+  Future<ServerMailRule> updateRule(String accountId, ServerMailRule rule) =>
+      _sessionForAccountId(accountId).mailService.updateRule(rule);
+
+  @override
+  Future<void> deleteRule(String accountId, String ruleId) =>
+      _sessionForAccountId(accountId).mailService.deleteRule(ruleId);
 
   @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {

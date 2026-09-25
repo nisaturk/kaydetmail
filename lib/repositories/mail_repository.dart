@@ -14,6 +14,7 @@ import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
+import '../models/server_mail_rule.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -347,6 +348,18 @@ abstract class MailRepository extends ChangeNotifier {
   Future<void> markAsReplied(List<String> ids);
 
   Future<void> markAsForwarded(List<String> ids);
+
+  Future<List<ServerMailRule>> listRules(String accountId) =>
+      throw UnsupportedError('Rules unavailable');
+
+  Future<ServerMailRule> createRule(String accountId, ServerMailRule rule) =>
+      throw UnsupportedError('Rules unavailable');
+
+  Future<ServerMailRule> updateRule(String accountId, ServerMailRule rule) =>
+      throw UnsupportedError('Rules unavailable');
+
+  Future<void> deleteRule(String accountId, String ruleId) =>
+      throw UnsupportedError('Rules unavailable');
 
   // --- Labels -------------------------------------------------------
 
