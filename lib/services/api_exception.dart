@@ -113,6 +113,17 @@ class ApiException implements Exception {
     'oauth_refresh_lock_unavailable' =>
       'Sunucu meşgul. Birazdan tekrar deneyin.',
     'draft_delete_failed' => 'Taslak silinemedi. Tekrar deneyin.',
+    'scheduled_send_in_past' => 'Geçmiş bir zamana gönderim zamanlanamaz.',
+    'scheduled_send_not_pending' =>
+      'Bu gönderim artık beklemede değil. Listeyi yenileyin.',
+    'scheduled_send_modified' =>
+      'Gönderim başka bir cihazda değiştirildi. Yenileyip tekrar deneyin.',
+    'scheduled_send_already_sent' =>
+      'Bu gönderim artık düzenlenemez. Gönderilenler\u2019i kontrol edin.',
+    'scheduled_send_not_found' =>
+      'Zamanlanmış gönderim bulunamadı. Listeyi yenileyin.',
+    'scheduled_send_attachment_not_found' =>
+      'Bekletilen ek bulunamadı. Listeyi yenileyin.',
     'session_revoked' => 'Oturum zaten kapatılmış.',
     'body_required' => 'E-posta gövdesi boş olamaz.',
     'body_too_large' => 'E-posta gövdesi çok büyük.',

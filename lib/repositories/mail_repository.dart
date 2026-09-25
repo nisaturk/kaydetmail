@@ -18,6 +18,7 @@ import '../models/manual_contact.dart';
 import '../models/mail_template.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
+import '../models/scheduled_send_detail.dart';
 import '../models/server_mail_rule.dart';
 import '../models/attachment_download_state.dart';
 
@@ -629,6 +630,39 @@ abstract class MailRepository extends ChangeNotifier {
   /// Cancels a still-[ScheduledSendStatus.pending] scheduled send. Throws
   /// if it already sent.
   Future<void> cancelScheduledSend(String id);
+
+  /// Fetches one scheduled send with its body and staged attachments.
+  Future<ScheduledSendDetail> getScheduledSend(String id) =>
+      throw UnimplementedError('getScheduledSend');
+
+  /// Replaces a pending scheduled send's content atomically. Staged
+  /// attachments not listed in [keepAttachmentIds] are removed.
+  Future<void> updateScheduledSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String body = '',
+    String? bodyHtml,
+    required DateTime sendAt,
+    List<String> keepAttachmentIds = const [],
+    List<Attachment> attachments = const [],
+  }) => throw UnimplementedError('updateScheduledSend');
+
+  /// Re-queues a failed send as a new pending one, preserving staged
+  /// attachments when [attachmentIds] is null.
+  Future<void> rescheduleFailedSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String body = '',
+    String? bodyHtml,
+    List<String>? attachmentIds,
+    required DateTime sendAt,
+  }) => throw UnimplementedError('rescheduleFailedSend');
 
   /// Current snapshot of every scheduled send in the active mailbox scope,
   /// soonest first. Populated by [refreshScheduledSends].

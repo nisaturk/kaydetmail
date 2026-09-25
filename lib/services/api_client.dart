@@ -65,14 +65,28 @@ class ApiClient {
   Future<Map<String, dynamic>> postJson(
     String path,
     Map<String, dynamic> body, {
+    Map<String, String> headers = const {},
     bool authenticated = true,
-  }) => _jsonRequest('POST', path, body: body, authenticated: authenticated);
+  }) => _jsonRequest(
+    'POST',
+    path,
+    body: body,
+    headers: headers,
+    authenticated: authenticated,
+  );
 
   Future<Map<String, dynamic>> putJson(
     String path,
     Map<String, dynamic> body, {
+    Map<String, String> headers = const {},
     bool authenticated = true,
-  }) => _jsonRequest('PUT', path, body: body, authenticated: authenticated);
+  }) => _jsonRequest(
+    'PUT',
+    path,
+    body: body,
+    headers: headers,
+    authenticated: authenticated,
+  );
 
   Future<Map<String, dynamic>> patchJson(
     String path,
@@ -320,6 +334,7 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String> headers = const {},
     required bool authenticated,
   }) async {
     final response = await _sendWithRefresh(() async {
@@ -328,6 +343,7 @@ class ApiClient {
         request.headers['content-type'] = 'application/json';
         request.body = jsonEncode(body);
       }
+      request.headers.addAll(headers);
       return request;
     }, authenticated: authenticated);
     return _decodeObject(response.body);

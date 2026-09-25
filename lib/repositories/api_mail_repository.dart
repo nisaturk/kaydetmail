@@ -21,6 +21,7 @@ import '../models/mail_template.dart';
 import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
+import '../models/scheduled_send_detail.dart';
 import '../models/server_mail_rule.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -2048,6 +2049,76 @@ class ApiMailRepository extends MailRepository {
       ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
     notifyListeners();
     return stamped;
+  }
+
+  _Session _sessionOwningScheduled(String id) {
+    for (final session in _sessions.values) {
+      if (session.scheduledSends.any((item) => item.id == id)) {
+        return session;
+      }
+    }
+    return _primarySession;
+  }
+
+  @override
+  Future<ScheduledSendDetail> getScheduledSend(String id) =>
+      _sessionOwningScheduled(id).mailService.getScheduledSend(id);
+
+  @override
+  Future<void> updateScheduledSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String body = '',
+    String? bodyHtml,
+    required DateTime sendAt,
+    List<String> keepAttachmentIds = const [],
+    List<Attachment> attachments = const [],
+  }) async {
+    final session = _sessionOwningScheduled(id);
+    await session.mailService.updateScheduledSend(
+      id: id,
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      bodyHtml: bodyHtml,
+      sendAtUtc: sendAt,
+      keepAttachmentIds: keepAttachmentIds,
+      attachments: attachments,
+    );
+    await refreshScheduledSends();
+  }
+
+  @override
+  Future<void> rescheduleFailedSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String body = '',
+    String? bodyHtml,
+    List<String>? attachmentIds,
+    required DateTime sendAt,
+  }) async {
+    final session = _sessionOwningScheduled(id);
+    await session.mailService.rescheduleFailedSend(
+      id: id,
+      to: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      bodyHtml: bodyHtml,
+      attachmentIds: attachmentIds,
+      sendAtUtc: sendAt,
+      idempotencyKey: _newIdempotencyKey(),
+    );
+    await refreshScheduledSends();
   }
 
   @override

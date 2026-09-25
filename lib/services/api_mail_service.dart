@@ -15,6 +15,7 @@ import '../models/remote_search_result.dart';
 import '../models/mail_template.dart';
 import '../models/server_mail_rule.dart';
 import '../models/scheduled_send.dart';
+import '../models/scheduled_send_detail.dart';
 import '../utils/html_to_text.dart';
 import '../utils/attachment_mime.dart';
 import 'api_auth_service.dart';
@@ -940,6 +941,77 @@ class ApiMailService {
   Future<void> cancelScheduledSend(String id) =>
       _client.delete('/api/scheduled-sends/${Uri.encodeComponent(id)}');
 
+  /// Fetches one scheduled send with its body and staged attachments via
+  /// `GET /api/scheduled-sends/{id}`.
+  Future<ScheduledSendDetail> getScheduledSend(String id) async {
+    final body = await _client.get(
+      '/api/scheduled-sends/${Uri.encodeComponent(id)}',
+    );
+    return ScheduledSendDetail.fromJson(body);
+  }
+
+  /// Replaces a pending scheduled send's content atomically via
+  /// `PUT /api/scheduled-sends/{id}` (multipart). Staged attachments not
+  /// listed in [keepAttachmentIds] are removed; [attachments] are staged
+  /// as new files.
+  Future<void> updateScheduledSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String bodyText = '',
+    String? bodyHtml,
+    required DateTime sendAtUtc,
+    List<String> keepAttachmentIds = const [],
+    List<Attachment> attachments = const [],
+  }) => _client.multipartPut(
+    '/api/scheduled-sends/${Uri.encodeComponent(id)}',
+    fields: {
+      ..._composeFields(
+        subject: subject,
+        bodyText: bodyText,
+        bodyHtml: bodyHtml,
+      ),
+      'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+    },
+    files: () => [
+      ..._composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      for (final kept in keepAttachmentIds)
+        http.MultipartFile.fromString('keepAttachmentIds', kept),
+    ],
+  );
+
+  /// Re-queues a failed send as a new pending one via
+  /// `POST /api/scheduled-sends/{id}/reschedule` (JSON). A null
+  /// [attachmentIds] preserves every staged attachment; [idempotencyKey]
+  /// must be fresh — reusing the failed send's key is a 409.
+  Future<void> rescheduleFailedSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String bodyText = '',
+    String? bodyHtml,
+    List<String>? attachmentIds,
+    required DateTime sendAtUtc,
+    required String idempotencyKey,
+  }) => _client.postJson(
+    '/api/scheduled-sends/${Uri.encodeComponent(id)}/reschedule',
+    {
+      'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+      'to': to,
+      'cc': cc,
+      'bcc': bcc,
+      'subject': subject,
+      'bodyText': bodyText,
+      'bodyHtml': bodyHtml,
+      'attachmentIds': attachmentIds,
+    },
+    headers: {'Idempotency-Key': idempotencyKey},
+  );
+
   /// Lists every scheduled send for the account via
   /// `GET /api/scheduled-sends`.
   Future<List<ScheduledSend>> listScheduledSends() async {
@@ -950,18 +1022,31 @@ class ApiMailService {
         .toList();
   }
 
-  ScheduledSend _mapScheduledSend(Map<String, dynamic> body) => ScheduledSend(
-    id: body['id'] as String,
-    to: _addresses(body['to']),
-    cc: _addresses(body['cc']),
-    bcc: _addresses(body['bcc']),
-    subject: body['subject'] as String? ?? '',
-    sendAt: DateTime.parse(body['sendAtUtc'] as String).toLocal(),
-    status: ScheduledSendStatus.fromApi(body['status'] as String? ?? 'Pending'),
-    createdAt: DateTime.parse(body['createdAtUtc'] as String).toLocal(),
-    sentMailId: body['sentMailId'] as String?,
-    failureReason: body['failureReason'] as String?,
-  );
+  /// `POST`/`PUT` responses only carry `{ id, sendAtUtc, status }` —
+  /// every other field falls back to a neutral default instead of throwing.
+  ScheduledSend _mapScheduledSend(Map<String, dynamic> body) {
+    DateTime orNow(Object? value) => value is String
+        ? DateTime.parse(value).toLocal()
+        : DateTime.now();
+    return ScheduledSend(
+      id: body['id'] as String,
+      to: _addresses(body['to']),
+      cc: _addresses(body['cc']),
+      bcc: _addresses(body['bcc']),
+      subject: body['subject'] as String? ?? '',
+      sendAt: orNow(body['sendAtUtc']),
+      status: ScheduledSendStatus.fromApi(
+        body['status'] as String? ?? 'Pending',
+      ),
+      createdAt: orNow(body['createdAtUtc']),
+      sentMailId: body['sentMailId'] as String?,
+      failureReason: body['failureReason'] as String?,
+      attemptCount: (body['attemptCount'] as num?)?.toInt() ?? 0,
+      nextAttemptAtUtc: body['nextAttemptAtUtc'] is String
+          ? DateTime.parse(body['nextAttemptAtUtc'] as String).toLocal()
+          : null,
+    );
+  }
 
   Map<String, String> _composeFields({
     required String subject,
