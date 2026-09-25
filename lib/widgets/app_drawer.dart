@@ -20,6 +20,7 @@ class AppDrawer extends StatelessWidget {
     required this.onOpenSettings,
     required this.onOpenAccounts,
     required this.onOpenScheduledSends,
+    required this.onOpenReplyReminders,
     required this.onOpenOutbox,
     required this.onOpenCustomFolders,
   });
@@ -30,6 +31,7 @@ class AppDrawer extends StatelessWidget {
   final VoidCallback onOpenSettings;
   final VoidCallback onOpenAccounts;
   final VoidCallback onOpenScheduledSends;
+  final VoidCallback onOpenReplyReminders;
   final VoidCallback onOpenOutbox;
   final VoidCallback onOpenCustomFolders;
 
@@ -113,6 +115,11 @@ class AppDrawer extends StatelessWidget {
                     icon: LucideIcons.calendarClock,
                     label: 'Zamanlanmış Gönderimler',
                     onTap: onOpenScheduledSends,
+                  ),
+                  _SectionTile(
+                    icon: LucideIcons.bellRing,
+                    label: 'Yanıt Takibi',
+                    onTap: onOpenReplyReminders,
                   ),
                   _SectionTile(
                     icon: LucideIcons.send,

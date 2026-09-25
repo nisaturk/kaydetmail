@@ -23,6 +23,7 @@ import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
+import '../models/reply_reminder.dart';
 import '../models/server_mail_rule.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -102,6 +103,7 @@ class _Session {
   List<MailSignature>? signatures;
   SignatureDefaults? signatureDefaults;
   List<MailIdentity>? identities;
+  List<ReplyReminder> replyReminders = [];
 
   /// Non-standard IMAP folders reported for this account by the last
   /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
@@ -2148,6 +2150,62 @@ class ApiMailRepository extends MailRepository {
     final result = [for (final s in _scopedSessions) ...s.scheduledSends]
       ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
     return List.unmodifiable(result);
+  }
+
+  @override
+  Future<ReplyReminder> setReplyReminder(
+    String mailId,
+    DateTime dueAtUtc,
+  ) async {
+    final session =
+        _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
+    if (session == null) throw StateError('No mail session');
+    final created = (await session.mailService.setReplyReminder(
+      mailId,
+      dueAtUtc,
+    )).copyWith(accountId: session.account.id);
+    final items = [
+      for (final item in session.replyReminders)
+        if (item.mailId != mailId) item,
+      created,
+    ]..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
+    session.replyReminders = items;
+    notifyListeners();
+    return created;
+  }
+
+  @override
+  Future<void> cancelReplyReminder(String mailId) async {
+    final session =
+        _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
+    if (session == null) return;
+    await session.mailService.cancelReplyReminder(mailId);
+    session.replyReminders = [
+      for (final item in session.replyReminders)
+        if (item.mailId != mailId) item,
+    ];
+    notifyListeners();
+  }
+
+  @override
+  List<ReplyReminder> getReplyReminders() {
+    final result = [for (final s in _scopedSessions) ...s.replyReminders]
+      ..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
+    return List.unmodifiable(result);
+  }
+
+  @override
+  Future<void> refreshReplyReminders() async {
+    await Future.wait(
+      _scopedSessions.map((session) async {
+        final items = await session.mailService.listReplyReminders();
+        session.replyReminders = [
+          for (final item in items)
+            item.copyWith(accountId: session.account.id),
+        ]..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
+      }),
+    );
+    notifyListeners();
   }
 
   @override

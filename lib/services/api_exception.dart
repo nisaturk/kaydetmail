@@ -93,6 +93,10 @@ class ApiException implements Exception {
     'mail_move_failed' => 'E-posta taşınamadı. Tekrar deneyin.',
     'mail_delete_failed' => 'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
     'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
+    'reply_reminder_in_past' => 'Hatırlatma zamanı gelecekte olmalı.',
+    'reply_reminder_already_replied' => 'Bu e-posta zaten yanıtlanmış.',
+    'reply_reminder_requires_sent_mail' =>
+      'Hatırlatma yalnızca gönderilen e-postalar için kurulabilir.',
     'delivery_unknown' =>
       'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',
     'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',

@@ -20,6 +20,7 @@ import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
+import '../models/reply_reminder.dart';
 import '../models/server_mail_rule.dart';
 import '../models/attachment_download_state.dart';
 
@@ -718,6 +719,16 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Re-fetches the scheduled-send list from the backend.
   Future<void> refreshScheduledSends() async {}
+
+  Future<ReplyReminder> setReplyReminder(String mailId, DateTime dueAtUtc) =>
+      throw UnimplementedError('setReplyReminder');
+
+  Future<void> cancelReplyReminder(String mailId) =>
+      throw UnimplementedError('cancelReplyReminder');
+
+  List<ReplyReminder> getReplyReminders() => const [];
+
+  Future<void> refreshReplyReminders() async {}
 
   // --- Custom folders -------------------------------------------------
 
