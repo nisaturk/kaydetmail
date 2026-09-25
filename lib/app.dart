@@ -64,15 +64,15 @@ class _AuthGate extends StatefulWidget {
 
 class _AuthGateState extends State<_AuthGate> {
   bool? _loggedIn;
-  StreamSubscription<String>? _mailTapSub;
+  StreamSubscription<({String mailId, bool reply})>? _mailTapSub;
   Timer? _syncTimer;
 
   bool _handlingLogout = false;
-  String? _pendingMailId;
+  ({String mailId, bool reply})? _pendingMailTap;
 
   /// Routes the home-screen widget's "Yaz" compose shortcut, gated on
   /// [_loggedIn] — see `HomeWidgetComposeRouter`. Deferred to the next
-  /// frame like [_pendingMailId]'s consumption below, since this can fire
+  /// frame like [_pendingMailTap]'s consumption below, since this can fire
   /// mid-[setState] (from [_setAuthenticated]).
   late final HomeWidgetComposeRouter _composeRouter = HomeWidgetComposeRouter(
     onComposeRequested: () {
@@ -104,17 +104,20 @@ class _AuthGateState extends State<_AuthGate> {
     super.dispose();
   }
 
-  void _openTappedMail(String mailId) {
+  void _openTappedMail(({String mailId, bool reply}) tap) {
     if (_loggedIn != true) {
-      _pendingMailId = mailId;
+      _pendingMailTap = tap;
       return;
     }
-    _pushMailDetail(mailId);
+    _pushMailDetail(tap);
   }
 
-  void _pushMailDetail(String mailId) {
+  void _pushMailDetail(({String mailId, bool reply}) tap) {
     _navigatorKey.currentState?.push(
-      MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: mailId)),
+      MaterialPageRoute(
+        builder: (_) =>
+            MailDetailScreen(emailId: tap.mailId, openReplyOnLoad: tap.reply),
+      ),
     );
   }
 
@@ -165,11 +168,11 @@ class _AuthGateState extends State<_AuthGate> {
       unawaited(PushService.registerAuthenticatedDevice());
     }
     unawaited(_recoverPendingSends());
-    final pendingMailId = _pendingMailId;
-    if (pendingMailId != null) {
-      _pendingMailId = null;
+    final pendingMailTap = _pendingMailTap;
+    if (pendingMailTap != null) {
+      _pendingMailTap = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) _pushMailDetail(pendingMailId);
+        if (mounted) _pushMailDetail(pendingMailTap);
       });
     }
     _composeRouter.resolveAuth(true);

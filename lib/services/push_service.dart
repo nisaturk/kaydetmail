@@ -10,12 +10,14 @@ import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../state/app_settings_controller.dart';
 import 'home_widget_service.dart';
+import 'mail_notifications.dart';
 
 /// Routes an FCM `data` payload to the matching API call.
 ///
-/// The payload never carries mail content or previews — only ids — so every
-/// branch re-fetches through the API (`GET /api/mails/{id}`) instead of
-/// reading a body out of the notification (spec §7).
+/// The payload carries ids plus, as the account's notification privacy
+/// allows, sender/subject/short preview for display only, so every branch
+/// re-fetches through the API (`GET /api/mails/{id}`) instead of reading
+/// mail state out of the notification (spec §7).
 Future<void> handlePushData(
   Map<String, String> data, {
   required Future<void> Function(String mailId) fetchMail,
@@ -24,6 +26,7 @@ Future<void> handlePushData(
 }) async {
   switch (data['type']) {
     case 'new_mail':
+    case 'snooze_expired':
     case 'mail_state_changed':
       final mailId = data['mailId'];
       if (mailId != null && mailId.isNotEmpty) await fetchMail(mailId);
@@ -46,8 +49,8 @@ Future<void> handlePushData(
 class PushService {
   const PushService._();
 
-  static final StreamController<String> _mailTapped =
-      StreamController<String>.broadcast();
+  static final StreamController<({String mailId, bool reply})> _mailTapped =
+      StreamController<({String mailId, bool reply})>.broadcast();
 
   static FirebaseMessaging? _messaging;
   static MailRepository? _repository;
@@ -62,15 +65,6 @@ class PushService {
   static final FlutterLocalNotificationsPlugin _local =
       FlutterLocalNotificationsPlugin();
 
-  /// Also referenced by `default_notification_channel_id` in the Android
-  /// manifest, so background pushes use the same high-importance channel.
-  static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
-    'mail',
-    'E-postalar',
-    description: 'Yeni e-posta ve hesap bildirimleri',
-    importance: Importance.high,
-  );
-
   /// Push needs Firebase's mobile SDKs; desktop and web builds run without.
   static bool get isSupportedPlatform =>
       !kIsWeb &&
@@ -78,11 +72,13 @@ class PushService {
           defaultTargetPlatform == TargetPlatform.iOS);
 
   /// Emits a mail id whenever the user taps a push notification, or once on
-  /// launch if the app was cold-started from one. `new_mail` and
-  /// `mail_state_changed` are the only types that carry a `mailId`; taps on
-  /// the other two just foreground the app — no navigation needed since
+  /// launch if the app was cold-started from one; `reply` is set when the
+  /// notification's "Yanıtla" action was used. `new_mail`, `snooze_expired`
+  /// and `mail_state_changed` are the only types that carry a `mailId`; taps
+  /// on the other two just foreground the app — no navigation needed since
   /// account status is re-checked when the relevant screen reloads.
-  static Stream<String> get onMailTapped => _mailTapped.stream;
+  static Stream<({String mailId, bool reply})> get onMailTapped =>
+      _mailTapped.stream;
 
   /// Initializes Firebase and routes a cold-start notification tap first —
   /// that is the path a user is actively staring at, so it must not wait on
@@ -102,7 +98,15 @@ class PushService {
       final initial = await messaging.getInitialMessage();
       if (initial != null) _routeTap(initial);
 
-      await _initLocalNotifications();
+      await MailNotifications.initialize(
+        _local,
+        onResponse: _onNotificationResponse,
+      );
+      final launch = await _local.getNotificationAppLaunchDetails();
+      final launchResponse = launch?.notificationResponse;
+      if (launch?.didNotificationLaunchApp == true && launchResponse != null) {
+        _onNotificationResponse(launchResponse);
+      }
       FirebaseMessaging.onMessage.listen((message) {
         unawaited(_showForeground(message));
         unawaited(
@@ -111,7 +115,8 @@ class PushService {
             fetchMail: (id) async {
               try {
                 await repository.getEmail(id);
-                if (message.data['type'] == 'new_mail') {
+                final type = message.data['type'];
+                if (type == 'new_mail' || type == 'snooze_expired') {
                   await repository.refreshEmails(MailFolder.inbox);
                   await HomeWidgetService.refreshFromInbox(repository);
                 }
@@ -208,54 +213,48 @@ class PushService {
 
   static void _routeTap(RemoteMessage message) {
     final mailId = message.data['mailId'];
-    if (mailId != null && mailId.isNotEmpty) _mailTapped.add(mailId);
+    if (mailId != null && mailId.isNotEmpty) {
+      _mailTapped.add((mailId: mailId, reply: false));
+    }
   }
 
-  static Future<void> _initLocalNotifications() async {
-    await _local.initialize(
-      settings: const InitializationSettings(
-        android: AndroidInitializationSettings('@mipmap/ic_launcher'),
-        // FCM already asked for permission (see [_setUpToken]).
-        iOS: DarwinInitializationSettings(
-          requestAlertPermission: false,
-          requestBadgePermission: false,
-          requestSoundPermission: false,
-        ),
-      ),
-      onDidReceiveNotificationResponse: (response) {
-        final mailId = response.payload;
-        if (mailId != null && mailId.isNotEmpty) _mailTapped.add(mailId);
-      },
-    );
-    await _local
-        .resolvePlatformSpecificImplementation<
-          AndroidFlutterLocalNotificationsPlugin
-        >()
-        ?.createNotificationChannel(_channel);
+  static void _onNotificationResponse(NotificationResponse response) {
+    final mailId = mailIdFromNotificationPayload(response.payload);
+    if (mailId == null) return;
+    final reply = response.actionId == MailNotificationAction.reply.id;
+    if (response.actionId != null && !reply) return;
+    _mailTapped.add((mailId: mailId, reply: reply));
   }
 
-  /// Shows a push that arrived while the app is open. Only pushes carrying
-  /// a `notification` block are user-facing; `mail_state_changed` is a
-  /// silent data-only sync signal.
+  /// Shows a push that arrived while the app is open. Mail pushes are
+  /// rendered from their data payload with quick actions; the others only
+  /// when they carry a `notification` block. `mail_state_changed` is a
+  /// silent sync signal that clears the notification of a mail that was
+  /// read, moved or deleted elsewhere.
   static Future<void> _showForeground(RemoteMessage message) async {
-    final notification = message.notification;
-    if (notification == null) return;
+    final data = message.data.map((key, value) => MapEntry(key, '$value'));
     try {
+      final mail = MailNotification.fromPushData(data);
+      if (mail != null) {
+        await LocalMailNotificationDisplay(_local).show(mail);
+        return;
+      }
+      final dismissed = _dismissedMailId(data);
+      if (dismissed != null) {
+        await _local.cancel(id: notificationIdFor(dismissed));
+        return;
+      }
+      final notification = message.notification;
+      if (notification == null) return;
       await _local.show(
         id: message.messageId?.hashCode ?? notification.hashCode,
         title: notification.title,
         body: notification.body,
-        notificationDetails: NotificationDetails(
-          android: AndroidNotificationDetails(
-            _channel.id,
-            _channel.name,
-            channelDescription: _channel.description,
-            importance: Importance.high,
-            priority: Priority.high,
-          ),
-          iOS: const DarwinNotificationDetails(),
+        notificationDetails: MailNotifications.details(
+          notification.body ?? '',
+          withActions: false,
         ),
-        payload: message.data['mailId'] as String?,
+        payload: data['mailId'],
       );
     } catch (_) {
       debugPrint('PushService: foreground notification skipped.');
@@ -284,15 +283,38 @@ class PushService {
   }
 }
 
+String? _dismissedMailId(Map<String, String> data) {
+  if (data['type'] != 'mail_state_changed' ||
+      !MailNotifications.dismissesNotification(data['operation'])) {
+    return null;
+  }
+  final mailId = data['mailId'];
+  return mailId == null || mailId.isEmpty ? null : mailId;
+}
+
 /// Handles a push delivered while the app is backgrounded or terminated.
 ///
 /// Runs in its own isolate — re-initializing Firebase here is required per
 /// the `firebase_messaging` contract, even though the app's own [Firebase]
-/// instance already did it. `new_mail`/`account_reauthentication_required`/
-/// `sync_error` all carry a `notification` block (see backend
-/// `FirebasePushNotificationService`), so Android's FCM SDK shows the system
-/// tray entry on its own; nothing else needs to happen here today.
+/// instance already did it. On Android `new_mail`/`snooze_expired` arrive
+/// data-only and are rendered here with quick actions, and a
+/// `mail_state_changed` for a read/moved/deleted mail clears its
+/// notification. `account_reauthentication_required`/`sync_error` and every
+/// iOS mail push carry a system-rendered alert (see backend
+/// `FirebasePushNotificationService`).
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (Firebase.apps.isEmpty) await Firebase.initializeApp();
+  if (defaultTargetPlatform != TargetPlatform.android) return;
+  final data = message.data.map((key, value) => MapEntry(key, '$value'));
+  final mail = MailNotification.fromPushData(data);
+  final dismissed = _dismissedMailId(data);
+  if (mail == null && dismissed == null) return;
+  final plugin = FlutterLocalNotificationsPlugin();
+  await MailNotifications.initialize(plugin);
+  if (mail != null) {
+    await LocalMailNotificationDisplay(plugin).show(mail);
+  } else {
+    await plugin.cancel(id: notificationIdFor(dismissed!));
+  }
 }
