@@ -17,6 +17,7 @@ import '../utils/error_messages.dart';
 import '../utils/mail_pdf_export.dart';
 import '../utils/mail_threads.dart';
 import '../utils/mail_unsubscribe.dart';
+import '../widgets/move_folder_sheet.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import '../widgets/permanent_delete_dialog.dart';
@@ -36,10 +37,13 @@ class MailDetailScreen extends StatefulWidget {
     super.key,
     required this.emailId,
     this.openReplyOnLoad = false,
+    this.currentCustomFolderId,
   });
 
   final String emailId;
   final bool openReplyOnLoad;
+
+  final String? currentCustomFolderId;
 
   @override
   State<MailDetailScreen> createState() => _MailDetailScreenState();
@@ -270,6 +274,50 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     if (mounted) await Navigator.of(context).maybePop();
   }
 
+  Future<void> _moveMail() async {
+    final email = _email;
+    if (email == null || _folderActionBusy) return;
+    final target = await showMoveFolderSheet(
+      context,
+      repository: _repo,
+      accountIds: {email.accountId},
+      currentFolders: widget.currentCustomFolderId == null
+          ? {email.folder}
+          : const {},
+      currentCustomFolderId: widget.currentCustomFolderId,
+    );
+    if (target == null || !mounted) return;
+    setState(() => _folderActionBusy = true);
+    try {
+      final custom = target.customFolder;
+      if (custom != null) {
+        await _repo.moveToCustomFolder(
+          [email.id],
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+      } else if (target.folder == MailFolder.trash) {
+        await _repo.moveToTrash([email.id]);
+      } else {
+        await _repo.moveToFolder([email.id], target.folder!);
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('E-posta ${target.label} klasörüne taşındı.')),
+      );
+      await Navigator.of(context).maybePop(true);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _folderActionBusy = false);
+    }
+  }
+
   /// Moves the open mail back to the inbox. For a mail whose current
   /// folder is Trash or Spam, `MailRepository.moveToFolder` resolves this
   /// to the backend's restore action (the mail's original pre-trash/spam
@@ -492,6 +540,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
                   : 'Ertele',
             ),
           ),
+          if (email.folder != MailFolder.drafts)
+            const PopupMenuItem(value: 'move', child: Text('Taşı')),
           if (email.folder == MailFolder.trash)
             const PopupMenuItem(
               value: 'delete_forever',
@@ -543,6 +593,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await removeAllLabels(_repo, _conversationIds);
     } else if (action == 'delete_forever') {
       await _deleteForever();
+    } else if (action == 'move') {
+      await _moveMail();
     } else if (action == 'print') {
       await _printMail();
     } else if (action == 'share_pdf') {

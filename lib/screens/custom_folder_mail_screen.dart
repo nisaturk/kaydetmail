@@ -219,11 +219,23 @@ class _CustomFolderMailScreenState extends State<CustomFolderMailScreen> {
           return MailListItem(
             key: ValueKey(email.id),
             email: email,
-            onTap: () => Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => MailDetailScreen(emailId: email.id),
-              ),
-            ),
+            onTap: () async {
+              final moved = await Navigator.of(context).push<bool>(
+                MaterialPageRoute(
+                  builder: (_) => MailDetailScreen(
+                    emailId: email.id,
+                    currentCustomFolderId: widget.folderId,
+                  ),
+                ),
+              );
+              if (moved == true && mounted) {
+                setState(() {
+                  _emails = _emails
+                      .where((mail) => mail.id != email.id)
+                      .toList();
+                });
+              }
+            },
           );
         },
       ),

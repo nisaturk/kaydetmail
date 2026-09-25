@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/mail_folder.dart';
+import '../models/email.dart';
 import '../repositories/mail_repository.dart';
 import '../services/session_store.dart';
 import '../services/share_intake.dart';
@@ -12,6 +13,7 @@ import '../utils/mail_threads.dart';
 import '../utils/error_messages.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
+import '../widgets/move_folder_sheet.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
@@ -483,6 +485,54 @@ class _HomeScreenState extends State<HomeScreen> {
     _selection.exit();
   }
 
+  Future<void> _actionMove() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final byId = {for (final email in _repo.getAllEmails()) email.id: email};
+    final emails = ids.map((id) => byId[id]).whereType<Email>().toList();
+    if (emails.isEmpty) return;
+    final targets = await showMoveFolderSheet(
+      context,
+      repository: _repo,
+      accountIds: emails.map((email) => email.accountId).toSet(),
+      currentFolders: emails.map((email) => email.folder).toSet(),
+    );
+    if (targets == null || !mounted) return;
+    setState(() => _bulkBusy = true);
+    try {
+      final custom = targets.customFolder;
+      if (custom != null) {
+        await _repo.moveToCustomFolder(
+          emails.map((email) => email.id).toList(),
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+      } else if (targets.folder == MailFolder.trash) {
+        await _repo.moveToTrash(emails.map((email) => email.id).toList());
+      } else {
+        await _repo.moveToFolder(
+          emails.map((email) => email.id).toList(),
+          targets.folder!,
+        );
+      }
+      _selection.exit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${emails.length} e-posta taşındı.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
+  }
+
   // ── Build ─────────────────────────────────────────────────────────────
 
   @override
@@ -707,6 +757,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
       else
         const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+      if (_folder != MailFolder.drafts)
+        const PopupMenuItem(value: 'move', child: Text('Taşı')),
       const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
     ];
 
@@ -738,6 +790,8 @@ class _HomeScreenState extends State<HomeScreen> {
                 _actionSpam();
               case 'not_spam':
                 _actionMarkNotSpam();
+              case 'move':
+                _actionMove();
               case 'label':
                 _actionLabel();
               case 'unlabel':

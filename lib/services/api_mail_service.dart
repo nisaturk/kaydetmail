@@ -148,21 +148,27 @@ class ApiMailService {
   Future<List<ApiMailFolder>> getFolders() async {
     final items = await _client.getList('/api/folders');
     return items
-        .map(
-          (item) => ApiMailFolder(
-            id: item['id'] as String,
-            mailAccountId: item['mailAccountId'] as String,
-            name: item['name'] as String,
-            fullName: item['fullName'] as String? ?? item['name'] as String,
-            type: item['folderType'] as String,
-            unreadCount: (item['unreadCount'] as num?)?.toInt(),
-            totalCount: (item['totalCount'] as num?)?.toInt(),
-            isSyncEnabled: item['isSyncEnabled'] as bool? ?? false,
-            isAvailable: item['isAvailable'] as bool? ?? true,
-          ),
-        )
+        .map((item) => ApiMailFolder.fromJson(item as Map<String, dynamic>))
         .toList();
   }
+
+  Future<ApiMailFolder> createFolder(String name, {String? parentId}) async =>
+      ApiMailFolder.fromJson(
+        await _client.postJson('/api/folders', {
+          'name': name,
+          'parentId': parentId,
+        }),
+      );
+
+  Future<ApiMailFolder> renameFolder(String id, String name) async =>
+      ApiMailFolder.fromJson(
+        await _client.patchJson('/api/folders/${Uri.encodeComponent(id)}', {
+          'name': name,
+        }),
+      );
+
+  Future<void> deleteFolder(String id) =>
+      _client.delete('/api/folders/${Uri.encodeComponent(id)}');
 
   Future<MailListPage> getMails({
     required String folderId,
@@ -1221,7 +1227,23 @@ class ApiMailFolder {
     this.totalCount,
     this.isSyncEnabled = false,
     this.isAvailable = true,
+    this.delimiter,
+    this.parentId,
   }) : fullName = fullName ?? name;
+
+  factory ApiMailFolder.fromJson(Map<String, dynamic> item) => ApiMailFolder(
+    id: item['id'] as String,
+    mailAccountId: item['mailAccountId'] as String,
+    name: item['name'] as String,
+    fullName: item['fullName'] as String? ?? item['name'] as String,
+    type: item['folderType'] as String,
+    unreadCount: (item['unreadCount'] as num?)?.toInt(),
+    totalCount: (item['totalCount'] as num?)?.toInt(),
+    isSyncEnabled: item['isSyncEnabled'] as bool? ?? false,
+    isAvailable: item['isAvailable'] as bool? ?? true,
+    delimiter: item['delimiter'] as String?,
+    parentId: item['parentId'] as String?,
+  );
 
   final String id;
   final String mailAccountId;
@@ -1243,6 +1265,9 @@ class ApiMailFolder {
 
   /// `false` means the folder was deleted on the mail server — hide it.
   final bool isAvailable;
+
+  final String? delimiter;
+  final String? parentId;
 }
 
 /// Per-item outcome from `POST /api/mails/bulk/{action}`.

@@ -596,12 +596,14 @@ abstract class MailRepository extends ChangeNotifier {
   // --- Custom folders -------------------------------------------------
 
   /// Non-standard IMAP folders across every account in the active mailbox
-  /// scope — distinct from [MailFolder]'s fixed set and from virtual
-  /// groupings like starred/pinned. Populated by [refreshCustomFolders].
-  List<MailCustomFolder> getCustomFolders() => const [];
+  /// scope, or only [accountId]'s when given (regardless of scope) —
+  /// distinct from [MailFolder]'s fixed set and from virtual groupings like
+  /// starred/pinned. Populated by [refreshCustomFolders].
+  List<MailCustomFolder> getCustomFolders({String? accountId}) => const [];
 
-  /// Re-fetches the custom folder list for every account in scope.
-  Future<void> refreshCustomFolders() async {}
+  /// Re-fetches the custom folder list for every account in scope, or only
+  /// for [accountId] when given.
+  Future<void> refreshCustomFolders({String? accountId}) async {}
 
   /// One page of mail from one custom folder, newest first. Independent of
   /// the [MailFolder]-keyed paging used elsewhere — custom folders are
@@ -630,4 +632,30 @@ abstract class MailRepository extends ChangeNotifier {
     required String accountId,
     required String folderId,
   }) async {}
+
+  Future<void> createCustomFolder({
+    required String accountId,
+    required String name,
+    String? parentFolderId,
+  }) => throw UnimplementedError('createCustomFolder');
+
+  Future<void> renameCustomFolder({
+    required String accountId,
+    required String folderId,
+    required String name,
+  }) => throw UnimplementedError('renameCustomFolder');
+
+  Future<void> deleteCustomFolder({
+    required String accountId,
+    required String folderId,
+  }) => throw UnimplementedError('deleteCustomFolder');
+
+  Future<void> moveToCustomFolder(
+    List<String> ids, {
+    required String accountId,
+    required String folderId,
+  }) => throw UnimplementedError('moveToCustomFolder');
+
+  Set<MailFolder> availableFolders(String accountId) =>
+      throw UnimplementedError('availableFolders');
 }

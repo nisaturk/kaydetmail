@@ -95,6 +95,7 @@ class _Session {
   /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
   /// every login, since most accounts never open the custom-folders screen.
   List<ApiMailFolder> customFolders = [];
+  bool folderHierarchyRequested = false;
   final Map<String, List<Email>> customFolderEmails = {};
   final Map<String, int> customFolderPages = {};
   final Map<String, bool> customFolderHasMore = {};
@@ -1150,6 +1151,7 @@ class ApiMailRepository extends MailRepository {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
     _touch();
+    _dropFromCustomFolderMails(session, idSet);
     final moved = <Email>[];
     for (final folder in session.emails.keys.toList()) {
       if (folder == targetFolder) continue;
@@ -1197,14 +1199,14 @@ class ApiMailRepository extends MailRepository {
   /// instead of throwing. `delete` is deliberately never queued — it is
   /// permanent and irreversible, so a silent offline queue for it would be
   /// unsafe.
-  Future<void> _bulkAndApplyOrQueue(
+  Future<List<BulkActionResult>> _bulkAndApplyOrQueue(
     _Session session,
     String operation,
     List<String> ids,
     void Function(List<String> succeededIds) apply, {
     String? folderId,
   }) async {
-    if (ids.isEmpty) return;
+    if (ids.isEmpty) return const [];
     List<BulkActionResult> results;
     try {
       results = await session.mailService.bulkAction(
@@ -1223,7 +1225,7 @@ class ApiMailRepository extends MailRepository {
       }
       apply(ids);
       notifyListeners();
-      return;
+      return const [];
     }
     final succeeded = results
         .where((r) => r.success)
@@ -1239,6 +1241,7 @@ class ApiMailRepository extends MailRepository {
     apply(succeeded);
     notifyListeners();
     unawaited(_refreshCountsFor(session));
+    return results;
   }
 
   /// Replays every mutation [session] queued while offline (read, unread,
@@ -2005,9 +2008,12 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  List<MailCustomFolder> getCustomFolders() {
+  List<MailCustomFolder> getCustomFolders({String? accountId}) {
+    final sessions = accountId == null
+        ? _scopedSessions
+        : [?_sessions[accountId]];
     final result = <MailCustomFolder>[
-      for (final session in _scopedSessions)
+      for (final session in sessions)
         for (final f in session.customFolders)
           MailCustomFolder(
             accountId: session.account.id,
@@ -2015,6 +2021,8 @@ class ApiMailRepository extends MailRepository {
             name: f.name,
             fullName: f.fullName,
             isSyncEnabled: f.isSyncEnabled,
+            parentFolderId: f.parentId,
+            delimiter: f.delimiter,
             unreadCount: f.unreadCount,
             totalCount: f.totalCount,
           ),
@@ -2023,16 +2031,59 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<void> refreshCustomFolders() async {
-    await Future.wait(
-      _scopedSessions.map((session) async {
-        final folders = await session.mailService.getFolders();
-        session.customFolders = folders
-            .where((f) => f.type == 'Custom' && f.isAvailable)
-            .toList();
-      }),
-    );
+  Future<void> refreshCustomFolders({String? accountId}) async {
+    final sessions = accountId == null
+        ? _scopedSessions
+        : [_sessionForAccountId(accountId)];
+    await Future.wait(sessions.map(_loadCustomFolders));
     notifyListeners();
+  }
+
+  Future<void> _loadCustomFolders(_Session session) async {
+    var folders = await session.mailService.getFolders();
+    if (!session.folderHierarchyRequested &&
+        folders.any((f) => f.isAvailable && f.delimiter == null)) {
+      session.folderHierarchyRequested = true;
+      await session.mailService.refreshFolders();
+      folders = await session.mailService.getFolders();
+    }
+    session.customFolders = folders
+        .where((f) => f.type == 'Custom' && f.isAvailable)
+        .toList();
+  }
+
+  Future<void> _reloadCustomFoldersAfterChange(_Session session) async {
+    try {
+      await _loadCustomFolders(session);
+    } catch (_) {
+    } finally {
+      notifyListeners();
+    }
+  }
+
+  void _putCustomFolder(_Session session, ApiMailFolder folder) {
+    session.customFolders = [
+      for (final f in session.customFolders)
+        if (f.id != folder.id) f,
+      if (folder.type == 'Custom' && folder.isAvailable) folder,
+    ];
+  }
+
+  void _forgetCustomFolderMails(_Session session, String folderId) {
+    session.customFolderEmails.remove(folderId);
+    session.customFolderPages.remove(folderId);
+    session.customFolderHasMore.remove(folderId);
+  }
+
+  void _dropFromCustomFolderMails(_Session session, Set<String> ids) {
+    for (final entry in session.customFolderEmails.entries) {
+      if (entry.value.any((e) => ids.contains(e.id))) {
+        session.customFolderEmails[entry.key] = [
+          for (final email in entry.value)
+            if (!ids.contains(email.id)) email,
+        ];
+      }
+    }
   }
 
   @override
@@ -2093,6 +2144,72 @@ class ApiMailRepository extends MailRepository {
     required String accountId,
     required String folderId,
   }) => _sessionForAccountId(accountId).mailService.syncFolderId(folderId);
+
+  @override
+  Future<void> createCustomFolder({
+    required String accountId,
+    required String name,
+    String? parentFolderId,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    final created = await session.mailService.createFolder(
+      name,
+      parentId: parentFolderId,
+    );
+    _putCustomFolder(session, created);
+    await _reloadCustomFoldersAfterChange(session);
+  }
+
+  @override
+  Future<void> renameCustomFolder({
+    required String accountId,
+    required String folderId,
+    required String name,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    final renamed = await session.mailService.renameFolder(folderId, name);
+    _putCustomFolder(session, renamed);
+    await _reloadCustomFoldersAfterChange(session);
+  }
+
+  @override
+  Future<void> deleteCustomFolder({
+    required String accountId,
+    required String folderId,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    await session.mailService.deleteFolder(folderId);
+    session.customFolders = [
+      for (final f in session.customFolders)
+        if (f.id != folderId) f,
+    ];
+    _forgetCustomFolderMails(session, folderId);
+    await _reloadCustomFoldersAfterChange(session);
+  }
+
+  @override
+  Future<void> moveToCustomFolder(
+    List<String> ids, {
+    required String accountId,
+    required String folderId,
+  }) async {
+    if (ids.isEmpty) return;
+    final session = _sessionForAccountId(accountId);
+    final results = await _bulkAndApplyOrQueue(session, 'move', ids, (
+      succeeded,
+    ) {
+      _removeMany(session, succeeded);
+      _forgetCustomFolderMails(session, folderId);
+    }, folderId: folderId);
+    final failure = results.where((r) => !r.success).firstOrNull;
+    if (failure != null) {
+      throw ApiException(status: 0, code: failure.code ?? 'mail_move_failed');
+    }
+  }
+
+  @override
+  Set<MailFolder> availableFolders(String accountId) =>
+      _sessions[accountId]?.folderIds.keys.toSet() ?? const {};
 
   /// Tail of the draft write queue — see [_serializeDraftWrite].
   Future<void> _draftWrites = Future.value();
@@ -2648,6 +2765,7 @@ class ApiMailRepository extends MailRepository {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
     _touch();
+    _dropFromCustomFolderMails(session, idSet);
     for (final folder in session.emails.keys.toList()) {
       session.emails[folder] = [
         for (final email in session.emails[folder]!)
