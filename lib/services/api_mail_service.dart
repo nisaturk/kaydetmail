@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
@@ -1142,37 +1143,6 @@ class SendDraftResult {
   /// "sent", never an error (spec §5).
   final bool draftRemoved;
   final String? warning;
-}
-
-/// Prefill data for the reply/reply-all/forward screen from
-/// `GET /api/mails/{id}/compose/{kind}`.
-class ComposePrefill {
-  const ComposePrefill({
-    required this.sourceMailId,
-    required this.to,
-    required this.cc,
-    required this.suggestedSubject,
-    this.inReplyToMessageId,
-    this.references,
-    this.originalFrom,
-    this.originalDate,
-    this.originalSubject,
-    this.attachments = const [],
-  });
-
-  final String sourceMailId;
-  final List<String> to;
-  final List<String> cc;
-  final String suggestedSubject;
-  final String? inReplyToMessageId;
-  final String? references;
-  final String? originalFrom;
-  final DateTime? originalDate;
-  final String? originalSubject;
-
-  /// Source mail's attachments (forward only) — re-upload their content when
-  /// sending; the server does not carry the bytes over by itself.
-  final List<Attachment> attachments;
 }
 
 /// Result of `POST /api/mails/send`.

@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 import '../widgets/mail_avatar.dart';
 import 'add_account_screen.dart';
+import 'login_screen.dart';
 
 /// Account management: shows every connected mailbox, the unified mailbox
 /// entry (when more than one account exists) and the add-account row.
@@ -23,6 +24,30 @@ class AccountsScreen extends StatelessWidget {
   Future<void> _select(BuildContext context, String? accountId) async {
     await _repo.setActiveAccount(accountId);
     if (context.mounted) Navigator.of(context).pop();
+  }
+
+  /// Turkish subtitle for a non-active account status; `null` for
+  /// [MailAccountStatus.active] (nothing worth surfacing).
+  String? _statusLabel(MailAccountStatus status) => switch (status) {
+    MailAccountStatus.active => null,
+    MailAccountStatus.needsReauthentication => 'Bağlantısı kesildi',
+    MailAccountStatus.connectionError => 'Bağlantı sorunu',
+    MailAccountStatus.disabled => 'Devre dışı',
+  };
+
+  /// Reauthenticates [account] via the email/password reconnect flow
+  /// (never OAuth — see docs-dev spec §24). Makes [account] the active
+  /// mailbox first so `MailRepository.reconnect` (which always targets the
+  /// active session) updates the right account's credentials, even when
+  /// the disconnected account isn't the one currently shown.
+  Future<void> _reconnect(BuildContext context, MailAccount account) async {
+    await _repo.setActiveAccount(account.id);
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => LoginScreen(reconnect: true, initialEmail: account.email),
+      ),
+    );
   }
 
   Future<void> _remove(BuildContext context, MailAccount account) async {
@@ -88,11 +113,16 @@ class AccountsScreen extends StatelessWidget {
                 _AccountRow(
                   key: ValueKey('account-${account.id}'),
                   title: account.email,
+                  subtitle: _statusLabel(account.status),
                   avatarIdentity: account.email,
                   isActive: account.id == activeId,
                   canRemove: accounts.length > 1,
                   onTap: () => _select(context, account.id),
                   onRemove: () => _remove(context, account),
+                  onReconnect:
+                      account.status == MailAccountStatus.needsReauthentication
+                      ? () => _reconnect(context, account)
+                      : null,
                 ),
               const Divider(),
               ListTile(
@@ -131,6 +161,7 @@ class _AccountRow extends StatelessWidget {
     this.icon,
     this.canRemove = false,
     this.onRemove,
+    this.onReconnect,
   });
 
   final String title;
@@ -141,6 +172,11 @@ class _AccountRow extends StatelessWidget {
   final IconData? icon;
   final bool canRemove;
   final VoidCallback? onRemove;
+
+  /// Non-null only when this account's status is
+  /// [MailAccountStatus.needsReauthentication] — the "Şifreyi güncelle" CTA
+  /// (docs-dev spec §24; email/password reconnect, never OAuth).
+  final VoidCallback? onReconnect;
 
   @override
   Widget build(BuildContext context) {
@@ -177,6 +213,16 @@ class _AccountRow extends StatelessWidget {
               LucideIcons.check,
               size: 20,
               color: Theme.of(context).colorScheme.onSurface,
+            ),
+          if (onReconnect != null)
+            IconButton(
+              tooltip: 'Şifreyi güncelle',
+              onPressed: onReconnect,
+              icon: Icon(
+                LucideIcons.refreshCw,
+                size: 18,
+                color: Theme.of(context).colorScheme.error,
+              ),
             ),
           if (canRemove && onRemove != null)
             IconButton(

@@ -5,6 +5,7 @@ import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
@@ -56,6 +57,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// çıkar") is in flight, so the triggering button disables itself —
   /// mirrors the busy-flag shape of `_runBulkMove` in HomeScreen.
   bool _folderActionBusy = false;
+
+  /// Set while a reply/reply-all/forward compose context request is in
+  /// flight — disables the triggering action so a slow/offline fetch
+  /// can't be tapped twice or race a second mode's response into the
+  /// wrong `ComposeScreen`.
+  bool _composeActionBusy = false;
 
   /// Why the main mail load failed, when it did and nothing is shown yet.
   /// Null means "not found" rather than a transport error.
@@ -331,55 +338,83 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     return _repo.getAccount(email.accountId)?.email;
   }
 
-  Future<void> _reply() async {
+  /// Opens `ComposeScreen` prefilled from the backend's compose context
+  /// (`GET /api/mails/{id}/compose/{mode}`) instead of recomputing
+  /// recipients/subject/threading client-side — see docs-dev spec §4.
+  /// [mode] is `'reply'`, `'reply-all'` or `'forward'`.
+  Future<void> _openComposePrefill(
+    String mode, {
+    required String title,
+  }) async {
     final email = _email;
-    if (email == null) return;
-    final sent = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ComposeScreen(
-          composeTitle: 'Yanıtla',
-          initialFrom: _originatingFrom(),
-          initialTo: email.senderEmail,
-          initialSubject: _replySubject(email.subject),
-          initialThreadId: email.threadId,
-          inReplyToId: email.id,
-        ),
-      ),
-    );
-    if (sent == true) await _repo.markAsReplied([email.id]);
-  }
-
-  Future<void> _forward() async {
-    final email = _email;
-    if (email == null) return;
-    final sent = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ComposeScreen(
-          composeTitle: 'İlet',
-          initialFrom: _originatingFrom(),
-          initialSubject: _forwardSubject(email.subject),
-          initialBody:
-              '\n\n--- İletilen mesaj ---\nKimden: ${email.senderName} <${email.senderEmail}>\nKonu: ${email.subject}\n\n${email.bodyText}',
-        ),
-      ),
-    );
-    if (sent == true) await _repo.markAsForwarded([email.id]);
-  }
-
-  static String _replySubject(String subject) {
-    final s = subject.trim();
-    if (s.toLowerCase().startsWith('re:')) return subject;
-    return 'Re: $subject';
-  }
-
-  static String _forwardSubject(String subject) {
-    final s = subject.trim();
-    if (s.toLowerCase().startsWith('fwd:') ||
-        s.toLowerCase().startsWith('ilet:')) {
-      return subject;
+    if (email == null || _composeActionBusy) return;
+    setState(() => _composeActionBusy = true);
+    final ComposePrefill prefill;
+    try {
+      prefill = await _repo.getComposePrefill(email.id, mode);
+    } catch (error) {
+      if (mounted) {
+        setState(() => _composeActionBusy = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Yanıt hazırlanamadı: ${friendlyErrorMessage(error)}'),
+          ),
+        );
+      }
+      return;
     }
-    return 'Fwd: $subject';
+    if (!mounted) return;
+    setState(() => _composeActionBusy = false);
+
+    final isForward = mode == 'forward';
+    var initialBody = '';
+    var initialAttachments = const <Attachment>[];
+    if (isForward) {
+      final dateLine = prefill.originalDate == null
+          ? ''
+          : 'Tarih: ${formatMailDateFull(prefill.originalDate!)}\n';
+      initialBody =
+          '\n\n--- İletilen mesaj ---\n'
+          'Kimden: ${prefill.originalFrom ?? email.senderEmail}\n'
+          '$dateLine'
+          'Konu: ${prefill.originalSubject ?? email.subject}\n\n'
+          '${email.bodyText}';
+      // Metadata only (no bytes yet) — ComposeScreen downloads each one
+      // itself and blocks Send until every attachment is ready, so a
+      // forwarded attachment is never silently dropped (spec §5/§6).
+      initialAttachments = prefill.attachments;
+    }
+
+    final sent = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(
+        builder: (_) => ComposeScreen(
+          composeTitle: title,
+          initialFrom: _originatingFrom(),
+          initialTo: prefill.to.join(', '),
+          initialCc: prefill.cc.join(', '),
+          initialSubject: prefill.suggestedSubject,
+          initialBody: initialBody,
+          initialAttachments: initialAttachments,
+          attachmentSourceMailId: isForward ? email.id : null,
+          initialThreadId: isForward ? null : email.threadId,
+          inReplyToId: isForward ? null : email.id,
+        ),
+      ),
+    );
+    if (sent != true || !mounted) return;
+    if (isForward) {
+      await _repo.markAsForwarded([email.id]);
+    } else {
+      await _repo.markAsReplied([email.id]);
+    }
   }
+
+  Future<void> _reply() => _openComposePrefill('reply', title: 'Yanıtla');
+
+  Future<void> _replyAll() =>
+      _openComposePrefill('reply-all', title: 'Tümünü Yanıtla');
+
+  Future<void> _forward() => _openComposePrefill('forward', title: 'İlet');
 
   @override
   Widget build(BuildContext context) {
@@ -408,12 +443,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         ),
       ),
       IconButton(
-        onPressed: _reply,
+        onPressed: _composeActionBusy ? null : _reply,
         tooltip: 'Yanıtla',
         icon: const Icon(LucideIcons.reply),
       ),
       IconButton(
-        onPressed: _forward,
+        onPressed: _composeActionBusy ? null : _forward,
         tooltip: 'İlet',
         icon: const Icon(LucideIcons.forward),
       ),
@@ -422,6 +457,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         tooltip: 'Daha fazla',
         onSelected: (action) => _handleMenu(action),
         itemBuilder: (context) => [
+          PopupMenuItem(
+            value: 'reply_all',
+            enabled: !_composeActionBusy,
+            child: const Text('Tümünü Yanıtla'),
+          ),
           PopupMenuItem(
             value: 'pin',
             child: Text(email.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'),
@@ -484,7 +524,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   }
 
   Future<void> _handleMenu(String action) async {
-    if (action == 'read') {
+    if (action == 'reply_all') {
+      await _replyAll();
+    } else if (action == 'read') {
       await _repo.markAsRead([widget.emailId]);
     } else if (action == 'unread') {
       await _repo.markAsUnread([widget.emailId]);

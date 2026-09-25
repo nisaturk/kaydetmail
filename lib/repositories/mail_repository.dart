@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
-
+import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
@@ -229,6 +229,19 @@ abstract class MailRepository extends ChangeNotifier {
   DateTime? lastSyncedAt(MailFolder folder) => null;
 
   Future<Email?> getEmail(String id);
+
+  /// Backend-computed reply/reply-all/forward context: recipients,
+  /// subject and threading headers computed server-side — the UI must
+  /// never re-derive recipients/subject itself (Reply-To vs. From
+  /// precedence, Reply-All self-exclusion, `In-Reply-To`/`References`
+  /// chains all live in `ComposeContextService` on the backend). [mode]
+  /// is one of `'reply'`, `'reply-all'`, `'forward'`. See docs-dev spec §4.
+  ///
+  /// Default throws — only meaningful for [ApiMailRepository]; other
+  /// implementations/test doubles that never trigger reply/forward don't
+  /// need to override it.
+  Future<ComposePrefill> getComposePrefill(String sourceMailId, String mode) =>
+      throw UnimplementedError('getComposePrefill');
 
   /// Downloads one attachment's raw bytes for sharing/saving.
   ///
