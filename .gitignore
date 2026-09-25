@@ -55,6 +55,7 @@ hatalar.txt
 
 # local tooling / notes
 .opencode/
+.omp/
 .serena/
 CLAUDE.md
 docs/
