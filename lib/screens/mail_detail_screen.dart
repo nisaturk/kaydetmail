@@ -22,6 +22,7 @@ import '../utils/mail_unsubscribe.dart';
 import '../widgets/move_folder_sheet.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
+import '../widgets/mail_link_handler.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
 import '../widgets/reply_reminder_picker.dart';
@@ -976,6 +977,10 @@ class _MessageBody extends StatelessWidget {
       child: HtmlWidget(
         html,
         textStyle: style,
+        factoryBuilder: () => MailLinkWidgetFactory(
+          onLinkTap: (href, text) =>
+              unawaited(MailLinkOpener.open(context, href, displayText: text)),
+        ),
         customWidgetBuilder: (element) {
           if (element.localName != 'img') return null;
           final src = element.attributes['src'] ?? '';
