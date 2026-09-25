@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
@@ -2311,9 +2312,10 @@ class ApiMailRepository extends MailRepository {
 
   /// Prefill data for the reply/reply-all/forward screen (see
   /// [ApiMailService.getComposePrefill]).
-  Future<ComposePrefill> getComposePrefill(String sourceMailId, String kind) {
+  @override
+  Future<ComposePrefill> getComposePrefill(String sourceMailId, String mode) {
     final session = _sessionOwning(sourceMailId) ?? _primarySession;
-    return session.mailService.getComposePrefill(sourceMailId, kind);
+    return session.mailService.getComposePrefill(sourceMailId, mode);
   }
 
   /// Server-side full-text + filtered search (`GET /api/search`) over cached

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -129,9 +130,14 @@ class _FakeMailRepository extends MailRepository {
     return null;
   }
 
+  /// Lets attachment-readiness tests control success/failure/latency
+  /// without a real network. Defaults to succeeding immediately.
+  Future<Uint8List> Function(String mailId, Attachment attachment)?
+  downloadAttachmentImpl;
+
   @override
-  Future<Uint8List> downloadAttachment(String mailId, Attachment attachment) async =>
-      Uint8List(0);
+  Future<Uint8List> downloadAttachment(String mailId, Attachment attachment) =>
+      (downloadAttachmentImpl ?? (_, _) async => Uint8List(0))(mailId, attachment);
 
   @override
   List<Email> getThreadEmails(String threadId) => const [];
@@ -167,6 +173,7 @@ class _FakeMailRepository extends MailRepository {
       timestamp: DateTime.now(),
       folder: MailFolder.sent,
       accountId: fromAccountId ?? '',
+      attachments: attachments,
     );
     sent.add(email);
     return email;
@@ -350,6 +357,9 @@ Future<void> _pumpCompose(
   String? initialTo,
   String? editingDraftId,
   String? initialBody,
+  List<Attachment> initialAttachments = const [],
+  String? attachmentSourceMailId,
+  bool settle = true,
 }) async {
   AppConfig.mailRepositoryForTest = repo;
   // ComposeScreen must be pushed on top of a real base route: it calls
@@ -369,10 +379,22 @@ Future<void> _pumpCompose(
         initialTo: initialTo ?? '',
         editingDraftId: editingDraftId,
         initialBody: initialBody ?? '',
+        initialAttachments: initialAttachments,
+        attachmentSourceMailId: attachmentSourceMailId,
       ),
     ),
   );
-  await tester.pumpAndSettle();
+  // A still-downloading attachment keeps a CircularProgressIndicator
+  // animating forever, which would make `pumpAndSettle` time out — callers
+  // exercising that state pass `settle: false` and pump past the route's
+  // push transition manually instead (a single zero-duration `pump()`
+  // isn't enough for the pushed route to become hit-testable).
+  if (settle) {
+    await tester.pumpAndSettle();
+  } else {
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+  }
 }
 
 void main() {
@@ -733,6 +755,131 @@ void main() {
       expect(repo.scheduled, hasLength(1));
       expect(repo.scheduled.single.to, ['x@y.com']);
       expect(find.textContaining('zamanlandı'), findsOneWidget);
+    });
+  });
+
+  group('remote attachment readiness (forward / draft attachments)', () {
+    testWidgets('a successfully downloaded remote attachment can be sent', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      repo.downloadAttachmentImpl = (_, _) async => Uint8List.fromList([1, 2, 3]);
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialTo: 'x@y.com',
+        initialAttachments: const [
+          Attachment(id: 'att-1', name: 'dosya.pdf', sizeBytes: 100),
+        ],
+        attachmentSourceMailId: 'source-1',
+      );
+
+      expect(find.text('dosya.pdf'), findsOneWidget);
+      expect(find.byTooltip('Tekrar indir'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.attachments.single.bytes, [1, 2, 3]);
+    });
+
+    testWidgets('a still-downloading attachment blocks Send until it resolves', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      final completer = Completer<Uint8List>();
+      repo.downloadAttachmentImpl = (_, _) => completer.future;
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialTo: 'x@y.com',
+        initialAttachments: const [
+          Attachment(id: 'att-1', name: 'dosya.pdf', sizeBytes: 100),
+        ],
+        attachmentSourceMailId: 'source-1',
+        settle: false,
+      );
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pump();
+      expect(repo.sent, isEmpty, reason: 'still downloading — must not send');
+      expect(find.text('Ekler hazırlanıyor, lütfen bekleyin.'), findsWidgets);
+
+      completer.complete(Uint8List.fromList([9]));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+      expect(repo.sent, hasLength(1));
+    });
+
+    testWidgets('a failed attachment download blocks Send and can be retried', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      repo.downloadAttachmentImpl = (_, _) async => throw Exception('boom');
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialTo: 'x@y.com',
+        initialAttachments: const [
+          Attachment(id: 'att-1', name: 'dosya.pdf', sizeBytes: 100),
+        ],
+        attachmentSourceMailId: 'source-1',
+      );
+
+      expect(find.byTooltip('Tekrar indir'), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      expect(repo.sent, isEmpty, reason: 'failed attachment must never be silently dropped');
+      expect(
+        find.text('Bir ek indirilemedi. Tekrar deneyin veya kaldırın.'),
+        findsOneWidget,
+      );
+
+      repo.downloadAttachmentImpl = (_, _) async => Uint8List.fromList([7]);
+      await tester.tap(find.byTooltip('Tekrar indir'));
+      await tester.pumpAndSettle();
+      expect(find.byTooltip('Tekrar indir'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+      expect(repo.sent, hasLength(1));
+    });
+
+    testWidgets('removing a failed attachment unblocks Send', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      repo.downloadAttachmentImpl = (_, _) async => throw Exception('boom');
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialTo: 'x@y.com',
+        initialAttachments: const [
+          Attachment(id: 'att-1', name: 'dosya.pdf', sizeBytes: 100),
+        ],
+        attachmentSourceMailId: 'source-1',
+      );
+
+      await tester.tap(find.byTooltip('Kaldır'));
+      await tester.pumpAndSettle();
+      expect(find.text('dosya.pdf'), findsNothing);
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pump();
+      await tester.pumpAndSettle();
+      await tester.pump(PendingSendQueue.undoWindow + const Duration(seconds: 1));
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.attachments, isEmpty);
     });
   });
 }

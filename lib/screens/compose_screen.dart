@@ -14,6 +14,10 @@ import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/markdown_lite_to_html.dart';
 
+/// Non-ready states for a remote attachment awaiting/needing its content —
+/// see `_ComposeScreenState._attachmentIssues`.
+enum _AttachmentIssue { downloading, failed }
+
 /// Borderless field decoration shared by every compose input.
 ///
 /// Every border state is explicitly [InputBorder.none]: the global theme
@@ -63,32 +67,21 @@ class _Recipient {
 }
 
 /// Opens [draft] in the editor with its complete content. List rows only
-/// carry a ~120 character snippet and no attachment files, so the draft is
-/// fetched (and its attachments downloaded) first — saving an editor
-/// prefilled from the row would truncate the body and drop attachments.
-/// Falls back to the cached copy when the fetch fails (e.g. offline).
+/// carry a ~120 character snippet, so the full draft (body + attachment
+/// metadata) is fetched first — saving an editor prefilled from the row
+/// would truncate the body. Falls back to the cached copy when the fetch
+/// fails (e.g. offline).
+///
+/// Attachment *content* is not downloaded here: `ComposeScreen` downloads
+/// each remote attachment itself (tracked as ready/downloading/failed) and
+/// blocks Send/save while any isn't ready — a silent download failure must
+/// never drop an attachment from the saved draft (docs-dev spec §6).
 Future<void> openDraftEditor(BuildContext context, Email draft) async {
   final repo = AppConfig.mailRepository;
   var full = draft;
   try {
     full = await repo.getEmail(draft.id) ?? draft;
   } catch (_) {}
-  final attachments = await Future.wait(
-    full.attachments.map((attachment) async {
-      if (attachment.bytes != null || attachment.id == null) return attachment;
-      try {
-        return Attachment(
-          id: attachment.id,
-          name: attachment.name,
-          sizeBytes: attachment.sizeBytes,
-          mimeType: attachment.mimeType,
-          bytes: await repo.downloadAttachment(full.id, attachment),
-        );
-      } catch (_) {
-        return attachment;
-      }
-    }),
-  );
   if (!context.mounted) return;
   await Navigator.of(context).push(
     MaterialPageRoute(
@@ -101,7 +94,8 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
         initialBcc: full.bcc.join(', '),
         initialSubject: full.subject,
         initialBody: full.bodyText,
-        initialAttachments: attachments,
+        initialAttachments: full.attachments,
+        attachmentSourceMailId: full.id,
         initialThreadId: full.threadId.isEmpty ? null : full.threadId,
         inReplyToId: full.inReplyToId,
       ),
@@ -148,6 +142,7 @@ class ComposeScreen extends StatefulWidget {
     this.initialSubject = '',
     this.initialBody = '',
     this.initialAttachments = const [],
+    this.attachmentSourceMailId,
     this.editingDraftId,
     this.replacesOutboxId,
     this.composeTitle,
@@ -165,6 +160,13 @@ class ComposeScreen extends StatefulWidget {
   final String initialSubject;
   final String initialBody;
   final List<Attachment> initialAttachments;
+
+  /// The mail [initialAttachments] with a null `bytes` belong to (the
+  /// source mail of a forward, or the draft being edited) — used to
+  /// download/re-download their content. Null when every initial
+  /// attachment already carries its bytes (locally picked files) or there
+  /// are none.
+  final String? attachmentSourceMailId;
 
   /// Id of the draft being edited, or null for a new mail/reply/forward.
   final String? editingDraftId;
@@ -206,6 +208,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   final List<Attachment> _attachments = [];
 
+  /// Non-ready attachments only — an attachment absent from this map is
+  /// implicitly "ready" (either picked locally with bytes already in hand,
+  /// or a remote attachment whose download already succeeded). Keyed by
+  /// the [Attachment] currently held in [_attachments] (equality is
+  /// name+size, matching [_removeAttachment]/`indexOf` elsewhere in this
+  /// file). Send/save/schedule must all block while this is non-empty —
+  /// a still-downloading or failed remote attachment (forward, or a
+  /// draft's remote attachment) must never be silently dropped from the
+  /// request. See docs-dev spec §5/§6.
+  final Map<Attachment, ({_AttachmentIssue status, String? error})>
+  _attachmentIssues = {};
+
+  bool get _attachmentsReady => _attachmentIssues.isEmpty;
+
   // --- Contact autocomplete (Kime/Cc/Bcc) --------------------------------
   final _toLink = LayerLink();
   final _ccLink = LayerLink();
@@ -239,7 +255,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
     // empty ones stay hidden behind the Cc/Bcc menu.
     _ccExpanded = _ccRecipients.isNotEmpty;
     _bccExpanded = _bccRecipients.isNotEmpty;
-    _attachments.addAll(widget.initialAttachments);
+    for (final attachment in widget.initialAttachments) {
+      _attachments.add(attachment);
+      if (attachment.bytes == null && attachment.id != null) {
+        _attachmentIssues[attachment] = (
+          status: _AttachmentIssue.downloading,
+          error: null,
+        );
+        unawaited(_downloadRemoteAttachment(attachment));
+      }
+    }
     final accounts = _repo.accounts;
     if (widget.initialFrom != null &&
         accounts.any((a) => a.email == widget.initialFrom)) {
@@ -659,11 +684,32 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return true;
   }
 
+  /// Blocks send/schedule/save-draft while any attachment is still
+  /// downloading or failed to download — an attachment must never be
+  /// silently dropped from the request (docs-dev spec §5/§6, Kural 4).
+  bool _validateAttachmentsReady() {
+    if (_attachmentsReady) return true;
+    final failed = _attachmentIssues.values.any(
+      (issue) => issue.status == _AttachmentIssue.failed,
+    );
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          failed
+              ? 'Bir ek indirilemedi. Tekrar deneyin veya kaldırın.'
+              : 'Ekler hazırlanıyor, lütfen bekleyin.',
+        ),
+      ),
+    );
+    return false;
+  }
+
   /// Persist the full message before leaving compose and starting undo.
   /// A storage failure leaves the editor open.
   Future<void> _send() async {
     if (_sending) return;
     if (!_validateRecipients()) return;
+    if (!_validateAttachmentsReady()) return;
 
     final to = _addressStrings(_toRecipients);
     final cc = _addressStrings(_ccRecipients);
@@ -763,6 +809,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// `MailRepository.scheduleSend` instead of sending it now.
   Future<void> _scheduleSend() async {
     if (!_validateRecipients()) return;
+    if (!_validateAttachmentsReady()) return;
 
     final now = DateTime.now();
     final date = await showDatePicker(
@@ -841,6 +888,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   Future<bool> _writeDraft() async {
     if (!_hasContent) return true;
+    if (!_attachmentsReady) return false;
     setState(() {
       _commitPendingRecipient(_toRecipients, _toInputController);
       _commitPendingRecipient(_ccRecipients, _ccInputController);
@@ -892,7 +940,65 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   void _removeAttachment(Attachment attachment) {
-    setState(() => _attachments.remove(attachment));
+    setState(() {
+      _attachments.remove(attachment);
+      _attachmentIssues.remove(attachment);
+    });
+  }
+
+  /// Downloads (or re-downloads) [attachment]'s content from
+  /// [ComposeScreen.attachmentSourceMailId]. Success replaces the
+  /// placeholder in [_attachments] with a byte-carrying copy and clears
+  /// its entry from [_attachmentIssues]; failure records the reason so the
+  /// row can offer retry/remove instead of silently dropping it.
+  Future<void> _downloadRemoteAttachment(Attachment attachment) async {
+    final sourceMailId = widget.attachmentSourceMailId;
+    if (sourceMailId == null) {
+      if (mounted) {
+        setState(() {
+          _attachmentIssues[attachment] = (
+            status: _AttachmentIssue.failed,
+            error: 'Ek indirilemedi.',
+          );
+        });
+      }
+      return;
+    }
+    try {
+      final bytes = await _repo.downloadAttachment(sourceMailId, attachment);
+      if (!mounted) return;
+      final index = _attachments.indexOf(attachment);
+      if (index == -1) return; // Removed while the download was in flight.
+      setState(() {
+        _attachments[index] = Attachment(
+          id: attachment.id,
+          name: attachment.name,
+          sizeBytes: attachment.sizeBytes,
+          mimeType: attachment.mimeType,
+          bytes: bytes,
+        );
+        _attachmentIssues.remove(attachment);
+      });
+    } catch (error) {
+      if (!mounted) return;
+      if (!_attachments.contains(attachment)) return;
+      setState(() {
+        _attachmentIssues[attachment] = (
+          status: _AttachmentIssue.failed,
+          error: friendlyErrorMessage(error),
+        );
+      });
+    }
+  }
+
+  void _retryAttachment(Attachment attachment) {
+    setState(() {
+      _attachmentIssues[attachment] = (
+        status: _AttachmentIssue.downloading,
+        error: null,
+      );
+    });
+    unawaited(_downloadRemoteAttachment(attachment));
   }
 
   @override
@@ -1107,7 +1213,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           _AttachmentRow(
                             attachment: attachment,
                             onRemove: () => _removeAttachment(attachment),
+                            onRetry: () => _retryAttachment(attachment),
                             enabled: !_sending,
+                            issue: _attachmentIssues[attachment]?.status,
+                            error: _attachmentIssues[attachment]?.error,
                           ),
                       ],
                       const SizedBox(height: 8),
@@ -1466,16 +1575,27 @@ class _AttachmentRow extends StatelessWidget {
   const _AttachmentRow({
     required this.attachment,
     required this.onRemove,
+    this.onRetry,
     this.enabled = true,
+    this.issue,
+    this.error,
   });
 
   final Attachment attachment;
   final VoidCallback onRemove;
+  final VoidCallback? onRetry;
   final bool enabled;
+
+  /// Null means ready (bytes in hand); non-null gates Send/save-draft/
+  /// schedule until it's resolved — see `_ComposeScreenState._attachmentIssues`.
+  final _AttachmentIssue? issue;
+  final String? error;
 
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
+    final downloading = issue == _AttachmentIssue.downloading;
+    final failed = issue == _AttachmentIssue.failed;
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 4),
       child: Container(
@@ -1486,21 +1606,59 @@ class _AttachmentRow extends StatelessWidget {
         ),
         child: Row(
           children: [
-            Icon(LucideIcons.paperclip, size: 16, color: colors.secondaryText),
+            Icon(
+              failed ? LucideIcons.fileWarning : LucideIcons.paperclip,
+              size: 16,
+              color: failed ? colors.destructive : colors.secondaryText,
+            ),
             const SizedBox(width: 8),
             Expanded(
-              child: Text(
-                attachment.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: colors.bodyText),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    attachment.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(fontSize: 13, color: colors.bodyText),
+                  ),
+                  if (failed)
+                    Text(
+                      error ?? 'Ek indirilemedi.',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(fontSize: 11, color: colors.destructive),
+                    )
+                  else if (downloading)
+                    Text(
+                      'İndiriliyor…',
+                      style: TextStyle(fontSize: 11, color: colors.secondaryText),
+                    ),
+                ],
               ),
             ),
             const SizedBox(width: 8),
-            Text(
-              attachment.sizeLabel,
-              style: TextStyle(fontSize: 12, color: colors.secondaryText),
-            ),
+            if (downloading)
+              const SizedBox(
+                width: 16,
+                height: 16,
+                child: CircularProgressIndicator(strokeWidth: 2),
+              )
+            else if (!failed)
+              Text(
+                attachment.sizeLabel,
+                style: TextStyle(fontSize: 12, color: colors.secondaryText),
+              ),
+            if (failed)
+              IconButton(
+                onPressed: enabled ? onRetry : null,
+                icon: const Icon(LucideIcons.refreshCw, size: 16),
+                tooltip: 'Tekrar indir',
+                visualDensity: VisualDensity.compact,
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
+              ),
             IconButton(
               onPressed: enabled ? onRemove : null,
               icon: const Icon(LucideIcons.x, size: 16),
