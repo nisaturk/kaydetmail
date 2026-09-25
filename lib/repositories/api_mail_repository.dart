@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
@@ -13,6 +14,7 @@ import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
+import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -2375,10 +2377,122 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
+  Future<RemoteSearchResult> searchRemote({
+    required String query,
+    String? accountId,
+    MailFolder? folder,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+  }) async {
+    final sessions = accountId == null
+        ? _sessions.values
+        : [?_sessions[accountId]];
+    var matched = 0;
+    var imported = 0;
+    var remaining = 0;
+    var complete = true;
+    for (final session in sessions) {
+      final folderId = folder == null ? null : session.folderIds[folder];
+      if (folder != null && folderId == null) continue;
+      final result = await session.mailService.searchRemote(
+        query: query,
+        folderId: folderId,
+        conversationId: conversationId,
+        from: from,
+        to: to,
+        fromDate: fromDate,
+        toDate: toDate,
+        isRead: isRead,
+        flagged: flagged,
+        hasAttachment: hasAttachment,
+        labelId: labelId,
+      );
+      matched += result.matched;
+      imported += result.imported;
+      remaining += result.remaining;
+      complete = complete && result.complete;
+    }
+    return RemoteSearchResult(
+      matched: matched,
+      imported: imported,
+      remaining: remaining,
+      complete: complete,
+    );
+  }
+
+  @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {
     final session = _sessions[accountId];
     if (session == null) return const [];
     return session.mailService.getSyncStatus();
+  }
+
+  @override
+  Future<AccountSyncScope> getSyncScope(String accountId) async {
+    final service = _sessionForAccountId(accountId).mailService;
+    final (scope, folders) = await (
+      service.getSyncScope(),
+      service.getFolders(),
+    ).wait;
+    return _composeSyncScope(scope, folders);
+  }
+
+  @override
+  Future<AccountSyncScope> updateSyncScope(
+    String accountId,
+    FolderSyncScope scope, {
+    List<String>? folderIds,
+  }) async {
+    final service = _sessionForAccountId(accountId).mailService;
+    final updated = await service.updateSyncScope(
+      scope.backendValue,
+      folderIds: scope == FolderSyncScope.selectedFolders ? folderIds : null,
+    );
+    return _composeSyncScope(updated, await service.getFolders());
+  }
+
+  static const _syncScopeFolderOrder = [
+    'Inbox',
+    'Sent',
+    'Drafts',
+    'Archive',
+    'Junk',
+    'Trash',
+  ];
+
+  AccountSyncScope _composeSyncScope(
+    ({String scope, Set<String> syncedFolderIds}) scope,
+    List<ApiMailFolder> folders,
+  ) {
+    int rank(ApiMailFolder f) {
+      final index = _syncScopeFolderOrder.indexOf(f.type);
+      return index < 0 ? _syncScopeFolderOrder.length : index;
+    }
+
+    final available = folders.where((f) => f.isAvailable).toList()
+      ..sort((a, b) {
+        final byType = rank(a).compareTo(rank(b));
+        return byType != 0 ? byType : a.fullName.compareTo(b.fullName);
+      });
+    return AccountSyncScope(
+      scope: FolderSyncScope.fromBackend(scope.scope),
+      folders: [
+        for (final f in available)
+          SyncScopeFolder(
+            id: f.id,
+            name: f.fullName,
+            type: f.type,
+            synced: scope.syncedFolderIds.contains(f.id),
+          ),
+      ],
+    );
   }
 
   @override

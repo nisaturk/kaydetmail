@@ -19,14 +19,17 @@ class FolderSyncStatus {
   final String? lastFailureCategory;
   final int consecutiveFailures;
 
-  static const _friendlyNames = {
-    'Inbox': 'Gelen Kutusu',
-    'Sent': 'Gönderilenler',
-    'Drafts': 'Taslaklar',
-    'Trash': 'Çöp Kutusu',
-    'Junk': 'Spam',
-    'Archive': 'Arşiv',
-  };
-
-  String get displayName => _friendlyNames[folderType] ?? folderName;
+  String get displayName => friendlyFolderName(folderType, folderName);
 }
+
+const _friendlyFolderNames = {
+  'Inbox': 'Gelen Kutusu',
+  'Sent': 'Gönderilenler',
+  'Drafts': 'Taslaklar',
+  'Trash': 'Çöp Kutusu',
+  'Junk': 'Spam',
+  'Archive': 'Arşiv',
+};
+
+String friendlyFolderName(String folderType, String folderName) =>
+    _friendlyFolderNames[folderType] ?? folderName;

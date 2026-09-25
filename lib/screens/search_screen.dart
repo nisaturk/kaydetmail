@@ -106,6 +106,9 @@ class _SearchScreenState extends State<SearchScreen> {
   Object? _error;
   int _searchGeneration = 0;
   Map<String, List<FolderSyncStatus>> _syncStatusByAccount = const {};
+  bool _remoteLoading = false;
+  String? _remoteMessage;
+  Object? _remoteError;
 
   @override
   void initState() {
@@ -136,6 +139,11 @@ class _SearchScreenState extends State<SearchScreen> {
 
   bool get _hasActiveSearch =>
       _query.trim().isNotEmpty || _labelId != null || !_filters.isEmpty;
+  bool get _canSearchRemote =>
+      _labelId == null &&
+      (_query.trim().isNotEmpty ||
+          (_filters.from?.trim().isNotEmpty ?? false) ||
+          (_filters.to?.trim().isNotEmpty ?? false));
 
   bool get _mailboxIncomplete {
     final scoped = _filters.accountId == null
@@ -149,6 +157,9 @@ class _SearchScreenState extends State<SearchScreen> {
     final generation = ++_searchGeneration;
     setState(() {
       _query = value;
+      _remoteMessage = null;
+      _remoteError = null;
+      _remoteLoading = false;
       _error = null;
     });
     if (!_hasActiveSearch) {
@@ -198,6 +209,45 @@ class _SearchScreenState extends State<SearchScreen> {
     }
   }
 
+  Future<void> _searchOnServer() async {
+    if (!_canSearchRemote || _remoteLoading) return;
+    final generation = _searchGeneration;
+    setState(() {
+      _remoteLoading = true;
+      _remoteError = null;
+      _remoteMessage = null;
+    });
+    try {
+      final result = await _repo.searchRemote(
+        query: _query.trim(),
+        accountId: _filters.accountId,
+        folder: _filters.folder,
+        from: _filters.from,
+        to: _filters.to,
+        fromDate: _filters.fromDate,
+        toDate: _filters.toDate,
+        isRead: _filters.isRead,
+        flagged: _filters.flagged,
+        hasAttachment: _filters.hasAttachment,
+      );
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _remoteLoading = false;
+        _remoteMessage = result.complete
+            ? 'Sunucu taraması tamamlandı. ${result.imported} yeni e-posta eklendi.'
+            : 'Sunucu taraması kısmen tamamlandı. ${result.imported} yeni e-posta eklendi; ${result.remaining} eşleşme kaldı. Yeniden deneyin.';
+      });
+      _runSearchNow();
+      _loadSyncStatus();
+    } catch (error) {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _remoteLoading = false;
+        _remoteError = error;
+      });
+    }
+  }
+
   void _runSearchNow() {
     final generation = ++_searchGeneration;
     if (!_hasActiveSearch) {
@@ -216,12 +266,22 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   void _selectLabel(String? id) {
-    setState(() => _labelId = id);
+    setState(() {
+      _labelId = id;
+      _remoteLoading = false;
+      _remoteMessage = null;
+      _remoteError = null;
+    });
     _runSearchNow();
   }
 
   void _applyFilters(_AdvancedFilters filters) {
-    setState(() => _filters = filters);
+    setState(() {
+      _filters = filters;
+      _remoteLoading = false;
+      _remoteMessage = null;
+      _remoteError = null;
+    });
     _runSearchNow();
   }
 
@@ -295,6 +355,40 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           if (_hasActiveSearch && _mailboxIncomplete)
             const _CompletenessBanner(),
+          if (_hasActiveSearch && _canSearchRemote)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: TextButton.icon(
+                  key: const Key('search-remote'),
+                  onPressed: _remoteLoading ? null : _searchOnServer,
+                  icon: _remoteLoading
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(LucideIcons.search, size: 18),
+                  label: Text(
+                    _remoteLoading ? 'Sunucuda aranıyor…' : 'Sunucuda da ara',
+                  ),
+                ),
+              ),
+            ),
+          if (_remoteMessage != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(_remoteMessage!),
+              ),
+            ),
+          if (_remoteError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+              child: Text(friendlyErrorMessage(_remoteError!)),
+            ),
           _SearchScopeStatus(
             serverSearch: _hasActiveSearch,
             loading: _loading,

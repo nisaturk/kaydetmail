@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
@@ -11,6 +12,7 @@ import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
+import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 
 /// Server connection settings entered on the login screen.
@@ -458,6 +460,21 @@ abstract class MailRepository extends ChangeNotifier {
     int pageSize = 20,
   });
 
+  Future<RemoteSearchResult> searchRemote({
+    required String query,
+    String? accountId,
+    MailFolder? folder,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+  }) => throw UnimplementedError('searchRemote');
+
   /// Per-folder sync/backfill state for [accountId] (`GET
   /// /api/account/sync-status`) - powers the "mailbox still syncing,
   /// results may be incomplete" search banner and the sync status screen.
@@ -466,6 +483,15 @@ abstract class MailRepository extends ChangeNotifier {
   /// override it.
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) =>
       throw UnimplementedError('getSyncStatus');
+
+  Future<AccountSyncScope> getSyncScope(String accountId) =>
+      throw UnimplementedError('getSyncScope');
+
+  Future<AccountSyncScope> updateSyncScope(
+    String accountId,
+    FolderSyncScope scope, {
+    List<String>? folderIds,
+  }) => throw UnimplementedError('updateSyncScope');
 
   /// Mail ids with a not-yet-replayed offline mutation for [accountId]
   /// (star/unstar/archive/trash/restore/move/read/unread - see
