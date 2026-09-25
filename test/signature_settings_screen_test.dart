@@ -270,7 +270,8 @@ class _StubMailRepository extends MailRepository {
   @override
   Future<List<Email>> searchEmailsOnServer({
     required String query,
-    String? folderId,
+    String? accountId,
+    MailFolder? folder,
     String? conversationId,
     String? from,
     String? to,
@@ -279,6 +280,7 @@ class _StubMailRepository extends MailRepository {
     bool? isRead,
     bool? flagged,
     bool? hasAttachment,
+    String? labelId,
     int page = 1,
     int pageSize = 20,
   }) async => throw UnimplementedError();

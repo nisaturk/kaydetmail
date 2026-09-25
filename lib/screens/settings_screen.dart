@@ -15,6 +15,7 @@ import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
 import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
+import 'sync_status_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
 ///
@@ -1008,6 +1009,18 @@ class _SyncSection extends StatelessWidget {
                 : null,
             onTap: () => settings.syncInterval = interval,
           ),
+        const Divider(height: 1),
+        ListTile(
+          leading: Icon(LucideIcons.activity, size: 20, color: secondaryText),
+          title: const Text('Senkronizasyon durumu'),
+          subtitle: const Text(
+            'Klasör bazlı son senkronizasyon ve bekleyen işlemler',
+          ),
+          trailing: const Icon(LucideIcons.chevronRight, size: 18),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const SyncStatusScreen()),
+          ),
+        ),
       ],
     );
   }

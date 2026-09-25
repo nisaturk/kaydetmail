@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
+import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
@@ -86,6 +87,24 @@ class ApiMailService {
 
   Future<void> deleteSession(String sessionId) =>
       _client.delete('/api/account/sessions/${Uri.encodeComponent(sessionId)}');
+
+  Future<List<FolderSyncStatus>> getSyncStatus() async {
+    final items = await _client.getList('/api/account/sync-status');
+    return items
+        .map(
+          (item) => FolderSyncStatus(
+            folderId: item['folderId'] as String,
+            folderName: item['folderName'] as String,
+            folderType: item['folderType'] as String,
+            backfillComplete: item['backfillComplete'] as bool,
+            lastSuccessfulSyncAt: _optionalDate(item['lastSuccessfulSyncAt']),
+            lastFailureAt: _optionalDate(item['lastFailureAt']),
+            lastFailureCategory: item['lastFailureCategory'] as String?,
+            consecutiveFailures: item['consecutiveFailures'] as int,
+          ),
+        )
+        .toList();
+  }
 
   Future<List<ApiMailFolder>> getFolders() async {
     final items = await _client.getList('/api/folders');
@@ -511,6 +530,7 @@ class ApiMailService {
     bool? isRead,
     bool? flagged,
     bool? hasAttachment,
+    String? labelId,
     int page = 1,
     int pageSize = 20,
   }) async {
@@ -527,6 +547,7 @@ class ApiMailService {
       'isRead': isRead?.toString(),
       'flagged': flagged?.toString(),
       'hasAttachment': hasAttachment?.toString(),
+      'labelId': labelId,
     });
     final body = await _client.get(path);
     final items = body['items'] as List;
