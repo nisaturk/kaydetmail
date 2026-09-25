@@ -11,6 +11,7 @@ import '../models/mail_template.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
 import '../state/pending_send_queue.dart';
+import '../models/mail_signature.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
@@ -154,6 +155,7 @@ class ComposeScreen extends StatefulWidget {
     this.composeTitle,
     this.initialThreadId,
     this.inReplyToId,
+    this.initialIdentityId,
   });
 
   /// Lets tests substitute the real OS file picker.
@@ -183,6 +185,7 @@ class ComposeScreen extends StatefulWidget {
   /// a new conversation; the repository generates a fresh thread id.
   final String? initialThreadId;
   final String? inReplyToId;
+  final String? initialIdentityId;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -211,6 +214,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _bccExpanded = false;
   bool _sending = false;
   String? _fromAccount;
+  MailIdentity? _fromIdentity;
+  List<MailIdentity> _identities = const [];
   ComposeLimits? _limits;
   bool _resizingImages = false;
 
@@ -283,6 +288,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
           : (accounts.isNotEmpty ? accounts.first.email : null);
     }
     unawaited(_loadComposeLimits());
+    unawaited(_loadIdentities());
     ContactsStore.startListening(_repo);
     _refreshContacts();
     _repo.addListener(_refreshContacts);
@@ -555,15 +561,59 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// since. Called once on open and again every time Kimden changes, so a
   /// switch re-applies the new account's signature without ever clobbering
   /// real typing.
+  Future<void> _loadIdentities() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    try {
+      final identities = await _repo.listIdentities(accountId);
+      if (!mounted || accountId != _resolvedFromAccountId) return;
+      final wanted = widget.initialIdentityId;
+      setState(() {
+        _identities = identities;
+        _fromIdentity = wanted == null
+            ? identities.where((i) => i.isDefault).firstOrNull
+            : identities.where((i) => i.id == wanted).firstOrNull;
+      });
+      unawaited(_syncSignature());
+    } catch (_) {}
+  }
+
+  Future<void> _pickIdentity(MailIdentity identity) async {
+    setState(() => _fromIdentity = identity);
+    await _syncSignature();
+  }
+
+  Future<String> _identitySignatureText(MailIdentity identity) async {
+    final signatureId = identity.signatureId;
+    if (signatureId == null) return '';
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return '';
+    try {
+      final signatures = await _repo.listSignatures(accountId);
+      return signatures
+          .where((item) => item.id == signatureId)
+          .firstOrNull
+          ?.bodyText ??
+          '';
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<void> _syncSignature() async {
     if (!_signatureEligible) return;
     final expected =
         _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
     if (_bodyController.text != expected) return;
+    final identity = _fromIdentity;
     final account = _fromAccount;
     if (account == null) return;
-    final match = _repo.accounts.where((a) => a.email == account);
-    final signature = match.isEmpty ? '' : (match.first.signature ?? '');
+    final signature = identity == null
+        ? () {
+            final match = _repo.accounts.where((a) => a.email == account);
+            return match.isEmpty ? '' : (match.first.signature ?? '');
+          }()
+        : await _identitySignatureText(identity);
     if (!mounted || _fromAccount != account) return;
     if (_bodyController.text != expected) return;
     setState(() {
@@ -830,6 +880,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final bodyHtml = _bodyHtmlFor(body);
     final attachments = List<Attachment>.unmodifiable(_attachments);
     final from = _fromAccount;
+    final identityId = _fromIdentity?.id;
     final fromAccountId = _resolvedFromAccountId;
     final threadId = widget.initialThreadId;
     final inReplyToId = widget.inReplyToId;
@@ -849,6 +900,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       fromAccountId: fromAccountId,
       threadId: threadId,
       inReplyToId: inReplyToId,
+      identityId: identityId,
       draftId: draftId,
     );
 
@@ -899,6 +951,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   initialAttachments: attachments,
                   initialThreadId: threadId,
                   inReplyToId: inReplyToId,
+                  initialIdentityId: identityId,
                 ),
               ),
             );
@@ -966,6 +1019,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         from: _fromAccount,
         fromAccountId: _resolvedFromAccountId,
         inReplyToId: widget.inReplyToId,
+        identityId: _fromIdentity?.id,
         sendAt: sendAt,
       );
       final draftId = _draftId;
@@ -1019,6 +1073,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       final saved = await _repo.saveDraft(
         from: _fromAccount,
         fromAccountId: _resolvedFromAccountId,
+        identityId: _fromIdentity?.id,
         to: _addressStrings(_toRecipients),
         cc: _addressStrings(_ccRecipients),
         bcc: _addressStrings(_bccRecipients),
@@ -1748,12 +1803,62 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ),
           Expanded(
             child: Text(
-              selected,
+              _fromIdentity == null
+                  ? selected
+                  : '${_fromIdentity!.displayName.isEmpty ? _fromIdentity!.emailAddress : _fromIdentity!.displayName} <${_fromIdentity!.emailAddress}>',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 15, color: colors.bodyText),
             ),
           ),
+          if (_identities.isNotEmpty)
+            PopupMenuButton<String>(
+              key: const Key('from-identity-menu'),
+              tooltip: 'Kimlik seç',
+              padding: EdgeInsets.zero,
+              enabled: !_sending,
+              icon: Icon(
+                LucideIcons.userRoundPen,
+                size: 18,
+                color: colors.secondaryText,
+              ),
+              onSelected: (picked) async {
+                final identity = _identities
+                    .where((i) => i.id == picked)
+                    .firstOrNull;
+                if (identity == null) return;
+                await _pickIdentity(identity);
+              },
+              itemBuilder: (context) => [
+                for (final identity in _identities)
+                  PopupMenuItem(
+                    key: ValueKey('identity-${identity.id}'),
+                    value: identity.id,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            identity.emailAddress,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ),
+                        if (identity.id == _fromIdentity?.id)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Icon(
+                              LucideIcons.check,
+                              size: 18,
+                              color: colors.bodyText,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           if (accounts.length > 1)
             PopupMenuButton<String>(
               key: const Key('from-account-menu'),
@@ -1766,10 +1871,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 color: colors.secondaryText,
               ),
               onSelected: (picked) {
-                setState(() => _fromAccount = picked);
+                setState(() {
+                  _fromAccount = picked;
+                  _fromIdentity = null;
+                  _identities = const [];
+                });
                 _syncSignature();
                 _limits = null;
                 unawaited(_loadComposeLimits());
+                unawaited(_loadIdentities());
               },
               itemBuilder: (context) => [
                 for (final account in accounts)

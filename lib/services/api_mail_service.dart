@@ -16,6 +16,7 @@ import '../models/mail_template.dart';
 import '../models/server_mail_rule.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
+import '../models/mail_signature.dart';
 import '../utils/html_to_text.dart';
 import '../utils/attachment_mime.dart';
 import 'api_auth_service.dart';
@@ -744,6 +745,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async {
     final body = await _client.multipartPut(
       '/api/drafts/${Uri.encodeComponent(id)}',
@@ -752,6 +754,7 @@ class ApiMailService {
         bodyText: bodyText,
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
+        identityId: identityId,
       ),
       files: () =>
           _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -778,6 +781,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async {
     final body = await _client.multipart(
       '/api/drafts',
@@ -786,6 +790,7 @@ class ApiMailService {
         bodyText: bodyText,
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
+        identityId: identityId,
       ),
       files: () =>
           _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -873,6 +878,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
     required String idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -884,6 +890,7 @@ class ApiMailService {
         bodyText: bodyText,
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
+        identityId: identityId,
       ),
       files: () =>
           _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -915,6 +922,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
     required DateTime sendAtUtc,
     required String idempotencyKey,
   }) async {
@@ -926,6 +934,7 @@ class ApiMailService {
           bodyText: bodyText,
           bodyHtml: bodyHtml,
           replySourceMailId: replySourceMailId,
+          identityId: identityId,
         ),
         'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
       },
@@ -1011,6 +1020,69 @@ class ApiMailService {
     },
     headers: {'Idempotency-Key': idempotencyKey},
   );
+  Future<({List<MailSignature> items, SignatureDefaults defaults})>
+  getSignatures() async {
+    final body = await _client.get('/api/signatures');
+    final items = body['items'] as List? ?? const [];
+    return (
+      items: [
+        for (final item in items)
+          MailSignature.fromJson(Map<String, dynamic>.from(item as Map)),
+      ],
+      defaults: SignatureDefaults.fromJson(
+        Map<String, dynamic>.from(body['defaults'] as Map? ?? const {}),
+      ),
+    );
+  }
+
+  Future<MailSignature> createSignature(MailSignature signature) async =>
+      MailSignature.fromJson(
+        await _client.postJson('/api/signatures', signature.toJson()),
+      );
+
+  Future<MailSignature> updateSignatureItem(MailSignature signature) async =>
+      MailSignature.fromJson(
+        await _client.putJson(
+          '/api/signatures/${Uri.encodeComponent(signature.id)}',
+          signature.toJson(),
+        ),
+      );
+
+  Future<void> deleteSignature(String id) =>
+      _client.delete('/api/signatures/${Uri.encodeComponent(id)}');
+
+  Future<SignatureDefaults> updateSignatureDefaults(
+    SignatureDefaults defaults,
+  ) async => SignatureDefaults.fromJson(
+    await _client.putJson('/api/signatures/defaults', defaults.toJson()),
+  );
+
+  Future<List<MailIdentity>> getIdentities() async {
+    final items = await _client.getList('/api/identities');
+    return items
+        .map(
+          (item) => MailIdentity.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<MailIdentity> createIdentity(MailIdentity identity) async =>
+      MailIdentity.fromJson(
+        await _client.postJson('/api/identities', identity.toJson()),
+      );
+
+  Future<MailIdentity> updateIdentity(MailIdentity identity) async =>
+      MailIdentity.fromJson(
+        await _client.putJson(
+          '/api/identities/${Uri.encodeComponent(identity.id)}',
+          identity.toJson(),
+        ),
+      );
+
+  Future<void> deleteIdentity(String id) =>
+      _client.delete('/api/identities/${Uri.encodeComponent(id)}');
 
   /// Lists every scheduled send for the account via
   /// `GET /api/scheduled-sends`.
@@ -1053,11 +1125,13 @@ class ApiMailService {
     required String bodyText,
     String? bodyHtml,
     String? replySourceMailId,
+    String? identityId,
   }) => {
     'subject': subject,
     'bodyText': bodyText,
     'bodyHtml': ?bodyHtml,
     'replySourceMailId': ?replySourceMailId,
+    'identityId': ?identityId,
   };
 
   /// `To`/`Cc`/`Bcc` are read server-side as repeated same-name form

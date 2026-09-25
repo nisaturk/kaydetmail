@@ -357,6 +357,7 @@ class _RecordingMailService extends ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async => DraftResult(created: true, mailId: draftMailId);
 
   @override
@@ -369,6 +370,7 @@ class _RecordingMailService extends ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
     required String idempotencyKey,
     void Function(int, int)? onProgress,
     Future<void>? abortTrigger,

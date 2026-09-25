@@ -19,6 +19,7 @@ import '../models/mail_template.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
+import '../models/mail_signature.dart';
 import '../models/server_mail_rule.dart';
 import '../models/attachment_download_state.dart';
 
@@ -155,6 +156,50 @@ abstract class MailRepository extends ChangeNotifier {
   /// backend so every device signed into that account sees it. Throws
   /// [ArgumentError] for an unknown accountId.
   Future<void> setSignature(String accountId, String? signature) async {}
+
+  Future<List<MailSignature>> listSignatures(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listSignatures');
+
+  Future<SignatureDefaults> getSignatureDefaults(String accountId) =>
+      throw UnimplementedError('getSignatureDefaults');
+
+  Future<MailSignature> createSignature(
+    String accountId,
+    MailSignature signature,
+  ) => throw UnimplementedError('createSignature');
+
+  Future<MailSignature> updateSignature(
+    String accountId,
+    MailSignature signature,
+  ) => throw UnimplementedError('updateSignature');
+
+  Future<void> deleteSignature(String accountId, String signatureId) =>
+      throw UnimplementedError('deleteSignature');
+
+  Future<SignatureDefaults> updateSignatureDefaults(
+    String accountId,
+    SignatureDefaults defaults,
+  ) => throw UnimplementedError('updateSignatureDefaults');
+
+  Future<List<MailIdentity>> listIdentities(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listIdentities');
+
+  Future<MailIdentity> createIdentity(
+    String accountId,
+    MailIdentity identity,
+  ) => throw UnimplementedError('createIdentity');
+
+  Future<MailIdentity> updateIdentity(
+    String accountId,
+    MailIdentity identity,
+  ) => throw UnimplementedError('updateIdentity');
+
+  Future<void> deleteIdentity(String accountId, String identityId) =>
+      throw UnimplementedError('deleteIdentity');
 
   /// Id of the account whose mailbox is currently shown, or `null` for the
   /// unified mailbox ("Tüm Gelen Kutuları") spanning all connected accounts.
@@ -316,6 +361,7 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -342,6 +388,7 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? draftId,
   });
 
@@ -624,6 +671,7 @@ abstract class MailRepository extends ChangeNotifier {
     String? from,
     String? fromAccountId,
     String? inReplyToId,
+    String? identityId,
     required DateTime sendAt,
   });
 

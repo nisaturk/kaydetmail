@@ -16,6 +16,7 @@ import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_rule.dart';
+import '../models/mail_signature.dart';
 import '../models/mail_session.dart';
 import '../models/mail_template.dart';
 import '../models/manual_contact.dart';
@@ -97,6 +98,10 @@ class _Session {
   /// Scheduled sends known for this account, soonest first. Populated by
   /// [ApiMailRepository.refreshScheduledSends].
   List<ScheduledSend> scheduledSends = [];
+
+  List<MailSignature>? signatures;
+  SignatureDefaults? signatureDefaults;
+  List<MailIdentity>? identities;
 
   /// Non-standard IMAP folders reported for this account by the last
   /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
@@ -1939,6 +1944,7 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -1958,6 +1964,7 @@ class ApiMailRepository extends MailRepository {
         bodyHtml: bodyHtml,
         attachments: attachments,
         replySourceMailId: inReplyToId,
+        identityId: identityId,
         idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
         onProgress: onProgress,
         abortTrigger: abortTrigger,
@@ -2026,6 +2033,7 @@ class ApiMailRepository extends MailRepository {
     String? from,
     String? fromAccountId,
     String? inReplyToId,
+    String? identityId,
     required DateTime sendAt,
   }) async {
     final session = _sessionForCompose(
@@ -2041,6 +2049,7 @@ class ApiMailRepository extends MailRepository {
       bodyHtml: bodyHtml,
       attachments: attachments,
       replySourceMailId: inReplyToId,
+      identityId: identityId,
       sendAtUtc: sendAt,
       idempotencyKey: _newIdempotencyKey(),
     );
@@ -2151,6 +2160,158 @@ class ApiMailRepository extends MailRepository {
         ]..sort((a, b) => a.sendAt.compareTo(b.sendAt));
       }),
     );
+    notifyListeners();
+  }
+
+  @override
+  Future<List<MailSignature>> listSignatures(
+    String accountId, {
+    bool refresh = false,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    if (!refresh && session.signatures != null) return session.signatures!;
+    final result = await session.mailService.getSignatures();
+    session.signatures = [
+      for (final signature in result.items)
+        signature.copyWith(accountId: accountId),
+    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    session.signatureDefaults = result.defaults;
+    return session.signatures!;
+  }
+
+  @override
+  Future<SignatureDefaults> getSignatureDefaults(String accountId) async {
+    final session = _sessionForAccountId(accountId);
+    if (session.signatureDefaults != null) return session.signatureDefaults!;
+    await listSignatures(accountId, refresh: true);
+    return session.signatureDefaults ?? const SignatureDefaults();
+  }
+
+  @override
+  Future<MailSignature> createSignature(
+    String accountId,
+    MailSignature signature,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    final created = (await session.mailService.createSignature(
+      signature,
+    )).copyWith(accountId: accountId);
+    final items = session.signatures ?? <MailSignature>[];
+    session.signatures = [...items, created]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    notifyListeners();
+    return created;
+  }
+
+  @override
+  Future<MailSignature> updateSignature(
+    String accountId,
+    MailSignature signature,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    final updated = (await session.mailService.updateSignatureItem(
+      signature,
+    )).copyWith(accountId: accountId);
+    if (session.signatures != null) {
+      session.signatures = [
+        for (final item in session.signatures!)
+          if (item.id == updated.id) updated else item,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+    notifyListeners();
+    return updated;
+  }
+
+  @override
+  Future<void> deleteSignature(String accountId, String signatureId) async {
+    final session = _sessionForAccountId(accountId);
+    await session.mailService.deleteSignature(signatureId);
+    session.signatures?.removeWhere((item) => item.id == signatureId);
+    notifyListeners();
+  }
+
+  @override
+  Future<SignatureDefaults> updateSignatureDefaults(
+    String accountId,
+    SignatureDefaults defaults,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    final updated = await session.mailService.updateSignatureDefaults(
+      defaults,
+    );
+    session.signatureDefaults = updated;
+    notifyListeners();
+    return updated;
+  }
+
+  @override
+  Future<List<MailIdentity>> listIdentities(
+    String accountId, {
+    bool refresh = false,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    if (!refresh && session.identities != null) return session.identities!;
+    final identities = await session.mailService.getIdentities();
+    session.identities = [
+      for (final identity in identities)
+        identity.copyWith(accountId: accountId),
+    ]..sort((a, b) {
+      if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+      return a.emailAddress.toLowerCase().compareTo(
+        b.emailAddress.toLowerCase(),
+      );
+    });
+    return session.identities!;
+  }
+
+  @override
+  Future<MailIdentity> createIdentity(
+    String accountId,
+    MailIdentity identity,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    var created = (await session.mailService.createIdentity(
+      identity,
+    )).copyWith(accountId: accountId);
+    if (created.isDefault) {
+      await listIdentities(accountId, refresh: true);
+      created =
+          session.identities!.firstWhere((item) => item.id == created.id);
+    } else {
+      final items = session.identities ?? <MailIdentity>[];
+      session.identities = [...items, created];
+    }
+    notifyListeners();
+    return created;
+  }
+
+  @override
+  Future<MailIdentity> updateIdentity(
+    String accountId,
+    MailIdentity identity,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    var updated = (await session.mailService.updateIdentity(
+      identity,
+    )).copyWith(accountId: accountId);
+    if (updated.isDefault) {
+      await listIdentities(accountId, refresh: true);
+      updated = session.identities!.firstWhere((item) => item.id == updated.id);
+    } else if (session.identities != null) {
+      session.identities = [
+        for (final item in session.identities!)
+          if (item.id == updated.id) updated else item,
+      ];
+    }
+    notifyListeners();
+    return updated;
+  }
+
+  @override
+  Future<void> deleteIdentity(String accountId, String identityId) async {
+    final session = _sessionForAccountId(accountId);
+    await session.mailService.deleteIdentity(identityId);
+    session.identities?.removeWhere((item) => item.id == identityId);
     notifyListeners();
   }
 
@@ -2418,6 +2579,7 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? draftId,
   }) => _serializeDraftWrite(
     () => _writeDraft(
@@ -2432,6 +2594,7 @@ class ApiMailRepository extends MailRepository {
       fromAccountId: fromAccountId,
       threadId: threadId,
       inReplyToId: inReplyToId,
+      identityId: identityId,
       draftId: draftId == null ? null : _latestDraftId(draftId),
     ),
   );
@@ -2448,6 +2611,7 @@ class ApiMailRepository extends MailRepository {
     required String? fromAccountId,
     required String? threadId,
     required String? inReplyToId,
+    required String? identityId,
     required String? draftId,
   }) async {
     final session = draftId != null
@@ -2468,6 +2632,7 @@ class ApiMailRepository extends MailRepository {
         bodyHtml: bodyHtml,
         attachments: attachments,
         replySourceMailId: inReplyToId,
+        identityId: identityId,
       );
       final newId = result.mailId ?? draftId;
       if (newId != draftId) _draftIdSuccessor[draftId] = newId;
@@ -2531,6 +2696,7 @@ class ApiMailRepository extends MailRepository {
       bodyHtml: bodyHtml,
       attachments: attachments,
       replySourceMailId: inReplyToId,
+      identityId: identityId,
     );
     // Reconciliation can still be pending right after APPEND — fall back to
     // a local id so the draft is still usable; refreshEmails(drafts) will

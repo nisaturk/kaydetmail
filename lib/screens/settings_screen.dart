@@ -17,6 +17,7 @@ import 'notification_settings_screen.dart';
 import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
 import 'templates_screen.dart';
+import 'signatures_screen.dart';
 import 'sync_status_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
@@ -135,6 +136,14 @@ class SettingsScreen extends StatelessWidget {
           ),
           _CategoryTile(
             icon: LucideIcons.penLine,
+            title: 'İmzalar ve Kimlikler',
+            subtitle: 'Gönderen kimlikleri ve e-posta imzaları',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const SignaturesScreen()),
+            ),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.signature,
             title: 'İmza',
             subtitle: 'Gönderdiğiniz e-postalara eklenir',
             onTap: (ctx) => Navigator.of(ctx).push(

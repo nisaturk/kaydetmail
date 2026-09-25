@@ -39,6 +39,7 @@ class PendingSend {
     this.fromAccountId,
     this.threadId,
     this.inReplyToId,
+    this.identityId,
     this.draftId,
     this.idempotencyKey,
   });
@@ -64,6 +65,7 @@ class PendingSend {
   final String? fromAccountId;
   final String? threadId;
   final String? inReplyToId;
+  final String? identityId;
 
   /// The draft this send originated from, if any — deleted only once the
   /// deferred send actually goes through, same as the old synchronous flow
@@ -96,6 +98,7 @@ class PendingSend {
     'fromAccountId': fromAccountId,
     'threadId': threadId,
     'inReplyToId': inReplyToId,
+    'identityId': identityId,
     'draftId': draftId,
   };
 
@@ -130,6 +133,7 @@ class PendingSend {
     fromAccountId: json['fromAccountId'] as String?,
     threadId: json['threadId'] as String?,
     inReplyToId: json['inReplyToId'] as String?,
+    identityId: json['identityId'] as String?,
     draftId: json['draftId'] as String?,
   );
 }
@@ -146,6 +150,7 @@ typedef SendEmail = Future<Email> Function({
   String? fromAccountId,
   String? threadId,
   String? inReplyToId,
+  String? identityId,
   String? idempotencyKey,
   void Function(int sent, int total)? onProgress,
   Future<void>? abortTrigger,
@@ -307,6 +312,7 @@ class PendingSendQueue with WidgetsBindingObserver {
         fromAccountId: send.fromAccountId,
         threadId: send.threadId,
         inReplyToId: send.inReplyToId,
+        identityId: send.identityId,
         idempotencyKey: send.idempotencyKey ?? send.id,
         onProgress: (sent, total) {
           _currentProgress[send.id] = SendProgress(sent, total);

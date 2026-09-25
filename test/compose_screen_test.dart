@@ -161,6 +161,7 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -197,6 +198,7 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? draftId,
   }) async {
     final email = Email(
@@ -338,6 +340,7 @@ class _FakeMailRepository extends MailRepository {
     String? from,
     String? fromAccountId,
     String? inReplyToId,
+    String? identityId,
     required DateTime sendAt,
   }) async {
     final result = ScheduledSend(

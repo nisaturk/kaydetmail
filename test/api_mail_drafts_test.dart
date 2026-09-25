@@ -351,6 +351,7 @@ class _RecordingMailService extends ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async => const DraftResult(created: true, mailId: 'draft-old');
 
   @override
@@ -364,6 +365,7 @@ class _RecordingMailService extends ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async => const DraftResult(created: false, mailId: 'draft-new');
 
   @override
@@ -399,6 +401,7 @@ class _VersioningMailService extends _RecordingMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async {
     if (_retired.contains(id)) {
       throw const ApiException(status: 422, code: 'mail_not_draft');
@@ -423,6 +426,7 @@ class _PendingUpdateMailService extends _RecordingMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async => const DraftResult(created: false, mailId: null);
 }
 

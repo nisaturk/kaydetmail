@@ -124,6 +124,11 @@ class ApiException implements Exception {
       'Zamanlanmış gönderim bulunamadı. Listeyi yenileyin.',
     'scheduled_send_attachment_not_found' =>
       'Bekletilen ek bulunamadı. Listeyi yenileyin.',
+    'identity_not_found' => 'Seçilen kimlik bulunamadı.',
+    'signature_not_found' => 'Seçilen imza bulunamadı.',
+    'identity_already_exists' => 'Bu adres zaten bir kimlik olarak kayıtlı.',
+    'identity_in_use' =>
+      'Bu kimlik zamanlanmış bir gönderimde kullanılıyor.',
     'session_revoked' => 'Oturum zaten kapatılmış.',
     'body_required' => 'E-posta gövdesi boş olamaz.',
     'body_too_large' => 'E-posta gövdesi çok büyük.',
