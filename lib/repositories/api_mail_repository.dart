@@ -17,6 +17,7 @@ import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_rule.dart';
 import '../models/mail_session.dart';
+import '../models/mail_template.dart';
 import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
@@ -85,6 +86,7 @@ class _Session {
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
   List<ManualContact> manualContacts = [];
+  List<MailTemplate>? templates;
 
   /// Mail id -> epoch millis it should reappear (client-only, see
   /// [LocalMailFlagsStore.readSnoozed]). A mail past its timestamp is
@@ -2709,6 +2711,61 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<void> deleteRule(String accountId, String ruleId) =>
       _sessionForAccountId(accountId).mailService.deleteRule(ruleId);
+
+  @override
+  Future<List<MailTemplate>> listTemplates(
+    String accountId, {
+    bool refresh = false,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    if (!refresh && session.templates != null) return session.templates!;
+    final templates = await session.mailService.getTemplates();
+    session.templates = [
+      for (final template in templates)
+        template.copyWith(accountId: accountId),
+    ];
+    return session.templates!;
+  }
+
+  @override
+  Future<MailTemplate> createTemplate(
+    String accountId,
+    MailTemplate template,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    final created = (await session.mailService.createTemplate(
+      template,
+    )).copyWith(accountId: accountId);
+    final items = session.templates ?? <MailTemplate>[];
+    session.templates = [...items, created]
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    return created;
+  }
+
+  @override
+  Future<MailTemplate> updateTemplate(
+    String accountId,
+    MailTemplate template,
+  ) async {
+    final session = _sessionForAccountId(accountId);
+    final updated = (await session.mailService.updateTemplate(
+      template,
+    )).copyWith(accountId: accountId);
+    if (session.templates != null) {
+      session.templates = [
+        for (final item in session.templates!)
+          if (item.id == updated.id) updated else item,
+      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    }
+    return updated;
+  }
+
+  @override
+  Future<void> deleteTemplate(String accountId, String templateId) async {
+    final session = _sessionForAccountId(accountId);
+    await session.mailService.deleteTemplate(templateId);
+    session.templates?.removeWhere((item) => item.id == templateId);
+  }
 
   @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {

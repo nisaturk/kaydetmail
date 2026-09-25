@@ -72,6 +72,7 @@ class ApiException implements Exception {
     'email_not_allowlisted' => 'Bu e-posta adresi için erişim henüz açılmadı.',
     'mail_account_disabled' => 'Bu posta hesabı devre dışı bırakıldı.',
     'mail_account_already_exists' => 'Bu hesap zaten bağlı.',
+    'template_name_taken' => 'Bu adla bir şablon zaten var.',
     'mail_account_not_found' => 'Bu e-posta için kayıtlı hesap bulunamadı.',
     'mail_discovery_failed' => 'Otomatik sunucu keşfi başarısız oldu.',
     'discovery_expired' => 'Sunucu keşfinin süresi doldu. Tekrar deneyin.',

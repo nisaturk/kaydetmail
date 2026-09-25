@@ -12,6 +12,7 @@ import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
 import '../models/remote_search_result.dart';
+import '../models/mail_template.dart';
 import '../models/server_mail_rule.dart';
 import '../models/scheduled_send.dart';
 import '../utils/html_to_text.dart';
@@ -526,6 +527,33 @@ class ApiMailService {
 
   Future<void> deleteRule(String id) =>
       _client.delete('/api/rules/${Uri.encodeComponent(id)}');
+
+  Future<List<MailTemplate>> getTemplates() async {
+    final items = await _client.getList('/api/templates');
+    return items
+        .map(
+          (item) => MailTemplate.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<MailTemplate> createTemplate(MailTemplate template) async =>
+      MailTemplate.fromJson(
+        await _client.postJson('/api/templates', template.toJson()),
+      );
+
+  Future<MailTemplate> updateTemplate(MailTemplate template) async =>
+      MailTemplate.fromJson(
+        await _client.putJson(
+          '/api/templates/${Uri.encodeComponent(template.id)}',
+          template.toJson(),
+        ),
+      );
+
+  Future<void> deleteTemplate(String id) =>
+      _client.delete('/api/templates/${Uri.encodeComponent(id)}');
 
   /// Full mail id -> assigned label ids map for the current mailbox.
   Future<Map<String, List<String>>> getLabelAssignments() async {

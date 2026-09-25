@@ -15,6 +15,7 @@ import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
+import '../models/mail_template.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/server_mail_rule.dart';
@@ -386,6 +387,24 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<void> deleteRule(String accountId, String ruleId) =>
       throw UnsupportedError('Rules unavailable');
+
+  Future<List<MailTemplate>> listTemplates(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listTemplates');
+
+  Future<MailTemplate> createTemplate(
+    String accountId,
+    MailTemplate template,
+  ) => throw UnimplementedError('createTemplate');
+
+  Future<MailTemplate> updateTemplate(
+    String accountId,
+    MailTemplate template,
+  ) => throw UnimplementedError('updateTemplate');
+
+  Future<void> deleteTemplate(String accountId, String templateId) =>
+      throw UnimplementedError('deleteTemplate');
 
   // --- Labels -------------------------------------------------------
 

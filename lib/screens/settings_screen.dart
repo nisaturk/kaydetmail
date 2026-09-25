@@ -16,6 +16,7 @@ import 'accounts_screen.dart';
 import 'notification_settings_screen.dart';
 import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
+import 'templates_screen.dart';
 import 'sync_status_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
@@ -116,6 +117,14 @@ class SettingsScreen extends StatelessWidget {
             subtitle: 'Gelen postayı otomatik taşı/etiketle',
             onTap: (ctx) => Navigator.of(ctx).push(
               MaterialPageRoute(builder: (_) => const RulesSettingsScreen()),
+            ),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.layoutTemplate,
+            title: 'Şablonlar',
+            subtitle: 'Tekrar kullanılan konu ve metinler',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const TemplatesScreen()),
             ),
           ),
           _CategoryTile(

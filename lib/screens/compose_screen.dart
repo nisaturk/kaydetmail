@@ -7,12 +7,14 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/compose_limits.dart';
+import '../models/mail_template.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
 import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
+import '../utils/html_to_text.dart';
 import '../utils/markdown_lite_to_html.dart';
 import '../utils/markdown_lite_editing.dart';
 import '../utils/attachment_mime.dart';
@@ -627,6 +629,89 @@ class _ComposeScreenState extends State<ComposeScreen> {
         selection: TextSelection.collapsed(offset: insertStart + markup.length),
       );
     });
+  }
+
+  Future<void> _pickTemplate() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    final template = await showModalBottomSheet<MailTemplate>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _TemplatePicker(
+        accountId: accountId,
+        repository: _repo,
+      ),
+    );
+    if (template == null || !mounted || accountId != _resolvedFromAccountId) {
+      return;
+    }
+    if (template.subject.isNotEmpty &&
+        _subjectController.text.trim().isNotEmpty &&
+        _subjectController.text.trim() != template.subject) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Konuyu değiştir?'),
+          content: const Text('Mevcut konu şablondaki konuyla değiştirilecek.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Konuyu koru'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Değiştir'),
+            ),
+          ],
+        ),
+      );
+      if (replace == true) _subjectController.text = template.subject;
+    } else if (_subjectController.text.trim().isEmpty) {
+      _subjectController.text = template.subject;
+    }
+    if (!mounted) return;
+    final body = template.bodyText?.trim().isNotEmpty == true
+        ? template.bodyText!
+        : htmlToPlainText(template.bodyHtml ?? '');
+    _insertReusableText(body);
+  }
+
+  void _insertReusableText(String inserted) {
+    if (inserted.isEmpty) return;
+    final signature = _signatureSuffix(_insertedSignature);
+    final managedSignature =
+        _signatureEligible &&
+        _bodyController.text == _bodyBeforeSignature + signature;
+    final source = managedSignature
+        ? _bodyBeforeSignature
+        : _bodyController.text;
+    final selection = _bodyController.selection;
+    final selectionStart = selection.isValid
+        ? selection.start.clamp(0, source.length)
+        : source.length;
+    final selectionEnd = selection.isValid
+        ? selection.end.clamp(0, source.length)
+        : source.length;
+    final replaceEmpty = source.trim().isEmpty;
+    final start = replaceEmpty ? 0 : selectionStart;
+    final end = replaceEmpty ? source.length : selectionEnd;
+    final updated = source.replaceRange(start, end, inserted);
+    final cursor = start + inserted.length;
+    setState(() {
+      if (managedSignature) {
+        _bodyBeforeSignature = updated;
+        _bodyController.value = TextEditingValue(
+          text: updated + signature,
+          selection: TextSelection.collapsed(offset: cursor),
+        );
+      } else {
+        _bodyController.value = TextEditingValue(
+          text: updated,
+          selection: TextSelection.collapsed(offset: cursor),
+        );
+      }
+    });
+    _bodyFocus.requestFocus();
   }
 
   // --- Send / schedule -------------------------------------------------
@@ -1737,10 +1822,122 @@ class _ComposeScreenState extends State<ComposeScreen> {
             icon: const Icon(LucideIcons.paperclip, size: 22),
             tooltip: 'Dosya ekle',
           ),
+          TextButton.icon(
+            key: const Key('template-button'),
+            onPressed: _sending ? null : _pickTemplate,
+            icon: const Icon(LucideIcons.layoutTemplate, size: 20),
+            label: const Text('Şablon'),
+          ),
         ],
       ),
     );
   }
+}
+
+class _TemplatePicker extends StatefulWidget {
+  const _TemplatePicker({
+    required this.accountId,
+    required this.repository,
+  });
+
+  final String accountId;
+  final MailRepository repository;
+
+  @override
+  State<_TemplatePicker> createState() => _TemplatePickerState();
+}
+
+class _TemplatePickerState extends State<_TemplatePicker> {
+  List<MailTemplate>? _templates;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _templates = null;
+      _error = null;
+    });
+    try {
+      final templates = await widget.repository.listTemplates(
+        widget.accountId,
+      );
+      if (mounted) setState(() => _templates = templates);
+    } catch (error) {
+      if (mounted) setState(() => _error = friendlyErrorMessage(error));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.55,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Şablon seç',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Kapat',
+                  icon: const Icon(LucideIcons.x),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(_error!, textAlign: TextAlign.center),
+                        ),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Tekrar dene'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _templates == null
+                ? const Center(child: CircularProgressIndicator())
+                : _templates!.isEmpty
+                ? const Center(child: Text('Bu hesapta şablon yok'))
+                : ListView.separated(
+                    itemCount: _templates!.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final template = _templates![index];
+                      return ListTile(
+                        key: ValueKey('pick-template-${template.id}'),
+                        title: Text(template.name),
+                        subtitle: template.subject.isEmpty
+                            ? null
+                            : Text(template.subject, maxLines: 1),
+                        onTap: () => Navigator.pop(context, template),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
 }
 
 /// A single recipient chip. [recipient.valid] false renders it in the
