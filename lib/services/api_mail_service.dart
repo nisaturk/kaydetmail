@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
+import '../models/account_notification_settings.dart';
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
@@ -128,6 +129,20 @@ class ApiMailService {
     syncedFolderIds: (body['syncedFolderIds'] as List<dynamic>)
         .cast<String>()
         .toSet(),
+  );
+
+  Future<AccountNotificationSettings> getNotificationSettings() async =>
+      AccountNotificationSettings.fromJson(
+        await _client.get('/api/account/notification-settings'),
+      );
+
+  Future<AccountNotificationSettings> updateNotificationSettings(
+    AccountNotificationSettings settings,
+  ) async => AccountNotificationSettings.fromJson(
+    await _client.putJson(
+      '/api/account/notification-settings',
+      settings.toJson(),
+    ),
   );
 
   Future<List<ApiMailFolder>> getFolders() async {

@@ -32,9 +32,14 @@ import 'compose_screen.dart';
 /// it. A single-message thread renders the plain detail view; a multi-message
 /// conversation renders a card stack; tapping a card expands/collapses it.
 class MailDetailScreen extends StatefulWidget {
-  const MailDetailScreen({super.key, required this.emailId});
+  const MailDetailScreen({
+    super.key,
+    required this.emailId,
+    this.openReplyOnLoad = false,
+  });
 
   final String emailId;
+  final bool openReplyOnLoad;
 
   @override
   State<MailDetailScreen> createState() => _MailDetailScreenState();
@@ -122,6 +127,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       // it back.
       if (first) {
         _opened = true;
+        if (widget.openReplyOnLoad) unawaited(_reply());
         if (!loaded.isRead) {
           await _repo.markAsRead([loaded.id]);
         }

@@ -13,6 +13,7 @@ import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
+import 'notification_settings_screen.dart';
 import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
 import 'sync_status_screen.dart';
@@ -979,12 +980,31 @@ class _NotificationsSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
-    return SwitchListTile(
-      dense: true,
-      title: const Text('Bildirimler'),
-      subtitle: const Text('Bu cihazda yeni e-posta bildirimlerini göster.'),
-      value: settings.notificationsEnabled,
-      onChanged: (v) => settings.notificationsEnabled = v,
+    final secondaryText = AppTheme.colors(context).secondaryText;
+    return Column(
+      children: [
+        SwitchListTile(
+          dense: true,
+          title: const Text('Bildirimler'),
+          subtitle: const Text(
+            'Bu cihazda yeni e-posta bildirimlerini göster.',
+          ),
+          value: settings.notificationsEnabled,
+          onChanged: (v) => settings.notificationsEnabled = v,
+        ),
+        ListTile(
+          key: const Key('open-account-notification-settings'),
+          leading: Icon(LucideIcons.bellRing, size: 20, color: secondaryText),
+          title: const Text('Hesap bildirimleri'),
+          subtitle: const Text('Klasör kapsamı ve kilit ekranı gizliliği'),
+          trailing: const Icon(LucideIcons.chevronRight, size: 18),
+          onTap: () => Navigator.of(context).push(
+            MaterialPageRoute(
+              builder: (_) => const NotificationSettingsScreen(),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }

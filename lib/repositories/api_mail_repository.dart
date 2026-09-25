@@ -4,6 +4,7 @@ import 'dart:math';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import '../models/account_notification_settings.dart';
 import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
@@ -2528,6 +2529,19 @@ class ApiMailRepository extends MailRepository {
     );
     return _composeSyncScope(updated, await service.getFolders());
   }
+
+  @override
+  Future<AccountNotificationSettings> getNotificationSettings(
+    String accountId,
+  ) => _sessionForAccountId(accountId).mailService.getNotificationSettings();
+
+  @override
+  Future<AccountNotificationSettings> updateNotificationSettings(
+    String accountId,
+    AccountNotificationSettings settings,
+  ) =>
+      _sessionForAccountId(accountId).mailService
+          .updateNotificationSettings(settings);
 
   static const _syncScopeFolderOrder = [
     'Inbox',

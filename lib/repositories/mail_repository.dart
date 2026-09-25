@@ -2,6 +2,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../models/account_notification_settings.dart';
 import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
@@ -505,6 +506,15 @@ abstract class MailRepository extends ChangeNotifier {
     FolderSyncScope scope, {
     List<String>? folderIds,
   }) => throw UnimplementedError('updateSyncScope');
+
+  Future<AccountNotificationSettings> getNotificationSettings(
+    String accountId,
+  ) => throw UnimplementedError('getNotificationSettings');
+
+  Future<AccountNotificationSettings> updateNotificationSettings(
+    String accountId,
+    AccountNotificationSettings settings,
+  ) => throw UnimplementedError('updateNotificationSettings');
 
   /// Mail ids with a not-yet-replayed offline mutation for [accountId]
   /// (star/unstar/archive/trash/restore/move/read/unread - see
