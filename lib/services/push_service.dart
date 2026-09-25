@@ -9,7 +9,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../state/app_settings_controller.dart';
-import 'mail_rules_engine.dart';
+import 'home_widget_service.dart';
 
 /// Routes an FCM `data` payload to the matching API call.
 ///
@@ -111,13 +111,9 @@ class PushService {
             fetchMail: (id) async {
               try {
                 await repository.getEmail(id);
-                // The detail fetch only caches the mail; a new one must
-                // also show up in the open inbox list. Rules/the home
-                // widget then run through the same evaluation point every
-                // other refresh path uses (see `MailRulesEngine`).
                 if (message.data['type'] == 'new_mail') {
                   await repository.refreshEmails(MailFolder.inbox);
-                  await MailRulesEngine.runAfterSync(repository);
+                  await HomeWidgetService.refreshFromInbox(repository);
                 }
               } catch (_) {
                 // A failed refresh never crashes the foreground listener.

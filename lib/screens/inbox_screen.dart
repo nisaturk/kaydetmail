@@ -10,7 +10,7 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
-import '../services/mail_rules_engine.dart';
+import '../services/home_widget_service.dart';
 import '../state/app_settings_controller.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
@@ -248,8 +248,7 @@ class _InboxScreenState extends State<InboxScreen>
     try {
       await _repo.syncFolder(widget.folder);
       await _repo.refreshEmails(widget.folder);
-      // Rules and widgets only observe a completed sync with a fresh list.
-      unawaited(MailRulesEngine.runAfterSync(_repo));
+      unawaited(HomeWidgetService.refreshFromInbox(_repo));
     } catch (error) {
       if (!mounted) return;
       final message = error is ApiException && error.status == 404

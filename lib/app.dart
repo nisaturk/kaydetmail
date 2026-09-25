@@ -15,7 +15,7 @@ import 'screens/login_screen.dart';
 import 'screens/outbox_screen.dart';
 import 'screens/mail_detail_screen.dart';
 import 'services/home_widget_compose_router.dart';
-import 'services/mail_rules_engine.dart';
+import 'services/home_widget_service.dart';
 import 'services/push_service.dart';
 import 'theme/app_theme.dart';
 import 'widgets/biometric_lock_gate.dart';
@@ -266,7 +266,7 @@ class _AuthGateState extends State<_AuthGate> {
         // the user since the last snapshot stays on screen either way.
       }
     }
-    unawaited(MailRulesEngine.runAfterSync(repo));
+    unawaited(HomeWidgetService.refreshFromInbox(repo));
   }
 
   @override
