@@ -299,7 +299,8 @@ class _FakeMailRepository extends MailRepository {
   @override
   Future<List<Email>> searchEmailsOnServer({
     required String query,
-    String? folderId,
+    String? accountId,
+    MailFolder? folder,
     String? conversationId,
     String? from,
     String? to,
@@ -308,6 +309,7 @@ class _FakeMailRepository extends MailRepository {
     bool? isRead,
     bool? flagged,
     bool? hasAttachment,
+    String? labelId,
     int page = 1,
     int pageSize = 20,
   }) async => const [];

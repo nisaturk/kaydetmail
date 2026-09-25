@@ -358,6 +358,7 @@ class _RecordingMailService extends ApiMailService {
     bool? isRead,
     bool? flagged,
     bool? hasAttachment,
+    String? labelId,
     int page = 1,
     int pageSize = 20,
   }) async => [

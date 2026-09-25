@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
+import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
@@ -2330,7 +2331,8 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<List<Email>> searchEmailsOnServer({
     required String query,
-    String? folderId,
+    String? accountId,
+    MailFolder? folder,
     String? conversationId,
     String? from,
     String? to,
@@ -2339,11 +2341,17 @@ class ApiMailRepository extends MailRepository {
     bool? isRead,
     bool? flagged,
     bool? hasAttachment,
+    String? labelId,
     int page = 1,
     int pageSize = 20,
   }) async {
+    final sessions = accountId == null
+        ? _sessions.values
+        : [?_sessions[accountId]];
     final all = <Email>[];
-    for (final session in _sessions.values) {
+    for (final session in sessions) {
+      final folderId = folder == null ? null : session.folderIds[folder];
+      if (folder != null && folderId == null) continue;
       final results = await session.mailService.search(
         query: query,
         resolveFolder: session.resolveFolder,
@@ -2356,12 +2364,27 @@ class ApiMailRepository extends MailRepository {
         isRead: isRead,
         flagged: flagged,
         hasAttachment: hasAttachment,
+        labelId: labelId,
         page: page,
         pageSize: pageSize,
       );
       all.addAll(results.map(session.stampLocalFlags));
     }
     return all;
+  }
+
+  @override
+  Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {
+    final session = _sessions[accountId];
+    if (session == null) return const [];
+    return session.mailService.getSyncStatus();
+  }
+
+  @override
+  Future<int> queuedOfflineMutationCount(String accountId) async {
+    final store = _sessions[accountId]?.flagsStore;
+    if (store == null) return 0;
+    return (await store.readQueuedMutations()).length;
   }
 
   /// A client-generated UUID v4 for the `Idempotency-Key` header — stable

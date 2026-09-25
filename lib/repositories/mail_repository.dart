@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
+import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
@@ -427,13 +428,22 @@ abstract class MailRepository extends ChangeNotifier {
 
   // --- Search -------------------------------------------------------
 
-  /// Searches the complete server-side corpus across every connected account,
-  /// independent of [activeAccountId]. All filters beyond [query] mirror
-  /// `GET /api/search` and are optional/AND-ed; `hasAttachment` is singular
-  /// to match that endpoint's query parameter name.
+  /// Searches the server-side corpus. Spans every connected account
+  /// (independent of [activeAccountId]) unless [accountId] narrows it to
+  /// one. All filters beyond [query] mirror `GET /api/search` and are
+  /// optional/AND-ed; `hasAttachment` is singular to match that endpoint's
+  /// query parameter name. [labelId] is filtered server-side (see
+  /// docs-dev spec §11) - label ids are account-scoped, so a label from an
+  /// account other than [accountId] (or, in unified search, any account
+  /// that doesn't own it) simply never matches, it is never an error.
+  /// [folder] is a logical folder, not a raw server id - each account's
+  /// real per-folder id differs, so it is resolved per session; a session
+  /// missing that folder is skipped entirely rather than searched
+  /// unfiltered.
   Future<List<Email>> searchEmailsOnServer({
     required String query,
-    String? folderId,
+    String? accountId,
+    MailFolder? folder,
     String? conversationId,
     String? from,
     String? to,
@@ -442,9 +452,26 @@ abstract class MailRepository extends ChangeNotifier {
     bool? isRead,
     bool? flagged,
     bool? hasAttachment,
+    String? labelId,
     int page = 1,
     int pageSize = 20,
   });
+
+  /// Per-folder sync/backfill state for [accountId] (`GET
+  /// /api/account/sync-status`) - powers the "mailbox still syncing,
+  /// results may be incomplete" search banner and the sync status screen.
+  /// Default throws - only meaningful for [ApiMailRepository]; other
+  /// implementations/test doubles that never show that UI don't need to
+  /// override it.
+  Future<List<FolderSyncStatus>> getSyncStatus(String accountId) =>
+      throw UnimplementedError('getSyncStatus');
+
+  /// Mail ids with a not-yet-replayed offline mutation for [accountId]
+  /// (star/unstar/archive/trash/restore/move/read/unread - see
+  /// [offlineMutationConflicts] for ones that failed to replay after
+  /// reconnecting). Default 0 for implementations without an offline
+  /// mutation queue.
+  Future<int> queuedOfflineMutationCount(String accountId) async => 0;
 
   /// Conversations matching a client-side text [query] and an optional label
   /// filter, one representative row per conversation, newest first.
