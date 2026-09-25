@@ -49,8 +49,7 @@ class TokenStore {
   bool _legacyMigrated = false;
 
   String _accessKey(String accountId) => 'kaydet.auth.$accountId.accessToken';
-  String _refreshKey(String accountId) =>
-      'kaydet.auth.$accountId.refreshToken';
+  String _refreshKey(String accountId) => 'kaydet.auth.$accountId.refreshToken';
 
   Future<List<String>> _readAccountIdsRaw() async {
     final raw = await _storage.read(_accountIdsKey);

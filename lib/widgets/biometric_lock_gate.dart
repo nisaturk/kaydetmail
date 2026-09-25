@@ -192,7 +192,9 @@ class _LockScreen extends StatelessWidget {
               mainAxisSize: MainAxisSize.min,
               children: [
                 Icon(
-                  deviceUnsupported ? LucideIcons.triangleAlert : LucideIcons.lock,
+                  deviceUnsupported
+                      ? LucideIcons.triangleAlert
+                      : LucideIcons.lock,
                   size: 48,
                   color: colors.tertiaryText,
                 ),

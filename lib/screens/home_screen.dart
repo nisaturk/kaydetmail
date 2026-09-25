@@ -156,9 +156,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openCustomFolders() {
     if (!_isRailLayout) Navigator.of(context).pop();
-    Navigator.of(
-      context,
-    ).push(MaterialPageRoute(builder: (_) => const CustomFoldersScreen()));
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const CustomFoldersScreen()));
   }
 
   void _showMailboxSelector() {

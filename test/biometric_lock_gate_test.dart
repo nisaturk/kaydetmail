@@ -134,13 +134,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(fake.authenticateCalls, 1);
 
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.inactive,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
       await tester.pump();
-      tester.binding.handleAppLifecycleStateChanged(
-        AppLifecycleState.resumed,
-      );
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
       await tester.pumpAndSettle();
 
       // `inactive` alone (without ever reaching `paused`) still counts as

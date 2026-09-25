@@ -262,9 +262,13 @@ class PendingSendQueue with WidgetsBindingObserver {
     } catch (error) {
       _inFlight.remove(send.id);
       if (messenger != null && messenger.mounted) {
-        messenger.showSnackBar(SnackBar(
-          content: Text('Giden Kutusu kaydedilemedi: ${friendlyErrorMessage(error)}'),
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Giden Kutusu kaydedilemedi: ${friendlyErrorMessage(error)}',
+            ),
+          ),
+        );
       }
       rethrow;
     }
@@ -407,7 +411,9 @@ class PendingSendQueue with WidgetsBindingObserver {
     final item = items.where((item) => item.send.id == id).single;
     if (item.status != OutboxStatus.failed &&
         item.status != OutboxStatus.waitingForNetwork) {
-      throw StateError('Only failed or waiting-for-network sends may be retried');
+      throw StateError(
+        'Only failed or waiting-for-network sends may be retried',
+      );
     }
     await _dispatch(
       item.send,

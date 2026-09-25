@@ -24,8 +24,8 @@ class AppConfig {
   static MailRepository? _mailRepository;
 
   /// The single repository instance shared by the whole app.
-  static MailRepository get mailRepository => _mailRepository ??=
-      ApiMailRepository(openCache: MailCache.open);
+  static MailRepository get mailRepository =>
+      _mailRepository ??= ApiMailRepository(openCache: MailCache.open);
 
   /// Lets widget tests start from a fresh repository instance.
   @visibleForTesting

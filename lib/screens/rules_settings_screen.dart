@@ -101,9 +101,8 @@ class _RulesSettingsScreenState extends State<RulesSettingsScreen> {
       await _load();
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -263,7 +262,10 @@ class _EmptyState extends StatelessWidget {
                       'Gelen postayı otomatik taşımak veya etiketlemek '
                       'için sağ alttaki + ile bir kural ekleyin.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: colors.secondaryText),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
                     ),
                   ],
                 ),
@@ -302,7 +304,9 @@ class _RuleEditorSheetState extends State<_RuleEditorSheet> {
   void initState() {
     super.initState();
     final rule = widget.rule;
-    _senderController = TextEditingController(text: rule?.condition.value ?? '');
+    _senderController = TextEditingController(
+      text: rule?.condition.value ?? '',
+    );
     _actionType = rule?.action.type ?? MailRuleActionType.moveToFolder;
     _folder = rule?.action.folder ?? _ruleTargetFolders.first;
     _labelId = rule?.action.labelId;
@@ -425,7 +429,10 @@ class _RuleEditorSheetState extends State<_RuleEditorSheet> {
                 leading: CircleAvatar(backgroundColor: label.color, radius: 8),
                 title: Text(label.name),
                 trailing: label.id == _labelId
-                    ? Icon(LucideIcons.check, color: Theme.of(ctx).colorScheme.onSurface)
+                    ? Icon(
+                        LucideIcons.check,
+                        color: Theme.of(ctx).colorScheme.onSurface,
+                      )
                     : null,
                 selected: label.id == _labelId,
                 onTap: () => Navigator.of(ctx).pop(label.id),
@@ -486,8 +493,9 @@ class _RuleEditorSheetState extends State<_RuleEditorSheet> {
                   key: const Key('rule-action-move'),
                   label: const Text('Klasöre taşı'),
                   selected: _actionType == MailRuleActionType.moveToFolder,
-                  onSelected: (_) =>
-                      setState(() => _actionType = MailRuleActionType.moveToFolder),
+                  onSelected: (_) => setState(
+                    () => _actionType = MailRuleActionType.moveToFolder,
+                  ),
                 ),
                 ChoiceChip(
                   key: const Key('rule-action-label'),
@@ -527,7 +535,10 @@ class _RuleEditorSheetState extends State<_RuleEditorSheet> {
               ),
             if (_error != null) ...[
               const SizedBox(height: 8),
-              Text(_error!, style: TextStyle(color: colors.destructive, fontSize: 13)),
+              Text(
+                _error!,
+                style: TextStyle(color: colors.destructive, fontSize: 13),
+              ),
             ],
             const SizedBox(height: 20),
             Row(

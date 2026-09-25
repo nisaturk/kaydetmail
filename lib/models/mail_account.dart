@@ -90,19 +90,17 @@ class MailAccount {
 
   /// `signature: null` clears it — unlike most copyWith patterns, omitting
   /// the parameter (not passing it at all) keeps the current value.
-  MailAccount copyWith({
-    String? displayName,
-    Object? signature = _unset,
-  }) => MailAccount(
-    id: id,
-    email: email,
-    displayName: displayName ?? this.displayName,
-    provider: provider,
-    status: status,
-    signature: identical(signature, _unset)
-        ? this.signature
-        : signature as String?,
-  );
+  MailAccount copyWith({String? displayName, Object? signature = _unset}) =>
+      MailAccount(
+        id: id,
+        email: email,
+        displayName: displayName ?? this.displayName,
+        provider: provider,
+        status: status,
+        signature: identical(signature, _unset)
+            ? this.signature
+            : signature as String?,
+      );
 }
 
 const _unset = Object();

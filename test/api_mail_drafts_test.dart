@@ -146,44 +146,38 @@ void main() {
       },
     );
 
-    test(
-      'overlapping saves of the same draft update it once each, in order, '
-      'without cloning it',
-      () async {
-        final mailService = _VersioningMailService();
-        final repo = await _loggedInRepository(mailService);
-        await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+    test('overlapping saves of the same draft update it once each, in order, '
+        'without cloning it', () async {
+      final mailService = _VersioningMailService();
+      final repo = await _loggedInRepository(mailService);
+      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
 
-        // A double-tapped "Taslağı Kaydet": both calls carry the id the
-        // editor was opened with.
-        await Future.wait([
-          repo.saveDraft(to: ['a@x.com'], subject: 'v1', draftId: 'draft-old'),
-          repo.saveDraft(to: ['a@x.com'], subject: 'v2', draftId: 'draft-old'),
-        ]);
+      // A double-tapped "Taslağı Kaydet": both calls carry the id the
+      // editor was opened with.
+      await Future.wait([
+        repo.saveDraft(to: ['a@x.com'], subject: 'v1', draftId: 'draft-old'),
+        repo.saveDraft(to: ['a@x.com'], subject: 'v2', draftId: 'draft-old'),
+      ]);
 
-        expect(mailService.updatedIds, ['draft-old', 'draft-v1']);
-        final drafts = repo.getEmailsInFolder(MailFolder.drafts);
-        expect(drafts.map((e) => (e.id, e.subject)), [('draft-v2', 'v2')]);
-      },
-    );
+      expect(mailService.updatedIds, ['draft-old', 'draft-v1']);
+      final drafts = repo.getEmailsInFolder(MailFolder.drafts);
+      expect(drafts.map((e) => (e.id, e.subject)), [('draft-v2', 'v2')]);
+    });
 
-    test(
-      'an update still reconciling drops the retired draft instead of '
-      'keeping its dead id',
-      () async {
-        final mailService = _PendingUpdateMailService();
-        final repo = await _loggedInRepository(mailService);
-        await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+    test('an update still reconciling drops the retired draft instead of '
+        'keeping its dead id', () async {
+      final mailService = _PendingUpdateMailService();
+      final repo = await _loggedInRepository(mailService);
+      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
 
-        await repo.saveDraft(
-          to: ['a@x.com'],
-          subject: 'Taslak v2',
-          draftId: 'draft-old',
-        );
+      await repo.saveDraft(
+        to: ['a@x.com'],
+        subject: 'Taslak v2',
+        draftId: 'draft-old',
+      );
 
-        expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
-      },
-    );
+      expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+    });
 
     test('deleteDraft removes the draft through the service', () async {
       final mailService = _RecordingMailService();

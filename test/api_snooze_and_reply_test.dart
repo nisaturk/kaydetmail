@@ -21,52 +21,46 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('snooze deadline expiry', () {
-    test(
-      'a passing deadline invalidates the view via notifyListeners without '
-      'an explicit getEmailsInFolder call forcing it',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [_folder('folder-inbox', 'Inbox')],
-          pagesByFolderId: {
-            'folder-inbox': _page([_mailJson('mail-1')]),
-          },
-        );
-        // A short check interval (real time, no fake clock) keeps this a
-        // fast unit test while still exercising the real Timer.periodic
-        // sweep end to end.
-        final repo = await _repositoryWithLoadedInbox(
-          mailService,
-          snoozeCheckInterval: const Duration(milliseconds: 20),
-        );
-        var notifications = 0;
-        repo.addListener(() => notifications++);
+    test('a passing deadline invalidates the view via notifyListeners without '
+        'an explicit getEmailsInFolder call forcing it', () async {
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-1')]),
+        },
+      );
+      // A short check interval (real time, no fake clock) keeps this a
+      // fast unit test while still exercising the real Timer.periodic
+      // sweep end to end.
+      final repo = await _repositoryWithLoadedInbox(
+        mailService,
+        snoozeCheckInterval: const Duration(milliseconds: 20),
+      );
+      var notifications = 0;
+      repo.addListener(() => notifications++);
 
-        await repo.setSnoozed(
-          ['mail-1'],
-          DateTime.now().add(const Duration(milliseconds: 60)),
-        );
+      await repo.setSnoozed([
+        'mail-1',
+      ], DateTime.now().add(const Duration(milliseconds: 60)));
 
-        // Snoozed: hidden from Inbox, surfaced in the Ertelenenler view.
-        expect(repo.getEmailsInFolder(MailFolder.inbox), isEmpty);
-        expect(
-          repo.getEmailsInFolder(MailFolder.snoozed).map((e) => e.id),
-          ['mail-1'],
-        );
+      // Snoozed: hidden from Inbox, surfaced in the Ertelenenler view.
+      expect(repo.getEmailsInFolder(MailFolder.inbox), isEmpty);
+      expect(repo.getEmailsInFolder(MailFolder.snoozed).map((e) => e.id), [
+        'mail-1',
+      ]);
 
-        notifications = 0;
-        // Nothing here calls getEmailsInFolder while waiting — the
-        // periodic sweep alone must notice the deadline passed and
-        // invalidate the cached view on its own.
-        await Future<void>.delayed(const Duration(milliseconds: 200));
+      notifications = 0;
+      // Nothing here calls getEmailsInFolder while waiting — the
+      // periodic sweep alone must notice the deadline passed and
+      // invalidate the cached view on its own.
+      await Future<void>.delayed(const Duration(milliseconds: 200));
 
-        expect(notifications, greaterThan(0));
-        expect(repo.getEmailsInFolder(MailFolder.snoozed), isEmpty);
-        expect(
-          repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
-          ['mail-1'],
-        );
-      },
-    );
+      expect(notifications, greaterThan(0));
+      expect(repo.getEmailsInFolder(MailFolder.snoozed), isEmpty);
+      expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+        'mail-1',
+      ]);
+    });
 
     test('a still-future deadline does not fire early', () async {
       final mailService = _RecordingMailService(
@@ -80,17 +74,15 @@ void main() {
         snoozeCheckInterval: const Duration(milliseconds: 20),
       );
 
-      await repo.setSnoozed(
-        ['mail-1'],
-        DateTime.now().add(const Duration(minutes: 10)),
-      );
+      await repo.setSnoozed([
+        'mail-1',
+      ], DateTime.now().add(const Duration(minutes: 10)));
 
       await Future<void>.delayed(const Duration(milliseconds: 150));
 
-      expect(
-        repo.getEmailsInFolder(MailFolder.snoozed).map((e) => e.id),
-        ['mail-1'],
-      );
+      expect(repo.getEmailsInFolder(MailFolder.snoozed).map((e) => e.id), [
+        'mail-1',
+      ]);
       expect(repo.getEmailsInFolder(MailFolder.inbox), isEmpty);
     });
   });
@@ -107,9 +99,7 @@ void main() {
           ],
           pagesByFolderId: {
             'folder-inbox': _page(const []),
-            'folder-sent': _page([
-              _mailJson('sent-1', threadId: 'thread-1'),
-            ]),
+            'folder-sent': _page([_mailJson('sent-1', threadId: 'thread-1')]),
           },
         );
         final repo = await _repositoryWithLoadedInbox(mailService);
@@ -133,36 +123,31 @@ void main() {
       },
     );
 
-    test(
-      'an unrelated inbound mail (different thread) never marks a Sent '
-      'thread answered',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [
-            _folder('folder-inbox', 'Inbox'),
-            _folder('folder-sent', 'Sent'),
-          ],
-          pagesByFolderId: {
-            'folder-inbox': _page(const []),
-            'folder-sent': _page([
-              _mailJson('sent-1', threadId: 'thread-1'),
-            ]),
-          },
-        );
-        final repo = await _repositoryWithLoadedInbox(mailService);
-        await repo.loadMoreEmails(MailFolder.sent);
+    test('an unrelated inbound mail (different thread) never marks a Sent '
+        'thread answered', () async {
+      final mailService = _RecordingMailService(
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-sent', 'Sent'),
+        ],
+        pagesByFolderId: {
+          'folder-inbox': _page(const []),
+          'folder-sent': _page([_mailJson('sent-1', threadId: 'thread-1')]),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      await repo.loadMoreEmails(MailFolder.sent);
 
-        mailService.pagesByFolderId['folder-inbox'] = _page([
-          _mailJson('unrelated-1', threadId: 'thread-2'),
-        ]);
-        await repo.refreshEmails(MailFolder.inbox);
+      mailService.pagesByFolderId['folder-inbox'] = _page([
+        _mailJson('unrelated-1', threadId: 'thread-2'),
+      ]);
+      await repo.refreshEmails(MailFolder.inbox);
 
-        expect(
-          repo.getEmailsInFolder(MailFolder.sent).single.isAnswered,
-          isFalse,
-        );
-      },
-    );
+      expect(
+        repo.getEmailsInFolder(MailFolder.sent).single.isAnswered,
+        isFalse,
+      );
+    });
 
     test(
       'answered state survives a fresh repository instance (persisted)',
@@ -174,9 +159,7 @@ void main() {
           ],
           pagesByFolderId: {
             'folder-inbox': _page(const []),
-            'folder-sent': _page([
-              _mailJson('sent-1', threadId: 'thread-1'),
-            ]),
+            'folder-sent': _page([_mailJson('sent-1', threadId: 'thread-1')]),
           },
         );
         final db = MailCache.inMemory();
@@ -191,10 +174,7 @@ void main() {
           isTrue,
         );
 
-        final repo2 = await _repositoryWithLoadedInbox(
-          mailService,
-          cache: db,
-        );
+        final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
         await repo2.loadMoreEmails(MailFolder.sent);
         expect(
           repo2.getEmailsInFolder(MailFolder.sent).single.isAnswered,
@@ -218,8 +198,9 @@ void main() {
           isAnswered: answered,
         );
 
-    Widget harness(Email email) =>
-        MaterialApp(home: Scaffold(body: MailListItem(email: email)));
+    Widget harness(Email email) => MaterialApp(
+      home: Scaffold(body: MailListItem(email: email)),
+    );
 
     final old = DateTime.now().subtract(const Duration(days: 5));
     final recent = DateTime.now().subtract(const Duration(hours: 1));
@@ -367,7 +348,8 @@ class _RecordingMailService extends ApiMailService {
     String action,
     List<String> mailIds, {
     String? folderId,
-  }) async => mailIds.map((id) => BulkActionResult(mailId: id, success: true)).toList();
+  }) async =>
+      mailIds.map((id) => BulkActionResult(mailId: id, success: true)).toList();
 
   @override
   Future<void> setSnooze(String mailId, DateTime untilUtc) async =>

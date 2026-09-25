@@ -445,14 +445,11 @@ class ApiMailService {
 
   /// Renames/recolors a label. Same `label_name_taken` conflict as
   /// [createLabel].
-  Future<Map<String, dynamic>> updateLabel(
-    String id,
-    String name,
-    int color,
-  ) => _client.putJson('/api/labels/${Uri.encodeComponent(id)}', {
-    'name': name,
-    'color': color,
-  });
+  Future<Map<String, dynamic>> updateLabel(String id, String name, int color) =>
+      _client.putJson('/api/labels/${Uri.encodeComponent(id)}', {
+        'name': name,
+        'color': color,
+      });
 
   /// Deletes a label; also strips it from every mail it was assigned to.
   Future<void> deleteLabel(String id) =>

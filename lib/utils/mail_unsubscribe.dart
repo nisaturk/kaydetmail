@@ -98,9 +98,7 @@ Future<bool> performUnsubscribe(
     try {
       final response = await httpClient.post(
         info.webUrl!,
-        headers: const {
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
+        headers: const {'Content-Type': 'application/x-www-form-urlencoded'},
         body: 'List-Unsubscribe=One-Click',
       );
       return response.statusCode >= 200 && response.statusCode < 300;

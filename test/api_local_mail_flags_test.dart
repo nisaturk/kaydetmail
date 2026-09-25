@@ -106,68 +106,62 @@ void main() {
       },
     );
 
-    test(
-      'markAsReplied marks every loaded thread member, not only the opened '
-      'message',
-      () async {
-        // Two messages in the same conversation; the user opens the reply
-        // screen from mail-1 but the inbox row representative could be
-        // either one depending on thread grouping — both must show replied.
-        final mailService = _RecordingMailService(
-          folders: [_folder('folder-inbox', 'Inbox')],
-          pagesByFolderId: {
-            'folder-inbox': _page([
-              _mailJson('mail-1', threadId: 'thread-1'),
-              _mailJson('mail-2', threadId: 'thread-1'),
-            ]),
-          },
-        );
-        final repo = await _repositoryWithLoadedInbox(mailService);
+    test('markAsReplied marks every loaded thread member, not only the opened '
+        'message', () async {
+      // Two messages in the same conversation; the user opens the reply
+      // screen from mail-1 but the inbox row representative could be
+      // either one depending on thread grouping — both must show replied.
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([
+            _mailJson('mail-1', threadId: 'thread-1'),
+            _mailJson('mail-2', threadId: 'thread-1'),
+          ]),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
 
-        await repo.markAsReplied(['mail-1']);
+      await repo.markAsReplied(['mail-1']);
 
-        final inbox = repo.getEmailsInFolder(MailFolder.inbox);
-        expect(inbox.every((e) => e.isReplied), isTrue);
-      },
-    );
+      final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+      expect(inbox.every((e) => e.isReplied), isTrue);
+    });
 
-    test(
-      'replied/forwarded survive a fresh instance even when the originally '
-      'marked message in the thread is never reloaded',
-      () async {
-        // Regression for the audit bug where a thread's representative row
-        // sometimes didn't show the replied/forwarded icon: aggregation
-        // used to require the specific flagged message to be loaded into
-        // memory. Here only mail-2 is ever fetched in the second instance —
-        // mail-1 (the one actually marked) is not — yet mail-2 must still
-        // show both flags because they are tracked per-thread.
-        final mailService = _RecordingMailService(
-          folders: [_folder('folder-inbox', 'Inbox')],
-          pagesByFolderId: {
-            'folder-inbox': _page([
-              _mailJson('mail-1', threadId: 'thread-1'),
-              _mailJson('mail-2', threadId: 'thread-1'),
-            ]),
-          },
-        );
-        final db = MailCache.inMemory();
-        final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
-        await repo1.markAsReplied(['mail-1']);
-        await repo1.markAsForwarded(['mail-1']);
+    test('replied/forwarded survive a fresh instance even when the originally '
+        'marked message in the thread is never reloaded', () async {
+      // Regression for the audit bug where a thread's representative row
+      // sometimes didn't show the replied/forwarded icon: aggregation
+      // used to require the specific flagged message to be loaded into
+      // memory. Here only mail-2 is ever fetched in the second instance —
+      // mail-1 (the one actually marked) is not — yet mail-2 must still
+      // show both flags because they are tracked per-thread.
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([
+            _mailJson('mail-1', threadId: 'thread-1'),
+            _mailJson('mail-2', threadId: 'thread-1'),
+          ]),
+        },
+      );
+      final db = MailCache.inMemory();
+      final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
+      await repo1.markAsReplied(['mail-1']);
+      await repo1.markAsForwarded(['mail-1']);
 
-        final onlyMailTwo = _RecordingMailService(
-          folders: [_folder('folder-inbox', 'Inbox')],
-          pagesByFolderId: {
-            'folder-inbox': _page([_mailJson('mail-2', threadId: 'thread-1')]),
-          },
-        );
-        final repo2 = await _repositoryWithLoadedInbox(onlyMailTwo, cache: db);
-        final mailTwo = repo2.getEmailsInFolder(MailFolder.inbox).single;
+      final onlyMailTwo = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-2', threadId: 'thread-1')]),
+        },
+      );
+      final repo2 = await _repositoryWithLoadedInbox(onlyMailTwo, cache: db);
+      final mailTwo = repo2.getEmailsInFolder(MailFolder.inbox).single;
 
-        expect(mailTwo.isReplied, isTrue);
-        expect(mailTwo.isForwarded, isTrue);
-      },
-    );
+      expect(mailTwo.isReplied, isTrue);
+      expect(mailTwo.isForwarded, isTrue);
+    });
   });
   group('starred virtual folder', () {
     test(
@@ -203,62 +197,55 @@ void main() {
   });
 
   group('labels', () {
-    test(
-      'list mail (no accountId in the response) resolves its account labels '
-      'and can be labeled and unlabeled',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [_folder('folder-inbox', 'Inbox')],
-          pagesByFolderId: {
-            'folder-inbox': _page([_mailJson('mail-1')]),
-          },
-        );
-        final repo = await _repositoryWithLoadedInbox(mailService);
-        Email mail() =>
-            repo.getAllEmails().singleWhere((e) => e.id == 'mail-1');
+    test('list mail (no accountId in the response) resolves its account labels '
+        'and can be labeled and unlabeled', () async {
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-1')]),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      Email mail() => repo.getAllEmails().singleWhere((e) => e.id == 'mail-1');
 
-        final labels = repo.getLabelsForAccount(mail().accountId);
-        expect(labels, isNotEmpty);
+      final labels = repo.getLabelsForAccount(mail().accountId);
+      expect(labels, isNotEmpty);
 
-        await repo.addLabelsToEmails(['mail-1'], [labels.first.id]);
-        expect(mail().labelIds, [labels.first.id]);
+      await repo.addLabelsToEmails(['mail-1'], [labels.first.id]);
+      expect(mail().labelIds, [labels.first.id]);
 
-        await repo.removeLabelsFromEmails(['mail-1'], [labels.first.id]);
-        expect(mail().labelIds, isEmpty);
-      },
-    );
+      await repo.removeLabelsFromEmails(['mail-1'], [labels.first.id]);
+      expect(mail().labelIds, isEmpty);
+    });
   });
 
   group('lastSyncedAt', () {
-    test(
-      'null before a folder has ever synced, set after initial load and '
-      'refresh',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [
-            _folder('folder-inbox', 'Inbox'),
-            _folder('folder-archive', 'Archive'),
-          ],
-          pagesByFolderId: {
-            'folder-inbox': _page([_mailJson('mail-1')]),
-            'folder-archive': _page(const []),
-          },
-        );
-        final repo = await _repositoryWithLoadedInbox(mailService);
+    test('null before a folder has ever synced, set after initial load and '
+        'refresh', () async {
+      final mailService = _RecordingMailService(
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-archive', 'Archive'),
+        ],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-1')]),
+          'folder-archive': _page(const []),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
 
-        // Inbox was loaded by the shared setup helper.
-        final afterLoad = repo.lastSyncedAt(MailFolder.inbox);
-        expect(afterLoad, isNotNull);
-        // A folder nothing ever fetched has no sync timestamp yet.
-        expect(repo.lastSyncedAt(MailFolder.trash), isNull);
+      // Inbox was loaded by the shared setup helper.
+      final afterLoad = repo.lastSyncedAt(MailFolder.inbox);
+      expect(afterLoad, isNotNull);
+      // A folder nothing ever fetched has no sync timestamp yet.
+      expect(repo.lastSyncedAt(MailFolder.trash), isNull);
 
-        await Future<void>.delayed(const Duration(milliseconds: 5));
-        await repo.refreshEmails(MailFolder.inbox);
-        final afterRefresh = repo.lastSyncedAt(MailFolder.inbox);
-        expect(afterRefresh, isNotNull);
-        expect(afterRefresh!.isAfter(afterLoad!), isTrue);
-      },
-    );
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await repo.refreshEmails(MailFolder.inbox);
+      final afterRefresh = repo.lastSyncedAt(MailFolder.inbox);
+      expect(afterRefresh, isNotNull);
+      expect(afterRefresh!.isAfter(afterLoad!), isTrue);
+    });
   });
 }
 
@@ -427,12 +414,15 @@ class _RecordingMailService extends ApiMailService {
       Map<String, DateTime>.from(snoozedMailIds);
 
   @override
-  Future<List<Map<String, dynamic>>> getLabels() async =>
-      List.from(labelDefs);
+  Future<List<Map<String, dynamic>>> getLabels() async => List.from(labelDefs);
 
   @override
   Future<Map<String, dynamic>> createLabel(String name, int color) async {
-    final created = {'id': 'label-${_labelSeq++}', 'name': name, 'color': color};
+    final created = {
+      'id': 'label-${_labelSeq++}',
+      'name': name,
+      'color': color,
+    };
     labelDefs.add(created);
     return created;
   }
@@ -462,10 +452,7 @@ class _RecordingMailService extends ApiMailService {
       Map.from(labelAssignments);
 
   @override
-  Future<void> assignLabels(
-    List<String> mailIds,
-    List<String> labelIds,
-  ) async {
+  Future<void> assignLabels(List<String> mailIds, List<String> labelIds) async {
     for (final id in mailIds) {
       final cur = labelAssignments.putIfAbsent(id, () => []);
       for (final labelId in labelIds) {

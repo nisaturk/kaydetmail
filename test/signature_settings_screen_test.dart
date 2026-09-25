@@ -85,8 +85,7 @@ class _StubMailRepository extends MailRepository {
   MailAccount? getAccount(String accountId) => throw UnimplementedError();
 
   @override
-  Future<void> restoreSession(String email) async =>
-      throw UnimplementedError();
+  Future<void> restoreSession(String email) async => throw UnimplementedError();
 
   @override
   Future<List<MailSession>> getSessions() async => throw UnimplementedError();
@@ -169,8 +168,7 @@ class _StubMailRepository extends MailRepository {
   }) async => throw UnimplementedError();
 
   @override
-  Future<void> deleteDraft(String draftId) async =>
-      throw UnimplementedError();
+  Future<void> deleteDraft(String draftId) async => throw UnimplementedError();
 
   @override
   Future<void> moveToTrash(List<String> ids) async =>
@@ -185,8 +183,7 @@ class _StubMailRepository extends MailRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> markAsRead(List<String> ids) async =>
-      throw UnimplementedError();
+  Future<void> markAsRead(List<String> ids) async => throw UnimplementedError();
 
   @override
   Future<void> markAsUnread(List<String> ids) async =>
@@ -228,8 +225,7 @@ class _StubMailRepository extends MailRepository {
   }) async => throw UnimplementedError();
 
   @override
-  Future<void> deleteLabel(String labelId) async =>
-      throw UnimplementedError();
+  Future<void> deleteLabel(String labelId) async => throw UnimplementedError();
 
   @override
   Future<void> addLabelsToEmails(
@@ -247,8 +243,7 @@ class _StubMailRepository extends MailRepository {
   List<ManualContact> getManualContacts() => const [];
 
   @override
-  List<ManualContact> getManualContactsForAccount(String accountId) =>
-      const [];
+  List<ManualContact> getManualContactsForAccount(String accountId) => const [];
 
   @override
   Future<ManualContact> addManualContact({
@@ -323,7 +318,11 @@ void main() {
     tester,
   ) async {
     AppConfig.mailRepositoryForTest = _StubMailRepository(const [
-      MailAccount(id: 'a', email: 'a@example.com', signature: 'Saygılarımla,\nA'),
+      MailAccount(
+        id: 'a',
+        email: 'a@example.com',
+        signature: 'Saygılarımla,\nA',
+      ),
       MailAccount(id: 'b', email: 'b@example.com'),
     ]);
 
@@ -350,29 +349,36 @@ void main() {
     );
   });
 
-  testWidgets('editing and saving persists the new signature for that account', (
+  testWidgets(
+    'editing and saving persists the new signature for that account',
+    (tester) async {
+      final repo = _StubMailRepository(const [
+        MailAccount(id: 'a', email: 'a@example.com'),
+      ]);
+      AppConfig.mailRepositoryForTest = repo;
+
+      await tester.pumpWidget(
+        const MaterialApp(home: SignatureSettingsScreen()),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.byKey(const ValueKey('signature-field-a@example.com')),
+        'Yeni imza',
+      );
+      await tester.tap(
+        find.byKey(const ValueKey('signature-save-a@example.com')),
+      );
+      await tester.pumpAndSettle();
+
+      expect(repo.accounts.single.signature, 'Yeni imza');
+      expect(find.text('İmza kaydedildi.'), findsOneWidget);
+    },
+  );
+
+  testWidgets('shows an empty state when no account is connected', (
     tester,
   ) async {
-    final repo = _StubMailRepository(const [
-      MailAccount(id: 'a', email: 'a@example.com'),
-    ]);
-    AppConfig.mailRepositoryForTest = repo;
-
-    await tester.pumpWidget(const MaterialApp(home: SignatureSettingsScreen()));
-    await tester.pumpAndSettle();
-
-    await tester.enterText(
-      find.byKey(const ValueKey('signature-field-a@example.com')),
-      'Yeni imza',
-    );
-    await tester.tap(find.byKey(const ValueKey('signature-save-a@example.com')));
-    await tester.pumpAndSettle();
-
-    expect(repo.accounts.single.signature, 'Yeni imza');
-    expect(find.text('İmza kaydedildi.'), findsOneWidget);
-  });
-
-  testWidgets('shows an empty state when no account is connected', (tester) async {
     AppConfig.mailRepositoryForTest = _StubMailRepository(const []);
 
     await tester.pumpWidget(const MaterialApp(home: SignatureSettingsScreen()));

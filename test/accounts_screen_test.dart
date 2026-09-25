@@ -40,7 +40,9 @@ void main() {
 
   tearDown(AppConfig.resetForTest);
 
-  testWidgets('a disconnected account shows status and a reconnect CTA', (tester) async {
+  testWidgets('a disconnected account shows status and a reconnect CTA', (
+    tester,
+  ) async {
     final repo = _FakeRepo([
       const MailAccount(
         id: 'acc-1',
@@ -54,40 +56,44 @@ void main() {
     expect(find.byTooltip('Şifreyi güncelle'), findsOneWidget);
   });
 
-  testWidgets('tapping the reconnect CTA activates that account and opens reconnect login', (
-    tester,
-  ) async {
-    final repo = _FakeRepo([
-      const MailAccount(id: 'acc-1', email: 'a@example.com'),
-      const MailAccount(
-        id: 'acc-2',
-        email: 'b@example.com',
-        status: MailAccountStatus.needsReauthentication,
-      ),
-    ]);
-    repo.active = 'acc-1';
-    await _pumpAccounts(tester, repo);
+  testWidgets(
+    'tapping the reconnect CTA activates that account and opens reconnect login',
+    (tester) async {
+      final repo = _FakeRepo([
+        const MailAccount(id: 'acc-1', email: 'a@example.com'),
+        const MailAccount(
+          id: 'acc-2',
+          email: 'b@example.com',
+          status: MailAccountStatus.needsReauthentication,
+        ),
+      ]);
+      repo.active = 'acc-1';
+      await _pumpAccounts(tester, repo);
 
-    await tester.tap(find.byTooltip('Şifreyi güncelle'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Şifreyi güncelle'));
+      await tester.pumpAndSettle();
 
-    // Reconnecting a non-active account must first make it the active
-    // session (`MailRepository.reconnect` always targets the active
-    // account) — never silently reconnect whichever account happens to be
-    // primary (docs-dev spec §24).
-    expect(repo.selected, ['acc-2']);
-    final loginScreen = tester.widget<LoginScreen>(find.byType(LoginScreen));
-    expect(loginScreen.reconnect, isTrue);
-    expect(loginScreen.initialEmail, 'b@example.com');
-  });
+      // Reconnecting a non-active account must first make it the active
+      // session (`MailRepository.reconnect` always targets the active
+      // account) — never silently reconnect whichever account happens to be
+      // primary (docs-dev spec §24).
+      expect(repo.selected, ['acc-2']);
+      final loginScreen = tester.widget<LoginScreen>(find.byType(LoginScreen));
+      expect(loginScreen.reconnect, isTrue);
+      expect(loginScreen.initialEmail, 'b@example.com');
+    },
+  );
 
-  testWidgets('an active/healthy account shows neither status text nor reconnect CTA', (
-    tester,
-  ) async {
-    final repo = _FakeRepo([const MailAccount(id: 'acc-1', email: 'a@example.com')]);
-    repo.active = 'acc-1';
-    await _pumpAccounts(tester, repo);
+  testWidgets(
+    'an active/healthy account shows neither status text nor reconnect CTA',
+    (tester) async {
+      final repo = _FakeRepo([
+        const MailAccount(id: 'acc-1', email: 'a@example.com'),
+      ]);
+      repo.active = 'acc-1';
+      await _pumpAccounts(tester, repo);
 
-    expect(find.byTooltip('Şifreyi güncelle'), findsNothing);
-  });
+      expect(find.byTooltip('Şifreyi güncelle'), findsNothing);
+    },
+  );
 }

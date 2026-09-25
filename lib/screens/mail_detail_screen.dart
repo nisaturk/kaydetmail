@@ -277,9 +277,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     try {
       await _repo.moveToFolder([email.id], MailFolder.inbox);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(successMessage)));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(successMessage)));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -342,10 +341,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// (`GET /api/mails/{id}/compose/{mode}`) instead of recomputing
   /// recipients/subject/threading client-side — see docs-dev spec §4.
   /// [mode] is `'reply'`, `'reply-all'` or `'forward'`.
-  Future<void> _openComposePrefill(
-    String mode, {
-    required String title,
-  }) async {
+  Future<void> _openComposePrefill(String mode, {required String title}) async {
     final email = _email;
     if (email == null || _composeActionBusy) return;
     setState(() => _composeActionBusy = true);
@@ -357,7 +353,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         setState(() => _composeActionBusy = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Yanıt hazırlanamadı: ${friendlyErrorMessage(error)}'),
+            content: Text(
+              'Yanıt hazırlanamadı: ${friendlyErrorMessage(error)}',
+            ),
           ),
         );
       }
@@ -494,10 +492,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               child: Text('Kalıcı olarak sil'),
             ),
           if (anyLabeled(_repo, _conversationIds))
-            const PopupMenuItem(
-              value: 'unlabel',
-              child: Text('Etiketi kaldır'),
-            )
+            const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
           else
             const PopupMenuItem(value: 'label', child: Text('Etiketle')),
           const PopupMenuItem(value: 'print', child: Text('Yazdır')),
@@ -696,11 +691,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Icon(
-                LucideIcons.cloudOff,
-                size: 40,
-                color: colors.secondaryText,
-              ),
+              Icon(LucideIcons.cloudOff, size: 40, color: colors.secondaryText),
               const SizedBox(height: 12),
               Text(
                 message,
@@ -796,10 +787,7 @@ class _SingleMessage extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     email.senderEmail,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colors.secondaryText,
-                    ),
+                    style: TextStyle(fontSize: 13, color: colors.secondaryText),
                   ),
                   if (email.recipients.isNotEmpty) ...[
                     const SizedBox(height: 6),
@@ -818,10 +806,7 @@ class _SingleMessage extends StatelessWidget {
                   const SizedBox(height: 6),
                   Text(
                     formatMailDateFull(email.timestamp),
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: colors.secondaryText,
-                    ),
+                    style: TextStyle(fontSize: 13, color: colors.secondaryText),
                   ),
                 ],
               ),

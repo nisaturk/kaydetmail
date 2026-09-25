@@ -27,10 +27,7 @@ class _SnoozePickerSheet extends StatelessWidget {
         label: 'Yarın sabah (09:00)',
         value: _todayAt(now, 9).add(const Duration(days: 1)),
       ),
-      (
-        label: 'Gelecek hafta (Pazartesi 09:00)',
-        value: _nextMonday9am(now),
-      ),
+      (label: 'Gelecek hafta (Pazartesi 09:00)', value: _nextMonday9am(now)),
     ];
     return SafeArea(
       child: Column(

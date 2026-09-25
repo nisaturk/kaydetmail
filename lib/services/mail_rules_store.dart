@@ -39,10 +39,7 @@ class MailRulesStore {
     }
   }
 
-  static Future<void> writeRules(
-    String accountId,
-    List<MailRule> rules,
-  ) async {
+  static Future<void> writeRules(String accountId, List<MailRule> rules) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(
       _keyFor(accountId),
@@ -57,7 +54,11 @@ class MailRulesStore {
     required MailRuleAction action,
   }) async {
     final rules = await readRules(accountId);
-    final rule = MailRule(id: _generateId(), condition: condition, action: action);
+    final rule = MailRule(
+      id: _generateId(),
+      condition: condition,
+      action: action,
+    );
     await writeRules(accountId, [...rules, rule]);
     return rule;
   }

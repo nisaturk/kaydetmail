@@ -45,7 +45,8 @@ class AccountsScreen extends StatelessWidget {
     if (!context.mounted) return;
     await Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => LoginScreen(reconnect: true, initialEmail: account.email),
+        builder: (_) =>
+            LoginScreen(reconnect: true, initialEmail: account.email),
       ),
     );
   }

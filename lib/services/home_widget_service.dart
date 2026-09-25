@@ -38,7 +38,8 @@ class HomeWidgetService {
   static bool get _isSupportedPlatform =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
-  static HomeWidgetLaunchSource _launchSource = const _PluginHomeWidgetLaunchSource();
+  static HomeWidgetLaunchSource _launchSource =
+      const _PluginHomeWidgetLaunchSource();
 
   /// Test seam for [initiallyLaunchedUri]/[widgetClicked]: swap in a fake
   /// [HomeWidgetLaunchSource] so app.dart's compose-shortcut routing
@@ -99,8 +100,12 @@ class HomeWidgetService {
   /// One "Sender — Subject" line, truncated to keep the widget's single-line
   /// `TextView` from needing to reflow.
   static String _summarize(Email email) {
-    final sender = email.senderName.isNotEmpty ? email.senderName : email.senderEmail;
-    final subject = email.subject.trim().isEmpty ? '(Konu yok)' : email.subject.trim();
+    final sender = email.senderName.isNotEmpty
+        ? email.senderName
+        : email.senderEmail;
+    final subject = email.subject.trim().isEmpty
+        ? '(Konu yok)'
+        : email.subject.trim();
     final line = '$sender — $subject';
     return line.length > 60 ? '${line.substring(0, 60).trimRight()}…' : line;
   }
@@ -121,7 +126,8 @@ class _PluginHomeWidgetLaunchSource implements HomeWidgetLaunchSource {
   const _PluginHomeWidgetLaunchSource();
 
   @override
-  Future<Uri?> initiallyLaunchedUri() => HomeWidget.initiallyLaunchedFromHomeWidget();
+  Future<Uri?> initiallyLaunchedUri() =>
+      HomeWidget.initiallyLaunchedFromHomeWidget();
 
   @override
   Stream<Uri?> get clicked => HomeWidget.widgetClicked;

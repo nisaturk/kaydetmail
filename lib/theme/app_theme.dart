@@ -108,9 +108,8 @@ class AppTheme {
       extensions: [colors],
       scaffoldBackgroundColor: surface,
       fontFamily: null,
-      textTheme: Typography.material2021(
-        platform: TargetPlatform.android,
-      ).black.apply(bodyColor: onSurface, displayColor: onSurface),
+      textTheme: Typography.material2021(platform: TargetPlatform.android).black
+          .apply(bodyColor: onSurface, displayColor: onSurface),
       appBarTheme: AppBarTheme(
         backgroundColor: surface,
         foregroundColor: onSurface,
@@ -241,7 +240,9 @@ class AppTheme {
         ),
       ),
       snackBarTheme: SnackBarThemeData(
-        backgroundColor: isDark ? const Color(0xFF2A2D34) : const Color(0xFF1F2937),
+        backgroundColor: isDark
+            ? const Color(0xFF2A2D34)
+            : const Color(0xFF1F2937),
         contentTextStyle: const TextStyle(color: Colors.white),
         actionTextColor: Colors.white,
         behavior: SnackBarBehavior.floating,

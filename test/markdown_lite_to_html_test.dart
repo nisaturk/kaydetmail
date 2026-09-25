@@ -8,12 +8,15 @@ void main() {
     expect(markdownLiteToHtml('__underline__'), '<p><u>underline</u></p>');
   });
 
-  test('a bold span next to a separate italic span does not confuse the two', () {
-    expect(
-      markdownLiteToHtml('**bold** and *italic*'),
-      '<p><b>bold</b> and <i>italic</i></p>',
-    );
-  });
+  test(
+    'a bold span next to a separate italic span does not confuse the two',
+    () {
+      expect(
+        markdownLiteToHtml('**bold** and *italic*'),
+        '<p><b>bold</b> and <i>italic</i></p>',
+      );
+    },
+  );
 
   test('bullet lines become a single ul/li block', () {
     expect(
@@ -70,7 +73,10 @@ void main() {
     });
 
     test('plain unformatted text is not flagged', () {
-      expect(hasMarkdownLiteMarkup('sadece düz metin, hiçbir işaretleme yok'), isFalse);
+      expect(
+        hasMarkdownLiteMarkup('sadece düz metin, hiçbir işaretleme yok'),
+        isFalse,
+      );
       expect(hasMarkdownLiteMarkup(''), isFalse);
     });
 

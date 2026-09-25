@@ -35,86 +35,111 @@ void main() {
       expect(sent.url.path, '/api/account');
     });
 
-    test('createDraft posts repeated To/Cc parts and returns the server mailId', () async {
-      late http.MultipartRequest sent;
-      final service = ApiMailService(
-        _multipartClient((request) async {
-          sent = request;
-          return http.Response(
-            jsonEncode({'created': true, 'mailId': 'draft-9', 'warning': null}),
-            200,
-          );
-        }),
-      );
+    test(
+      'createDraft posts repeated To/Cc parts and returns the server mailId',
+      () async {
+        late http.MultipartRequest sent;
+        final service = ApiMailService(
+          _multipartClient((request) async {
+            sent = request;
+            return http.Response(
+              jsonEncode({
+                'created': true,
+                'mailId': 'draft-9',
+                'warning': null,
+              }),
+              200,
+            );
+          }),
+        );
 
-      final result = await service.createDraft(
-        to: ['a@example.com', 'b@example.com'],
-        cc: ['c@example.com'],
-        subject: 'Merhaba',
-        bodyText: 'Selam',
-        replySourceMailId: 'mail-1',
-      );
+        final result = await service.createDraft(
+          to: ['a@example.com', 'b@example.com'],
+          cc: ['c@example.com'],
+          subject: 'Merhaba',
+          bodyText: 'Selam',
+          replySourceMailId: 'mail-1',
+        );
 
-      expect(sent.url.path, '/api/drafts');
-      expect(await _partValues(sent, 'To'), ['a@example.com', 'b@example.com']);
-      expect(await _partValues(sent, 'Cc'), ['c@example.com']);
-      expect(sent.fields['subject'], 'Merhaba');
-      expect(sent.fields['bodyText'], 'Selam');
-      expect(sent.fields['replySourceMailId'], 'mail-1');
-      expect(result.mailId, 'draft-9');
-      expect(result.created, isTrue);
-    });
+        expect(sent.url.path, '/api/drafts');
+        expect(await _partValues(sent, 'To'), [
+          'a@example.com',
+          'b@example.com',
+        ]);
+        expect(await _partValues(sent, 'Cc'), ['c@example.com']);
+        expect(sent.fields['subject'], 'Merhaba');
+        expect(sent.fields['bodyText'], 'Selam');
+        expect(sent.fields['replySourceMailId'], 'mail-1');
+        expect(result.mailId, 'draft-9');
+        expect(result.created, isTrue);
+      },
+    );
 
-    test('createDraft falls back to a null mailId when reconciliation is pending', () async {
-      final service = ApiMailService(
-        _multipartClient(
-          (_) async => http.Response(
-            jsonEncode({'created': true, 'mailId': null, 'warning': null}),
-            200,
+    test(
+      'createDraft falls back to a null mailId when reconciliation is pending',
+      () async {
+        final service = ApiMailService(
+          _multipartClient(
+            (_) async => http.Response(
+              jsonEncode({'created': true, 'mailId': null, 'warning': null}),
+              200,
+            ),
           ),
-        ),
-      );
+        );
 
-      final result = await service.createDraft(to: ['a@example.com'], subject: 'S');
+        final result = await service.createDraft(
+          to: ['a@example.com'],
+          subject: 'S',
+        );
 
-      expect(result.mailId, isNull);
-    });
+        expect(result.mailId, isNull);
+      },
+    );
 
-    test('sendMail sends the Idempotency-Key header and attachment bytes', () async {
-      late http.MultipartRequest sent;
-      final service = ApiMailService(
-        _multipartClient((request) async {
-          sent = request;
-          return http.Response(
-            jsonEncode({'sent': true, 'sentCopySaved': true, 'warning': null}),
-            200,
-          );
-        }),
-      );
+    test(
+      'sendMail sends the Idempotency-Key header and attachment bytes',
+      () async {
+        late http.MultipartRequest sent;
+        final service = ApiMailService(
+          _multipartClient((request) async {
+            sent = request;
+            return http.Response(
+              jsonEncode({
+                'sent': true,
+                'sentCopySaved': true,
+                'warning': null,
+              }),
+              200,
+            );
+          }),
+        );
 
-      final result = await service.sendMail(
-        to: ['a@example.com'],
-        subject: 'Konu',
-        bodyText: 'Gövde',
-        attachments: [
-          Attachment(
-            name: 'file.txt',
-            sizeBytes: 3,
-            bytes: Uint8List.fromList([1, 2, 3]),
-          ),
-        ],
-        idempotencyKey: 'key-123',
-      );
+        final result = await service.sendMail(
+          to: ['a@example.com'],
+          subject: 'Konu',
+          bodyText: 'Gövde',
+          attachments: [
+            Attachment(
+              name: 'file.txt',
+              sizeBytes: 3,
+              bytes: Uint8List.fromList([1, 2, 3]),
+            ),
+          ],
+          idempotencyKey: 'key-123',
+        );
 
-      expect(sent.url.path, '/api/mails/send');
-      expect(sent.headers['Idempotency-Key'], 'key-123');
-      expect(await _partValues(sent, 'To'), ['a@example.com']);
-      final attachmentPart = sent.files.singleWhere((f) => f.filename != null);
-      expect(attachmentPart.field, 'attachments');
-      expect(attachmentPart.filename, 'file.txt');
-      expect(result.sent, isTrue);
-      expect(result.sentCopySaved, isTrue);
-    });
+        expect(sent.url.path, '/api/mails/send');
+        expect(sent.headers['Idempotency-Key'], 'key-123');
+        expect(await _partValues(sent, 'To'), ['a@example.com']);
+        final attachmentPart = sent.files.singleWhere(
+          (f) => f.filename != null,
+        );
+        expect(attachmentPart.field, 'attachments');
+        expect(attachmentPart.filename, 'file.txt');
+        expect(result.sent, isTrue);
+        expect(result.sentCopySaved, isTrue);
+      },
+    );
 
     test('sendMail includes bodyHtml as a form field when given', () async {
       late http.MultipartRequest sent;
@@ -163,85 +188,110 @@ void main() {
   });
 
   group('ApiMailRepository compose', () {
-    test('sendEmail echoes into the Sent cache when the server saved a copy', () async {
-      final mailService = _RecordingMailService();
-      final repo = await _loggedInRepository(mailService);
+    test(
+      'sendEmail echoes into the Sent cache when the server saved a copy',
+      () async {
+        final mailService = _RecordingMailService();
+        final repo = await _loggedInRepository(mailService);
 
-      final email = await repo.sendEmail(
-        to: ['a@example.com'],
-        subject: 'Konu',
-        body: 'Gövde',
-      );
-
-      expect(email.folder, MailFolder.sent);
-      expect(repo.getEmailsInFolder(MailFolder.sent).single.id, email.id);
-      expect(mailService.sendCalls.single.idempotencyKey, isNotEmpty);
-    });
-
-    test('sendEmail forwards bodyHtml to the service and echoes it locally', () async {
-      final mailService = _RecordingMailService();
-      final repo = await _loggedInRepository(mailService);
-
-      final email = await repo.sendEmail(
-        to: ['a@example.com'],
-        subject: 'Konu',
-        body: '**Gövde**',
-        bodyHtml: '<p><b>Gövde</b></p>',
-      );
-
-      expect(mailService.sendCalls.single.bodyHtml, '<p><b>Gövde</b></p>');
-      expect(email.bodyHtml, '<p><b>Gövde</b></p>');
-    });
-
-    test('sendEmail does not cache locally when the server reports no saved copy', () async {
-      final mailService = _RecordingMailService()..sentCopySaved = false;
-      final repo = await _loggedInRepository(mailService);
-
-      await repo.sendEmail(to: ['a@example.com'], subject: 'Konu', body: 'Gövde');
-
-      expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
-    });
-
-    test('sendEmail keeps unsuccessful pre-delivery send out of Sent', () async {
-      final mailService = _RecordingMailService()..sent = false;
-      final repo = await _loggedInRepository(mailService);
-
-      await expectLater(
-        repo.sendEmail(
+        final email = await repo.sendEmail(
           to: ['a@example.com'],
           subject: 'Konu',
           body: 'Gövde',
-          idempotencyKey: 'stable-key',
-        ),
-        throwsA(isA<SendBeforeDeliveryException>()),
-      );
-      expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
-      expect(mailService.sendCalls.single.idempotencyKey, 'stable-key');
-    });
+        );
 
-    test('saveDraft uses the server-assigned mailId and caches it under Drafts', () async {
-      final mailService = _RecordingMailService()..draftMailId = 'draft-42';
-      final repo = await _loggedInRepository(mailService);
+        expect(email.folder, MailFolder.sent);
+        expect(repo.getEmailsInFolder(MailFolder.sent).single.id, email.id);
+        expect(mailService.sendCalls.single.idempotencyKey, isNotEmpty);
+      },
+    );
 
-      final email = await repo.saveDraft(to: ['a@example.com'], subject: 'Taslak');
+    test(
+      'sendEmail forwards bodyHtml to the service and echoes it locally',
+      () async {
+        final mailService = _RecordingMailService();
+        final repo = await _loggedInRepository(mailService);
 
-      expect(email.id, 'draft-42');
-      expect(email.folder, MailFolder.drafts);
-      expect(repo.getEmailsInFolder(MailFolder.drafts).single.id, 'draft-42');
-    });
+        final email = await repo.sendEmail(
+          to: ['a@example.com'],
+          subject: 'Konu',
+          body: '**Gövde**',
+          bodyHtml: '<p><b>Gövde</b></p>',
+        );
 
-    test('removeAccount deletes the account and logs out only when the id matches', () async {
-      final mailService = _RecordingMailService();
-      final repo = await _loggedInRepository(mailService);
+        expect(mailService.sendCalls.single.bodyHtml, '<p><b>Gövde</b></p>');
+        expect(email.bodyHtml, '<p><b>Gövde</b></p>');
+      },
+    );
 
-      await repo.removeAccount('not-the-active-account');
-      expect(mailService.deleteAccountCalled, isFalse);
-      expect(repo.isLoggedIn, isTrue);
+    test(
+      'sendEmail does not cache locally when the server reports no saved copy',
+      () async {
+        final mailService = _RecordingMailService()..sentCopySaved = false;
+        final repo = await _loggedInRepository(mailService);
 
-      await repo.removeAccount('account-1');
-      expect(mailService.deleteAccountCalled, isTrue);
-      expect(repo.isLoggedIn, isFalse);
-    });
+        await repo.sendEmail(
+          to: ['a@example.com'],
+          subject: 'Konu',
+          body: 'Gövde',
+        );
+
+        expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
+      },
+    );
+
+    test(
+      'sendEmail keeps unsuccessful pre-delivery send out of Sent',
+      () async {
+        final mailService = _RecordingMailService()..sent = false;
+        final repo = await _loggedInRepository(mailService);
+
+        await expectLater(
+          repo.sendEmail(
+            to: ['a@example.com'],
+            subject: 'Konu',
+            body: 'Gövde',
+            idempotencyKey: 'stable-key',
+          ),
+          throwsA(isA<SendBeforeDeliveryException>()),
+        );
+        expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
+        expect(mailService.sendCalls.single.idempotencyKey, 'stable-key');
+      },
+    );
+
+    test(
+      'saveDraft uses the server-assigned mailId and caches it under Drafts',
+      () async {
+        final mailService = _RecordingMailService()..draftMailId = 'draft-42';
+        final repo = await _loggedInRepository(mailService);
+
+        final email = await repo.saveDraft(
+          to: ['a@example.com'],
+          subject: 'Taslak',
+        );
+
+        expect(email.id, 'draft-42');
+        expect(email.folder, MailFolder.drafts);
+        expect(repo.getEmailsInFolder(MailFolder.drafts).single.id, 'draft-42');
+      },
+    );
+
+    test(
+      'removeAccount deletes the account and logs out only when the id matches',
+      () async {
+        final mailService = _RecordingMailService();
+        final repo = await _loggedInRepository(mailService);
+
+        await repo.removeAccount('not-the-active-account');
+        expect(mailService.deleteAccountCalled, isFalse);
+        expect(repo.isLoggedIn, isTrue);
+
+        await repo.removeAccount('account-1');
+        expect(mailService.deleteAccountCalled, isTrue);
+        expect(repo.isLoggedIn, isFalse);
+      },
+    );
   });
 }
 
@@ -263,7 +313,10 @@ Future<ApiMailRepository> _loggedInRepository(
     tokenStore: tokenStore,
     deviceIdentifierProvider: const MemoryDeviceIdentifierProvider('device-1'),
   );
-  final repo = ApiMailRepository(authService: authService, mailService: mailService);
+  final repo = ApiMailRepository(
+    authService: authService,
+    mailService: mailService,
+  );
   await repo.restoreSession('person@example.com');
   return repo;
 }
@@ -323,7 +376,10 @@ class _RecordingMailService extends ApiMailService {
 
 /// Reads every no-filename multipart part named [field], in order — how
 /// repeated `To`/`Cc`/`Bcc` values are sent (see `ApiMailService._composeParts`).
-Future<List<String>> _partValues(http.MultipartRequest request, String field) async {
+Future<List<String>> _partValues(
+  http.MultipartRequest request,
+  String field,
+) async {
   final values = <String>[];
   for (final file in request.files) {
     if (file.field != field || file.filename != null) continue;

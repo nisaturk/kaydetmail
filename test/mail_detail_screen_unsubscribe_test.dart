@@ -97,20 +97,19 @@ void main() {
     },
   );
 
-  testWidgets(
-    'shows the unsubscribe menu item for a working mailto fallback',
-    (tester) async {
-      final repo = _FakeRepo(
-        _mailWithHeaders(const {
-          'list-unsubscribe': '<mailto:unsub@example.com?subject=unsubscribe>',
-        }),
-      );
-      await _pumpDetail(tester, repo);
-      await _openOverflowMenu(tester);
+  testWidgets('shows the unsubscribe menu item for a working mailto fallback', (
+    tester,
+  ) async {
+    final repo = _FakeRepo(
+      _mailWithHeaders(const {
+        'list-unsubscribe': '<mailto:unsub@example.com?subject=unsubscribe>',
+      }),
+    );
+    await _pumpDetail(tester, repo);
+    await _openOverflowMenu(tester);
 
-      expect(find.text('Abonelikten Çık'), findsOneWidget);
-    },
-  );
+    expect(find.text('Abonelikten Çık'), findsOneWidget);
+  });
 
   testWidgets(
     'shows the unsubscribe menu item when RFC 8058 one-click is available',

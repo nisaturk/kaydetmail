@@ -21,68 +21,66 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('offline restore', () {
-    test(
-      'restoreSession falls back to the on-device cache when the backend is unreachable',
-      () async {
-        final db = MailCache.inMemory();
-        // A previous, successful launch left its mailbox and folder map on
-        // disk — mirrors what ApiMailRepository.notifyListeners persists.
-        db.apply('account-1', [
-          _mail('mail-1', 'inbox'),
-          _mail('mail-2', 'inbox'),
-        ], const []);
-        db.saveFolders('account-1', {'folder-inbox': 'inbox'});
+    test('restoreSession falls back to the on-device cache when the backend is unreachable', () async {
+      final db = MailCache.inMemory();
+      // A previous, successful launch left its mailbox and folder map on
+      // disk — mirrors what ApiMailRepository.notifyListeners persists.
+      db.apply('account-1', [
+        _mail('mail-1', 'inbox'),
+        _mail('mail-2', 'inbox'),
+      ], const []);
+      db.saveFolders('account-1', {'folder-inbox': 'inbox'});
 
-        final repo = await _restoredRepository(
-          _ToggleableMailService(online: false, folders: const [], pagesByFolderId: const {}),
-          cache: db,
-        );
+      final repo = await _restoredRepository(
+        _ToggleableMailService(
+          online: false,
+          folders: const [],
+          pagesByFolderId: const {},
+        ),
+        cache: db,
+      );
 
-        expect(repo.isLoggedIn, isTrue);
-        expect(repo.isOffline, isTrue);
-        expect(
-          repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
-          unorderedEquals(['mail-1', 'mail-2']),
-        );
-      },
-    );
+      expect(repo.isLoggedIn, isTrue);
+      expect(repo.isOffline, isTrue);
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
+        unorderedEquals(['mail-1', 'mail-2']),
+      );
+    });
 
-    test(
-      'restoreSession still fails when the backend is unreachable and nothing is cached',
-      () async {
-        final tokenStore = TokenStore(storage: _MemoryTokenStorage());
-        await tokenStore.save(
-          accountId: 'account-1',
-          accessToken: 'access',
-          refreshToken: 'refresh',
-        );
-        final authService = ApiAuthService(
-          client: ApiClient(
-            tokenStore: tokenStore,
-            httpClient: MockClient((_) async => http.Response('{}', 200)),
-          ),
+    test('restoreSession still fails when the backend is unreachable and nothing is cached', () async {
+      final tokenStore = TokenStore(storage: _MemoryTokenStorage());
+      await tokenStore.save(
+        accountId: 'account-1',
+        accessToken: 'access',
+        refreshToken: 'refresh',
+      );
+      final authService = ApiAuthService(
+        client: ApiClient(
           tokenStore: tokenStore,
-          deviceIdentifierProvider: const MemoryDeviceIdentifierProvider(
-            'device-1',
-          ),
-        );
-        final repo = ApiMailRepository(
-          authService: authService,
-          mailService: _ToggleableMailService(
-            online: false,
-            folders: const [],
-            pagesByFolderId: const {},
-          ),
-          openCache: () async => MailCache.inMemory(),
-        );
+          httpClient: MockClient((_) async => http.Response('{}', 200)),
+        ),
+        tokenStore: tokenStore,
+        deviceIdentifierProvider: const MemoryDeviceIdentifierProvider(
+          'device-1',
+        ),
+      );
+      final repo = ApiMailRepository(
+        authService: authService,
+        mailService: _ToggleableMailService(
+          online: false,
+          folders: const [],
+          pagesByFolderId: const {},
+        ),
+        openCache: () async => MailCache.inMemory(),
+      );
 
-        await expectLater(
-          repo.restoreSession('person@example.com'),
-          throwsA(anything),
-        );
-        expect(repo.isLoggedIn, isFalse);
-      },
-    );
+      await expectLater(
+        repo.restoreSession('person@example.com'),
+        throwsA(anything),
+      );
+      expect(repo.isLoggedIn, isFalse);
+    });
 
     test(
       'a successful reload after coming back online clears the offline flag',
@@ -130,9 +128,7 @@ Future<ApiMailRepository> _restoredRepository(
       httpClient: MockClient((_) async => http.Response('{}', 200)),
     ),
     tokenStore: tokenStore,
-    deviceIdentifierProvider: const MemoryDeviceIdentifierProvider(
-      'device-1',
-    ),
+    deviceIdentifierProvider: const MemoryDeviceIdentifierProvider('device-1'),
   );
   final repo = ApiMailRepository(
     authService: authService,

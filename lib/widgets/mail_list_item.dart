@@ -66,7 +66,8 @@ class MailListItem extends StatelessWidget {
   /// (Gmail-style) — Inbox mail with no reply sent yet, or Sent mail with
   /// no reply received back yet. Purely a display hint computed from
   /// fields the row already has, no repository access needed.
-  static const Duration _nudgeThreshold = MailRepository.unansweredReminderThreshold;
+  static const Duration _nudgeThreshold =
+      MailRepository.unansweredReminderThreshold;
 
   bool get _needsReply {
     if (!MailRepository.unansweredReminderEnabled) return false;

@@ -128,10 +128,7 @@ void main() {
     await tester.tap(find.byKey(const Key('rule-save-button')));
     await tester.pumpAndSettle();
 
-    expect(
-      find.text('Gönderen adresi "fatura" içeriyor'),
-      findsOneWidget,
-    );
+    expect(find.text('Gönderen adresi "fatura" içeriyor'), findsOneWidget);
 
     // Delete: confirm the dialog, back to the empty state.
     await tester.tap(find.byTooltip('Sil'));

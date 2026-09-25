@@ -22,7 +22,6 @@ class ManualContact {
 
   /// Best label to show in a list/autocomplete — the display name when set,
   /// otherwise the email itself.
-  String get label => (displayName == null || displayName!.isEmpty)
-      ? email
-      : displayName!;
+  String get label =>
+      (displayName == null || displayName!.isEmpty) ? email : displayName!;
 }

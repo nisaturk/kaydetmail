@@ -75,9 +75,8 @@ class _ScheduledSendsScreenState extends State<ScheduledSendsScreen> {
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
       }
     }
   }
@@ -217,7 +216,10 @@ class _EmptyState extends StatelessWidget {
                       'Yazarken "Gönder" yanındaki oktan bir gönderim '
                       'zamanlayınca burada görünür.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: colors.secondaryText),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
                     ),
                   ],
                 ),

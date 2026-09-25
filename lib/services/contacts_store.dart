@@ -73,19 +73,15 @@ class ContactsStore {
       if (trimmedName.isEmpty) return;
       final key = rawAddress.trim().toLowerCase();
       if (key.isEmpty) return;
-      nameSightings.putIfAbsent(key, () => []).add(
-        _NameSighting(trimmedName, seenAt),
-      );
+      nameSightings
+          .putIfAbsent(key, () => [])
+          .add(_NameSighting(trimmedName, seenAt));
     }
 
     for (final email in emails) {
       see(email.senderEmail, email.timestamp);
       seeName(email.senderEmail, email.senderName, email.timestamp);
-      for (final address in [
-        ...email.recipients,
-        ...email.cc,
-        ...email.bcc,
-      ]) {
+      for (final address in [...email.recipients, ...email.cc, ...email.bcc]) {
         see(address, email.timestamp);
       }
     }
@@ -100,7 +96,9 @@ class ContactsStore {
         sightings.sort((a, b) => b.seenAt.compareTo(a.seenAt));
         name = sightings.first.name;
       }
-      contacts.add(Contact(email: address, displayName: name, lastSeen: entry.value));
+      contacts.add(
+        Contact(email: address, displayName: name, lastSeen: entry.value),
+      );
     }
     contacts.sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
     return contacts;

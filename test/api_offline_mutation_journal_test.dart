@@ -19,67 +19,58 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
-  test(
-    'a read mutation that fails while offline still applies locally, then '
-    'replays exactly once after reconnecting',
-    () async {
-      final mailService = _RecordingMailService();
-      final db = MailCache.inMemory();
-      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+  test('a read mutation that fails while offline still applies locally, then '
+      'replays exactly once after reconnecting', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
 
-      mailService.failBulkAction = true;
-      await repo.markAsRead(['mail-1']);
+    mailService.failBulkAction = true;
+    await repo.markAsRead(['mail-1']);
 
-      // Applied optimistically even though the network call failed.
-      expect(
-        repo.getEmailsInFolder(MailFolder.inbox).single.isRead,
-        isTrue,
-      );
-      expect(repo.isOffline, isTrue);
-      mailService.bulkActionCalls.clear();
+    // Applied optimistically even though the network call failed.
+    expect(repo.getEmailsInFolder(MailFolder.inbox).single.isRead, isTrue);
+    expect(repo.isOffline, isTrue);
+    mailService.bulkActionCalls.clear();
 
-      // Back online: the next successful network round-trip replays the
-      // queue exactly once.
-      mailService.failBulkAction = false;
-      await repo.refreshEmails(MailFolder.inbox);
-      // refreshEmails's own network call plus the replay's bulkAction call.
-      expect(mailService.bulkActionCalls, ['read:mail-1']);
-      expect(repo.isOffline, isFalse);
+    // Back online: the next successful network round-trip replays the
+    // queue exactly once.
+    mailService.failBulkAction = false;
+    await repo.refreshEmails(MailFolder.inbox);
+    // refreshEmails's own network call plus the replay's bulkAction call.
+    expect(mailService.bulkActionCalls, ['read:mail-1']);
+    expect(repo.isOffline, isFalse);
 
-      // A second successful reconnect-style call must NOT replay again —
-      // the queue was cleared after the first successful replay.
-      await repo.refreshEmails(MailFolder.inbox);
-      expect(mailService.bulkActionCalls, ['read:mail-1']);
-    },
-  );
+    // A second successful reconnect-style call must NOT replay again —
+    // the queue was cleared after the first successful replay.
+    await repo.refreshEmails(MailFolder.inbox);
+    expect(mailService.bulkActionCalls, ['read:mail-1']);
+  });
 
-  test(
-    'a replay that comes back as a mailbox conflict drops the queued '
-    'mutation and surfaces it instead of retrying forever',
-    () async {
-      final mailService = _RecordingMailService();
-      final db = MailCache.inMemory();
-      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+  test('a replay that comes back as a mailbox conflict drops the queued '
+      'mutation and surfaces it instead of retrying forever', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
 
-      mailService.failBulkAction = true;
-      await repo.markAsRead(['mail-1']);
-      mailService.bulkActionCalls.clear();
+    mailService.failBulkAction = true;
+    await repo.markAsRead(['mail-1']);
+    mailService.bulkActionCalls.clear();
 
-      mailService.failBulkAction = false;
-      mailService.forcedResultCodes['mail-1'] = 'mail_operation_conflict';
-      await repo.refreshEmails(MailFolder.inbox);
+    mailService.failBulkAction = false;
+    mailService.forcedResultCodes['mail-1'] = 'mail_operation_conflict';
+    await repo.refreshEmails(MailFolder.inbox);
 
-      expect(repo.offlineMutationConflicts, ['mail-1']);
+    expect(repo.offlineMutationConflicts, ['mail-1']);
 
-      // Dismissing clears it, and it does not reappear on a further
-      // reconnect (the queue entry was dropped, not retried).
-      repo.dismissMutationConflict('mail-1');
-      expect(repo.offlineMutationConflicts, isEmpty);
-      mailService.bulkActionCalls.clear();
-      await repo.refreshEmails(MailFolder.inbox);
-      expect(mailService.bulkActionCalls, isEmpty);
-    },
-  );
+    // Dismissing clears it, and it does not reappear on a further
+    // reconnect (the queue entry was dropped, not retried).
+    repo.dismissMutationConflict('mail-1');
+    expect(repo.offlineMutationConflicts, isEmpty);
+    mailService.bulkActionCalls.clear();
+    await repo.refreshEmails(MailFolder.inbox);
+    expect(mailService.bulkActionCalls, isEmpty);
+  });
 
   test(
     'toggling read then unread while offline only replays the final state',
@@ -92,10 +83,7 @@ void main() {
       await repo.markAsRead(['mail-1']);
       await repo.markAsUnread(['mail-1']);
       mailService.bulkActionCalls.clear();
-      expect(
-        repo.getEmailsInFolder(MailFolder.inbox).single.isRead,
-        isFalse,
-      );
+      expect(repo.getEmailsInFolder(MailFolder.inbox).single.isRead, isFalse);
 
       mailService.failBulkAction = false;
       await repo.refreshEmails(MailFolder.inbox);
@@ -134,25 +122,22 @@ void main() {
     expect(mailService.bulkActionCalls, ['archive:mail-1']);
   });
 
-  test(
-    'archiving then trashing the same mail while offline collapses to one '
-    'replayed location mutation',
-    () async {
-      final mailService = _RecordingMailService();
-      final db = MailCache.inMemory();
-      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+  test('archiving then trashing the same mail while offline collapses to one '
+      'replayed location mutation', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
 
-      mailService.failBulkAction = true;
-      await repo.moveToFolder(['mail-1'], MailFolder.archive);
-      await repo.moveToTrash(['mail-1']);
-      expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
-      mailService.bulkActionCalls.clear();
+    mailService.failBulkAction = true;
+    await repo.moveToFolder(['mail-1'], MailFolder.archive);
+    await repo.moveToTrash(['mail-1']);
+    expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+    mailService.bulkActionCalls.clear();
 
-      mailService.failBulkAction = false;
-      await repo.refreshEmails(MailFolder.inbox);
-      expect(mailService.bulkActionCalls, ['trash:mail-1']);
-    },
-  );
+    mailService.failBulkAction = false;
+    await repo.refreshEmails(MailFolder.inbox);
+    expect(mailService.bulkActionCalls, ['trash:mail-1']);
+  });
 
   test(
     'restore offline files the mail into Inbox as a placeholder, then '
@@ -177,36 +162,32 @@ void main() {
       mailService.failBulkAction = false;
       await repo.refreshEmails(MailFolder.inbox);
       expect(mailService.bulkActionCalls, ['restore:mail-t']);
-      expect(
-        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
-        ['mail-1'],
-      );
+      expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+        'mail-1',
+      ]);
       expect(repo.getEmailsInFolder(MailFolder.archive).single.id, 'mail-t');
     },
   );
 
-  test(
-    'a non-read operation replay conflict drops the queued mutation and '
-    'surfaces it, same as read/unread',
-    () async {
-      final mailService = _RecordingMailService();
-      final db = MailCache.inMemory();
-      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+  test('a non-read operation replay conflict drops the queued mutation and '
+      'surfaces it, same as read/unread', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
 
-      mailService.failBulkAction = true;
-      await repo.setStarred(['mail-1'], true);
-      mailService.bulkActionCalls.clear();
+    mailService.failBulkAction = true;
+    await repo.setStarred(['mail-1'], true);
+    mailService.bulkActionCalls.clear();
 
-      mailService.failBulkAction = false;
-      mailService.forcedResultCodes['mail-1'] = 'mail_not_found';
-      await repo.refreshEmails(MailFolder.inbox);
+    mailService.failBulkAction = false;
+    mailService.forcedResultCodes['mail-1'] = 'mail_not_found';
+    await repo.refreshEmails(MailFolder.inbox);
 
-      expect(repo.offlineMutationConflicts, ['mail-1']);
-      mailService.bulkActionCalls.clear();
-      await repo.refreshEmails(MailFolder.inbox);
-      expect(mailService.bulkActionCalls, isEmpty);
-    },
-  );
+    expect(repo.offlineMutationConflicts, ['mail-1']);
+    mailService.bulkActionCalls.clear();
+    await repo.refreshEmails(MailFolder.inbox);
+    expect(mailService.bulkActionCalls, isEmpty);
+  });
 }
 
 Future<ApiMailRepository> _repositoryWithLoadedInbox(
@@ -303,7 +284,12 @@ class _RecordingMailService extends ApiMailService {
             timestamp: DateTime.parse('2026-09-17T01:56:58Z'),
             isRead: false,
           );
-    return MailListPage(items: [item], page: page, pageSize: pageSize, total: 1);
+    return MailListPage(
+      items: [item],
+      page: page,
+      pageSize: pageSize,
+      total: 1,
+    );
   }
 
   @override
@@ -311,7 +297,9 @@ class _RecordingMailService extends ApiMailService {
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
   }) async {
-    final folder = resolveFolder(restoreDestinationFolderId[id] ?? 'folder-inbox');
+    final folder = resolveFolder(
+      restoreDestinationFolderId[id] ?? 'folder-inbox',
+    );
     return Email(
       id: id,
       senderName: 'Sender',

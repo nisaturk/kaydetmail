@@ -53,10 +53,7 @@ void main() {
     cache.saveFolders('acc', {'folder-1': 'inbox', 'folder-2': 'sent'});
     cache.saveFolders('other', {'folder-9': 'trash'});
 
-    expect(cache.loadFolders('acc'), {
-      'folder-1': 'inbox',
-      'folder-2': 'sent',
-    });
+    expect(cache.loadFolders('acc'), {'folder-1': 'inbox', 'folder-2': 'sent'});
     expect(cache.loadFolders('other'), {'folder-9': 'trash'});
 
     // Re-saving replaces the previous map instead of merging into it.
