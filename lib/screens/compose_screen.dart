@@ -401,8 +401,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
         false;
   }
 
-  List<String> _addressStrings(List<_Recipient> recipients) =>
-      [for (final recipient in recipients) recipient.address];
+  List<String> _addressStrings(List<_Recipient> recipients) => [
+    for (final recipient in recipients) recipient.address,
+  ];
 
   /// Turns whatever is left in [input] into a chip in [recipients] (used on
   /// submit/Enter and right before send/save so an address the user typed
@@ -414,7 +415,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
   ) {
     final address = input.text.trim();
     if (address.isEmpty) return;
-    recipients.add(_Recipient(address, valid: _emailShapePattern.hasMatch(address)));
+    recipients.add(
+      _Recipient(address, valid: _emailShapePattern.hasMatch(address)),
+    );
     input.clear();
   }
 
@@ -439,7 +442,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     setState(() {
       for (final part in parts) {
         if (part.isEmpty) continue;
-        recipients.add(_Recipient(part, valid: _emailShapePattern.hasMatch(part)));
+        recipients.add(
+          _Recipient(part, valid: _emailShapePattern.hasMatch(part)),
+        );
       }
       input.value = TextEditingValue(
         text: pending,
@@ -490,10 +495,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final existing = {
       for (final r in currentRecipients) r.address.toLowerCase(),
     };
-    final matches = ContactsStore.search(_contacts, trimmed)
-        .where((c) => !existing.contains(c.email.toLowerCase()))
-        .take(5)
-        .toList();
+    final matches = ContactsStore.search(
+      _contacts,
+      trimmed,
+    ).where((c) => !existing.contains(c.email.toLowerCase())).take(5).toList();
     if (matches.isEmpty) return;
     final entry = OverlayEntry(
       builder: (_) => Positioned(
@@ -502,7 +507,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
           link: link,
           showWhenUnlinked: false,
           offset: const Offset(0, 4),
-          child: _ContactSuggestionList(contacts: matches, onSelected: onSelected),
+          child: _ContactSuggestionList(
+            contacts: matches,
+            onSelected: onSelected,
+          ),
         ),
       ),
     );
@@ -517,7 +525,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
   ) {
     setState(() {
       recipients.add(
-        _Recipient(contact.email, valid: _emailShapePattern.hasMatch(contact.email)),
+        _Recipient(
+          contact.email,
+          valid: _emailShapePattern.hasMatch(contact.email),
+        ),
       );
       input.clear();
     });
@@ -537,7 +548,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// real typing.
   Future<void> _syncSignature() async {
     if (!_signatureEligible) return;
-    final expected = _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
+    final expected =
+        _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
     if (_bodyController.text != expected) return;
     final account = _fromAccount;
     if (account == null) return;
@@ -612,7 +624,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final hasSelection = selection.isValid && selection.start != selection.end;
     final insertStart = selection.isValid ? selection.start : text.length;
     final insertEnd = selection.isValid ? selection.end : text.length;
-    final label = hasSelection ? text.substring(insertStart, insertEnd) : 'bağlantı';
+    final label = hasSelection
+        ? text.substring(insertStart, insertEnd)
+        : 'bağlantı';
 
     final url = await showDialog<String>(
       context: context,
@@ -671,11 +685,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _toFocus.requestFocus();
       return false;
     }
-    final allRecipients = [..._toRecipients, ..._ccRecipients, ..._bccRecipients];
+    final allRecipients = [
+      ..._toRecipients,
+      ..._ccRecipients,
+      ..._bccRecipients,
+    ];
     if (allRecipients.any((r) => !r.valid)) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Geçersiz e-posta adreslerini düzeltip tekrar deneyin.'),
+          content: Text(
+            'Geçersiz e-posta adreslerini düzeltip tekrar deneyin.',
+          ),
         ),
       );
       _toFocus.requestFocus();
@@ -753,9 +773,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
     } catch (error) {
       if (mounted) {
         setState(() => _sending = false);
-        messenger.showSnackBar(SnackBar(
-          content: Text('Gönderi kaydedilemedi: ${friendlyErrorMessage(error)}'),
-        ));
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(
+              'Gönderi kaydedilemedi: ${friendlyErrorMessage(error)}',
+            ),
+          ),
+        );
       }
       return;
     }
@@ -824,7 +848,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
       initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
     );
     if (time == null || !mounted) return;
-    final sendAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+    final sendAt = DateTime(
+      date.year,
+      date.month,
+      date.day,
+      time.hour,
+      time.minute,
+    );
     if (!sendAt.isAfter(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Lütfen ileri bir tarih ve saat seçin.')),
@@ -1106,16 +1136,26 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         suggestionLink: _toLink,
                         onRemove: (r) => _removeRecipient(_toRecipients, r),
                         onChanged: (v) {
-                          _onRecipientChanged(_toRecipients, _toInputController, v);
+                          _onRecipientChanged(
+                            _toRecipients,
+                            _toInputController,
+                            v,
+                          );
                           _updateSuggestions(
                             _toLink,
                             v,
                             _toRecipients,
-                            (c) => _commitSuggestion(_toRecipients, _toInputController, c),
+                            (c) => _commitSuggestion(
+                              _toRecipients,
+                              _toInputController,
+                              c,
+                            ),
                           );
                         },
-                        onSubmitted: () =>
-                            _onRecipientSubmitted(_toRecipients, _toInputController),
+                        onSubmitted: () => _onRecipientSubmitted(
+                          _toRecipients,
+                          _toInputController,
+                        ),
                         trailing: (!_ccExpanded || !_bccExpanded)
                             ? PopupMenuButton<String>(
                                 key: const Key('cc-bcc-menu'),
@@ -1124,7 +1164,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
                                 enabled: !_sending,
                                 style: IconButton.styleFrom(
                                   minimumSize: const Size(32, 32),
-                                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                                  tapTargetSize:
+                                      MaterialTapTargetSize.shrinkWrap,
                                 ),
                                 icon: Icon(
                                   LucideIcons.chevronDown,
@@ -1164,16 +1205,26 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           suggestionLink: _ccLink,
                           onRemove: (r) => _removeRecipient(_ccRecipients, r),
                           onChanged: (v) {
-                            _onRecipientChanged(_ccRecipients, _ccInputController, v);
+                            _onRecipientChanged(
+                              _ccRecipients,
+                              _ccInputController,
+                              v,
+                            );
                             _updateSuggestions(
                               _ccLink,
                               v,
                               _ccRecipients,
-                              (c) => _commitSuggestion(_ccRecipients, _ccInputController, c),
+                              (c) => _commitSuggestion(
+                                _ccRecipients,
+                                _ccInputController,
+                                c,
+                              ),
                             );
                           },
-                          onSubmitted: () =>
-                              _onRecipientSubmitted(_ccRecipients, _ccInputController),
+                          onSubmitted: () => _onRecipientSubmitted(
+                            _ccRecipients,
+                            _ccInputController,
+                          ),
                         ),
                       if (_bccExpanded)
                         _recipientFieldRow(
@@ -1186,12 +1237,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           suggestionLink: _bccLink,
                           onRemove: (r) => _removeRecipient(_bccRecipients, r),
                           onChanged: (v) {
-                            _onRecipientChanged(_bccRecipients, _bccInputController, v);
+                            _onRecipientChanged(
+                              _bccRecipients,
+                              _bccInputController,
+                              v,
+                            );
                             _updateSuggestions(
                               _bccLink,
                               v,
                               _bccRecipients,
-                              (c) => _commitSuggestion(_bccRecipients, _bccInputController, c),
+                              (c) => _commitSuggestion(
+                                _bccRecipients,
+                                _bccInputController,
+                                c,
+                              ),
                             );
                           },
                           onSubmitted: () => _onRecipientSubmitted(
@@ -1253,7 +1312,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// bullet-prefixes the current line(s), and the link button prompts for a
   /// URL. See `_wrapSelection`/`_toggleBulletList`/`_insertLink`.
   Widget _formattingToolbar(AppColors colors) {
-    Widget button(Key key, IconData icon, String tooltip, VoidCallback onPressed) {
+    Widget button(
+      Key key,
+      IconData icon,
+      String tooltip,
+      VoidCallback onPressed,
+    ) {
       return IconButton(
         key: key,
         icon: Icon(icon, size: AppTheme.iconSizeMedium),
@@ -1556,7 +1620,9 @@ class _RecipientChip extends StatelessWidget {
       backgroundColor: destructive
           ? colors.destructive.withValues(alpha: 0.12)
           : colors.surfaceAlt,
-      labelStyle: TextStyle(color: destructive ? colors.destructive : colors.bodyText),
+      labelStyle: TextStyle(
+        color: destructive ? colors.destructive : colors.bodyText,
+      ),
       deleteIcon: Icon(
         LucideIcons.x,
         size: 14,
@@ -1633,7 +1699,10 @@ class _AttachmentRow extends StatelessWidget {
                   else if (downloading)
                     Text(
                       'İndiriliyor…',
-                      style: TextStyle(fontSize: 11, color: colors.secondaryText),
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: colors.secondaryText,
+                      ),
                     ),
                 ],
               ),
@@ -1721,7 +1790,10 @@ class _UndoSendSnackContentState extends State<_UndoSendSnackContent> {
 /// via [CompositedTransformFollower]/[CompositedTransformTarget] (see
 /// `_ComposeScreenState._updateSuggestions`).
 class _ContactSuggestionList extends StatelessWidget {
-  const _ContactSuggestionList({required this.contacts, required this.onSelected});
+  const _ContactSuggestionList({
+    required this.contacts,
+    required this.onSelected,
+  });
 
   final List<Contact> contacts;
   final void Function(Contact) onSelected;

@@ -56,36 +56,42 @@ void main() {
       expect(markerWithoutWebUrl!.oneClick, isFalse);
     });
 
-    test('is not actionable for a header present but with only malformed URLs', () {
-      final noHost = parseUnsubscribeHeaders(const {
-        'list-unsubscribe': '<https://>',
-      });
-      expect(noHost, isNotNull);
-      expect(noHost!.hasAction, isFalse);
-      expect(noHost.webUrl, isNull);
+    test(
+      'is not actionable for a header present but with only malformed URLs',
+      () {
+        final noHost = parseUnsubscribeHeaders(const {
+          'list-unsubscribe': '<https://>',
+        });
+        expect(noHost, isNotNull);
+        expect(noHost!.hasAction, isFalse);
+        expect(noHost.webUrl, isNull);
 
-      final emptyMailto = parseUnsubscribeHeaders(const {
-        'list-unsubscribe': '<mailto:>',
-      });
-      expect(emptyMailto!.hasAction, isFalse);
+        final emptyMailto = parseUnsubscribeHeaders(const {
+          'list-unsubscribe': '<mailto:>',
+        });
+        expect(emptyMailto!.hasAction, isFalse);
 
-      final unsupportedScheme = parseUnsubscribeHeaders(const {
-        'list-unsubscribe': '<ftp://example.com/unsub>',
-      });
-      expect(unsupportedScheme!.hasAction, isFalse);
+        final unsupportedScheme = parseUnsubscribeHeaders(const {
+          'list-unsubscribe': '<ftp://example.com/unsub>',
+        });
+        expect(unsupportedScheme!.hasAction, isFalse);
 
-      final unparseableGarbage = parseUnsubscribeHeaders(const {
-        'list-unsubscribe': 'not-a-url-at-all-no-angle-brackets',
-      });
-      expect(unparseableGarbage!.hasAction, isFalse);
-    });
+        final unparseableGarbage = parseUnsubscribeHeaders(const {
+          'list-unsubscribe': 'not-a-url-at-all-no-angle-brackets',
+        });
+        expect(unparseableGarbage!.hasAction, isFalse);
+      },
+    );
 
-    test('falls back to a later valid URL when an earlier one is malformed', () {
-      final info = parseUnsubscribeHeaders(const {
-        'list-unsubscribe': '<https://>, <https://example.com/unsub>',
-      });
-      expect(info!.hasAction, isTrue);
-      expect(info.webUrl, Uri.parse('https://example.com/unsub'));
-    });
+    test(
+      'falls back to a later valid URL when an earlier one is malformed',
+      () {
+        final info = parseUnsubscribeHeaders(const {
+          'list-unsubscribe': '<https://>, <https://example.com/unsub>',
+        });
+        expect(info!.hasAction, isTrue);
+        expect(info.webUrl, Uri.parse('https://example.com/unsub'));
+      },
+    );
   });
 }

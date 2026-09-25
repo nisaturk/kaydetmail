@@ -69,23 +69,20 @@ void main() {
       },
     );
 
-    test(
-      'login does not overwrite an existing backend signature with a stale local one',
-      () async {
-        SharedPreferences.setMockInitialValues({});
-        await SignatureStore.save('person@example.com', 'Eski cihaz imzası');
-        final service = _FakeMailService(
-          email: 'person@example.com',
-          remoteSignature: 'Sunucu imzası',
-        );
+    test('login does not overwrite an existing backend signature with a stale local one', () async {
+      SharedPreferences.setMockInitialValues({});
+      await SignatureStore.save('person@example.com', 'Eski cihaz imzası');
+      final service = _FakeMailService(
+        email: 'person@example.com',
+        remoteSignature: 'Sunucu imzası',
+      );
 
-        final repo = await _repository(service);
-        await Future<void>.delayed(const Duration(milliseconds: 20));
+      final repo = await _repository(service);
+      await Future<void>.delayed(const Duration(milliseconds: 20));
 
-        expect(service.updatedSignatures, isEmpty);
-        expect(repo.accounts.single.signature, 'Sunucu imzası');
-      },
-    );
+      expect(service.updatedSignatures, isEmpty);
+      expect(repo.accounts.single.signature, 'Sunucu imzası');
+    });
   });
 }
 
@@ -104,7 +101,10 @@ Future<ApiMailRepository> _repository(_FakeMailService service) async {
     tokenStore: tokenStore,
     deviceIdentifierProvider: const MemoryDeviceIdentifierProvider('device-1'),
   );
-  final repo = ApiMailRepository(authService: authService, mailService: service);
+  final repo = ApiMailRepository(
+    authService: authService,
+    mailService: service,
+  );
   await repo.restoreSession(service.email);
   return repo;
 }

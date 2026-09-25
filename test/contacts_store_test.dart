@@ -97,8 +97,16 @@ void main() {
 
   test('sorts most-recently-seen first', () {
     final contacts = ContactsStore.fromEmails([
-      _mail(id: '1', senderEmail: 'old@example.com', timestamp: DateTime(2024, 1, 1)),
-      _mail(id: '2', senderEmail: 'new@example.com', timestamp: DateTime(2024, 6, 1)),
+      _mail(
+        id: '1',
+        senderEmail: 'old@example.com',
+        timestamp: DateTime(2024, 1, 1),
+      ),
+      _mail(
+        id: '2',
+        senderEmail: 'new@example.com',
+        timestamp: DateTime(2024, 6, 1),
+      ),
     ]);
     expect(contacts.map((c) => c.email).toList(), [
       'new@example.com',
@@ -128,13 +136,20 @@ void main() {
 
   test('search matches email or display name, case-insensitively, and requires a query', () {
     final contacts = [
-      Contact(email: 'alice@example.com', displayName: 'Alice A', lastSeen: DateTime(2024, 1, 1)),
-      Contact(email: 'bob@example.com', displayName: 'Bob B', lastSeen: DateTime(2024, 1, 1)),
+      Contact(
+        email: 'alice@example.com',
+        displayName: 'Alice A',
+        lastSeen: DateTime(2024, 1, 1),
+      ),
+      Contact(
+        email: 'bob@example.com',
+        displayName: 'Bob B',
+        lastSeen: DateTime(2024, 1, 1),
+      ),
     ];
-    expect(
-      ContactsStore.search(contacts, 'ali').map((c) => c.email),
-      ['alice@example.com'],
-    );
+    expect(ContactsStore.search(contacts, 'ali').map((c) => c.email), [
+      'alice@example.com',
+    ]);
     expect(ContactsStore.search(contacts, 'EXAMPLE').length, 2);
     expect(ContactsStore.search(contacts, ''), isEmpty);
   });
@@ -163,66 +178,75 @@ void main() {
       expect(merged.single.displayName, 'Yeni İsim');
     });
 
-    test('ingest persists contacts so loadPersisted finds them after a restart', () async {
-      await ContactsStore.ingest([
-        _mail(
-          id: 'm1',
-          senderEmail: 'kalici@x.com',
-          senderName: 'Kalıcı Kişi',
-          timestamp: DateTime(2024, 1, 1),
-        ),
-      ]);
-
-      // Simulates a fresh app start: drop the in-memory cache and reload
-      // purely from SharedPreferences.
-      ContactsStore.resetForTest();
-      final persisted = await ContactsStore.loadPersisted();
-
-      expect(persisted.map((c) => c.email), contains('kalici@x.com'));
-    });
-
     test(
-      'a contact from mail synced after startListening was called becomes searchable',
+      'ingest persists contacts so loadPersisted finds them after a restart',
       () async {
-        final repo = _FakeRepo(const []);
-        ContactsStore.startListening(repo);
-        await pumpEventQueue();
-
-        expect(ContactsStore.search(ContactsStore.cachedPersisted, 'sonradan'), isEmpty);
-
-        repo.addSyncedMail([
+        await ContactsStore.ingest([
           _mail(
-            id: 'm2',
-            senderEmail: 'sonradan@x.com',
-            senderName: 'Sonradan Gelen',
-            timestamp: DateTime(2024, 2, 1),
+            id: 'm1',
+            senderEmail: 'kalici@x.com',
+            senderName: 'Kalıcı Kişi',
+            timestamp: DateTime(2024, 1, 1),
           ),
         ]);
-        await pumpEventQueue();
 
-        final found = ContactsStore.search(ContactsStore.cachedPersisted, 'sonradan');
-        expect(found.map((c) => c.email), contains('sonradan@x.com'));
+        // Simulates a fresh app start: drop the in-memory cache and reload
+        // purely from SharedPreferences.
+        ContactsStore.resetForTest();
+        final persisted = await ContactsStore.loadPersisted();
+
+        expect(persisted.map((c) => c.email), contains('kalici@x.com'));
       },
     );
 
-    test('startListening only re-ingests mail with an id not seen before', () async {
-      final mail = _mail(
-        id: 'm3',
-        senderEmail: 'tekrar@x.com',
-        timestamp: DateTime(2024, 1, 1),
-      );
-      final repo = _FakeRepo([mail]);
+    test('a contact from mail synced after startListening was called becomes searchable', () async {
+      final repo = _FakeRepo(const []);
       ContactsStore.startListening(repo);
       await pumpEventQueue();
 
-      // An unrelated notification (same mail, no new ids) must not throw or
-      // duplicate anything — merge already keeps this idempotent either way,
-      // this just proves the id-diffing skip path is exercised safely.
-      repo.addSyncedMail(const []);
+      expect(
+        ContactsStore.search(ContactsStore.cachedPersisted, 'sonradan'),
+        isEmpty,
+      );
+
+      repo.addSyncedMail([
+        _mail(
+          id: 'm2',
+          senderEmail: 'sonradan@x.com',
+          senderName: 'Sonradan Gelen',
+          timestamp: DateTime(2024, 2, 1),
+        ),
+      ]);
       await pumpEventQueue();
 
-      final persisted = await ContactsStore.loadPersisted();
-      expect(persisted.where((c) => c.email == 'tekrar@x.com'), hasLength(1));
+      final found = ContactsStore.search(
+        ContactsStore.cachedPersisted,
+        'sonradan',
+      );
+      expect(found.map((c) => c.email), contains('sonradan@x.com'));
     });
+
+    test(
+      'startListening only re-ingests mail with an id not seen before',
+      () async {
+        final mail = _mail(
+          id: 'm3',
+          senderEmail: 'tekrar@x.com',
+          timestamp: DateTime(2024, 1, 1),
+        );
+        final repo = _FakeRepo([mail]);
+        ContactsStore.startListening(repo);
+        await pumpEventQueue();
+
+        // An unrelated notification (same mail, no new ids) must not throw or
+        // duplicate anything — merge already keeps this idempotent either way,
+        // this just proves the id-diffing skip path is exercised safely.
+        repo.addSyncedMail(const []);
+        await pumpEventQueue();
+
+        final persisted = await ContactsStore.loadPersisted();
+        expect(persisted.where((c) => c.email == 'tekrar@x.com'), hasLength(1));
+      },
+    );
   });
 }

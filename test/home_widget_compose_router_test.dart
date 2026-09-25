@@ -144,7 +144,10 @@ void main() {
 
   test('HomeWidgetService.isComposeUri matches only the compose host', () {
     expect(HomeWidgetService.isComposeUri(composeUri), isTrue);
-    expect(HomeWidgetService.isComposeUri(Uri.parse('kaydetmail://other')), isFalse);
+    expect(
+      HomeWidgetService.isComposeUri(Uri.parse('kaydetmail://other')),
+      isFalse,
+    );
     expect(HomeWidgetService.isComposeUri(null), isFalse);
   });
 }

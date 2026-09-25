@@ -55,13 +55,14 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
     try {
       await AppConfig.mailRepository.setSignature(accountId, controller.text);
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('İmza kaydedildi.')));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(const SnackBar(content: Text('İmza kaydedildi.')));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('İmza kaydedilemedi: ${friendlyErrorMessage(e)}')),
+        SnackBar(
+          content: Text('İmza kaydedilemedi: ${friendlyErrorMessage(e)}'),
+        ),
       );
     } finally {
       if (mounted) setState(() => _saving.remove(accountId));
@@ -81,13 +82,12 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
               padding: const EdgeInsets.all(16),
               itemCount: _accounts.length,
               separatorBuilder: (_, _) => const SizedBox(height: 24),
-              itemBuilder: (context, index) =>
-                  _AccountSignatureEditor(
-                    account: _accounts[index],
-                    controller: _controllers[_accounts[index].id]!,
-                    saving: _saving.contains(_accounts[index].id),
-                    onSave: () => _save(_accounts[index].id),
-                  ),
+              itemBuilder: (context, index) => _AccountSignatureEditor(
+                account: _accounts[index],
+                controller: _controllers[_accounts[index].id]!,
+                saving: _saving.contains(_accounts[index].id),
+                onSave: () => _save(_accounts[index].id),
+              ),
             ),
     );
   }

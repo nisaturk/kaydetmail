@@ -100,86 +100,89 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
           constraints: const BoxConstraints(maxWidth: 420),
           child: AutofillGroup(
             child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                TextFormField(
-                  key: const Key('new-email-field'),
-                  controller: _emailController,
-                  keyboardType: TextInputType.emailAddress,
-                  autofillHints: const [
-                    AutofillHints.email,
-                    AutofillHints.username,
-                  ],
-                  textInputAction: TextInputAction.next,
-                  validator: (value) {
-                    final text = value?.trim() ?? '';
-                    if (text.isEmpty) return 'E-posta adresi zorunludur';
-                    if (!_emailPattern.hasMatch(text)) {
-                      return 'Geçerli bir e-posta adresi girin';
-                    }
-                    return null;
-                  },
-                  decoration: const InputDecoration(
-                    labelText: 'E-posta',
-                    prefixIcon: Icon(LucideIcons.mail, size: 20),
+              key: _formKey,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  TextFormField(
+                    key: const Key('new-email-field'),
+                    controller: _emailController,
+                    keyboardType: TextInputType.emailAddress,
+                    autofillHints: const [
+                      AutofillHints.email,
+                      AutofillHints.username,
+                    ],
+                    textInputAction: TextInputAction.next,
+                    validator: (value) {
+                      final text = value?.trim() ?? '';
+                      if (text.isEmpty) return 'E-posta adresi zorunludur';
+                      if (!_emailPattern.hasMatch(text)) {
+                        return 'Geçerli bir e-posta adresi girin';
+                      }
+                      return null;
+                    },
+                    decoration: const InputDecoration(
+                      labelText: 'E-posta',
+                      prefixIcon: Icon(LucideIcons.mail, size: 20),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 16),
-                TextFormField(
-                  key: const Key('new-password-field'),
-                  controller: _passwordController,
-                  obscureText: _obscurePassword,
-                  autofillHints: const [AutofillHints.password],
-                  textInputAction: TextInputAction.done,
-                  onFieldSubmitted: (_) => _connect(),
-                  validator: (value) {
-                    final text = value ?? '';
-                    if (text.isEmpty) return 'Şifre zorunludur';
-                    return null;
-                  },
-                  decoration: InputDecoration(
-                    labelText: 'Şifre',
-                    prefixIcon: const Icon(LucideIcons.lock, size: 20),
-                    suffixIcon: IconButton(
-                      tooltip: _obscurePassword
-                          ? 'Şifreyi göster'
-                          : 'Şifreyi gizle',
-                      onPressed: () =>
-                          setState(() => _obscurePassword = !_obscurePassword),
-                      icon: Icon(
-                        _obscurePassword ? LucideIcons.eye : LucideIcons.eyeOff,
-                        size: 20,
+                  const SizedBox(height: 16),
+                  TextFormField(
+                    key: const Key('new-password-field'),
+                    controller: _passwordController,
+                    obscureText: _obscurePassword,
+                    autofillHints: const [AutofillHints.password],
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _connect(),
+                    validator: (value) {
+                      final text = value ?? '';
+                      if (text.isEmpty) return 'Şifre zorunludur';
+                      return null;
+                    },
+                    decoration: InputDecoration(
+                      labelText: 'Şifre',
+                      prefixIcon: const Icon(LucideIcons.lock, size: 20),
+                      suffixIcon: IconButton(
+                        tooltip: _obscurePassword
+                            ? 'Şifreyi göster'
+                            : 'Şifreyi gizle',
+                        onPressed: () => setState(
+                          () => _obscurePassword = !_obscurePassword,
+                        ),
+                        icon: Icon(
+                          _obscurePassword
+                              ? LucideIcons.eye
+                              : LucideIcons.eyeOff,
+                          size: 20,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                if (_error != null) ...[
-                  const SizedBox(height: 12),
-                  Text(
-                    _error!,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: AppTheme.colors(context).destructive,
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: AppTheme.colors(context).destructive,
+                      ),
                     ),
+                  ],
+                  const SizedBox(height: 24),
+                  FilledButton(
+                    key: const Key('connect-button'),
+                    onPressed: _connecting ? null : _connect,
+                    child: _connecting
+                        ? SizedBox(
+                            width: 22,
+                            height: 22,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2.5,
+                              color: Theme.of(context).colorScheme.onPrimary,
+                            ),
+                          )
+                        : const Text('Bağla'),
                   ),
-                ],
-                const SizedBox(height: 24),
-                FilledButton(
-                  key: const Key('connect-button'),
-                  onPressed: _connecting ? null : _connect,
-                  child: _connecting
-                      ? SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(
-                            strokeWidth: 2.5,
-                            color: Theme.of(context).colorScheme.onPrimary,
-                          ),
-                        )
-                      : const Text('Bağla'),
-                ),
                 ],
               ),
             ),

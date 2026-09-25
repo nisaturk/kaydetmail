@@ -359,37 +359,34 @@ void main() {
     },
   );
 
-  testWidgets(
-    'a waitingForNetwork send is redispatched automatically once the '
-    'network-retry timer fires, with no user action',
-    (tester) async {
-      await tester.pumpWidget(const SizedBox());
-      addTearDown(AppConfig.resetForTest);
-      final fake = _FakeMailRepository()..succeedNextSend = false;
-      AppConfig.mailRepositoryForTest = fake;
-      final store = OutboxStore.inMemory();
-      final queue = PendingSendQueue.forTest(store);
-      await queue.enqueue(
-        const PendingSend(
-          id: 'send-auto',
-          to: ['a@b.com'],
-          subject: 'S',
-          body: 'B',
-        ),
-        sendEmail: _send(
-          (_) async =>
-              throw const ApiException(status: 0, code: 'network_unavailable'),
-        ),
-      );
-      await queue.flushPending();
-      expect(store.load().single.status, OutboxStatus.waitingForNetwork);
+  testWidgets('a waitingForNetwork send is redispatched automatically once the '
+      'network-retry timer fires, with no user action', (tester) async {
+    await tester.pumpWidget(const SizedBox());
+    addTearDown(AppConfig.resetForTest);
+    final fake = _FakeMailRepository()..succeedNextSend = false;
+    AppConfig.mailRepositoryForTest = fake;
+    final store = OutboxStore.inMemory();
+    final queue = PendingSendQueue.forTest(store);
+    await queue.enqueue(
+      const PendingSend(
+        id: 'send-auto',
+        to: ['a@b.com'],
+        subject: 'S',
+        body: 'B',
+      ),
+      sendEmail: _send(
+        (_) async =>
+            throw const ApiException(status: 0, code: 'network_unavailable'),
+      ),
+    );
+    await queue.flushPending();
+    expect(store.load().single.status, OutboxStatus.waitingForNetwork);
 
-      // Network is back by the time the timer fires.
-      fake.succeedNextSend = true;
-      await tester.pump(const Duration(seconds: 16));
-      expect(fake.sendCalls, 1);
-      expect(store.load(), isEmpty);
-      queue.cancelAll();
-    },
-  );
+    // Network is back by the time the timer fires.
+    fake.succeedNextSend = true;
+    await tester.pump(const Duration(seconds: 16));
+    expect(fake.sendCalls, 1);
+    expect(store.load(), isEmpty);
+    queue.cancelAll();
+  });
 }

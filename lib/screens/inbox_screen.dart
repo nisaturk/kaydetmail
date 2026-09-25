@@ -38,8 +38,9 @@ enum _SwipeAction {
 
 /// The action revealed when a row is dragged start-to-end (right in LTR).
 _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
-  MailFolder.inbox || MailFolder.sent || MailFolder.starred =>
-    _SwipeAction.archive,
+  MailFolder.inbox ||
+  MailFolder.sent ||
+  MailFolder.starred => _SwipeAction.archive,
   MailFolder.trash => _SwipeAction.restore,
   MailFolder.spam => _SwipeAction.unspam,
   MailFolder.archive => _SwipeAction.unarchive,
@@ -69,10 +70,7 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
       ),
       _SwipeAction.archive => (label: 'Arşivle', icon: LucideIcons.archive),
       _SwipeAction.restore => (label: 'Geri yükle', icon: LucideIcons.undo2),
-      _SwipeAction.unspam => (
-        label: 'Spam değil',
-        icon: LucideIcons.shieldOff,
-      ),
+      _SwipeAction.unspam => (label: 'Spam değil', icon: LucideIcons.shieldOff),
       _SwipeAction.unarchive => (
         label: 'Arşivden çıkar',
         icon: LucideIcons.archiveRestore,
@@ -257,9 +255,8 @@ class _InboxScreenState extends State<InboxScreen>
       final message = error is ApiException && error.status == 404
           ? 'Eşitleme durumu bulunamadı. Tekrar deneyin.'
           : friendlyErrorMessage(error);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(message)),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(message)));
     }
   }
 
@@ -381,9 +378,8 @@ class _InboxScreenState extends State<InboxScreen>
         _moving.remove(undoKey);
         _dismissed.remove(undoKey);
       });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
     }
   }
 
@@ -538,11 +534,13 @@ class _InboxScreenState extends State<InboxScreen>
                 if (startAction != _SwipeAction.none)
                   CustomSemanticsAction(
                     label: _swipeActionMeta(startAction).label,
-                  ): () => _swipeMove(email, startAction),
+                  ): () =>
+                      _swipeMove(email, startAction),
                 if (endAction != _SwipeAction.none)
                   CustomSemanticsAction(
                     label: _swipeActionMeta(endAction).label,
-                  ): () => _swipeMove(email, endAction),
+                  ): () =>
+                      _swipeMove(email, endAction),
               };
               if (customActions.isNotEmpty) {
                 dismissible = Semantics(

@@ -18,68 +18,69 @@ void main() {
 
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
+  test('addManualContact writes through to the backend and survives a fresh '
+      'repository instance', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
+
+    final created = await repo1.addManualContact(
+      email: 'friend@example.com',
+      displayName: 'Arkadaş',
+    );
+
+    expect(created.email, 'friend@example.com');
+    expect(mailService.contacts, hasLength(1));
+    expect(repo1.getManualContacts().map((c) => c.email), [
+      'friend@example.com',
+    ]);
+
+    // A second repository instance (e.g. after an app restart) reloads
+    // from the backend fake, not local state.
+    final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
+    expect(repo2.getManualContacts().map((c) => c.email), [
+      'friend@example.com',
+    ]);
+  });
+
   test(
-    'addManualContact writes through to the backend and survives a fresh '
-    'repository instance',
+    'addManualContact rejects a duplicate email (case-insensitive)',
     () async {
       final mailService = _RecordingMailService();
-      final db = MailCache.inMemory();
-      final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      await repo.addManualContact(email: 'friend@example.com');
 
-      final created = await repo1.addManualContact(
-        email: 'friend@example.com',
-        displayName: 'Arkadaş',
+      expect(
+        () => repo.addManualContact(email: 'FRIEND@example.com'),
+        throwsArgumentError,
       );
-
-      expect(created.email, 'friend@example.com');
       expect(mailService.contacts, hasLength(1));
-      expect(
-        repo1.getManualContacts().map((c) => c.email),
-        ['friend@example.com'],
-      );
-
-      // A second repository instance (e.g. after an app restart) reloads
-      // from the backend fake, not local state.
-      final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
-      expect(
-        repo2.getManualContacts().map((c) => c.email),
-        ['friend@example.com'],
-      );
     },
   );
 
-  test('addManualContact rejects a duplicate email (case-insensitive)', () async {
-    final mailService = _RecordingMailService();
-    final repo = await _repositoryWithLoadedInbox(mailService);
-    await repo.addManualContact(email: 'friend@example.com');
+  test(
+    'updateManualContact edits email/name; deleteManualContact removes it',
+    () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      final contact = await repo.addManualContact(
+        email: 'old@example.com',
+        displayName: 'Eski',
+      );
 
-    expect(
-      () => repo.addManualContact(email: 'FRIEND@example.com'),
-      throwsArgumentError,
-    );
-    expect(mailService.contacts, hasLength(1));
-  });
+      await repo.updateManualContact(
+        id: contact.id,
+        email: 'new@example.com',
+        displayName: 'Yeni',
+      );
+      expect(repo.getManualContacts().single.email, 'new@example.com');
+      expect(repo.getManualContacts().single.displayName, 'Yeni');
 
-  test('updateManualContact edits email/name; deleteManualContact removes it', () async {
-    final mailService = _RecordingMailService();
-    final repo = await _repositoryWithLoadedInbox(mailService);
-    final contact = await repo.addManualContact(
-      email: 'old@example.com',
-      displayName: 'Eski',
-    );
-
-    await repo.updateManualContact(
-      id: contact.id,
-      email: 'new@example.com',
-      displayName: 'Yeni',
-    );
-    expect(repo.getManualContacts().single.email, 'new@example.com');
-    expect(repo.getManualContacts().single.displayName, 'Yeni');
-
-    await repo.deleteManualContact(contact.id);
-    expect(repo.getManualContacts(), isEmpty);
-    expect(mailService.contacts, isEmpty);
-  });
+      await repo.deleteManualContact(contact.id);
+      expect(repo.getManualContacts(), isEmpty);
+      expect(mailService.contacts, isEmpty);
+    },
+  );
 
   test('a failed delete never desyncs local state', () async {
     final mailService = _RecordingMailService();
@@ -148,7 +149,8 @@ class _RecordingMailService extends ApiMailService {
     bool? isRead,
     bool? hasAttachments,
     String? search,
-  }) async => MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+  }) async =>
+      MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
 
   @override
   Future<List<Map<String, dynamic>>> getContacts() async => List.from(contacts);
@@ -159,7 +161,9 @@ class _RecordingMailService extends ApiMailService {
     String? displayName,
   ) async {
     final normalized = email.toLowerCase();
-    if (contacts.any((c) => (c['email'] as String).toLowerCase() == normalized)) {
+    if (contacts.any(
+      (c) => (c['email'] as String).toLowerCase() == normalized,
+    )) {
       throw const ApiException(status: 409, code: 'contact_already_exists');
     }
     final created = {

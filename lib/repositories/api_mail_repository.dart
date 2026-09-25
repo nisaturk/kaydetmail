@@ -54,6 +54,7 @@ class _Session {
   final Map<MailFolder, int> pages = {};
   final Map<MailFolder, int> serverUnread = {};
   final Map<MailFolder, bool> hasMore = {};
+
   /// Set on every successful `_loadMoreFor`/`_refreshEmailsFor` fetch for
   /// the folder — the "son senkronizasyon" hint on empty/error states.
   final Map<MailFolder, DateTime> lastSynced = {};
@@ -1402,7 +1403,8 @@ class ApiMailRepository extends MailRepository {
       final pairs = [
         for (final s in sessions)
           for (final e in s.emails.values.expand((list) => list))
-            if (_snoozedUntil(s, e.id) case final until?) (email: e, until: until),
+            if (_snoozedUntil(s, e.id) case final until?)
+              (email: e, until: until),
       ];
       pairs.sort((a, b) => a.until.compareTo(b.until));
       return List.unmodifiable([for (final p in pairs) p.email]);
@@ -1946,9 +1948,8 @@ class ApiMailRepository extends MailRepository {
 
   @override
   List<ScheduledSend> getScheduledSends() {
-    final result = [
-      for (final s in _scopedSessions) ...s.scheduledSends,
-    ]..sort((a, b) => a.sendAt.compareTo(b.sendAt));
+    final result = [for (final s in _scopedSessions) ...s.scheduledSends]
+      ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
     return List.unmodifiable(result);
   }
 
@@ -2585,11 +2586,8 @@ class ApiMailRepository extends MailRepository {
           e.key,
           'unread',
           e.value,
-          (succeeded) => _replaceMany(
-            e.key,
-            succeeded,
-            (m) => m.copyWith(isRead: false),
-          ),
+          (succeeded) =>
+              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: false)),
         ),
       ),
     );

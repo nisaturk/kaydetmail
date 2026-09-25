@@ -126,20 +126,14 @@ class LocalMailFlagsStore {
 
   Future<void> writeContacts(List<Map<String, dynamic>> contacts) async =>
       _tx(() {
-        _db.execute(
-          'DELETE FROM manual_contacts WHERE account_id = ?',
-          [_accountId],
-        );
+        _db.execute('DELETE FROM manual_contacts WHERE account_id = ?', [
+          _accountId,
+        ]);
         final stmt = _db.prepare(
           'INSERT INTO manual_contacts VALUES (?, ?, ?, ?)',
         );
         for (final c in contacts) {
-          stmt.execute([
-            _accountId,
-            c['id'],
-            c['email'],
-            c['displayName'],
-          ]);
+          stmt.execute([_accountId, c['id'], c['email'], c['displayName']]);
         }
         stmt.close();
       });

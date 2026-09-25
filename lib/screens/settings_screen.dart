@@ -165,7 +165,11 @@ class _CategoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon, size: 22, color: AppTheme.colors(context).secondaryText),
+      leading: Icon(
+        icon,
+        size: 22,
+        color: AppTheme.colors(context).secondaryText,
+      ),
       title: Text(title),
       subtitle: Text(subtitle),
       trailing: const Icon(LucideIcons.chevronRight, size: 18),
@@ -466,9 +470,7 @@ class _ContactsSection extends StatelessWidget {
               child: Icon(LucideIcons.user, size: 14),
             ),
             title: Text(contact.label),
-            subtitle: contact.displayName == null
-                ? null
-                : Text(contact.email),
+            subtitle: contact.displayName == null ? null : Text(contact.email),
             trailing: IconButton(
               tooltip: 'Düzenle',
               icon: const Icon(LucideIcons.pencil, size: 18),
@@ -569,7 +571,9 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
       context: context,
       builder: (ctx) => AlertDialog(
         title: const Text('Kişiyi sil?'),
-        content: Text('“${widget.contact!.label}” kişi listesinden kaldırılacak.'),
+        content: Text(
+          '“${widget.contact!.label}” kişi listesinden kaldırılacak.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
@@ -896,7 +900,10 @@ class _SessionsSectionState extends State<_SessionsSection> {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
           'Bağlı cihaz yok.',
-          style: TextStyle(fontSize: 14, color: AppTheme.colors(context).secondaryText),
+          style: TextStyle(
+            fontSize: 14,
+            color: AppTheme.colors(context).secondaryText,
+          ),
         ),
       );
     }
@@ -928,7 +935,9 @@ class _SessionsSectionState extends State<_SessionsSection> {
                     decoration: BoxDecoration(
                       color: AppTheme.colors(context).unreadBackground,
                       borderRadius: BorderRadius.circular(4),
-                      border: Border.all(color: AppTheme.colors(context).border),
+                      border: Border.all(
+                        color: AppTheme.colors(context).border,
+                      ),
                     ),
                     child: Text(
                       'Bu cihaz',
@@ -1017,9 +1026,9 @@ class _SyncSection extends StatelessWidget {
             'Klasör bazlı son senkronizasyon ve bekleyen işlemler',
           ),
           trailing: const Icon(LucideIcons.chevronRight, size: 18),
-          onTap: () => Navigator.of(context).push(
-            MaterialPageRoute(builder: (_) => const SyncStatusScreen()),
-          ),
+          onTap: () => Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (_) => const SyncStatusScreen())),
         ),
       ],
     );

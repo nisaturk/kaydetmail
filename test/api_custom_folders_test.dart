@@ -16,32 +16,23 @@ void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
   group('ApiMailRepository custom folders', () {
-    test(
-      'refreshCustomFolders keeps only available Custom folders, sorted by fullName',
-      () async {
-        final service = _FakeMailService(
-          folders: [
-            _folder('f-inbox', 'Inbox', 'Inbox', type: 'Inbox'),
-            _folder('f-b', 'Projeler', 'Projeler', type: 'Custom'),
-            _folder('f-a', 'Özel', 'Arşiv/Özel', type: 'Custom'),
-            _folder(
-              'f-gone',
-              'Eski',
-              'Eski',
-              type: 'Custom',
-              isAvailable: false,
-            ),
-          ],
-        );
-        final repo = await _repository(service);
+    test('refreshCustomFolders keeps only available Custom folders, sorted by fullName', () async {
+      final service = _FakeMailService(
+        folders: [
+          _folder('f-inbox', 'Inbox', 'Inbox', type: 'Inbox'),
+          _folder('f-b', 'Projeler', 'Projeler', type: 'Custom'),
+          _folder('f-a', 'Özel', 'Arşiv/Özel', type: 'Custom'),
+          _folder('f-gone', 'Eski', 'Eski', type: 'Custom', isAvailable: false),
+        ],
+      );
+      final repo = await _repository(service);
 
-        await repo.refreshCustomFolders();
-        final folders = repo.getCustomFolders();
+      await repo.refreshCustomFolders();
+      final folders = repo.getCustomFolders();
 
-        expect(folders.map((f) => f.folderId), ['f-a', 'f-b']);
-        expect(folders.every((f) => f.accountId == 'account-1'), isTrue);
-      },
-    );
+      expect(folders.map((f) => f.folderId), ['f-a', 'f-b']);
+      expect(folders.every((f) => f.accountId == 'account-1'), isTrue);
+    });
 
     test(
       'getCustomFolderMails/loadMoreCustomFolderMails paginate and accumulate',
@@ -110,7 +101,10 @@ Future<ApiMailRepository> _repository(_FakeMailService service) async {
     tokenStore: tokenStore,
     deviceIdentifierProvider: const MemoryDeviceIdentifierProvider('device-1'),
   );
-  final repo = ApiMailRepository(authService: authService, mailService: service);
+  final repo = ApiMailRepository(
+    authService: authService,
+    mailService: service,
+  );
   await repo.restoreSession('person@example.com');
   return repo;
 }
@@ -141,8 +135,11 @@ Email _mail(String id) => Email(
   folder: MailFolder.inbox,
 );
 
-MailListPage _page(List<Email> items, {required int page, required int total}) =>
-    MailListPage(items: items, page: page, pageSize: 2, total: total);
+MailListPage _page(
+  List<Email> items, {
+  required int page,
+  required int total,
+}) => MailListPage(items: items, page: page, pageSize: 2, total: total);
 
 class _FakeMailService extends ApiMailService {
   _FakeMailService({required this.folders, this.pagesByFolderId = const {}})
@@ -167,7 +164,12 @@ class _FakeMailService extends ApiMailService {
   }) async {
     final pages = pagesByFolderId[folderId];
     if (pages == null || pages.isEmpty) {
-      return MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+      return MailListPage(
+        items: const [],
+        page: page,
+        pageSize: pageSize,
+        total: 0,
+      );
     }
     final index = (page - 1).clamp(0, pages.length - 1);
     return pages[index];

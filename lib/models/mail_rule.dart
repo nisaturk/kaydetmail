@@ -13,8 +13,10 @@ enum MailRuleConditionType { senderContains }
 class MailRuleCondition {
   const MailRuleCondition({required this.type, required this.value});
 
-  factory MailRuleCondition.senderContains(String value) =>
-      MailRuleCondition(type: MailRuleConditionType.senderContains, value: value);
+  factory MailRuleCondition.senderContains(String value) => MailRuleCondition(
+    type: MailRuleConditionType.senderContains,
+    value: value,
+  );
 
   final MailRuleConditionType type;
   final String value;
@@ -32,8 +34,7 @@ class MailRuleCondition {
 
   /// Turkish one-line summary shown in the rules list.
   String get summary => switch (type) {
-    MailRuleConditionType.senderContains =>
-      'Gönderen adresi "$value" içeriyor',
+    MailRuleConditionType.senderContains => 'Gönderen adresi "$value" içeriyor',
   };
 
   Map<String, dynamic> toJson() => {'type': type.name, 'value': value};
@@ -113,7 +114,11 @@ class MailRuleAction {
 /// `RulesSettingsScreen`. See `MailRulesStore` for persistence and account
 /// scoping.
 class MailRule {
-  const MailRule({required this.id, required this.condition, required this.action});
+  const MailRule({
+    required this.id,
+    required this.condition,
+    required this.action,
+  });
 
   final String id;
   final MailRuleCondition condition;

@@ -39,9 +39,13 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
     // single-host fallback for domains without dedicated imap./smtp.
     // subdomains, so default to it for both fields; the user can still
     // override either one.
-    _imapHost = TextEditingController(text: domain.isEmpty ? '' : 'mail.$domain');
+    _imapHost = TextEditingController(
+      text: domain.isEmpty ? '' : 'mail.$domain',
+    );
     _imapPort = TextEditingController(text: '993');
-    _smtpHost = TextEditingController(text: domain.isEmpty ? '' : 'mail.$domain');
+    _smtpHost = TextEditingController(
+      text: domain.isEmpty ? '' : 'mail.$domain',
+    );
     _smtpPort = TextEditingController(text: '587');
   }
 
@@ -67,11 +71,15 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
   }
 
   String? _requiredHost(String? value) =>
-      (value == null || value.trim().isEmpty) ? 'Sunucu adresi zorunludur' : null;
+      (value == null || value.trim().isEmpty)
+      ? 'Sunucu adresi zorunludur'
+      : null;
 
   String? _validPort(String? value) {
     final port = int.tryParse(value?.trim() ?? '');
-    if (port == null || port <= 0 || port > 65535) return 'Geçerli bir port girin';
+    if (port == null || port <= 0 || port > 65535) {
+      return 'Geçerli bir port girin';
+    }
     return null;
   }
 

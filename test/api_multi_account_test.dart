@@ -396,8 +396,7 @@ class _RecordingMailService extends ApiMailService {
   }
 
   @override
-  Future<List<Map<String, dynamic>>> getLabels() async =>
-      List.from(labelDefs);
+  Future<List<Map<String, dynamic>>> getLabels() async => List.from(labelDefs);
 
   @override
   Future<Map<String, dynamic>> createLabel(String name, int color) async {
@@ -435,10 +434,7 @@ class _RecordingMailService extends ApiMailService {
       Map.from(labelAssignments);
 
   @override
-  Future<void> assignLabels(
-    List<String> mailIds,
-    List<String> labelIds,
-  ) async {
+  Future<void> assignLabels(List<String> mailIds, List<String> labelIds) async {
     for (final id in mailIds) {
       final cur = labelAssignments.putIfAbsent(id, () => []);
       for (final labelId in labelIds) {

@@ -71,7 +71,8 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
           child: ListView.separated(
             physics: const AlwaysScrollableScrollPhysics(),
             itemCount: folders.length,
-            separatorBuilder: (_, _) => const Divider(indent: 64, endIndent: 16),
+            separatorBuilder: (_, _) =>
+                const Divider(indent: 64, endIndent: 16),
             itemBuilder: (context, index) {
               final folder = folders[index];
               return ListTile(
@@ -151,7 +152,11 @@ class _EmptyState extends StatelessWidget {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Icon(LucideIcons.folder, size: 40, color: colors.tertiaryText),
+                    Icon(
+                      LucideIcons.folder,
+                      size: 40,
+                      color: colors.tertiaryText,
+                    ),
                     const SizedBox(height: 12),
                     Text(
                       'Özel klasör yok',
@@ -165,7 +170,10 @@ class _EmptyState extends StatelessWidget {
                     Text(
                       'Sunucudaki standart dışı klasörler burada görünür.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 13, color: colors.secondaryText),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
                     ),
                   ],
                 ),

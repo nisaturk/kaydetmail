@@ -242,7 +242,11 @@ void main() {
 
       // m-bad's detail fetch fails, so its summary is kept instead.
       expect(thread.map((e) => e.id), ['m-old', 'm-new', 'm-bad']);
-      expect(thread.map((e) => e.bodyText), ['old body', 'new body', 'bad body']);
+      expect(thread.map((e) => e.bodyText), [
+        'old body',
+        'new body',
+        'bad body',
+      ]);
     });
 
     test('fetchThreadEmails propagates a conversation-level failure', () async {

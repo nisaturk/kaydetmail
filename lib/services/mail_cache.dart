@@ -179,9 +179,7 @@ class MailCache {
     _db.execute('BEGIN');
     try {
       _db.execute('DELETE FROM folders WHERE account_id = ?', [accountId]);
-      final ins = _db.prepare(
-        'INSERT INTO folders VALUES (?, ?, ?)',
-      );
+      final ins = _db.prepare('INSERT INTO folders VALUES (?, ?, ?)');
       for (final entry in idToType.entries) {
         ins.execute([accountId, entry.key, entry.value]);
       }

@@ -62,45 +62,55 @@ void main() {
       expect(richText.contains('/Subtype/Image'), isTrue);
     });
 
-    test('falls back to plain bodyText rendering when bodyHtml is null', () async {
-      final plain = _baseEmail();
-      final bytes = await buildMailPdf(plain);
-      expect(bytes, isNotEmpty);
-      // No image, no html-only markup should leak through — this is just a
-      // smoke check that the fallback path still produces a valid document.
-      final text = latin1.decode(bytes, allowInvalid: true);
-      expect(text.contains('/Subtype/Image'), isFalse);
-    });
+    test(
+      'falls back to plain bodyText rendering when bodyHtml is null',
+      () async {
+        final plain = _baseEmail();
+        final bytes = await buildMailPdf(plain);
+        expect(bytes, isNotEmpty);
+        // No image, no html-only markup should leak through — this is just a
+        // smoke check that the fallback path still produces a valid document.
+        final text = latin1.decode(bytes, allowInvalid: true);
+        expect(text.contains('/Subtype/Image'), isFalse);
+      },
+    );
 
-    test('falls back to plain bodyText rendering for blank/unparseable bodyHtml', () async {
-      final blank = await buildMailPdf(_baseEmail(bodyHtml: '   '));
-      final noText = await buildMailPdf(_baseEmail(bodyHtml: '<div></div>'));
-      expect(blank, isNotEmpty);
-      expect(noText, isNotEmpty);
-    });
+    test(
+      'falls back to plain bodyText rendering for blank/unparseable bodyHtml',
+      () async {
+        final blank = await buildMailPdf(_baseEmail(bodyHtml: '   '));
+        final noText = await buildMailPdf(_baseEmail(bodyHtml: '<div></div>'));
+        expect(blank, isNotEmpty);
+        expect(noText, isNotEmpty);
+      },
+    );
 
     test('never embeds a remote (non-data:) image', () async {
       final withRemoteImage = _baseEmail(
-        bodyHtml: '<p>Body</p><img src="https://tracker.example.com/pixel.png">',
+        bodyHtml:
+            '<p>Body</p><img src="https://tracker.example.com/pixel.png">',
       );
       final bytes = await buildMailPdf(withRemoteImage);
       final text = latin1.decode(bytes, allowInvalid: true);
       expect(text.contains('/Subtype/Image'), isFalse);
     });
 
-    test('lists attachment name, size and mime type in the Ekler section', () async {
-      final email = _baseEmail(
-        attachments: const [
-          Attachment(
-            name: 'sozlesme.docx',
-            sizeBytes: 4096,
-            mimeType: 'application/vnd.openxmlformats',
-          ),
-        ],
-      );
-      final withoutAttachment = await buildMailPdf(_baseEmail());
-      final withAttachment = await buildMailPdf(email);
-      expect(withAttachment.length, greaterThan(withoutAttachment.length));
-    });
+    test(
+      'lists attachment name, size and mime type in the Ekler section',
+      () async {
+        final email = _baseEmail(
+          attachments: const [
+            Attachment(
+              name: 'sozlesme.docx',
+              sizeBytes: 4096,
+              mimeType: 'application/vnd.openxmlformats',
+            ),
+          ],
+        );
+        final withoutAttachment = await buildMailPdf(_baseEmail());
+        final withAttachment = await buildMailPdf(email);
+        expect(withAttachment.length, greaterThan(withoutAttachment.length));
+      },
+    );
   });
 }

@@ -163,22 +163,24 @@ void main() {
       'moveToFolder restores trashed mail via bulk restore and files each '
       'mail where the server put it back, not in the requested folder',
       () async {
-        final mailService = _RecordingMailService(
-          folders: [
-            _folder('folder-inbox', 'Inbox'),
-            _folder('folder-drafts', 'Drafts'),
-            _folder('folder-trash', 'Trash'),
-          ],
-          pagesByFolderId: {
-            'folder-trash': _page([
-              _mailJson('mail-1', 'folder-trash'),
-              _mailJson('draft-1', 'folder-trash'),
-            ]),
-          },
-        )..folderAfterRestore.addAll({
-            'mail-1': 'folder-inbox',
-            'draft-1': 'folder-drafts',
-          });
+        final mailService =
+            _RecordingMailService(
+                folders: [
+                  _folder('folder-inbox', 'Inbox'),
+                  _folder('folder-drafts', 'Drafts'),
+                  _folder('folder-trash', 'Trash'),
+                ],
+                pagesByFolderId: {
+                  'folder-trash': _page([
+                    _mailJson('mail-1', 'folder-trash'),
+                    _mailJson('draft-1', 'folder-trash'),
+                  ]),
+                },
+              )
+              ..folderAfterRestore.addAll({
+                'mail-1': 'folder-inbox',
+                'draft-1': 'folder-drafts',
+              });
         final repo = await _repositoryWithLoadedFolder(
           mailService,
           MailFolder.trash,
@@ -198,107 +200,107 @@ void main() {
       },
     );
 
-    test(
-      'refresh drops cached mail inside page 1\'s window that the server no '
-      'longer lists, but keeps older mail paged in earlier',
-      () async {
-        Map<String, dynamic> mail(String id, String day) =>
-            _mailJson(id, 'folder-inbox', receivedAt: '2026-09-${day}T08:00:00Z');
-        final mailService = _RecordingMailService(
-          folders: [_folder('folder-inbox', 'Inbox')],
-          pagesByFolderId: {
-            'folder-inbox': _page([
-              mail('new', '20'),
-              mail('gone', '18'),
-              mail('old', '10'),
-            ]),
-          },
-        );
-        final repo = await _repositoryWithLoadedInbox(mailService);
-
-        mailService.pagesByFolderId['folder-inbox'] = MailListPage(
-          items: [mail('new', '20'), mail('mid', '15')]
-              .map(_mapMailForTest)
-              .toList(),
-          page: 1,
-          pageSize: 2,
-          total: 3,
-        );
-        await repo.refreshEmails(MailFolder.inbox);
-
-        expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
-          'new',
-          'mid',
-          'old',
-        ]);
-      },
-    );
-
-    test(
-      'deletePermanently removes only the mails the server expunged and '
-      'reports the rest',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [
-            _folder('folder-inbox', 'Inbox'),
-            _folder('folder-trash', 'Trash'),
-          ],
-          pagesByFolderId: {
-            'folder-trash': _page([
-              _mailJson('mail-1', 'folder-trash'),
-              _mailJson('mail-2', 'folder-trash'),
-            ]),
-          },
-        )..bulkResultsOverride = (action, ids) => [
-            for (final id in ids)
-              BulkActionResult(
-                mailId: id,
-                success: id == 'mail-1',
-                code: id == 'mail-1' ? null : 'mail_delete_failed',
-              ),
-          ];
-        final repo = await _repositoryWithLoadedFolder(
-          mailService,
-          MailFolder.trash,
-        );
-
-        await expectLater(
-          repo.deletePermanently(['mail-1', 'mail-2']),
-          throwsA(
-            isA<ApiException>().having(
-              (e) => e.code,
-              'code',
-              'mail_delete_failed',
-            ),
-          ),
-        );
-
-        expect(mailService.bulkActionCalls.single, startsWith('delete:'));
-        expect(repo.getEmailsInFolder(MailFolder.trash).map((e) => e.id), [
-          'mail-2',
-        ]);
-      },
-    );
-
-    test('setStarred uses one bulk star request and updates the cache', () async {
+    test('refresh drops cached mail inside page 1\'s window that the server no '
+        'longer lists, but keeps older mail paged in earlier', () async {
+      Map<String, dynamic> mail(String id, String day) =>
+          _mailJson(id, 'folder-inbox', receivedAt: '2026-09-${day}T08:00:00Z');
       final mailService = _RecordingMailService(
         folders: [_folder('folder-inbox', 'Inbox')],
         pagesByFolderId: {
           'folder-inbox': _page([
-            _mailJson('mail-1', 'folder-inbox'),
-            _mailJson('mail-2', 'folder-inbox'),
+            mail('new', '20'),
+            mail('gone', '18'),
+            mail('old', '10'),
           ]),
         },
       );
       final repo = await _repositoryWithLoadedInbox(mailService);
 
-      await repo.setStarred(['mail-1', 'mail-2'], true);
+      mailService.pagesByFolderId['folder-inbox'] = MailListPage(
+        items: [
+          mail('new', '20'),
+          mail('mid', '15'),
+        ].map(_mapMailForTest).toList(),
+        page: 1,
+        pageSize: 2,
+        total: 3,
+      );
+      await repo.refreshEmails(MailFolder.inbox);
 
-      expect(mailService.singleActionCalls, isEmpty);
-      expect(mailService.bulkActionCalls.single, startsWith('star'));
-      final inbox = repo.getEmailsInFolder(MailFolder.inbox);
-      expect(inbox.every((e) => e.isStarred), isTrue);
+      expect(repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id), [
+        'new',
+        'mid',
+        'old',
+      ]);
     });
+
+    test('deletePermanently removes only the mails the server expunged and '
+        'reports the rest', () async {
+      final mailService =
+          _RecordingMailService(
+              folders: [
+                _folder('folder-inbox', 'Inbox'),
+                _folder('folder-trash', 'Trash'),
+              ],
+              pagesByFolderId: {
+                'folder-trash': _page([
+                  _mailJson('mail-1', 'folder-trash'),
+                  _mailJson('mail-2', 'folder-trash'),
+                ]),
+              },
+            )
+            ..bulkResultsOverride = (action, ids) => [
+              for (final id in ids)
+                BulkActionResult(
+                  mailId: id,
+                  success: id == 'mail-1',
+                  code: id == 'mail-1' ? null : 'mail_delete_failed',
+                ),
+            ];
+      final repo = await _repositoryWithLoadedFolder(
+        mailService,
+        MailFolder.trash,
+      );
+
+      await expectLater(
+        repo.deletePermanently(['mail-1', 'mail-2']),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.code,
+            'code',
+            'mail_delete_failed',
+          ),
+        ),
+      );
+
+      expect(mailService.bulkActionCalls.single, startsWith('delete:'));
+      expect(repo.getEmailsInFolder(MailFolder.trash).map((e) => e.id), [
+        'mail-2',
+      ]);
+    });
+
+    test(
+      'setStarred uses one bulk star request and updates the cache',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [_folder('folder-inbox', 'Inbox')],
+          pagesByFolderId: {
+            'folder-inbox': _page([
+              _mailJson('mail-1', 'folder-inbox'),
+              _mailJson('mail-2', 'folder-inbox'),
+            ]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+
+        await repo.setStarred(['mail-1', 'mail-2'], true);
+
+        expect(mailService.singleActionCalls, isEmpty);
+        expect(mailService.bulkActionCalls.single, startsWith('star'));
+        final inbox = repo.getEmailsInFolder(MailFolder.inbox);
+        expect(inbox.every((e) => e.isStarred), isTrue);
+      },
+    );
 
     test('syncFolder resolves the folder id; unknown folders throw', () async {
       final mailService = _RecordingMailService(
@@ -379,16 +381,18 @@ void main() {
 
     test('failed sync does not report success', () async {
       final service = ApiMailService(
-        _client((request) async => request.method == 'POST'
-            ? http.Response(jsonEncode({'jobId': 'job-1'}), 202)
-            : http.Response(
-                jsonEncode({
-                  'jobId': 'job-1',
-                  'status': 'failed',
-                  'errorCode': 'mail_authentication_failed',
-                }),
-                200,
-              )),
+        _client(
+          (request) async => request.method == 'POST'
+              ? http.Response(jsonEncode({'jobId': 'job-1'}), 202)
+              : http.Response(
+                  jsonEncode({
+                    'jobId': 'job-1',
+                    'status': 'failed',
+                    'errorCode': 'mail_authentication_failed',
+                  }),
+                  200,
+                ),
+        ),
       );
 
       await expectLater(
@@ -403,23 +407,28 @@ void main() {
       );
     });
 
-    test('lost job returns 404 rather than claiming cached data is fresh', () async {
-      final service = ApiMailService(
-        _client((request) async => request.method == 'POST'
-            ? http.Response(jsonEncode({'jobId': 'job-1'}), 202)
-            : http.Response(
-                jsonEncode({'code': 'sync_job_not_found'}),
-                404,
-              )),
-      );
+    test(
+      'lost job returns 404 rather than claiming cached data is fresh',
+      () async {
+        final service = ApiMailService(
+          _client(
+            (request) async => request.method == 'POST'
+                ? http.Response(jsonEncode({'jobId': 'job-1'}), 202)
+                : http.Response(
+                    jsonEncode({'code': 'sync_job_not_found'}),
+                    404,
+                  ),
+          ),
+        );
 
-      await expectLater(
-        service.syncFolderId('f-1'),
-        throwsA(
-          isA<ApiException>().having((error) => error.status, 'status', 404),
-        ),
-      );
-    });
+        await expectLater(
+          service.syncFolderId('f-1'),
+          throwsA(
+            isA<ApiException>().having((error) => error.status, 'status', 404),
+          ),
+        );
+      },
+    );
   });
 }
 

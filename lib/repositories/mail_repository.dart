@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+
 import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';

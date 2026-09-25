@@ -30,8 +30,7 @@ class CustomFolderMailScreen extends StatefulWidget {
   final String name;
 
   @override
-  State<CustomFolderMailScreen> createState() =>
-      _CustomFolderMailScreenState();
+  State<CustomFolderMailScreen> createState() => _CustomFolderMailScreenState();
 }
 
 class _CustomFolderMailScreenState extends State<CustomFolderMailScreen> {
@@ -116,9 +115,8 @@ class _CustomFolderMailScreenState extends State<CustomFolderMailScreen> {
       if (mounted) setState(() => _emails = emails);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
     }
   }
 

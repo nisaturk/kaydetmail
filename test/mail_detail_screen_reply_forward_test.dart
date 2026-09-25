@@ -111,7 +111,9 @@ class _FakeRepo extends MailRepository {
         suggestedSubject: 'Fwd: Konu',
         originalFrom: 'gonderen@example.com',
         originalSubject: 'Konu',
-        attachments: [Attachment(id: 'att-1', name: 'dosya.pdf', sizeBytes: 100)],
+        attachments: [
+          Attachment(id: 'att-1', name: 'dosya.pdf', sizeBytes: 100),
+        ],
       ),
       _ => throw ArgumentError('unexpected mode: $mode'),
     };
@@ -173,80 +175,92 @@ void main() {
 
   tearDown(AppConfig.resetForTest);
 
-  testWidgets('Yanıtla fetches the backend reply context and prefills ComposeScreen', (
-    tester,
-  ) async {
-    final repo = _FakeRepo(_mail(), accounts: [_account]);
-    await _pumpDetail(tester, repo);
+  testWidgets(
+    'Yanıtla fetches the backend reply context and prefills ComposeScreen',
+    (tester) async {
+      final repo = _FakeRepo(_mail(), accounts: [_account]);
+      await _pumpDetail(tester, repo);
 
-    await tester.tap(find.byTooltip('Yanıtla'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Yanıtla'));
+      await tester.pumpAndSettle();
 
-    expect(repo.requestedPrefillModes, ['reply']);
-    expect(find.byType(ComposeScreen), findsOneWidget);
-    expect(find.text('gonderen@example.com'), findsOneWidget);
-    expect(
-      tester.widget<TextField>(find.byKey(const Key('subject-field'))).controller!.text,
-      'Re: Konu',
-    );
-  });
+      expect(repo.requestedPrefillModes, ['reply']);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(find.text('gonderen@example.com'), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('subject-field')))
+            .controller!
+            .text,
+        'Re: Konu',
+      );
+    },
+  );
 
-  testWidgets('Tümünü Yanıtla is a visible action and includes every recipient the backend returns', (
-    tester,
-  ) async {
-    final repo = _FakeRepo(_mail(), accounts: [_account]);
-    await _pumpDetail(tester, repo);
+  testWidgets(
+    'Tümünü Yanıtla is a visible action and includes every recipient the backend returns',
+    (tester) async {
+      final repo = _FakeRepo(_mail(), accounts: [_account]);
+      await _pumpDetail(tester, repo);
 
-    await tester.tap(find.byTooltip('Daha fazla'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Tümünü Yanıtla'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Daha fazla'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Tümünü Yanıtla'));
+      await tester.pumpAndSettle();
 
-    expect(repo.requestedPrefillModes, ['reply-all']);
-    expect(find.byType(ComposeScreen), findsOneWidget);
-    expect(find.text('gonderen@example.com'), findsOneWidget);
-    expect(find.text('diger@example.com'), findsOneWidget);
-  });
+      expect(repo.requestedPrefillModes, ['reply-all']);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(find.text('gonderen@example.com'), findsOneWidget);
+      expect(find.text('diger@example.com'), findsOneWidget);
+    },
+  );
 
-  testWidgets('İlet uses the backend forward context for subject/original-context and downloads its attachment', (
-    tester,
-  ) async {
-    final repo = _FakeRepo(_mail(), accounts: [_account]);
-    await _pumpDetail(tester, repo);
+  testWidgets(
+    'İlet uses the backend forward context for subject/original-context and downloads its attachment',
+    (tester) async {
+      final repo = _FakeRepo(_mail(), accounts: [_account]);
+      await _pumpDetail(tester, repo);
 
-    await tester.tap(find.byTooltip('İlet'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('İlet'));
+      await tester.pumpAndSettle();
 
-    expect(repo.requestedPrefillModes, ['forward']);
-    expect(find.byType(ComposeScreen), findsOneWidget);
-    expect(
-      tester.widget<TextField>(find.byKey(const Key('subject-field'))).controller!.text,
-      'Fwd: Konu',
-    );
-    final body =
-        tester.widget<TextField>(find.byKey(const Key('body-field'))).controller!.text;
-    expect(body, contains('gonderen@example.com'));
-    expect(body, contains('Konu'));
-    // Attachment metadata came with no bytes — ComposeScreen must download it
-    // itself rather than dropping it (spec §4/§5).
-    expect(repo.downloadedAttachmentIds, ['att-1']);
-    expect(find.text('dosya.pdf'), findsOneWidget);
-  });
+      expect(repo.requestedPrefillModes, ['forward']);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('subject-field')))
+            .controller!
+            .text,
+        'Fwd: Konu',
+      );
+      final body = tester
+          .widget<TextField>(find.byKey(const Key('body-field')))
+          .controller!
+          .text;
+      expect(body, contains('gonderen@example.com'));
+      expect(body, contains('Konu'));
+      // Attachment metadata came with no bytes — ComposeScreen must download it
+      // itself rather than dropping it (spec §4/§5).
+      expect(repo.downloadedAttachmentIds, ['att-1']);
+      expect(find.text('dosya.pdf'), findsOneWidget);
+    },
+  );
 
-  testWidgets('a failed compose-context fetch shows an error and never opens ComposeScreen', (
-    tester,
-  ) async {
-    final repo = _FakeRepo(
-      _mail(),
-      accounts: [_account],
-      prefillError: Exception('offline'),
-    );
-    await _pumpDetail(tester, repo);
+  testWidgets(
+    'a failed compose-context fetch shows an error and never opens ComposeScreen',
+    (tester) async {
+      final repo = _FakeRepo(
+        _mail(),
+        accounts: [_account],
+        prefillError: Exception('offline'),
+      );
+      await _pumpDetail(tester, repo);
 
-    await tester.tap(find.byTooltip('Yanıtla'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Yanıtla'));
+      await tester.pumpAndSettle();
 
-    expect(find.byType(ComposeScreen), findsNothing);
-    expect(find.textContaining('Yanıt hazırlanamadı'), findsOneWidget);
-  });
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(find.textContaining('Yanıt hazırlanamadı'), findsOneWidget);
+    },
+  );
 }

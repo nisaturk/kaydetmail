@@ -41,8 +41,12 @@ Future<Uint8List> buildMailPdf(Email email) async {
           style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 14),
-        _field('Kimden', '${email.senderName} <${email.senderEmail}>',
-            labelStyle, valueStyle),
+        _field(
+          'Kimden',
+          '${email.senderName} <${email.senderEmail}>',
+          labelStyle,
+          valueStyle,
+        ),
         if (email.recipients.isNotEmpty)
           _field('Kime', email.recipients.join(', '), labelStyle, valueStyle),
         if (email.cc.isNotEmpty)
@@ -125,13 +129,17 @@ class _InlineStyle {
   final bool underline;
   final bool link;
 
-  _InlineStyle copyWith({bool? bold, bool? italic, bool? underline, bool? link}) =>
-      _InlineStyle(
-        bold: bold ?? this.bold,
-        italic: italic ?? this.italic,
-        underline: underline ?? this.underline,
-        link: link ?? this.link,
-      );
+  _InlineStyle copyWith({
+    bool? bold,
+    bool? italic,
+    bool? underline,
+    bool? link,
+  }) => _InlineStyle(
+    bold: bold ?? this.bold,
+    italic: italic ?? this.italic,
+    underline: underline ?? this.underline,
+    link: link ?? this.link,
+  );
 
   pw.TextStyle apply(pw.TextStyle base) => base.copyWith(
     fontWeight: bold ? pw.FontWeight.bold : base.fontWeight,
@@ -247,10 +255,7 @@ class _HtmlPdfRenderer {
           child: pw.Row(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              pw.SizedBox(
-                width: 18,
-                child: pw.Text(bullet, style: _baseStyle),
-              ),
+              pw.SizedBox(width: 18, child: pw.Text(bullet, style: _baseStyle)),
               pw.Expanded(
                 child: pw.RichText(text: pw.TextSpan(children: itemSpans)),
               ),
@@ -295,7 +300,9 @@ class _HtmlPdfRenderer {
   }
 }
 
-final _dataUrlPattern = RegExp(r'^data:[^;,]*(;charset=[^;,]+)?(;base64)?,(.*)$');
+final _dataUrlPattern = RegExp(
+  r'^data:[^;,]*(;charset=[^;,]+)?(;base64)?,(.*)$',
+);
 
 Uint8List? _decodeDataUrl(String src) {
   final match = _dataUrlPattern.firstMatch(src);
