@@ -102,6 +102,111 @@ void main() {
       expect(mailService.bulkActionCalls, ['unread:mail-1']);
     },
   );
+
+  test('star/unstar offline queues and replays after reconnecting', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+
+    mailService.failBulkAction = true;
+    await repo.setStarred(['mail-1'], true);
+    expect(repo.getEmailsInFolder(MailFolder.inbox).single.isStarred, isTrue);
+    mailService.bulkActionCalls.clear();
+
+    mailService.failBulkAction = false;
+    await repo.refreshEmails(MailFolder.inbox);
+    expect(mailService.bulkActionCalls, ['star:mail-1']);
+  });
+
+  test('archive offline queues and replays after reconnecting', () async {
+    final mailService = _RecordingMailService();
+    final db = MailCache.inMemory();
+    final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+
+    mailService.failBulkAction = true;
+    await repo.moveToFolder(['mail-1'], MailFolder.archive);
+    expect(repo.getEmailsInFolder(MailFolder.archive).single.id, 'mail-1');
+    expect(repo.getEmailsInFolder(MailFolder.inbox), isEmpty);
+    mailService.bulkActionCalls.clear();
+
+    mailService.failBulkAction = false;
+    await repo.refreshEmails(MailFolder.inbox);
+    expect(mailService.bulkActionCalls, ['archive:mail-1']);
+  });
+
+  test(
+    'archiving then trashing the same mail while offline collapses to one '
+    'replayed location mutation',
+    () async {
+      final mailService = _RecordingMailService();
+      final db = MailCache.inMemory();
+      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+
+      mailService.failBulkAction = true;
+      await repo.moveToFolder(['mail-1'], MailFolder.archive);
+      await repo.moveToTrash(['mail-1']);
+      expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+      mailService.bulkActionCalls.clear();
+
+      mailService.failBulkAction = false;
+      await repo.refreshEmails(MailFolder.inbox);
+      expect(mailService.bulkActionCalls, ['trash:mail-1']);
+    },
+  );
+
+  test(
+    'restore offline files the mail into Inbox as a placeholder, then '
+    'corrects it to its real origin folder once the replay succeeds',
+    () async {
+      final mailService = _RecordingMailService();
+      final db = MailCache.inMemory();
+      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+      await repo.loadMoreEmails(MailFolder.trash);
+      expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-t');
+
+      mailService.failBulkAction = true;
+      await repo.moveToFolder(['mail-t'], MailFolder.inbox);
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
+        containsAll(['mail-1', 'mail-t']),
+      );
+      mailService.bulkActionCalls.clear();
+
+      // The backend remembers mail-t actually came from Archive.
+      mailService.restoreDestinationFolderId['mail-t'] = 'folder-archive';
+      mailService.failBulkAction = false;
+      await repo.refreshEmails(MailFolder.inbox);
+      expect(mailService.bulkActionCalls, ['restore:mail-t']);
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
+        ['mail-1'],
+      );
+      expect(repo.getEmailsInFolder(MailFolder.archive).single.id, 'mail-t');
+    },
+  );
+
+  test(
+    'a non-read operation replay conflict drops the queued mutation and '
+    'surfaces it, same as read/unread',
+    () async {
+      final mailService = _RecordingMailService();
+      final db = MailCache.inMemory();
+      final repo = await _repositoryWithLoadedInbox(mailService, cache: db);
+
+      mailService.failBulkAction = true;
+      await repo.setStarred(['mail-1'], true);
+      mailService.bulkActionCalls.clear();
+
+      mailService.failBulkAction = false;
+      mailService.forcedResultCodes['mail-1'] = 'mail_not_found';
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(repo.offlineMutationConflicts, ['mail-1']);
+      mailService.bulkActionCalls.clear();
+      await repo.refreshEmails(MailFolder.inbox);
+      expect(mailService.bulkActionCalls, isEmpty);
+    },
+  );
 }
 
 Future<ApiMailRepository> _repositoryWithLoadedInbox(
@@ -140,6 +245,11 @@ class _RecordingMailService extends ApiMailService {
   final List<String> bulkActionCalls = [];
   final Map<String, String> forcedResultCodes = {};
 
+  /// mailId -> folder id `getMail` reports it landed in — used only by the
+  /// restore tests, where `_fileRestored` asks the server where a restored
+  /// mail actually went.
+  final Map<String, String> restoreDestinationFolderId = {};
+
   @override
   Future<List<ApiMailFolder>> getFolders() async => [
     ApiMailFolder(
@@ -147,6 +257,18 @@ class _RecordingMailService extends ApiMailService {
       mailAccountId: 'account-1',
       name: 'Inbox',
       type: 'Inbox',
+    ),
+    ApiMailFolder(
+      id: 'folder-archive',
+      mailAccountId: 'account-1',
+      name: 'Archive',
+      type: 'Archive',
+    ),
+    ApiMailFolder(
+      id: 'folder-trash',
+      mailAccountId: 'account-1',
+      name: 'Trash',
+      type: 'Trash',
     ),
   ];
 
@@ -159,23 +281,49 @@ class _RecordingMailService extends ApiMailService {
     bool? isRead,
     bool? hasAttachments,
     String? search,
-  }) async => MailListPage(
-    items: [
-      Email(
-        id: 'mail-1',
-        senderName: 'Sender',
-        senderEmail: 'sender@example.com',
-        recipients: const ['person@example.com'],
-        subject: 'Subject',
-        bodyText: '',
-        timestamp: DateTime.parse('2026-09-17T01:56:58Z'),
-        isRead: false,
-      ),
-    ],
-    page: page,
-    pageSize: pageSize,
-    total: 1,
-  );
+  }) async {
+    final item = folderId == 'folder-trash'
+        ? Email(
+            id: 'mail-t',
+            senderName: 'Sender',
+            senderEmail: 'sender@example.com',
+            recipients: const ['person@example.com'],
+            subject: 'Trashed',
+            bodyText: '',
+            timestamp: DateTime.parse('2026-09-17T01:56:58Z'),
+            isRead: false,
+          )
+        : Email(
+            id: 'mail-1',
+            senderName: 'Sender',
+            senderEmail: 'sender@example.com',
+            recipients: const ['person@example.com'],
+            subject: 'Subject',
+            bodyText: '',
+            timestamp: DateTime.parse('2026-09-17T01:56:58Z'),
+            isRead: false,
+          );
+    return MailListPage(items: [item], page: page, pageSize: pageSize, total: 1);
+  }
+
+  @override
+  Future<Email> getMail(
+    String id, {
+    required MailFolder Function(String folderId) resolveFolder,
+  }) async {
+    final folder = resolveFolder(restoreDestinationFolderId[id] ?? 'folder-inbox');
+    return Email(
+      id: id,
+      senderName: 'Sender',
+      senderEmail: 'sender@example.com',
+      recipients: const ['person@example.com'],
+      subject: 'Subject',
+      bodyText: '',
+      timestamp: DateTime.parse('2026-09-17T01:56:58Z'),
+      isRead: false,
+      folder: folder,
+    );
+  }
 
   @override
   Future<List<BulkActionResult>> bulkAction(

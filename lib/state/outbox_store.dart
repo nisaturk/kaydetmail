@@ -6,7 +6,13 @@ import 'package:sqlite3/common.dart';
 import '../services/mail_cache.dart';
 import 'pending_send_queue.dart';
 
-enum OutboxStatus { pending, sending, failed, uncertain }
+/// `waitingForNetwork` is KaydetMail-specific: entered only when a dispatch
+/// attempt fails with a definite "no network path to the server" error
+/// (never a timeout, which stays `uncertain` — the request may have
+/// already reached the server). It is retried automatically by
+/// `PendingSendQueue._scheduleNetworkRetry` without any user action, unlike
+/// `failed`/`uncertain` which always require one.
+enum OutboxStatus { pending, sending, waitingForNetwork, failed, uncertain }
 
 class OutboxItem {
   const OutboxItem({

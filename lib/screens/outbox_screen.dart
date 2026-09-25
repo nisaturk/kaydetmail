@@ -173,9 +173,12 @@ class _OutboxScreenState extends State<OutboxScreen> {
                 final send = item.send;
                 final failed = item.status == OutboxStatus.failed;
                 final uncertain = item.status == OutboxStatus.uncertain;
+                final waitingForNetwork =
+                    item.status == OutboxStatus.waitingForNetwork;
                 final status = switch (item.status) {
                   OutboxStatus.pending => 'Geri alma süresi',
                   OutboxStatus.sending => 'Gönderiliyor',
+                  OutboxStatus.waitingForNetwork => 'Bağlantı bekleniyor',
                   OutboxStatus.failed => 'Gönderilemedi',
                   OutboxStatus.uncertain => 'Sonuç belirsiz',
                 };
@@ -192,18 +195,28 @@ class _OutboxScreenState extends State<OutboxScreen> {
                         Text('Kime: ${send.to.join(', ')}'),
                         Text(status),
                         if (item.error != null) Text(item.error!),
+                        if (waitingForNetwork)
+                          const Text(
+                            'İnternet bağlantısı yok. Bağlantı gelince otomatik gönderilecek.',
+                          ),
                         if (uncertain)
                           const Text(
                             'Tekrar göndermeden önce Gönderilenler’i kontrol edin.',
                           ),
-                        if (failed || uncertain)
+                        if (failed || uncertain || waitingForNetwork)
                           Row(
                             children: [
-                              if (failed) ...[
+                              if (failed || waitingForNetwork) ...[
                                 TextButton(
                                   onPressed: _busy ? null : () => _retry(item),
-                                  child: const Text('Tekrar dene'),
+                                  child: Text(
+                                    waitingForNetwork
+                                        ? 'Şimdi dene'
+                                        : 'Tekrar dene',
+                                  ),
                                 ),
+                              ],
+                              if (failed)
                                 TextButton(
                                   onPressed: _busy
                                       ? null
@@ -211,7 +224,6 @@ class _OutboxScreenState extends State<OutboxScreen> {
                                             _openCompose(item, replacing: true),
                                   child: const Text('Düzenle'),
                                 ),
-                              ],
                               TextButton(
                                 onPressed: _busy ? null : () => _discard(item),
                                 child: const Text('Sil'),

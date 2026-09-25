@@ -171,10 +171,16 @@ class PendingSendQueue with WidgetsBindingObserver {
   static const Duration undoWindow = Duration(seconds: 5);
   static const String _legacyPrefsKey = 'pending_send_queue_v1';
 
+  /// Same cadence as `ApiMailRepository._scheduleReconnectRetry` — no
+  /// connectivity package in this app, so "network is back" is detected by
+  /// simply trying again on a timer instead of listening for an OS event.
+  static const Duration _networkRetryInterval = Duration(seconds: 15);
+
   Future<OutboxStore>? _storeFuture;
   OutboxStore? _loadedStore;
   final Map<String, _PendingEntry> _entries = {};
   final Set<String> _inFlight = {};
+  Timer? _networkRetryTimer;
   @visibleForTesting
   void useStoreForTest(OutboxStore store) {
     cancelAll();
@@ -286,7 +292,15 @@ class PendingSendQueue with WidgetsBindingObserver {
         }
       }
     } catch (error) {
+      // A definite "never reached the server" network failure is safe to
+      // retry automatically with the same idempotency key — nothing was
+      // sent. A timeout or interrupted delivery stays `uncertain`: the
+      // request may already have reached the server, so only the user may
+      // decide to retry (see the `uncertain` test coverage below).
+      final networkUnavailable =
+          error is ApiException && error.code == 'network_unavailable';
       final uncertain =
+          !networkUnavailable &&
           error is! SendBeforeDeliveryException &&
           (error is! ApiException ||
               error.isTransient ||
@@ -295,17 +309,21 @@ class PendingSendQueue with WidgetsBindingObserver {
                 'send_in_progress',
                 'idempotency_conflict',
               ].contains(error.code));
-      store.updateStatus(
-        send.id,
-        uncertain ? OutboxStatus.uncertain : OutboxStatus.failed,
-        error: friendlyErrorMessage(error),
-      );
+      final status = networkUnavailable
+          ? OutboxStatus.waitingForNetwork
+          : uncertain
+          ? OutboxStatus.uncertain
+          : OutboxStatus.failed;
+      store.updateStatus(send.id, status, error: friendlyErrorMessage(error));
+      if (networkUnavailable) _scheduleNetworkRetry();
       if (messenger != null && messenger.mounted) {
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              uncertain
-                  ? 'Gönderim belirsiz. Giden Kutusu ve Gönderilenler’i kontrol edin.'
+              networkUnavailable
+                  ? 'İnternet bağlantısı yok. Bağlantı gelince otomatik gönderilecek.'
+                  : uncertain
+                  ? 'Mesaj gönderilmiş olabilir. Giden Kutusu ve Gönderilenler’i kontrol edin.'
                   : 'Gönderilemedi. Mesaj Giden Kutusu’nda saklandı.',
             ),
           ),
@@ -313,6 +331,36 @@ class PendingSendQueue with WidgetsBindingObserver {
       }
     } finally {
       _inFlight.remove(send.id);
+    }
+  }
+
+  /// Starts (or leaves running) a 15s poll that redispatches every
+  /// `waitingForNetwork` item — a no-op call while it is already running.
+  /// Stops itself once none remain, so it never spins forever after the
+  /// last offline send finally goes through or is discarded.
+  void _scheduleNetworkRetry() {
+    _networkRetryTimer ??= Timer.periodic(
+      _networkRetryInterval,
+      (_) => unawaited(_retryWaitingForNetwork()),
+    );
+  }
+
+  Future<void> _retryWaitingForNetwork() async {
+    final store = await _store;
+    final waiting = store
+        .load()
+        .where((item) => item.status == OutboxStatus.waitingForNetwork)
+        .toList();
+    if (waiting.isEmpty) {
+      _networkRetryTimer?.cancel();
+      _networkRetryTimer = null;
+      return;
+    }
+    final doSend = AppConfig.mailRepository.sendEmail;
+    final doDeleteDraft = AppConfig.mailRepository.deleteDraft;
+    for (final item in waiting) {
+      if (_inFlight.contains(item.send.id)) continue;
+      await _dispatch(item.send, doSend, doDeleteDraft, null);
     }
   }
 
@@ -331,6 +379,8 @@ class PendingSendQueue with WidgetsBindingObserver {
       entry.timer.cancel();
     }
     _entries.clear();
+    _networkRetryTimer?.cancel();
+    _networkRetryTimer = null;
   }
 
   Future<void> flushPending() async {
@@ -349,13 +399,15 @@ class PendingSendQueue with WidgetsBindingObserver {
 
   Future<List<OutboxItem>> items() async => (await _store).load();
 
-  /// Only a confirmed pre-send failure is eligible for retry, with the same
-  /// payload and idempotency key. Unknown delivery requires manual inspection.
+  /// A confirmed pre-send failure, or a send still waiting for network, is
+  /// eligible for manual retry (same payload and idempotency key). Unknown
+  /// delivery requires manual inspection instead — see `OutboxScreen`.
   Future<void> retry(String id) async {
     final items = await this.items();
     final item = items.where((item) => item.send.id == id).single;
-    if (item.status != OutboxStatus.failed) {
-      throw StateError('Only failed sends may be retried');
+    if (item.status != OutboxStatus.failed &&
+        item.status != OutboxStatus.waitingForNetwork) {
+      throw StateError('Only failed or waiting-for-network sends may be retried');
     }
     await _dispatch(
       item.send,
@@ -415,7 +467,7 @@ class PendingSendQueue with WidgetsBindingObserver {
         store.updateStatus(
           item.send.id,
           OutboxStatus.uncertain,
-          error: 'Önceki gönderimin sonucu bilinmiyor. Gönderilenler’i kontrol edin.',
+          error: 'Mesaj gönderilmiş olabilir. Gönderilenler’i kontrol edin.',
         );
       } else if (item.status == OutboxStatus.pending) {
         final remaining = item.undoUntil.difference(DateTime.now());
@@ -431,6 +483,11 @@ class PendingSendQueue with WidgetsBindingObserver {
           );
         }
       }
+    }
+    if (store.load().any(
+      (item) => item.status == OutboxStatus.waitingForNetwork,
+    )) {
+      _scheduleNetworkRetry();
     }
   }
 }
