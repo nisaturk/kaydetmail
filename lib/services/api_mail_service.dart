@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/account_notification_settings.dart';
 import '../models/compose_prefill.dart';
+import '../models/compose_limits.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
@@ -14,6 +15,7 @@ import '../models/remote_search_result.dart';
 import '../models/server_mail_rule.dart';
 import '../models/scheduled_send.dart';
 import '../utils/html_to_text.dart';
+import '../utils/attachment_mime.dart';
 import 'api_auth_service.dart';
 import 'api_client.dart';
 import 'api_exception.dart';
@@ -722,7 +724,8 @@ class ApiMailService {
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
       ),
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
     );
     return DraftResult(
       created: body['created'] as bool? ?? false,
@@ -755,7 +758,8 @@ class ApiMailService {
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
       ),
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
     );
     return DraftResult(
       created: body['created'] as bool? ?? true,
@@ -841,6 +845,8 @@ class ApiMailService {
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     required String idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final body = await _client.multipart(
       '/api/mails/send',
@@ -850,8 +856,11 @@ class ApiMailService {
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
       ),
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
       headers: {'Idempotency-Key': idempotencyKey},
+      onProgress: onProgress,
+      abortTrigger: abortTrigger,
     );
     return SendResult(
       sent: body['sent'] as bool? ?? false,
@@ -861,6 +870,9 @@ class ApiMailService {
       conversationId: body['conversationId'] as String?,
     );
   }
+
+  Future<ComposeLimits> getComposeLimits() async =>
+      ComposeLimits.fromJson(await _client.get('/api/compose/limits'));
 
   /// Queues a mail to send at [sendAtUtc] instead of now, via
   /// `POST /api/scheduled-sends`. Same field set/idempotency contract as
@@ -888,7 +900,8 @@ class ApiMailService {
         ),
         'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
       },
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
       headers: {'Idempotency-Key': idempotencyKey},
     );
     return _mapScheduledSend(body);
@@ -956,6 +969,10 @@ class ApiMailService {
           'attachments',
           attachment.bytes!,
           filename: attachment.name,
+          contentType: attachmentMediaType(
+            attachment.name,
+            attachment.mimeType,
+          ),
         ),
   ];
 

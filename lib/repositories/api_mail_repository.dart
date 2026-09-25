@@ -8,6 +8,7 @@ import 'package:flutter/material.dart';
 import '../models/account_notification_settings.dart';
 import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
+import '../models/compose_limits.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
@@ -199,6 +200,7 @@ class ApiMailRepository extends MailRepository {
   /// order (a `Map` literal is insertion-ordered) — that order is also
   /// [accounts]' order and the order accounts restore in at app launch.
   final Map<String, _Session> _sessions = {};
+  final Map<String, ComposeLimits> _composeLimits = {};
 
   /// `null` selects the unified mailbox (every session); non-null narrows
   /// every read/write below to that one session.
@@ -1935,22 +1937,36 @@ class ApiMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final session = _sessionForCompose(
       from: from,
       fromAccountId: fromAccountId,
     );
-    final result = await session.mailService.sendMail(
-      to: to,
-      cc: cc,
-      bcc: bcc,
-      subject: subject,
-      bodyText: body,
-      bodyHtml: bodyHtml,
-      attachments: attachments,
-      replySourceMailId: inReplyToId,
-      idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
-    );
+    late final SendResult result;
+    try {
+      result = await session.mailService.sendMail(
+        to: to,
+        cc: cc,
+        bcc: bcc,
+        subject: subject,
+        bodyText: body,
+        bodyHtml: bodyHtml,
+        attachments: attachments,
+        replySourceMailId: inReplyToId,
+        idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
+        onProgress: onProgress,
+        abortTrigger: abortTrigger,
+      );
+    } on ApiException catch (error) {
+      if (!AttachmentLimitException.codes.contains(error.code)) rethrow;
+      throw AttachmentLimitException.from(
+        error,
+        attachments,
+        _composeLimits[session.account.id],
+      );
+    }
     if (!result.sent) throw const SendBeforeDeliveryException();
     // The endpoint confirms send/save outcome but never returns the created
     // mail — build the local copy from what we sent and echo it into the
@@ -1983,6 +1999,16 @@ class ApiMailRepository extends MailRepository {
       notifyListeners();
     }
     return email;
+  }
+
+  @override
+  Future<ComposeLimits> composeLimits(String accountId) async {
+    final cached = _composeLimits[accountId];
+    if (cached != null) return cached;
+    final limits = await _sessionForAccountId(accountId).mailService
+        .getComposeLimits();
+    _composeLimits[accountId] = limits;
+    return limits;
   }
 
   @override

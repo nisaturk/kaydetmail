@@ -16,6 +16,8 @@ import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/token_store.dart';
 
+import 'support/wire_multipart.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -38,7 +40,7 @@ void main() {
     test(
       'createDraft posts repeated To/Cc parts and returns the server mailId',
       () async {
-        late http.MultipartRequest sent;
+        late WireMultipart sent;
         final service = ApiMailService(
           _multipartClient((request) async {
             sent = request;
@@ -99,7 +101,7 @@ void main() {
     test(
       'sendMail sends the Idempotency-Key header and attachment bytes',
       () async {
-        late http.MultipartRequest sent;
+        late WireMultipart sent;
         final service = ApiMailService(
           _multipartClient((request) async {
             sent = request;
@@ -142,7 +144,7 @@ void main() {
     );
 
     test('sendMail includes bodyHtml as a form field when given', () async {
-      late http.MultipartRequest sent;
+      late WireMultipart sent;
       final service = ApiMailService(
         _multipartClient((request) async {
           sent = request;
@@ -165,7 +167,7 @@ void main() {
     });
 
     test('sendMail omits the bodyHtml field entirely when null', () async {
-      late http.MultipartRequest sent;
+      late WireMultipart sent;
       final service = ApiMailService(
         _multipartClient((request) async {
           sent = request;
@@ -368,6 +370,8 @@ class _RecordingMailService extends ApiMailService {
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     required String idempotencyKey,
+    void Function(int, int)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     sendCalls.add(_SendCall(idempotencyKey, bodyHtml));
     return SendResult(sent: sent, sentCopySaved: sentCopySaved);
@@ -376,17 +380,8 @@ class _RecordingMailService extends ApiMailService {
 
 /// Reads every no-filename multipart part named [field], in order — how
 /// repeated `To`/`Cc`/`Bcc` values are sent (see `ApiMailService._composeParts`).
-Future<List<String>> _partValues(
-  http.MultipartRequest request,
-  String field,
-) async {
-  final values = <String>[];
-  for (final file in request.files) {
-    if (file.field != field || file.filename != null) continue;
-    values.add(utf8.decode(await file.finalize().toBytes()));
-  }
-  return values;
-}
+Future<List<String>> _partValues(WireMultipart request, String field) async =>
+    request.values(field);
 
 ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(
@@ -396,12 +391,14 @@ ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     );
 
 ApiClient _multipartClient(
-  Future<http.Response> Function(http.MultipartRequest) handler,
+  Future<http.Response> Function(WireMultipart) handler,
 ) => ApiClient(
   tokenStore: TokenStore(storage: _MemoryTokenStorage()),
   accountId: 'account-1',
   httpClient: MockClient.streaming((request, bodyStream) async {
-    final response = await handler(request as http.MultipartRequest);
+    final response = await handler(
+      await WireMultipart.decode(request, bodyStream),
+    );
     return http.StreamedResponse(
       Stream.value(response.bodyBytes),
       response.statusCode,

@@ -6,6 +6,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import '../models/compose_limits.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
 import '../state/pending_send_queue.dart';
@@ -13,6 +14,8 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/markdown_lite_to_html.dart';
+import '../utils/attachment_mime.dart';
+import '../utils/image_resize.dart';
 
 /// Non-ready states for a remote attachment awaiting/needing its content —
 /// see `_ComposeScreenState._attachmentIssues`.
@@ -205,6 +208,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _bccExpanded = false;
   bool _sending = false;
   String? _fromAccount;
+  ComposeLimits? _limits;
+  bool _resizingImages = false;
 
   final List<Attachment> _attachments = [];
 
@@ -220,7 +225,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final Map<Attachment, ({_AttachmentIssue status, String? error})>
   _attachmentIssues = {};
 
-  bool get _attachmentsReady => _attachmentIssues.isEmpty;
+  bool get _attachmentsReady => _attachmentIssues.isEmpty && !_resizingImages;
 
   // --- Contact autocomplete (Kime/Cc/Bcc) --------------------------------
   final _toLink = LayerLink();
@@ -274,6 +279,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ? _repo.currentUser
           : (accounts.isNotEmpty ? accounts.first.email : null);
     }
+    unawaited(_loadComposeLimits());
     ContactsStore.startListening(_repo);
     _refreshContacts();
     _repo.addListener(_refreshContacts);
@@ -659,6 +665,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return null;
   }
 
+  Future<void> _loadComposeLimits() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    try {
+      final limits = await _repo.composeLimits(accountId);
+      if (mounted && accountId == _resolvedFromAccountId) {
+        setState(() => _limits = limits);
+      }
+    } catch (_) {}
+  }
+
+  String? _attachmentLimitError(List<Attachment> attachments) =>
+      _limits?.violationFor(attachments);
+
   /// The HTML alternative to send/save alongside the plain-text [body], or
   /// null when [body] uses none of the formatting-toolbar markup — so a
   /// plain unformatted mail never carries a redundant html alternative.
@@ -724,13 +744,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return false;
   }
 
+  bool _validateAttachmentLimits() {
+    final error = _attachmentLimitError(_attachments);
+    if (error == null) return true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    return false;
+  }
+
   /// Persist the full message before leaving compose and starting undo.
   /// A storage failure leaves the editor open.
   Future<void> _send() async {
     if (_sending) return;
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
-
+    if (!_validateAttachmentLimits()) return;
     final to = _addressStrings(_toRecipients);
     final cc = _addressStrings(_ccRecipients);
     final bcc = _addressStrings(_bccRecipients);
@@ -834,7 +861,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   Future<void> _scheduleSend() async {
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
-
+    if (!_validateAttachmentLimits()) return;
     final now = DateTime.now();
     final date = await showDatePicker(
       context: context,
@@ -950,23 +977,119 @@ class _ComposeScreenState extends State<ComposeScreen> {
   Future<List<Attachment>?> _osPickAttachments() async {
     final files = await FilePicker.pickFiles(type: FileType.any);
     if (files.isEmpty) return null;
-    return [
-      for (final file in files)
-        if (file.name.isNotEmpty)
-          Attachment(
-            name: file.name,
-            sizeBytes: file.lengthSync() ?? 0,
-            mimeType: file.extension,
-            bytes: await file.readAsBytes(),
-          ),
-    ];
+    final attachments = <Attachment>[];
+    for (final file in files) {
+      if (file.name.isEmpty) continue;
+      final bytes = await file.readAsBytes();
+      attachments.add(
+        Attachment(
+          name: file.name,
+          sizeBytes: bytes.length,
+          mimeType: attachmentContentType(file.name, null),
+          bytes: bytes,
+        ),
+      );
+    }
+    return attachments;
   }
 
+  Future<ImageResizeChoice?> _chooseResize() => showDialog<ImageResizeChoice>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: const Text('Görsel boyutu'),
+      children: [
+        for (final choice in ImageResizeChoice.values)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, choice),
+            child: Text(switch (choice) {
+              ImageResizeChoice.original => 'Orijinal',
+              ImageResizeChoice.large => 'Büyük (2048 px)',
+              ImageResizeChoice.medium => 'Orta (1280 px)',
+              ImageResizeChoice.small => 'Küçük (640 px)',
+            }),
+          ),
+      ],
+    ),
+  );
+
   Future<void> _attach() async {
-    if (_sending) return;
+    if (_sending || _resizingImages) return;
     final picked = await (widget.pickAttachments ?? _osPickAttachments)();
     if (picked == null || picked.isEmpty || !mounted) return;
-    setState(() => _attachments.addAll(picked));
+    final limits = _limits;
+    if (limits != null) {
+      final oversized = picked.where(
+        (file) => file.sizeBytes > limits.maxAttachmentBytes,
+      );
+      if (oversized.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(limits.fileTooLargeMessage)));
+        return;
+      }
+      if (_attachments.length + picked.length > limits.maxAttachmentCount) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(limits.tooManyMessage)));
+        return;
+      }
+    }
+    var result = picked;
+    final images = picked.where(isResizableImage).toList();
+    if (images.isNotEmpty) {
+      final choice = await _chooseResize();
+      if (choice == null || !mounted) return;
+      if (choice != ImageResizeChoice.original) {
+        setState(() => _resizingImages = true);
+        var completed = 0;
+        try {
+          final resized = <Attachment, Attachment>{};
+          for (final attachment in images) {
+            completed++;
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Görseller hazırlanıyor… ($completed/${images.length})',
+                  ),
+                  duration: const Duration(minutes: 1),
+                ),
+              );
+            }
+            final replacement = await resizeAttachment(attachment, choice);
+            if (replacement == null && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${attachment.name}: Görsel küçültülemedi; özgün dosya kullanılacak.',
+                  ),
+                ),
+              );
+            }
+            if (replacement != null) resized[attachment] = replacement;
+          }
+          result = [
+            for (final attachment in picked) resized[attachment] ?? attachment,
+          ];
+        } finally {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            setState(() => _resizingImages = false);
+          }
+        }
+      }
+    }
+    if (!mounted) return;
+    if (limits != null &&
+        _attachments.length + result.length > limits.maxAttachmentCount) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(limits.tooManyMessage)));
+      return;
+    }
+    setState(() => _attachments.addAll(result));
+    final totalError = _attachmentLimitError(_attachments);
+    if (totalError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(totalError)));
+    }
   }
 
   void _removeAttachment(Attachment attachment) {
@@ -1266,6 +1389,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         enabled: !_sending,
                       ),
                       const Divider(indent: 0, endIndent: 0, height: 1),
+                      if (_resizingImages) const LinearProgressIndicator(),
+                      if (_attachmentLimitError(_attachments) case final error?)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            error,
+                            style: TextStyle(color: colors.destructive),
+                          ),
+                        ),
                       if (_attachments.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         for (final attachment in _attachments)
@@ -1538,6 +1670,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
               onSelected: (picked) {
                 setState(() => _fromAccount = picked);
                 _syncSignature();
+                _limits = null;
+                unawaited(_loadComposeLimits());
               },
               itemBuilder: (context) => [
                 for (final account in accounts)
@@ -1586,7 +1720,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         children: [
           IconButton(
             key: const Key('attach-button'),
-            onPressed: _sending ? null : _attach,
+            onPressed: _sending || _resizingImages ? null : _attach,
             icon: const Icon(LucideIcons.paperclip, size: 22),
             tooltip: 'Dosya ekle',
           ),

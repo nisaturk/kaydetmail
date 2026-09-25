@@ -15,6 +15,8 @@ import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/token_store.dart';
 
+import 'support/wire_multipart.dart';
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -73,7 +75,7 @@ void main() {
     test(
       'updateDraft PUTs multipart parts and returns the new mailId',
       () async {
-        late http.MultipartRequest sent;
+        late WireMultipart sent;
         final service = ApiMailService(
           _multipartClient((request) async {
             sent = request;
@@ -425,17 +427,8 @@ class _PendingUpdateMailService extends _RecordingMailService {
 }
 
 /// Reads every no-filename multipart part named [field], in order.
-Future<List<String>> _partValues(
-  http.MultipartRequest request,
-  String field,
-) async {
-  final values = <String>[];
-  for (final file in request.files) {
-    if (file.field != field || file.filename != null) continue;
-    values.add(utf8.decode(await file.finalize().toBytes()));
-  }
-  return values;
-}
+Future<List<String>> _partValues(WireMultipart request, String field) async =>
+    request.values(field);
 
 ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(
@@ -445,12 +438,14 @@ ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     );
 
 ApiClient _multipartClient(
-  Future<http.Response> Function(http.MultipartRequest) handler,
+  Future<http.Response> Function(WireMultipart) handler,
 ) => ApiClient(
   tokenStore: TokenStore(storage: _MemoryTokenStorage()),
   accountId: 'account-1',
   httpClient: MockClient.streaming((request, bodyStream) async {
-    final response = await handler(request as http.MultipartRequest);
+    final response = await handler(
+      await WireMultipart.decode(request, bodyStream),
+    );
     return http.StreamedResponse(
       Stream.value(response.bodyBytes),
       response.statusCode,

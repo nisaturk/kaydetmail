@@ -35,6 +35,8 @@ SendEmail _send(Future<Email> Function(String? key) action) =>
       String? threadId,
       String? inReplyToId,
       String? idempotencyKey,
+      void Function(int sent, int total)? onProgress,
+      Future<void>? abortTrigger,
     }) => action(idempotencyKey);
 
 /// Only overrides [sendEmail]/[deleteDraft] — the only two
@@ -58,6 +60,8 @@ class _FakeMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     sendCalls++;
     if (!succeedNextSend) {

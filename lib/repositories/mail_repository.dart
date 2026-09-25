@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import '../models/account_notification_settings.dart';
 import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
+import '../models/compose_limits.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
@@ -314,7 +315,12 @@ abstract class MailRepository extends ChangeNotifier {
     String? threadId,
     String? inReplyToId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   });
+
+  Future<ComposeLimits> composeLimits(String accountId) async =>
+      throw UnimplementedError();
 
   /// Creates a new draft, or — when [draftId] is given — updates the
   /// existing draft in place instead of creating a duplicate.

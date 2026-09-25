@@ -162,6 +162,8 @@ class _FakeMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final email = Email(
       id: 'sent-${sent.length}',
