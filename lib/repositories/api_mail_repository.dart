@@ -44,9 +44,9 @@ import 'mail_repository.dart';
 
 /// Everything one connected mailbox needs to operate independently: its own
 /// authenticated HTTP session, its own folder/mail cache, and its own
-/// client-only state (pins, replied/forwarded, labels). Multiple accounts
-/// hold multiple [_Session]s side by side — connecting a second account
-/// never touches the first one's tokens, mail, or flags.
+/// backend-backed pin/snooze/label/contact state plus local reply/forward flags.
+/// Multiple accounts hold multiple [_Session]s side by side — connecting a
+/// second account never touches the first one's tokens, mail, or flags.
 class _Session {
   _Session({
     required this.authService,
@@ -94,9 +94,9 @@ class _Session {
   List<ManualContact> manualContacts = [];
   List<MailTemplate>? templates;
 
-  /// Mail id -> epoch millis it should reappear (client-only, see
-  /// [LocalMailFlagsStore.readSnoozed]). A mail past its timestamp is
-  /// treated as not-snoozed everywhere below.
+  /// Cached snooze deadlines (mail id -> epoch millis), fetched from the
+  /// backend or read from [LocalMailFlagsStore] while offline. A mail past
+  /// its timestamp is treated as not-snoozed everywhere below.
   Map<String, int> snoozedUntil = {};
 
   /// Scheduled sends known for this account, soonest first. Populated by
@@ -174,8 +174,9 @@ class _Session {
   );
 }
 
-/// [MailRepository] backed by the real backend. Pins, replied/forwarded flags
-/// and labels have no API equivalent and are kept locally per account.
+/// [MailRepository] backed by the real backend. Pins, snoozes, labels and
+/// manual contacts are backend-owned with an offline device cache and queue;
+/// replied/forwarded-from-app flags stay local per account.
 ///
 /// Every connected mailbox gets its own [_Session] — its own authenticated
 /// client, its own folder/mail state, its own local flags — so accounts stay
@@ -852,9 +853,8 @@ class ApiMailRepository extends MailRepository {
       }
       await MailRulesStore.remapLabelIds(session.account.id, idRemap);
     } catch (_) {
-      // Best-effort — a failure here must never affect login. Labels stay
-      // local-only (via the [_loadLabels] fallback) until the next
-      // successful login re-attempts the migration.
+      // Best-effort — a failure here must never affect login. Cached labels
+      // remain available via [_loadLabels] until migration can run again.
     }
   }
 
@@ -1150,11 +1150,11 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  /// Re-derives every loaded mail's local-only flags (pin/star/replied/
-  /// forwarded/labels) from [session]'s current sets. Used instead of
-  /// [_replaceMany] whenever a change can affect mail beyond the ids the
-  /// caller touched directly — e.g. marking one message replied also marks
-  /// every other loaded message in its thread via `repliedFromKaydetMailThreadIds`.
+  /// Re-derives every loaded mail's flags (backend-backed pin/labels,
+  /// IMAP-backed star and local replied/forwarded) from [session]'s sets.
+  /// Used instead of [_replaceMany] when a change can affect mail beyond
+  /// the ids the caller touched directly — e.g. marking one message replied
+  /// also marks every other loaded message in its thread.
   void _restampFlags(_Session session) {
     _touch();
     for (final folder in session.emails.keys.toList()) {
@@ -1462,12 +1462,6 @@ class ApiMailRepository extends MailRepository {
 
   static const _localContactIdPrefix = 'local-contact-';
 
-  /// Replays queued manual contact changes, oldest first, with the same
-  /// outcome rules as [_replayAppState]: a still-unreachable backend leaves
-  /// them queued, a server rejection (e.g. the email was saved on another
-  /// device meanwhile) drops the change and surfaces the contact id via
-  /// [offlineMutationConflicts]. Once nothing is left queued, contacts are
-  /// re-read from the backend, which also rolls back any rejected change.
   Future<void> _replayManualContacts(
     _Session session,
     LocalMailFlagsStore store,

@@ -679,12 +679,12 @@ abstract class MailRepository extends ChangeNotifier {
     return results;
   }
 
-  // --- Snooze (client-side only; see LocalMailFlagsStore) -----------
+  // --- Snooze (backend-owned; cached and queued while offline) -------
 
   /// Hides mail from its normal folder view until [until] (UTC), when it
   /// reappears where it already lives — same independence as pin/star.
-  /// `until: null` clears the snooze immediately. Never synced to the
-  /// backend or to other devices signed into the same account.
+  /// `until: null` clears the snooze. The backend is authoritative; offline
+  /// changes are queued and reconciled when the account reconnects.
   Future<void> setSnoozed(List<String> ids, DateTime? until);
 
   /// The snooze deadline for [mailId], or null when it isn't snoozed (or

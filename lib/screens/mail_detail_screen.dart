@@ -269,9 +269,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     await _repo.setStarred([email.id], !email.isStarred);
   }
 
-  /// Snoozed mail is hidden from every normal folder view until [until]
-  /// (see `ApiMailRepository._buildFolderView`) — purely client-side, no
-  /// backend involved (see `LocalMailFlagsStore`).
+  /// Snoozed mail is hidden from normal folder views until its backend-owned
+  /// deadline (see `ApiMailRepository._buildFolderView`). The local cache
+  /// keeps the state visible offline until queued changes can be replayed.
   Future<void> _toggleSnooze() async {
     final email = _email;
     if (email == null) return;

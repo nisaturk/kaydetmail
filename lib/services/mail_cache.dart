@@ -34,7 +34,7 @@ class MailCache {
     _db.execute(
       'CREATE INDEX IF NOT EXISTS mails_folder ON mails(account_id, folder, ts DESC)',
     );
-    // Client-only state the API has no concept of (see LocalMailFlagsStore).
+    // Cached pin state and local reply/forward flags (see LocalMailFlagsStore).
     _db.execute('''
       CREATE TABLE IF NOT EXISTS flags (
         account_id TEXT NOT NULL, kind TEXT NOT NULL, mail_id TEXT NOT NULL,
@@ -51,10 +51,9 @@ class MailCache {
         account_id TEXT NOT NULL, mail_id TEXT NOT NULL, label_id TEXT NOT NULL,
         PRIMARY KEY (account_id, mail_id, label_id)
       )''');
-    // Snooze is purely client-side (see LocalMailFlagsStore): until_ms is
-    // the epoch-millis timestamp the mail should reappear in its real
-    // folder. Rows past their timestamp are inert — filtering happens in
-    // the repository, not here.
+    // Cached backend snooze deadlines: until_ms is the epoch-millis timestamp
+    // the mail should reappear in its real folder. Expired rows are inert;
+    // filtering happens in the repository, not here.
     _db.execute('''
       CREATE TABLE IF NOT EXISTS snoozes (
         account_id TEXT NOT NULL, mail_id TEXT NOT NULL, until_ms INTEGER NOT NULL,
@@ -229,8 +228,8 @@ class MailCache {
     ],
   };
 
-  // Pin/replied/forwarded/labels are not stored here: the repository stamps
-  // them from LocalMailFlagsStore, which stays their source of truth.
+  // Pin/replied/forwarded/labels are stamped by the repository, not stored
+  // in mail JSON. Pins and labels are backend-owned, mirrored locally.
   static Email _fromJson(Map<String, dynamic> j) => Email(
     id: j['id'] as String,
     senderName: j['senderName'] as String,

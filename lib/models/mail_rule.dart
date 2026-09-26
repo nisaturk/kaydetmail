@@ -109,10 +109,9 @@ class MailRuleAction {
   }
 }
 
-/// A client-side filter rule: "when [condition] matches an Inbox mail, run
-/// [action]". Evaluated by `MailRulesEngine`; managed by
-/// `RulesSettingsScreen`. See `MailRulesStore` for persistence and account
-/// scoping.
+/// A backend-owned filter rule: when [condition] matches an Inbox mail,
+/// the server runs [action]. Managed by `RulesSettingsScreen`; the legacy
+/// `MailRulesStore` is read only for one-time migration.
 class MailRule {
   const MailRule({
     required this.id,
