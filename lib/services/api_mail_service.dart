@@ -7,6 +7,7 @@ import '../models/account_notification_settings.dart';
 import '../models/compose_prefill.dart';
 import '../models/compose_limits.dart';
 import '../models/email.dart';
+import '../models/mail_authentication.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
@@ -1391,6 +1392,7 @@ class ApiMailService {
       attachments: attachments,
       hasAttachments: item['hasAttachments'] as bool? ?? attachments.isNotEmpty,
       headers: _mapHeaders(item['headers']),
+      authentication: _mapAuthentication(item['authentication']),
     );
   }
 
@@ -1408,6 +1410,17 @@ class ApiMailService {
       map[name.toLowerCase()] = value;
     }
     return map;
+  }
+
+  static MailAuthentication? _mapAuthentication(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final authentication = MailAuthentication(
+      authservId: raw['authservId'] as String?,
+      spf: raw['spf'] as String?,
+      dkim: raw['dkim'] as String?,
+      dmarc: raw['dmarc'] as String?,
+    );
+    return authentication.hasResults ? authentication : null;
   }
 }
 

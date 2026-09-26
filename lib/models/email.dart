@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'mail_folder.dart';
+import 'mail_authentication.dart';
 
 /// A file attached to an email.
 @immutable
@@ -79,6 +80,7 @@ class Email {
     this.threadId = '',
     this.inReplyToId,
     this.headers = const {},
+    this.authentication,
   });
 
   final String id;
@@ -155,6 +157,7 @@ class Email {
   /// one-click unsubscribe (`List-Unsubscribe`); never shown to the user
   /// directly.
   final Map<String, String> headers;
+  final MailAuthentication? authentication;
 
   static final _previewCache = Expando<String>('Email.preview');
   static final _whitespace = RegExp(r'\s+');
@@ -209,6 +212,7 @@ class Email {
     String? threadId,
     String? inReplyToId,
     Map<String, String>? headers,
+    MailAuthentication? authentication,
   }) {
     return Email(
       id: id,
@@ -238,6 +242,7 @@ class Email {
       threadId: threadId ?? this.threadId,
       inReplyToId: inReplyToId ?? this.inReplyToId,
       headers: headers ?? this.headers,
+      authentication: authentication ?? this.authentication,
     );
   }
 

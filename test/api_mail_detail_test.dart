@@ -63,6 +63,12 @@ Map<String, dynamic> _realisticDetail() => {
   'headers': [
     {'name': 'X-Mailer', 'value': 'x'},
   ],
+  'authentication': {
+    'authservId': 'mx.example.test',
+    'spf': 'pass',
+    'dkim': 'pass',
+    'dmarc': 'fail',
+  },
   'attachments': [
     {
       'id': 'att-1',
@@ -122,6 +128,10 @@ void main() {
       expect(email.attachments.single.name, 'notlar.pdf');
       expect(email.attachments.single.sizeBytes, 48211);
       expect(email.attachments.single.mimeType, 'application/pdf');
+      expect(email.authentication?.authservId, 'mx.example.test');
+      expect(email.authentication?.spf, 'pass');
+      expect(email.authentication?.dkim, 'pass');
+      expect(email.authentication?.dmarc, 'fail');
       // UTC from the API, shown in the device zone: same instant, local clock.
       expect(email.timestamp.isUtc, isFalse);
       expect(email.timestamp, DateTime.parse('2026-09-18T08:00:00Z').toLocal());

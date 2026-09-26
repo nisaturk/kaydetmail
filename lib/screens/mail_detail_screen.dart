@@ -23,6 +23,7 @@ import '../widgets/move_folder_sheet.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
 import '../widgets/mail_link_handler.dart';
+import '../widgets/mail_authentication_row.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
 import '../widgets/reply_reminder_picker.dart';
@@ -931,6 +932,10 @@ class _SingleMessage extends StatelessWidget {
         if (labels.isNotEmpty) ...[
           const SizedBox(height: 12),
           _LabelChips(labels: labels),
+        ],
+        if (email.authentication case final authentication?) ...[
+          const SizedBox(height: 8),
+          MailAuthenticationRow(authentication: authentication),
         ],
         if (email.attachments.isNotEmpty) ...[
           const SizedBox(height: 16),
