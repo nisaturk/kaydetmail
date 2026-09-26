@@ -289,6 +289,9 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<Email?> getEmail(String id);
 
+  Future<Email> loadRemoteImages(String id) =>
+      throw UnimplementedError('loadRemoteImages');
+
   /// Backend-computed reply/reply-all/forward context: recipients,
   /// subject and threading headers computed server-side — the UI must
   /// never re-derive recipients/subject itself (Reply-To vs. From

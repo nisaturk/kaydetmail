@@ -947,6 +947,11 @@ class _SingleMessage extends StatelessWidget {
         ],
         const Divider(height: 32),
         const SizedBox(height: 4),
+        if (email.remoteImageHosts.isNotEmpty &&
+            !email.remoteImagesAllowed) ...[
+          _RemoteContentBanner(email: email),
+          const SizedBox(height: 12),
+        ],
         _MessageBody(email: email),
       ],
     );
@@ -955,11 +960,6 @@ class _SingleMessage extends StatelessWidget {
   String recipientText(List<String> recipients) => recipients.join(', ');
 }
 
-/// The message body: the server's sanitized HTML when present, so the
-/// sender's formatting (bold, italics, lists, tables, links) survives —
-/// otherwise the plain text. Remote images never load (the server already
-/// strips their `src` into `data-remote-src`); only inline `data:` images
-/// render.
 class _MessageBody extends StatelessWidget {
   const _MessageBody({required this.email});
 
@@ -984,8 +984,85 @@ class _MessageBody extends StatelessWidget {
         customWidgetBuilder: (element) {
           if (element.localName != 'img') return null;
           final src = element.attributes['src'] ?? '';
-          return src.startsWith('data:') ? null : const SizedBox.shrink();
+          if (src.startsWith('data:')) return null;
+          if (email.remoteImagesAllowed &&
+              (src.startsWith('https://') || src.startsWith('http://'))) {
+            return null;
+          }
+          return const SizedBox.shrink();
         },
+      ),
+    );
+  }
+}
+
+class _RemoteContentBanner extends StatefulWidget {
+  const _RemoteContentBanner({required this.email});
+
+  final Email email;
+
+  @override
+  State<_RemoteContentBanner> createState() => _RemoteContentBannerState();
+}
+
+class _RemoteContentBannerState extends State<_RemoteContentBanner> {
+  bool _loading = false;
+  Object? _error;
+
+  Future<void> _load() async {
+    if (_loading) return;
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      await AppConfig.mailRepository.loadRemoteImages(widget.email.id);
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    return Container(
+      key: Key('remote-content-${widget.email.id}'),
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: colors.border),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Bu mesaj uzaktaki görselleri içeriyor.'),
+          if (_error != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              friendlyErrorMessage(_error!),
+              style: TextStyle(
+                fontSize: 12,
+                color: Theme.of(context).colorScheme.error,
+              ),
+            ),
+          ],
+          const SizedBox(height: 4),
+          TextButton(
+            key: Key('load-remote-content-${widget.email.id}'),
+            onPressed: _loading ? null : _load,
+            child: _loading
+                ? const SizedBox(
+                    width: 16,
+                    height: 16,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : Text(_error == null ? 'Görselleri yükle' : 'Tekrar dene'),
+          ),
+        ],
       ),
     );
   }

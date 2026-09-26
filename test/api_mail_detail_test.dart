@@ -47,6 +47,8 @@ Map<String, dynamic> _realisticDetail() => {
     'hasRemoteContent': true,
     'remoteContentHosts': ['track.example.com'],
     'trackingPixelHosts': ['track.example.com'],
+    'remoteImageHosts': ['images.example.com'],
+    'remoteImagesAllowed': false,
   },
   'isRead': false,
   'answered': false,
@@ -110,6 +112,8 @@ void main() {
       expect(email.threadId, 'conv-7');
       expect(email.inReplyToId, '<parent@mail.example.com>');
       expect(email.hasRemoteContent, isTrue);
+      expect(email.remoteImageHosts, ['images.example.com']);
+      expect(email.remoteImagesAllowed, isFalse);
       expect(
         email.bodyHtml,
         '<p>Merhaba,</p><p>yarın saat 10:00\'da toplantımız var.</p>',
@@ -335,6 +339,7 @@ class _ThreadMailService extends _RecordingMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async {
     if (id == 'm-bad') {
       throw const ApiException(status: 500, code: 'unexpected_error');
@@ -368,6 +373,7 @@ class _SingleMailService extends _RecordingMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async => Email(
     id: id,
     senderName: 'S',

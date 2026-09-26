@@ -209,8 +209,11 @@ class ApiMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async {
-    final body = await _client.get('/api/mails/${Uri.encodeComponent(id)}');
+    final path =
+        '/api/mails/${Uri.encodeComponent(id)}${allowRemoteImages ? '?remoteContent=allow' : ''}';
+    final body = await _client.get(path);
     return _mapMailDetail(body, resolveFolder);
   }
 
@@ -1271,6 +1274,10 @@ class ApiMailService {
     ];
   }
 
+  static List<String> _stringList(dynamic value) => value is List
+      ? value.whereType<String>().toList(growable: false)
+      : const [];
+
   /// First parseable timestamp out of the documented date fields, falling
   /// back to now so a malformed/missing date never breaks the whole mail.
   static DateTime _parseDate(Map<String, dynamic> item) {
@@ -1320,6 +1327,8 @@ class ApiMailService {
       bodyText: _resolveBodyText(item, body),
       bodyHtml: _nonEmpty(body?['html']),
       hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
+      remoteImageHosts: _stringList(body?['remoteImageHosts']),
+      remoteImagesAllowed: body?['remoteImagesAllowed'] as bool? ?? false,
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
       folder: resolveFolder(item['folderId'] as String),
@@ -1369,6 +1378,8 @@ class ApiMailService {
       bodyText: _resolveBodyText(item, body),
       bodyHtml: _nonEmpty(body?['html']),
       hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
+      remoteImageHosts: _stringList(body?['remoteImageHosts']),
+      remoteImagesAllowed: body?['remoteImagesAllowed'] as bool? ?? false,
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
       isStarred: item['flagged'] as bool? ?? false,

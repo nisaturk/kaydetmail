@@ -62,6 +62,8 @@ class Email {
     required this.bodyText,
     this.bodyHtml,
     this.hasRemoteContent = false,
+    this.remoteImageHosts = const [],
+    this.remoteImagesAllowed = false,
     required this.timestamp,
     this.isRead = false,
     this.isPinned = false,
@@ -102,6 +104,8 @@ class Email {
   /// automatically; this flag only preserves the server's signal for a
   /// future "load remote content" prompt.
   final bool hasRemoteContent;
+  final List<String> remoteImageHosts;
+  final bool remoteImagesAllowed;
 
   final DateTime timestamp;
   final bool isRead;
@@ -188,6 +192,8 @@ class Email {
     String? bodyText,
     String? bodyHtml,
     bool? hasRemoteContent,
+    List<String>? remoteImageHosts,
+    bool? remoteImagesAllowed,
     DateTime? timestamp,
     bool? isRead,
     bool? isPinned,
@@ -215,6 +221,8 @@ class Email {
       bodyText: bodyText ?? this.bodyText,
       bodyHtml: bodyHtml ?? this.bodyHtml,
       hasRemoteContent: hasRemoteContent ?? this.hasRemoteContent,
+      remoteImageHosts: remoteImageHosts ?? this.remoteImageHosts,
+      remoteImagesAllowed: remoteImagesAllowed ?? this.remoteImagesAllowed,
       timestamp: timestamp ?? this.timestamp,
       isRead: isRead ?? this.isRead,
       isPinned: isPinned ?? this.isPinned,

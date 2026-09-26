@@ -212,6 +212,7 @@ class ApiMailRepository extends MailRepository {
   /// [accounts]' order and the order accounts restore in at app launch.
   final Map<String, _Session> _sessions = {};
   final Map<String, ComposeLimits> _composeLimits = {};
+  final Set<String> _remoteImageMailIds = {};
 
   /// `null` selects the unified mailbox (every session); non-null narrows
   /// every read/write below to that one session.
@@ -1734,6 +1735,7 @@ class ApiMailRepository extends MailRepository {
           await session.mailService.getMail(
             id,
             resolveFolder: session.resolveFolder,
+            allowRemoteImages: _remoteImageMailIds.contains(id),
           ),
         );
         _upsertDetail(session, email);
@@ -1748,6 +1750,23 @@ class ApiMailRepository extends MailRepository {
     }
     if (sawNotFound || candidates.isEmpty) return null;
     return null;
+  }
+
+  @override
+  Future<Email> loadRemoteImages(String id) async {
+    final session = _sessionOwning(id);
+    if (session == null) throw ArgumentError('Unknown mail: $id');
+    final email = session.stampLocalFlags(
+      await session.mailService.getMail(
+        id,
+        resolveFolder: session.resolveFolder,
+        allowRemoteImages: true,
+      ),
+    );
+    _remoteImageMailIds.add(id);
+    _upsertDetail(session, email);
+    notifyListeners();
+    return email;
   }
 
   @override
@@ -1911,11 +1930,15 @@ class ApiMailRepository extends MailRepository {
           ...raw,
           'conversationId': threadId,
         }, session.resolveFolder);
-        if (raw['hasAttachments'] != true) return summary;
+        if (raw['hasAttachments'] != true &&
+            !_remoteImageMailIds.contains(id)) {
+          return summary;
+        }
         try {
           return await session.mailService.getMail(
             id,
             resolveFolder: session.resolveFolder,
+            allowRemoteImages: _remoteImageMailIds.contains(id),
           );
         } catch (_) {
           return summary;
