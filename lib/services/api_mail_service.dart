@@ -20,6 +20,7 @@ import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
 import '../models/reply_reminder.dart';
 import '../models/mail_snippet.dart';
+import '../models/trusted_sender.dart';
 import '../utils/html_to_text.dart';
 import '../utils/attachment_mime.dart';
 import 'api_auth_service.dart';
@@ -588,6 +589,28 @@ class ApiMailService {
 
   Future<void> deleteSnippet(String id) =>
       _client.delete('/api/snippets/${Uri.encodeComponent(id)}');
+
+  Future<List<TrustedSender>> getTrustedSenders() async {
+    final body = await _client.get('/api/trusted-senders');
+    final items = body['items'] as List? ?? const [];
+    return [
+      for (final item in items)
+        TrustedSender.fromJson(Map<String, dynamic>.from(item as Map)),
+    ];
+  }
+
+  Future<TrustedSender> addTrustedSender(
+    TrustedSenderKind kind,
+    String value,
+  ) async => TrustedSender.fromJson(
+    await _client.postJson('/api/trusted-senders', {
+      'kind': kind.apiValue,
+      'value': value,
+    }),
+  );
+
+  Future<void> removeTrustedSender(String id) =>
+      _client.delete('/api/trusted-senders/${Uri.encodeComponent(id)}');
 
   /// Full mail id -> assigned label ids map for the current mailbox.
   Future<Map<String, List<String>>> getLabelAssignments() async {

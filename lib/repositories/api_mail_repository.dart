@@ -25,6 +25,7 @@ import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/reply_reminder.dart';
 import '../models/mail_snippet.dart';
+import '../models/trusted_sender.dart';
 import '../models/server_mail_rule.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -1768,6 +1769,46 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
     return email;
   }
+
+  @override
+  Future<Email> trustSenderForRemoteImages(
+    String mailId,
+    TrustedSenderKind kind,
+  ) async {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    final current = await getEmail(mailId);
+    final sender = current?.senderEmail.trim() ?? '';
+    final at = sender.lastIndexOf('@');
+    if (at <= 0 || at == sender.length - 1) {
+      throw ArgumentError('Gönderici adresi okunamadı.');
+    }
+    await session.mailService.addTrustedSender(
+      kind,
+      kind == TrustedSenderKind.domain ? sender.substring(at + 1) : sender,
+    );
+    final email = session.stampLocalFlags(
+      await session.mailService.getMail(
+        mailId,
+        resolveFolder: session.resolveFolder,
+      ),
+    );
+    _upsertDetail(session, email);
+    notifyListeners();
+    return email;
+  }
+
+  @override
+  Future<List<TrustedSender>> listTrustedSenders(String accountId) async {
+    final items = await _sessionForAccountId(
+      accountId,
+    ).mailService.getTrustedSenders();
+    return [for (final item in items) item.copyWith(accountId: accountId)];
+  }
+
+  @override
+  Future<void> removeTrustedSender(String accountId, String id) =>
+      _sessionForAccountId(accountId).mailService.removeTrustedSender(id);
 
   @override
   Future<Uint8List> downloadAttachment(

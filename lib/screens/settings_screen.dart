@@ -19,6 +19,7 @@ import 'signature_settings_screen.dart';
 import 'templates_screen.dart';
 import 'signatures_screen.dart';
 import 'snippets_screen.dart';
+import 'trusted_senders_screen.dart';
 import 'sync_status_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
@@ -160,6 +161,14 @@ class SettingsScreen extends StatelessWidget {
             onTap: (ctx) => Navigator.of(
               ctx,
             ).push(MaterialPageRoute(builder: (_) => const SnippetsScreen())),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.image,
+            title: 'Güvenilir Göndericiler',
+            subtitle: 'Uzak görselleri otomatik yüklenen gönderici ve alan adları',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const TrustedSendersScreen()),
+            ),
           ),
           _CategoryTile(
             icon: LucideIcons.shieldCheck,

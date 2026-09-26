@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_label.dart';
+import 'package:kaydetmail/models/trusted_sender.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/mail_detail_screen.dart';
 
@@ -18,6 +19,22 @@ class _FakeRepo extends MailRepository {
   @override
   Future<Email> loadRemoteImages(String id) async {
     loadCalls++;
+    email = email.copyWith(
+      bodyHtml: '<p>Görseller yüklendi.</p>',
+      remoteImagesAllowed: true,
+    );
+    notifyListeners();
+    return email;
+  }
+
+  TrustedSenderKind? trusted;
+
+  @override
+  Future<Email> trustSenderForRemoteImages(
+    String mailId,
+    TrustedSenderKind kind,
+  ) async {
+    trusted = kind;
     email = email.copyWith(
       bodyHtml: '<p>Görseller yüklendi.</p>',
       remoteImagesAllowed: true,
@@ -81,5 +98,37 @@ void main() {
       find.text('Görseller yüklendi.', findRichText: true),
       findsOneWidget,
     );
+  });
+
+  testWidgets('trusting the sender domain reloads with images allowed', (
+    tester,
+  ) async {
+    final repo = _FakeRepo(
+      Email(
+        id: 'm2',
+        senderName: 'Bülten',
+        senderEmail: 'news@corp.example',
+        recipients: const ['ben@example.com'],
+        subject: 'Bülten',
+        bodyText: 'Gövde',
+        bodyHtml: '<img data-remote-src="https://images.example/photo.jpg">',
+        hasRemoteContent: true,
+        remoteImageHosts: const ['images.example'],
+        timestamp: DateTime(2026),
+        isRead: true,
+      ),
+    );
+    AppConfig.mailRepositoryForTest = repo;
+
+    await tester.pumpWidget(
+      const MaterialApp(home: MailDetailScreen(emailId: 'm2')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bu alan adından her zaman'));
+    await tester.pumpAndSettle();
+
+    expect(repo.trusted, TrustedSenderKind.domain);
+    expect(repo.loadCalls, 0);
+    expect(find.text('Bu mesaj uzaktaki görselleri içeriyor.'), findsNothing);
   });
 }

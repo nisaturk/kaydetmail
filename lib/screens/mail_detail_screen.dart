@@ -9,6 +9,7 @@ import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../models/trusted_sender.dart';
 import '../repositories/mail_repository.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_auto_download_policy.dart';
@@ -1014,14 +1015,19 @@ class _RemoteContentBannerState extends State<_RemoteContentBanner> {
   bool _loading = false;
   Object? _error;
 
-  Future<void> _load() async {
+  Future<void> _load([TrustedSenderKind? trust]) async {
     if (_loading) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      await AppConfig.mailRepository.loadRemoteImages(widget.email.id);
+      final repo = AppConfig.mailRepository;
+      if (trust == null) {
+        await repo.loadRemoteImages(widget.email.id);
+      } else {
+        await repo.trustSenderForRemoteImages(widget.email.id, trust);
+      }
     } catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
@@ -1056,16 +1062,35 @@ class _RemoteContentBannerState extends State<_RemoteContentBanner> {
             ),
           ],
           const SizedBox(height: 4),
-          TextButton(
-            key: Key('load-remote-content-${widget.email.id}'),
-            onPressed: _loading ? null : _load,
-            child: _loading
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(_error == null ? 'Görselleri yükle' : 'Tekrar dene'),
+          Wrap(
+            spacing: 4,
+            children: [
+              TextButton(
+                key: Key('load-remote-content-${widget.email.id}'),
+                onPressed: _loading ? null : () => _load(),
+                child: _loading
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : Text(_error == null ? 'Görselleri yükle' : 'Tekrar dene'),
+              ),
+              TextButton(
+                key: Key('trust-sender-${widget.email.id}'),
+                onPressed: _loading
+                    ? null
+                    : () => _load(TrustedSenderKind.sender),
+                child: const Text('Bu göndericiden her zaman'),
+              ),
+              TextButton(
+                key: Key('trust-domain-${widget.email.id}'),
+                onPressed: _loading
+                    ? null
+                    : () => _load(TrustedSenderKind.domain),
+                child: const Text('Bu alan adından her zaman'),
+              ),
+            ],
           ),
         ],
       ),

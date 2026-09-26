@@ -22,6 +22,7 @@ import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
 import '../models/reply_reminder.dart';
 import '../models/mail_snippet.dart';
+import '../models/trusted_sender.dart';
 import '../models/server_mail_rule.dart';
 import '../models/attachment_download_state.dart';
 
@@ -291,6 +292,17 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<Email> loadRemoteImages(String id) =>
       throw UnimplementedError('loadRemoteImages');
+
+  Future<Email> trustSenderForRemoteImages(
+    String mailId,
+    TrustedSenderKind kind,
+  ) => throw UnimplementedError('trustSenderForRemoteImages');
+
+  Future<List<TrustedSender>> listTrustedSenders(String accountId) =>
+      throw UnimplementedError('listTrustedSenders');
+
+  Future<void> removeTrustedSender(String accountId, String id) =>
+      throw UnimplementedError('removeTrustedSender');
 
   /// Backend-computed reply/reply-all/forward context: recipients,
   /// subject and threading headers computed server-side — the UI must
