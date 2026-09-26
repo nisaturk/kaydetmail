@@ -44,16 +44,16 @@ one unified inbox.
   actually finish (not just be queued) before reloading the list.
   Pin, snooze, label and manual-contact changes queue locally while offline and
   reconcile with the backend after reconnecting.
-- **Privacy and inspection.** Ordinary remote images load by default except in
-  Junk or mail reporting DMARC failure; these messages offer a per-mail load
-  action. Tiny/hidden tracking pixels remain blocked even when images load.
-  Loading remote images may tell the sender when and from where a mail was
-  opened. Mail detail offers full original IMAP
-  headers and raw MIME on demand, plus SPF/DKIM/DMARC results and signed or
-  encrypted format indicators. S/MIME signatures can be verified against the
-  original MIME; OpenPGP verification, key management and decryption are not
-  supported. Indicators for mail indexed before this feature may require
-  re-import; inspecting original source requires a live IMAP connection.
+- **Privacy and inspection.** Images in ordinary messages load automatically.
+  For Junk or mail with a failed DMARC check, use the per-message action to
+  load them. Tiny or hidden tracking pixels stay blocked. Other remote images
+  can reveal when and from where you opened a message. Mail detail also shows
+  the original IMAP headers and raw MIME on demand, plus SPF/DKIM/DMARC
+  results and signed or encrypted format indicators. S/MIME signatures can be
+  verified against the original MIME; OpenPGP verification, key management
+  and decryption are not supported. Older indexed mail may need re-import
+  before indicators appear. Inspecting original source requires a live IMAP
+  connection.
 - **Push notifications (FCM).** Device registration, foreground/background message
   routing, and tap-to-open — see [Push notifications](#push-notifications) below.
 - **Account & session management.** OAuth (Google/Microsoft) or password/manual
@@ -97,6 +97,14 @@ Configure which backend to hit via the in-app Settings screen, or at launch:
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5071   # Android emulator
 flutter run --dart-define=API_BASE_URL=http://192.168.1.23:5071  # physical device on the same LAN
 ```
+
+Android Studio has shared Flutter run configurations in
+`.idea/runConfigurations/`. `Kaydetmail (Emulator, Debug)` connects to
+`http://10.0.2.2:5071`; `Kaydetmail (Cihaz, Debug)` and
+`Kaydetmail (Cihaz, Release)` connect to `http://192.168.1.25:5071`.
+The device needs access to that address on your LAN. Update the device
+profiles if your backend runs at a different address. All three enable push;
+the release profile also passes `--release`.
 
 ## Push notifications
 
