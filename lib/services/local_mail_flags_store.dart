@@ -17,11 +17,13 @@ class QueuedMutation {
 
   final String mailId;
 
-  /// The bulk-action verb this replays as: `read`, `unread`, `star`,
-  /// `unstar`, `archive`, `trash`, `restore`, or `move`.
+  /// The verb this replays as: a bulk action (`read`, `unread`, `star`,
+  /// `unstar`, `archive`, `trash`, `restore`, `move`), `pin`/`unpin`,
+  /// `snooze`/`unsnooze`, or `label_add`/`label_remove`.
   final String operation;
 
-  /// Target folder id — only set (and only meaningful) for `move`.
+  /// Operation argument: target folder id for `move`, the label id for
+  /// `label_add`/`label_remove`, the UTC deadline (ISO-8601) for `snooze`.
   final String? folderId;
   final int queuedAtMs;
 }
@@ -31,12 +33,16 @@ class QueuedMutation {
 /// instead of stacking, so e.g. read→unread→read collapses to a single
 /// replayed `read`, and archive→trash collapses to a single `trash` (see
 /// spec docs-dev §8 "Replay kuralları").
-String mutationCategoryFor(String operation) => switch (operation) {
-  'read' || 'unread' => 'read_state',
-  'star' || 'unstar' => 'star_state',
-  'archive' || 'trash' || 'restore' || 'move' => 'location',
-  _ => operation,
-};
+String mutationCategoryFor(String operation, [String? argument]) =>
+    switch (operation) {
+      'read' || 'unread' => 'read_state',
+      'star' || 'unstar' => 'star_state',
+      'archive' || 'trash' || 'restore' || 'move' => 'location',
+      'pin' || 'unpin' => 'pin_state',
+      'snooze' || 'unsnooze' => 'snooze_state',
+      'label_add' || 'label_remove' => 'label:$argument',
+      _ => operation,
+    };
 
 /// Local cache for mail state, in the on-device SQLite database
 /// ([MailCache]).
@@ -205,7 +211,8 @@ class LocalMailFlagsStore {
     stmt.close();
   });
 
-  /// Queues [operation] for [mailId] — [folderId] only for `move` — after a
+  /// Queues [operation] for [mailId] — [folderId] carries the operation
+  /// argument (see [QueuedMutation.folderId]) — after a
   /// network failure stopped it from reaching the backend, so it can be
   /// replayed once the account reconnects (see
   /// `ApiMailRepository._replayQueuedMutations`). A later call in the same
@@ -223,7 +230,7 @@ class LocalMailFlagsStore {
       [
         _accountId,
         mailId,
-        mutationCategoryFor(operation),
+        mutationCategoryFor(operation, folderId),
         operation,
         folderId,
         DateTime.now().millisecondsSinceEpoch,

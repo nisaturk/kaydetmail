@@ -1210,6 +1210,16 @@ class ApiMailRepository extends MailRepository {
         .toList();
   }
 
+  static bool _isOfflineFailure(Object error) =>
+      error is ApiException &&
+      (error.category == ApiErrorCategory.network ||
+          error.category == ApiErrorCategory.timeout);
+
+  void _markOffline(_Session session) {
+    session.offline = true;
+    _scheduleReconnectRetry(session);
+  }
+
   /// Applies a bulk action within [session], optimistically and durably
   /// queueing it for replay when the request cannot reach the backend.
   /// Used for every operation spec docs-dev §8 requires an offline queue
@@ -1283,7 +1293,17 @@ class ApiMailRepository extends MailRepository {
   Future<void> _replayQueuedMutations(_Session session) async {
     final store = session.flagsStore;
     if (store == null) return;
-    final queued = await store.readQueuedMutations();
+    final all = await store.readQueuedMutations();
+    if (all.isEmpty) return;
+    final queued = [
+      for (final m in all)
+        if (!_appStateOperations.contains(m.operation)) m,
+    ];
+    final appState = [
+      for (final m in all)
+        if (_appStateOperations.contains(m.operation)) m,
+    ];
+    if (appState.isNotEmpty) await _replayAppState(session, store, appState);
     if (queued.isEmpty) return;
     final byOp = <(String, String?), List<QueuedMutation>>{};
     for (final mutation in queued) {
@@ -1295,7 +1315,7 @@ class ApiMailRepository extends MailRepository {
     for (final entry in byOp.entries) {
       final (operation, folderId) = entry.key;
       final ids = [for (final m in entry.value) m.mailId];
-      final category = mutationCategoryFor(operation);
+      final category = mutationCategoryFor(operation, folderId);
       List<BulkActionResult> results;
       try {
         results = await session.mailService.bulkAction(
@@ -1327,6 +1347,107 @@ class ApiMailRepository extends MailRepository {
       if (restored.isNotEmpty) await _fileRestored(session, restored);
     }
     if (changed) notifyListeners();
+  }
+
+  static const _appStateOperations = {
+    'pin',
+    'unpin',
+    'snooze',
+    'unsnooze',
+    'label_add',
+    'label_remove',
+  };
+
+  /// Replays queued pin/snooze/label changes. A still-unreachable backend
+  /// leaves them queued; a server rejection (e.g. pin cap reached on another
+  /// device) drops the mutation and surfaces it via [offlineMutationConflicts].
+  /// Once nothing of that kind is left queued, pins, snoozes and label
+  /// assignments are re-read from the backend so the local cache matches the
+  /// authoritative state.
+  Future<void> _replayAppState(
+    _Session session,
+    LocalMailFlagsStore store,
+    List<QueuedMutation> queued,
+  ) async {
+    var stillQueued = false;
+    final groups = <(String, String?), List<String>>{};
+    for (final m in queued) {
+      final key = m.operation.contains('snooze')
+          ? (m.operation, '${m.mailId}\u0000${m.folderId ?? ''}')
+          : (m.operation, m.folderId);
+      groups.putIfAbsent(key, () => []).add(m.mailId);
+    }
+    for (final MapEntry(key: (operation, argument), value: ids)
+        in groups.entries) {
+      Future<void> drop(Iterable<String> mailIds) async {
+        for (final id in mailIds) {
+          await store.clearQueuedMutation(
+            id,
+            mutationCategoryFor(
+              operation,
+              operation.startsWith('label') ? argument : null,
+            ),
+          );
+          session.mutationConflicts.add(id);
+        }
+      }
+
+      try {
+        switch (operation) {
+          case 'pin' || 'unpin':
+            final results = await session.mailService.setPinned(
+              ids,
+              operation == 'pin',
+            );
+            for (final r in results) {
+              if (r.success) {
+                await store.clearQueuedMutation(r.mailId, 'pin_state');
+              } else {
+                await drop([r.mailId]);
+              }
+            }
+          case 'snooze':
+            final until = DateTime.parse(argument!.split('\u0000').last);
+            await session.mailService.setSnooze(ids.single, until);
+            await store.clearQueuedMutation(ids.single, 'snooze_state');
+          case 'unsnooze':
+            await session.mailService.clearSnooze(ids.single);
+            await store.clearQueuedMutation(ids.single, 'snooze_state');
+          case 'label_add' || 'label_remove':
+            operation == 'label_add'
+                ? await session.mailService.assignLabels(ids, [argument!])
+                : await session.mailService.unassignLabels(ids, [argument!]);
+            for (final id in ids) {
+              await store.clearQueuedMutation(
+                id,
+                mutationCategoryFor(operation, argument),
+              );
+            }
+        }
+      } catch (error) {
+        if (_isOfflineFailure(error)) {
+          stillQueued = true;
+        } else if (error is ApiException) {
+          await drop(ids);
+        } else {
+          stillQueued = true;
+        }
+      }
+    }
+    if (stillQueued) return;
+    session.pinnedIds = await _loadPinnedIds(session, store);
+    session.snoozedUntil = await _loadSnoozedUntil(session, store);
+    try {
+      session.labelMap = await session.mailService.getLabelAssignments();
+      await store.writeLabelMap(session.labelMap);
+    } catch (_) {}
+    _recomputeWatchedSnoozeDeadline();
+    _restampFlags(session);
+    _restampLabels(session, [
+      for (final list in session.emails.values)
+        for (final e in list) e.id,
+    ]);
+    notifyListeners();
   }
 
   static bool _pinned(Email email) => email.isPinned;
@@ -3458,22 +3579,37 @@ class ApiMailRepository extends MailRepository {
   /// [MailRepository.maxPinnedMails]-per-account cap authoritatively); only
   /// mails the server actually confirmed are applied locally, so a partial
   /// failure (e.g. cap already full on another device) never desyncs the
-  /// ones that did succeed. Same silent-partial-success shape as
-  /// [_bulkAndApply]/[setStarred].
+  /// ones that did succeed. A network failure applies the change locally and
+  /// queues it for [_replayQueuedMutations] instead, which reconciles with
+  /// the server's answer once the account reconnects.
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     if (ids.isEmpty) return;
     await Future.wait(
       _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
-        final results = await session.mailService.setPinned(
-          entry.value,
-          pinned,
-        );
-        final succeeded = results
-            .where((r) => r.success)
-            .map((r) => r.mailId)
-            .toSet();
+        final store = session.flagsStore;
+        Set<String> succeeded;
+        try {
+          final results = await session.mailService.setPinned(
+            entry.value,
+            pinned,
+          );
+          succeeded = results
+              .where((r) => r.success)
+              .map((r) => r.mailId)
+              .toSet();
+          for (final id in succeeded) {
+            await store?.clearQueuedMutation(id, 'pin_state');
+          }
+        } catch (error) {
+          if (!_isOfflineFailure(error)) rethrow;
+          _markOffline(session);
+          for (final id in entry.value) {
+            await store?.queueMutation(id, pinned ? 'pin' : 'unpin');
+          }
+          succeeded = entry.value.toSet();
+        }
         if (succeeded.isEmpty) return;
         pinned
             ? session.pinnedIds.addAll(succeeded)
@@ -3546,7 +3682,7 @@ class ApiMailRepository extends MailRepository {
   /// view cache. Writes each id through to the backend individually (there
   /// is no bulk snooze endpoint); only ids the server actually confirmed
   /// are applied locally — same silent-partial-success shape as
-  /// [setPinned].
+  /// [setPinned], including its offline queue.
   @override
   Future<void> setSnoozed(List<String> ids, DateTime? until) async {
     if (ids.isEmpty) return;
@@ -3554,6 +3690,7 @@ class ApiMailRepository extends MailRepository {
       _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
         final succeeded = <String>[];
+        final store = session.flagsStore;
         await Future.wait(
           entry.value.map((id) async {
             try {
@@ -3562,10 +3699,17 @@ class ApiMailRepository extends MailRepository {
               } else {
                 await session.mailService.setSnooze(id, until);
               }
+              await store?.clearQueuedMutation(id, 'snooze_state');
               succeeded.add(id);
-            } catch (_) {
-              // Not owned by this account, or a transient failure — leave
-              // its existing snooze state untouched.
+            } catch (error) {
+              if (!_isOfflineFailure(error)) return;
+              _markOffline(session);
+              await store?.queueMutation(
+                id,
+                until == null ? 'unsnooze' : 'snooze',
+                folderId: until?.toUtc().toIso8601String(),
+              );
+              succeeded.add(id);
             }
           }),
         );
@@ -3645,6 +3789,39 @@ class ApiMailRepository extends MailRepository {
         {'id': l.id, 'name': l.name, 'color': l.color.toARGB32()},
     ]);
     await store.writeLabelMap(session.labelMap);
+  }
+
+  Future<void> _queueLabels(
+    _Session session,
+    List<String> mailIds,
+    Iterable<String> labelIds,
+    String operation,
+  ) async {
+    _markOffline(session);
+    final store = session.flagsStore;
+    if (store == null) return;
+    for (final mailId in mailIds) {
+      for (final labelId in labelIds) {
+        await store.queueMutation(mailId, operation, folderId: labelId);
+      }
+    }
+  }
+
+  Future<void> _clearQueuedLabels(
+    _Session session,
+    List<String> mailIds,
+    Iterable<String> labelIds,
+  ) async {
+    final store = session.flagsStore;
+    if (store == null) return;
+    for (final mailId in mailIds) {
+      for (final labelId in labelIds) {
+        await store.clearQueuedMutation(
+          mailId,
+          mutationCategoryFor('label_add', labelId),
+        );
+      }
+    }
   }
 
   void _restampLabels(_Session session, Iterable<String> ids) => _replaceMany(
@@ -3770,9 +3947,10 @@ class ApiMailRepository extends MailRepository {
           entry.value,
           ownedLabelIds.toList(),
         );
-      } catch (_) {
-        // Never desync: skip the local update for this account on failure.
-        continue;
+        await _clearQueuedLabels(session, entry.value, ownedLabelIds);
+      } catch (error) {
+        if (!_isOfflineFailure(error)) continue;
+        await _queueLabels(session, entry.value, ownedLabelIds, 'label_add');
       }
       for (final id in entry.value) {
         final cur = session.labelMap[id] ?? const <String>[];
@@ -3796,8 +3974,10 @@ class ApiMailRepository extends MailRepository {
       final session = entry.key;
       try {
         await session.mailService.unassignLabels(entry.value, labelIds);
-      } catch (_) {
-        continue;
+        await _clearQueuedLabels(session, entry.value, labelIds);
+      } catch (error) {
+        if (!_isOfflineFailure(error)) continue;
+        await _queueLabels(session, entry.value, labelIds, 'label_remove');
       }
       for (final id in entry.value) {
         session.labelMap[id] = (session.labelMap[id] ?? const <String>[])
