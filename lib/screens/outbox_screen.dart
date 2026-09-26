@@ -92,6 +92,8 @@ class _OutboxScreenState extends State<OutboxScreen> {
           initialThreadId: send.threadId,
           inReplyToId: send.inReplyToId,
           editingDraftId: send.draftId,
+          initialRequestReadReceipt: send.requestReadReceipt,
+          initialRequestDeliveryReceipt: send.requestDeliveryReceipt,
         ),
       ),
     );

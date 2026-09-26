@@ -41,6 +41,8 @@ class PendingSend {
     this.threadId,
     this.inReplyToId,
     this.identityId,
+    this.requestReadReceipt = false,
+    this.requestDeliveryReceipt = false,
     this.draftId,
     this.idempotencyKey,
   });
@@ -67,6 +69,8 @@ class PendingSend {
   final String? threadId;
   final String? inReplyToId;
   final String? identityId;
+  final bool requestReadReceipt;
+  final bool requestDeliveryReceipt;
 
   /// The draft this send originated from, if any — deleted only once the
   /// deferred send actually goes through, same as the old synchronous flow
@@ -100,6 +104,8 @@ class PendingSend {
     'threadId': threadId,
     'inReplyToId': inReplyToId,
     'identityId': identityId,
+    'requestReadReceipt': requestReadReceipt,
+    'requestDeliveryReceipt': requestDeliveryReceipt,
     'draftId': draftId,
   };
 
@@ -135,6 +141,8 @@ class PendingSend {
     threadId: json['threadId'] as String?,
     inReplyToId: json['inReplyToId'] as String?,
     identityId: json['identityId'] as String?,
+    requestReadReceipt: json['requestReadReceipt'] as bool? ?? false,
+    requestDeliveryReceipt: json['requestDeliveryReceipt'] as bool? ?? false,
     draftId: json['draftId'] as String?,
   );
 }
@@ -152,6 +160,8 @@ typedef SendEmail = Future<Email> Function({
   String? threadId,
   String? inReplyToId,
   String? identityId,
+  bool requestReadReceipt,
+  bool requestDeliveryReceipt,
   String? idempotencyKey,
   void Function(int sent, int total)? onProgress,
   Future<void>? abortTrigger,
@@ -316,6 +326,8 @@ class PendingSendQueue with WidgetsBindingObserver {
         threadId: send.threadId,
         inReplyToId: send.inReplyToId,
         identityId: send.identityId,
+        requestReadReceipt: send.requestReadReceipt,
+        requestDeliveryReceipt: send.requestDeliveryReceipt,
         idempotencyKey: send.idempotencyKey ?? send.id,
         onProgress: (sent, total) {
           _currentProgress[send.id] = SendProgress(sent, total);

@@ -69,6 +69,7 @@ Map<String, dynamic> _realisticDetail() => {
     'dkim': 'pass',
     'dmarc': 'fail',
   },
+  'security': {'signed': 'SMime', 'encrypted': null},
   'attachments': [
     {
       'id': 'att-1',
@@ -119,6 +120,7 @@ void main() {
       expect(email.inReplyToId, '<parent@mail.example.com>');
       expect(email.hasRemoteContent, isTrue);
       expect(email.remoteImageHosts, ['images.example.com']);
+      expect(email.trackingPixelHosts, ['track.example.com']);
       expect(email.remoteImagesAllowed, isFalse);
       expect(
         email.bodyHtml,
@@ -132,9 +134,80 @@ void main() {
       expect(email.authentication?.spf, 'pass');
       expect(email.authentication?.dkim, 'pass');
       expect(email.authentication?.dmarc, 'fail');
+      expect(email.security?.signed, 'SMime');
       // UTC from the API, shown in the device zone: same instant, local clock.
       expect(email.timestamp.isUtc, isFalse);
       expect(email.timestamp, DateTime.parse('2026-09-18T08:00:00Z').toLocal());
+    });
+
+    test('original headers preserve duplicate names and order', () async {
+      final service = ApiMailService(
+        _client((request) async {
+          expect(request.url.path, '/api/mails/mail-9/headers');
+          return _jsonResponse({
+            'headers': [
+              {'name': 'Received', 'value': 'from mx1'},
+              {'name': 'Received', 'value': 'from mx2'},
+              {'name': 'X-Trace', 'value': 'diagnostic'},
+            ],
+          });
+        }),
+      );
+
+      final headers = await service.getMailHeaders('mail-9');
+      expect(headers.map((header) => header.name), [
+        'Received',
+        'Received',
+        'X-Trace',
+      ]);
+      expect(headers.map((header) => header.value), [
+        'from mx1',
+        'from mx2',
+        'diagnostic',
+      ]);
+    });
+
+    test('signature response distinguishes untrusted from valid', () async {
+      final service = ApiMailService(
+        _client((request) async {
+          expect(request.url.path, '/api/mails/mail-9/signature');
+          return _jsonResponse({
+            'standard': 'SMime',
+            'status': 'Untrusted',
+            'signers': [
+              {
+                'name': 'Alice',
+                'email': 'alice@example.test',
+                'signedAt': '2026-09-26T10:00:00Z',
+                'certificateExpiresAt': null,
+              },
+            ],
+          });
+        }),
+      );
+
+      final result = await service.getMailSignature('mail-9');
+      expect(result.status, 'Untrusted');
+      expect(result.signers.single.email, 'alice@example.test');
+      expect(result.signers.single.certificateExpiresAt, isNull);
+    });
+
+    test('raw MIME is decoded for inspection without rendering HTML', () async {
+      final service = ApiMailService(
+        _client((request) async {
+          expect(request.url.path, '/api/mails/mail-9/source');
+          return http.Response.bytes(
+            utf8.encode('Subject: Merhaba\\r\\n\\r\\n<p>Gövde</p>'),
+            200,
+            headers: {'content-type': 'message/rfc822'},
+          );
+        }),
+      );
+
+      expect(
+        await service.getMailSource('mail-9'),
+        'Subject: Merhaba\\r\\n\\r\\n<p>Gövde</p>',
+      );
     });
 
     test('missing optional fields never break the mapping', () async {

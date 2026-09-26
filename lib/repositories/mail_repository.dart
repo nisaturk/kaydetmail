@@ -8,6 +8,8 @@ import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/compose_limits.dart';
 import '../models/email.dart';
+import '../models/mail_header_entry.dart';
+import '../models/mail_security.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
@@ -288,6 +290,15 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<Email?> getEmail(String id);
 
+  Future<List<MailHeaderEntry>> fetchMailHeaders(String mailId) =>
+      throw UnimplementedError('fetchMailHeaders');
+
+  Future<String> fetchMailSource(String mailId) =>
+      throw UnimplementedError('fetchMailSource');
+
+  Future<MailSignatureVerification> verifyMailSignature(String mailId) =>
+      throw UnimplementedError('verifyMailSignature');
+
   Future<Email> loadRemoteImages(String id) =>
       throw UnimplementedError('loadRemoteImages');
 
@@ -377,6 +388,8 @@ abstract class MailRepository extends ChangeNotifier {
     String? threadId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,

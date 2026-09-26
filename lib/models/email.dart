@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 
 import 'mail_folder.dart';
 import 'mail_authentication.dart';
+import 'mail_security.dart';
 
 /// A file attached to an email.
 @immutable
@@ -64,6 +65,7 @@ class Email {
     this.bodyHtml,
     this.hasRemoteContent = false,
     this.remoteImageHosts = const [],
+    this.trackingPixelHosts = const [],
     this.remoteImagesAllowed = false,
     required this.timestamp,
     this.isRead = false,
@@ -82,6 +84,7 @@ class Email {
     this.inReplyToId,
     this.headers = const {},
     this.authentication,
+    this.security,
   });
 
   final String id;
@@ -102,12 +105,11 @@ class Email {
   /// locally composed mail; the plain [bodyText] is shown then.
   final String? bodyHtml;
 
-  /// Whether the original HTML body references remote content (tracking
-  /// pixels, remote images, …). Remote resources are never fetched
-  /// automatically; this flag only preserves the server's signal for a
-  /// future "load remote content" prompt.
+  /// Whether the original HTML body references remote content. Rendering
+  /// follows the server's sanitization and per-mail remote-image preference.
   final bool hasRemoteContent;
   final List<String> remoteImageHosts;
+  final List<String> trackingPixelHosts;
   final bool remoteImagesAllowed;
 
   final DateTime timestamp;
@@ -155,13 +157,11 @@ class Email {
   /// this — [threadId] is the conversation identity. Pure provenance.
   final String? inReplyToId;
 
-  /// Raw MIME headers (`GET /api/mails/{id}` `headers`), keyed
-  /// case-insensitively. Empty on list rows and locally composed mail —
-  /// only a detail fetch populates it. Powers header-driven features like
-  /// one-click unsubscribe (`List-Unsubscribe`); never shown to the user
-  /// directly.
+  /// Cached selected headers from the mail detail response. Full original
+  /// headers are fetched from IMAP only when requested.
   final Map<String, String> headers;
   final MailAuthentication? authentication;
+  final MailContentSecurity? security;
 
   static final _previewCache = Expando<String>('Email.preview');
   static final _whitespace = RegExp(r'\s+');
@@ -200,6 +200,7 @@ class Email {
     String? bodyHtml,
     bool? hasRemoteContent,
     List<String>? remoteImageHosts,
+    List<String>? trackingPixelHosts,
     bool? remoteImagesAllowed,
     DateTime? timestamp,
     bool? isRead,
@@ -218,6 +219,7 @@ class Email {
     String? inReplyToId,
     Map<String, String>? headers,
     MailAuthentication? authentication,
+    MailContentSecurity? security,
   }) {
     return Email(
       id: id,
@@ -231,6 +233,7 @@ class Email {
       bodyHtml: bodyHtml ?? this.bodyHtml,
       hasRemoteContent: hasRemoteContent ?? this.hasRemoteContent,
       remoteImageHosts: remoteImageHosts ?? this.remoteImageHosts,
+      trackingPixelHosts: trackingPixelHosts ?? this.trackingPixelHosts,
       remoteImagesAllowed: remoteImagesAllowed ?? this.remoteImagesAllowed,
       timestamp: timestamp ?? this.timestamp,
       isRead: isRead ?? this.isRead,
@@ -251,6 +254,7 @@ class Email {
       inReplyToId: inReplyToId ?? this.inReplyToId,
       headers: headers ?? this.headers,
       authentication: authentication ?? this.authentication,
+      security: security ?? this.security,
     );
   }
 

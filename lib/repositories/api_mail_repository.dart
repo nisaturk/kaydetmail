@@ -11,6 +11,8 @@ import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/compose_limits.dart';
 import '../models/email.dart';
+import '../models/mail_header_entry.dart';
+import '../models/mail_security.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
@@ -636,10 +638,14 @@ class ApiMailRepository extends MailRepository {
       final flags = LocalMailFlagsStore(account.id, _cache!);
       await flags.migrateLegacyPrefs();
       session.pinnedIds = await _loadPinnedIds(session, flags);
-      session.repliedFromKaydetMailIds = await flags.readRepliedFromKaydetMail();
-      session.forwardedFromKaydetMailIds = await flags.readForwardedFromKaydetMail();
-      session.repliedFromKaydetMailThreadIds = await flags.readRepliedFromKaydetMailThreads();
-      session.forwardedFromKaydetMailThreadIds = await flags.readForwardedFromKaydetMailThreads();
+      session.repliedFromKaydetMailIds = await flags
+          .readRepliedFromKaydetMail();
+      session.forwardedFromKaydetMailIds = await flags
+          .readForwardedFromKaydetMail();
+      session.repliedFromKaydetMailThreadIds = await flags
+          .readRepliedFromKaydetMailThreads();
+      session.forwardedFromKaydetMailThreadIds = await flags
+          .readForwardedFromKaydetMailThreads();
       session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
       await _loadLabels(session, flags);
       await _loadManualContacts(session, flags);
@@ -1905,12 +1911,24 @@ class ApiMailRepository extends MailRepository {
     final jobs = [
       for (final session in sessions)
         if (session.folderIds[folder] case final String folderId)
-          session.mailService.syncFolderId(folderId),
+          _syncFolderFor(session, folderId),
     ];
     if (jobs.isEmpty) {
       throw ArgumentError('Unknown folder for this account: $folder');
     }
     await Future.wait(jobs);
+  }
+
+  Future<void> _syncFolderFor(_Session session, String folderId) async {
+    try {
+      await session.mailService.syncFolderId(folderId);
+    } catch (error) {
+      if (_isOfflineFailure(error)) {
+        _markOffline(session);
+        notifyListeners();
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -1939,6 +1957,27 @@ class ApiMailRepository extends MailRepository {
     }
     if (sawNotFound || candidates.isEmpty) return null;
     return null;
+  }
+
+  @override
+  Future<List<MailHeaderEntry>> fetchMailHeaders(String mailId) {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    return session.mailService.getMailHeaders(mailId);
+  }
+
+  @override
+  Future<String> fetchMailSource(String mailId) {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    return session.mailService.getMailSource(mailId);
+  }
+
+  @override
+  Future<MailSignatureVerification> verifyMailSignature(String mailId) {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    return session.mailService.getMailSignature(mailId);
   }
 
   @override
@@ -1988,9 +2027,8 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<List<TrustedSender>> listTrustedSenders(String accountId) async {
-    final items = await _sessionForAccountId(
-      accountId,
-    ).mailService.getTrustedSenders();
+    final items = await _sessionForAccountId(accountId).mailService
+        .getTrustedSenders();
     return [for (final item in items) item.copyWith(accountId: accountId)];
   }
 
@@ -2200,6 +2238,8 @@ class ApiMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -2220,6 +2260,8 @@ class ApiMailRepository extends MailRepository {
         attachments: attachments,
         replySourceMailId: inReplyToId,
         identityId: identityId,
+        requestReadReceipt: requestReadReceipt,
+        requestDeliveryReceipt: requestDeliveryReceipt,
         idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
         onProgress: onProgress,
         abortTrigger: abortTrigger,
@@ -2410,8 +2452,7 @@ class ApiMailRepository extends MailRepository {
     String mailId,
     DateTime dueAtUtc,
   ) async {
-    final session =
-        _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
+    final session = _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
     if (session == null) throw StateError('No mail session');
     final created = (await session.mailService.setReplyReminder(
       mailId,
@@ -2429,8 +2470,7 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> cancelReplyReminder(String mailId) async {
-    final session =
-        _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
+    final session = _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
     if (session == null) return;
     await session.mailService.cancelReplyReminder(mailId);
     session.replyReminders = [
@@ -2504,9 +2544,8 @@ class ApiMailRepository extends MailRepository {
     MailSignature signature,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final created = (await session.mailService.createSignature(
-      signature,
-    )).copyWith(accountId: accountId);
+    final created = (await session.mailService.createSignature(signature))
+        .copyWith(accountId: accountId);
     final items = session.signatures ?? <MailSignature>[];
     session.signatures = [...items, created]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -2520,9 +2559,8 @@ class ApiMailRepository extends MailRepository {
     MailSignature signature,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final updated = (await session.mailService.updateSignatureItem(
-      signature,
-    )).copyWith(accountId: accountId);
+    final updated = (await session.mailService.updateSignatureItem(signature))
+        .copyWith(accountId: accountId);
     if (session.signatures != null) {
       session.signatures = [
         for (final item in session.signatures!)
@@ -2547,9 +2585,7 @@ class ApiMailRepository extends MailRepository {
     SignatureDefaults defaults,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final updated = await session.mailService.updateSignatureDefaults(
-      defaults,
-    );
+    final updated = await session.mailService.updateSignatureDefaults(defaults);
     session.signatureDefaults = updated;
     notifyListeners();
     return updated;
@@ -2563,15 +2599,16 @@ class ApiMailRepository extends MailRepository {
     final session = _sessionForAccountId(accountId);
     if (!refresh && session.identities != null) return session.identities!;
     final identities = await session.mailService.getIdentities();
-    session.identities = [
-      for (final identity in identities)
-        identity.copyWith(accountId: accountId),
-    ]..sort((a, b) {
-      if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
-      return a.emailAddress.toLowerCase().compareTo(
-        b.emailAddress.toLowerCase(),
-      );
-    });
+    session.identities =
+        [
+          for (final identity in identities)
+            identity.copyWith(accountId: accountId),
+        ]..sort((a, b) {
+          if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+          return a.emailAddress.toLowerCase().compareTo(
+            b.emailAddress.toLowerCase(),
+          );
+        });
     return session.identities!;
   }
 
@@ -2581,13 +2618,11 @@ class ApiMailRepository extends MailRepository {
     MailIdentity identity,
   ) async {
     final session = _sessionForAccountId(accountId);
-    var created = (await session.mailService.createIdentity(
-      identity,
-    )).copyWith(accountId: accountId);
+    var created = (await session.mailService.createIdentity(identity))
+        .copyWith(accountId: accountId);
     if (created.isDefault) {
       await listIdentities(accountId, refresh: true);
-      created =
-          session.identities!.firstWhere((item) => item.id == created.id);
+      created = session.identities!.firstWhere((item) => item.id == created.id);
     } else {
       final items = session.identities ?? <MailIdentity>[];
       session.identities = [...items, created];
@@ -2602,9 +2637,8 @@ class ApiMailRepository extends MailRepository {
     MailIdentity identity,
   ) async {
     final session = _sessionForAccountId(accountId);
-    var updated = (await session.mailService.updateIdentity(
-      identity,
-    )).copyWith(accountId: accountId);
+    var updated = (await session.mailService.updateIdentity(identity))
+        .copyWith(accountId: accountId);
     if (updated.isDefault) {
       await listIdentities(accountId, refresh: true);
       updated = session.identities!.firstWhere((item) => item.id == updated.id);
@@ -3269,8 +3303,7 @@ class ApiMailRepository extends MailRepository {
     if (!refresh && session.templates != null) return session.templates!;
     final templates = await session.mailService.getTemplates();
     session.templates = [
-      for (final template in templates)
-        template.copyWith(accountId: accountId),
+      for (final template in templates) template.copyWith(accountId: accountId),
     ];
     return session.templates!;
   }
@@ -3281,9 +3314,8 @@ class ApiMailRepository extends MailRepository {
     MailTemplate template,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final created = (await session.mailService.createTemplate(
-      template,
-    )).copyWith(accountId: accountId);
+    final created = (await session.mailService.createTemplate(template))
+        .copyWith(accountId: accountId);
     final items = session.templates ?? <MailTemplate>[];
     session.templates = [...items, created]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -3296,9 +3328,8 @@ class ApiMailRepository extends MailRepository {
     MailTemplate template,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final updated = (await session.mailService.updateTemplate(
-      template,
-    )).copyWith(accountId: accountId);
+    final updated = (await session.mailService.updateTemplate(template))
+        .copyWith(accountId: accountId);
     if (session.templates != null) {
       session.templates = [
         for (final item in session.templates!)
@@ -3737,7 +3768,9 @@ class ApiMailRepository extends MailRepository {
       }
       await Future.wait([
         store.writeRepliedFromKaydetMail(session.repliedFromKaydetMailIds),
-        store.writeRepliedFromKaydetMailThreads(session.repliedFromKaydetMailThreadIds),
+        store.writeRepliedFromKaydetMailThreads(
+          session.repliedFromKaydetMailThreadIds,
+        ),
       ]);
       _restampFlags(session);
     }
@@ -3826,7 +3859,9 @@ class ApiMailRepository extends MailRepository {
       }
       await Future.wait([
         store.writeForwardedFromKaydetMail(session.forwardedFromKaydetMailIds),
-        store.writeForwardedFromKaydetMailThreads(session.forwardedFromKaydetMailThreadIds),
+        store.writeForwardedFromKaydetMailThreads(
+          session.forwardedFromKaydetMailThreadIds,
+        ),
       ]);
       _restampFlags(session);
     }

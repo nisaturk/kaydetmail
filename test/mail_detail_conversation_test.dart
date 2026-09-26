@@ -6,6 +6,7 @@ import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/models/mail_signature.dart';
+import 'package:kaydetmail/models/mail_security.dart';
 import 'package:kaydetmail/models/reply_reminder.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/mail_detail_screen.dart';
@@ -44,8 +45,19 @@ class _ThreadRepo extends MailRepository {
   final List<String> prefillSources = [];
   bool failPrefill = false;
   final List<String> replied = [];
+  bool showDiagnostics = false;
 
-  List<Email> get _thread => [newer, older];
+  List<Email> get _thread => [
+    showDiagnostics
+        ? newer.copyWith(
+            trackingPixelHosts: const ['tracker.example'],
+            remoteImageHosts: const ['tracker.example'],
+            remoteImagesAllowed: true,
+            security: const MailContentSecurity(signed: 'SMime'),
+          )
+        : newer,
+    older,
+  ];
 
   @override
   List<MailAccount> get accounts => const [
@@ -193,6 +205,19 @@ void main() {
 
       expect(repo.prefillSources, ['reply:m1']);
     });
+
+    testWidgets(
+      'tracking remains blocked after loading images; signed mail is unverified',
+      (tester) async {
+        repo.showDiagnostics = true;
+        await open(tester, 'm2');
+        await tester.tap(find.byKey(const Key('thread-toggle-all')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Takip içeriği engellendi'), findsOneWidget);
+        expect(find.text('S/MIME imzalı (doğrulanmadı)'), findsOneWidget);
+      },
+    );
 
     testWidgets('quick reply queues a threaded reply through the outbox', (
       tester,

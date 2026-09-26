@@ -162,6 +162,8 @@ class _FakeMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,

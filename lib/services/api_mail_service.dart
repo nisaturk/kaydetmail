@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -8,6 +9,8 @@ import '../models/compose_prefill.dart';
 import '../models/compose_limits.dart';
 import '../models/email.dart';
 import '../models/mail_authentication.dart';
+import '../models/mail_header_entry.dart';
+import '../models/mail_security.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
@@ -217,6 +220,49 @@ class ApiMailService {
         '/api/mails/${Uri.encodeComponent(id)}${allowRemoteImages ? '?remoteContent=allow' : ''}';
     final body = await _client.get(path);
     return _mapMailDetail(body, resolveFolder);
+  }
+
+  Future<List<MailHeaderEntry>> getMailHeaders(String id) async {
+    final body = await _client.get(
+      '/api/mails/${Uri.encodeComponent(id)}/headers',
+    );
+    return [
+      for (final entry in body['headers'] as List)
+        if (entry is Map<String, dynamic>)
+          MailHeaderEntry(
+            name: entry['name'] as String? ?? '',
+            value: entry['value'] as String? ?? '',
+          ),
+    ];
+  }
+
+  Future<String> getMailSource(String id) async {
+    final bytes = await _client.getBytes(
+      '/api/mails/${Uri.encodeComponent(id)}/source',
+    );
+    return utf8.decode(bytes, allowMalformed: true);
+  }
+
+  Future<MailSignatureVerification> getMailSignature(String id) async {
+    final body = await _client.get(
+      '/api/mails/${Uri.encodeComponent(id)}/signature',
+    );
+    return MailSignatureVerification(
+      standard: body['standard'] as String,
+      status: body['status'] as String,
+      signers: [
+        for (final entry in body['signers'] as List)
+          if (entry is Map<String, dynamic>)
+            MailSigner(
+              name: entry['name'] as String?,
+              email: entry['email'] as String?,
+              signedAt: DateTime.tryParse(entry['signedAt'] as String? ?? ''),
+              certificateExpiresAt: DateTime.tryParse(
+                entry['certificateExpiresAt'] as String? ?? '',
+              ),
+            ),
+      ],
+    );
   }
 
   /// Downloads one attachment's raw bytes
@@ -541,9 +587,8 @@ class ApiMailService {
     final items = await _client.getList('/api/templates');
     return items
         .map(
-          (item) => MailTemplate.fromJson(
-            Map<String, dynamic>.from(item as Map),
-          ),
+          (item) =>
+              MailTemplate.fromJson(Map<String, dynamic>.from(item as Map)),
         )
         .toList();
   }
@@ -934,19 +979,25 @@ class ApiMailService {
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     required String idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
   }) async {
     final body = await _client.multipart(
       '/api/mails/send',
-      fields: _composeFields(
-        subject: subject,
-        bodyText: bodyText,
-        bodyHtml: bodyHtml,
-        replySourceMailId: replySourceMailId,
-        identityId: identityId,
-      ),
+      fields: {
+        ..._composeFields(
+          subject: subject,
+          bodyText: bodyText,
+          bodyHtml: bodyHtml,
+          replySourceMailId: replySourceMailId,
+          identityId: identityId,
+        ),
+        'requestReadReceipt': '$requestReadReceipt',
+        'requestDeliveryReceipt': '$requestDeliveryReceipt',
+      },
       files: () =>
           _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
       headers: {'Idempotency-Key': idempotencyKey},
@@ -1117,9 +1168,8 @@ class ApiMailService {
     final items = await _client.getList('/api/identities');
     return items
         .map(
-          (item) => MailIdentity.fromJson(
-            Map<String, dynamic>.from(item as Map),
-          ),
+          (item) =>
+              MailIdentity.fromJson(Map<String, dynamic>.from(item as Map)),
         )
         .toList();
   }
@@ -1159,9 +1209,8 @@ class ApiMailService {
     final items = body['items'] as List? ?? const [];
     return items
         .map(
-          (item) => ReplyReminder.fromJson(
-            Map<String, dynamic>.from(item as Map),
-          ),
+          (item) =>
+              ReplyReminder.fromJson(Map<String, dynamic>.from(item as Map)),
         )
         .toList();
   }
@@ -1179,9 +1228,8 @@ class ApiMailService {
   /// `POST`/`PUT` responses only carry `{ id, sendAtUtc, status }` —
   /// every other field falls back to a neutral default instead of throwing.
   ScheduledSend _mapScheduledSend(Map<String, dynamic> body) {
-    DateTime orNow(Object? value) => value is String
-        ? DateTime.parse(value).toLocal()
-        : DateTime.now();
+    DateTime orNow(Object? value) =>
+        value is String ? DateTime.parse(value).toLocal() : DateTime.now();
     return ScheduledSend(
       id: body['id'] as String,
       to: _addresses(body['to']),
@@ -1352,6 +1400,7 @@ class ApiMailService {
       bodyHtml: _nonEmpty(body?['html']),
       hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
       remoteImageHosts: _stringList(body?['remoteImageHosts']),
+      trackingPixelHosts: _stringList(body?['trackingPixelHosts']),
       remoteImagesAllowed: body?['remoteImagesAllowed'] as bool? ?? false,
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
@@ -1403,6 +1452,7 @@ class ApiMailService {
       bodyHtml: _nonEmpty(body?['html']),
       hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
       remoteImageHosts: _stringList(body?['remoteImageHosts']),
+      trackingPixelHosts: _stringList(body?['trackingPixelHosts']),
       remoteImagesAllowed: body?['remoteImagesAllowed'] as bool? ?? false,
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
@@ -1416,6 +1466,7 @@ class ApiMailService {
       hasAttachments: item['hasAttachments'] as bool? ?? attachments.isNotEmpty,
       headers: _mapHeaders(item['headers']),
       authentication: _mapAuthentication(item['authentication']),
+      security: _mapSecurity(item['security']),
     );
   }
 
@@ -1444,6 +1495,14 @@ class ApiMailService {
       dmarc: raw['dmarc'] as String?,
     );
     return authentication.hasResults ? authentication : null;
+  }
+
+  static MailContentSecurity? _mapSecurity(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    return MailContentSecurity(
+      signed: raw['signed'] as String?,
+      encrypted: raw['encrypted'] as String?,
+    );
   }
 }
 

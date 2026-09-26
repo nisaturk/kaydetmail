@@ -92,9 +92,11 @@ void main() {
       final repo = AppConfig.mailRepository;
       await _pumpUntil(
         tester,
-        () => repo.isLoggedIn && repo.accounts.isNotEmpty,
+        () =>
+            repo.isLoggedIn &&
+            repo.accounts.isNotEmpty &&
+            find.text('Gelen Kutusu').evaluate().isNotEmpty,
       );
-      expect(find.text('Gelen Kutusu'), findsWidgets);
 
       if (!twoAccounts) return;
 

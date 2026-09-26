@@ -35,6 +35,7 @@ import '../widgets/snooze_picker.dart';
 import '../widgets/reply_reminder_picker.dart';
 import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
+import 'mail_inspection_screen.dart';
 
 /// Full view of a mail — and, when it belongs to a conversation, the whole
 /// thread as stacked, collapsible cards (Gmail-style), newest first.
@@ -636,6 +637,14 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               value: 'unsubscribe',
               child: Text('Abonelikten Çık'),
             ),
+          const PopupMenuItem(
+            value: 'all_headers',
+            child: Text('Tüm başlıkları göster'),
+          ),
+          const PopupMenuItem(
+            value: 'raw_mime',
+            child: Text('Ham MIME göster'),
+          ),
         ],
       ),
     ];
@@ -680,6 +689,18 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await _toggleSenderBlock();
     } else if (action == 'unsubscribe') {
       await _unsubscribe();
+    } else if (action == 'all_headers' || action == 'raw_mime') {
+      await Navigator.of(context).push(
+        MaterialPageRoute<void>(
+          builder: (_) => MailInspectionScreen(
+            mailId: widget.emailId,
+            mode: action == 'all_headers'
+                ? MailInspectionMode.headers
+                : MailInspectionMode.source,
+            repository: _repo,
+          ),
+        ),
+      );
     }
   }
 
@@ -1027,6 +1048,33 @@ class _SingleMessage extends StatelessWidget {
           const SizedBox(height: 8),
           MailAuthenticationRow(authentication: authentication),
         ],
+        if (email.security case final security?) ...[
+          const SizedBox(height: 8),
+          ListTile(
+            contentPadding: EdgeInsets.zero,
+            dense: true,
+            leading: const Icon(LucideIcons.lock, size: 20),
+            title: Text(
+              [
+                if (security.signed case final signed?)
+                  '${signed == 'SMime' ? 'S/MIME' : 'OpenPGP'} imzalı (doğrulanmadı)',
+                if (security.encrypted case final encrypted?)
+                  '${encrypted == 'SMime' ? 'S/MIME' : 'OpenPGP'} şifreli (açılamıyor)',
+              ].join(' · '),
+            ),
+            onTap: security.signed == null
+                ? null
+                : () => Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => MailInspectionScreen(
+                        mailId: email.id,
+                        mode: MailInspectionMode.signature,
+                        repository: AppConfig.mailRepository,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
         if (email.attachments.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text(
@@ -1042,6 +1090,16 @@ class _SingleMessage extends StatelessWidget {
         ],
         const Divider(height: 32),
         const SizedBox(height: 4),
+        if (email.trackingPixelHosts.isNotEmpty) ...[
+          Row(
+            children: [
+              const Icon(LucideIcons.eyeOff, size: 18),
+              const SizedBox(width: 8),
+              const Expanded(child: Text('Takip içeriği engellendi')),
+            ],
+          ),
+          const SizedBox(height: 12),
+        ],
         if (email.remoteImageHosts.isNotEmpty &&
             !email.remoteImagesAllowed) ...[
           _RemoteContentBanner(email: email),
@@ -1164,9 +1222,9 @@ class _QuickReplyState extends State<_QuickReply> {
       final prefill = await repo.getComposePrefill(email.id, 'reply');
       MailIdentity? identity;
       try {
-        identity = (await repo.listIdentities(
-          email.accountId,
-        )).where((item) => item.isDefault).firstOrNull;
+        identity = (await repo.listIdentities(email.accountId))
+            .where((item) => item.isDefault)
+            .firstOrNull;
       } catch (_) {}
       final signature = await resolveComposeSignature(
         repo,

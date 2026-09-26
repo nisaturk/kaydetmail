@@ -128,11 +128,15 @@ void main() {
             ),
           ],
           idempotencyKey: 'key-123',
+          requestReadReceipt: true,
+          requestDeliveryReceipt: true,
         );
 
         expect(sent.url.path, '/api/mails/send');
         expect(sent.headers['Idempotency-Key'], 'key-123');
         expect(await _partValues(sent, 'To'), ['a@example.com']);
+        expect(sent.fields['requestReadReceipt'], 'true');
+        expect(sent.fields['requestDeliveryReceipt'], 'true');
         final attachmentPart = sent.files.singleWhere(
           (f) => f.filename != null,
         );
@@ -371,6 +375,8 @@ class _RecordingMailService extends ApiMailService {
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     required String idempotencyKey,
     void Function(int, int)? onProgress,
     Future<void>? abortTrigger,
