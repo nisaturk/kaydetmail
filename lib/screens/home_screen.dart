@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -43,7 +45,7 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
-  bool _bulkBusy = false;
+  final Set<String> _mutatingMailIds = {};
 
   /// Mail shown in the wide-layout detail pane (>=[_masterDetailBreakpoint]).
   /// Null shows [_DetailPanePlaceholder] instead — nothing selected yet, or
@@ -275,36 +277,40 @@ class _HomeScreenState extends State<HomeScreen> {
   /// is gone, so this intentionally offers no Undo rather than one that
   /// would silently do nothing.
   Future<void> _actionDeleteDrafts() async {
-    if (_bulkBusy) return;
     final ids = _selection.selectedIds.toList();
     if (ids.isEmpty) {
       _selection.exit();
       return;
     }
-    setState(() => _bulkBusy = true);
-    try {
-      await Future.wait(ids.map(_repo.deleteDraft));
-      _selection.exit();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('${ids.length} taslak silindi')));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _bulkBusy = false);
-    }
+    if (ids.any(_mutatingMailIds.contains)) return;
+    _mutatingMailIds.addAll(ids);
+    final messenger = ScaffoldMessenger.of(context);
+    _selection.exit();
+    unawaited(() async {
+      try {
+        await Future.wait(ids.map(_repo.deleteDraft));
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(content: Text('${ids.length} taslak silindi')),
+          );
+        }
+      } catch (error) {
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+            ),
+          );
+        }
+      } finally {
+        _mutatingMailIds.removeAll(ids);
+      }
+    }());
   }
 
   /// Trash only: expunges the selected conversations' Trash messages. No
   /// Undo exists, so it asks first.
   Future<void> _actionDeleteForever() async {
-    if (_bulkBusy) return;
     final ids = idsInFolder(
       _repo,
       expandThreadIds(_repo, _selection.selectedIds),
@@ -314,26 +320,34 @@ class _HomeScreenState extends State<HomeScreen> {
       _selection.exit();
       return;
     }
+    if (ids.any(_mutatingMailIds.contains)) return;
     final confirmed = await confirmPermanentDelete(context, ids.length);
     if (!confirmed || !mounted) return;
-    setState(() => _bulkBusy = true);
-    try {
-      await _repo.deletePermanently(ids);
-      _selection.exit();
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${ids.length} e-posta kalıcı olarak silindi')),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _bulkBusy = false);
-    }
+    _mutatingMailIds.addAll(ids);
+    final messenger = ScaffoldMessenger.of(context);
+    _selection.exit();
+    unawaited(() async {
+      try {
+        await _repo.deletePermanently(ids);
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('${ids.length} e-posta kalıcı olarak silindi'),
+            ),
+          );
+        }
+      } catch (error) {
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+            ),
+          );
+        }
+      } finally {
+        _mutatingMailIds.removeAll(ids);
+      }
+    }());
   }
 
   Future<void> _actionArchive() => _runBulkMove(
@@ -374,7 +388,6 @@ class _HomeScreenState extends State<HomeScreen> {
     required String Function(int count) success,
     bool onlyCurrentFolder = false,
   }) async {
-    if (_bulkBusy) return;
     final threadIds = expandThreadIds(_repo, _selection.selectedIds);
     final ids = onlyCurrentFolder
         ? idsInFolder(_repo, threadIds, _folder)
@@ -383,54 +396,98 @@ class _HomeScreenState extends State<HomeScreen> {
       _selection.exit();
       return;
     }
-    final previous = previousFoldersOf(_repo, ids);
-    setState(() => _bulkBusy = true);
-    try {
-      await action(ids);
-      _selection.exit();
-      if (!mounted) return;
+    if (ids.any(_mutatingMailIds.contains)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(success(ids.length)),
-          // A SnackBar with an action persists by default; Undo is only
-          // offered for a short window.
-          persist: false,
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: 'Geri al',
-            onPressed: () => restorePreviousFolders(_repo, previous),
-          ),
-        ),
+        const SnackBar(content: Text('Bu e-postalar zaten işleniyor.')),
       );
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _bulkBusy = false);
+      return;
     }
+    final previous = previousFoldersOf(_repo, ids);
+    _mutatingMailIds.addAll(ids);
+    final messenger = ScaffoldMessenger.of(context);
+    _selection.exit();
+    unawaited(() async {
+      try {
+        await action(ids);
+        if (!messenger.mounted) return;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text(success(ids.length)),
+            persist: false,
+            duration: const Duration(seconds: 5),
+            action: SnackBarAction(
+              label: 'Geri al',
+              onPressed: () => restorePreviousFolders(_repo, previous),
+            ),
+          ),
+        );
+      } catch (error) {
+        if (!messenger.mounted) return;
+        messenger.showSnackBar(
+          SnackBar(
+            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+          ),
+        );
+      } finally {
+        _mutatingMailIds.removeAll(ids);
+      }
+    }());
+  }
+
+  void _runOptimisticAction({
+    required List<String> ids,
+    required Future<void> Function() operation,
+    String? successMessage,
+  }) {
+    if (ids.any(_mutatingMailIds.contains)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Bu e-postalar zaten işleniyor.')),
+      );
+      return;
+    }
+    _mutatingMailIds.addAll(ids);
+    final messenger = ScaffoldMessenger.of(context);
+    _selection.exit();
+    unawaited(() async {
+      try {
+        await operation();
+        if (successMessage != null && messenger.mounted) {
+          messenger.showSnackBar(SnackBar(content: Text(successMessage)));
+        }
+      } catch (error) {
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+            ),
+          );
+        }
+      } finally {
+        _mutatingMailIds.removeAll(ids);
+      }
+    }());
   }
 
   Future<void> _actionStar() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
-    await _repo.setStarred(ids, !_selectionAllStarred);
-    _selection.exit();
+    final starred = !_selectionAllStarred;
+    _runOptimisticAction(
+      ids: ids,
+      operation: () => _repo.setStarred(ids, starred),
+    );
   }
 
   /// Marks read unless every selected message is already read.
   Future<void> _actionToggleRead() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
-    if (_selectionAnyUnread) {
-      await _repo.markAsRead(ids);
-    } else {
-      await _repo.markAsUnread(ids);
-    }
-    _selection.exit();
+    final markRead = _selectionAnyUnread;
+    _runOptimisticAction(
+      ids: ids,
+      operation: () =>
+          markRead ? _repo.markAsRead(ids) : _repo.markAsUnread(ids),
+    );
   }
 
   /// True while any selected message (thread-expanded) is unread — drives
@@ -466,42 +523,34 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!unpin) {
       final error = bulkPinLimitError(_repo.getAllEmails(), ids);
       if (error != null) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(error)));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error)));
         return;
       }
     }
-    try {
-      await _repo.setPinned(ids, !unpin);
-      _selection.exit();
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    }
+    _runOptimisticAction(
+      ids: ids,
+      operation: () => _repo.setPinned(ids, !unpin),
+    );
   }
 
   Future<void> _actionSnooze() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
     if (_folder == MailFolder.snoozed) {
-      await _repo.setSnoozed(ids, null);
-      _selection.exit();
+      _runOptimisticAction(
+        ids: ids,
+        operation: () => _repo.setSnoozed(ids, null),
+      );
       return;
     }
     final until = await showSnoozePicker(context);
     if (until == null || !mounted) return;
-    await _repo.setSnoozed(ids, until);
-    _selection.exit();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('${ids.length} e-posta ertelendi.')),
-      );
-    }
+    _runOptimisticAction(
+      ids: ids,
+      operation: () => _repo.setSnoozed(ids, until),
+      successMessage: '${ids.length} e-posta ertelendi.',
+    );
   }
 
   Future<void> _actionLabel() async {
@@ -532,40 +581,25 @@ class _HomeScreenState extends State<HomeScreen> {
       currentFolders: emails.map((email) => email.folder).toSet(),
     );
     if (targets == null || !mounted) return;
-    setState(() => _bulkBusy = true);
-    try {
-      final custom = targets.customFolder;
-      if (custom != null) {
-        await _repo.moveToCustomFolder(
-          emails.map((email) => email.id).toList(),
-          accountId: custom.accountId,
-          folderId: custom.folderId,
-        );
-      } else if (targets.folder == MailFolder.trash) {
-        await _repo.moveToTrash(emails.map((email) => email.id).toList());
-      } else {
-        await _repo.moveToFolder(
-          emails.map((email) => email.id).toList(),
-          targets.folder!,
-        );
-      }
-      _selection.exit();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${emails.length} e-posta taşındı.')),
-        );
-      }
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _bulkBusy = false);
-    }
+    final mailIds = emails.map((email) => email.id).toList();
+    final custom = targets.customFolder;
+    _runOptimisticAction(
+      ids: mailIds,
+      operation: () {
+        if (custom != null) {
+          return _repo.moveToCustomFolder(
+            mailIds,
+            accountId: custom.accountId,
+            folderId: custom.folderId,
+          );
+        }
+        if (targets.folder == MailFolder.trash) {
+          return _repo.moveToTrash(mailIds);
+        }
+        return _repo.moveToFolder(mailIds, targets.folder!);
+      },
+      successMessage: '${emails.length} e-posta taşındı.',
+    );
   }
 
   // ── Build ─────────────────────────────────────────────────────────────
@@ -736,24 +770,24 @@ class _HomeScreenState extends State<HomeScreen> {
     final inlineActions = <Widget>[
       if (_showDeleteAction)
         IconButton(
-          onPressed: _bulkBusy ? null : _actionDelete,
+          onPressed: _actionDelete,
           tooltip: 'Sil',
           icon: const Icon(LucideIcons.trash2),
         ),
       if (_showRestoreAction)
         IconButton(
-          onPressed: _bulkBusy ? null : _actionRestoreFromTrash,
+          onPressed: _actionRestoreFromTrash,
           tooltip: 'Geri Yükle',
           icon: const Icon(LucideIcons.rotateCcw),
         ),
       if (_showDeleteForeverAction)
         IconButton(
-          onPressed: _bulkBusy ? null : _actionDeleteForever,
+          onPressed: _actionDeleteForever,
           tooltip: 'Kalıcı olarak sil',
           icon: const Icon(LucideIcons.trash2),
         ),
       IconButton(
-        onPressed: _bulkBusy ? null : _actionToggleRead,
+        onPressed: _actionToggleRead,
         tooltip: _selectionAnyUnread
             ? 'Okundu olarak işaretle'
             : 'Okunmadı olarak işaretle',
@@ -763,13 +797,13 @@ class _HomeScreenState extends State<HomeScreen> {
       ),
       if (_showArchiveAction)
         IconButton(
-          onPressed: _bulkBusy ? null : _actionArchive,
+          onPressed: _actionArchive,
           tooltip: 'Arşivle',
           icon: const Icon(LucideIcons.archive),
         ),
       if (_showUnarchiveAction)
         IconButton(
-          onPressed: _bulkBusy ? null : _actionUnarchive,
+          onPressed: _actionUnarchive,
           tooltip: 'Arşivden çıkar',
           icon: const Icon(LucideIcons.archiveRestore),
         ),
@@ -806,23 +840,17 @@ class _HomeScreenState extends State<HomeScreen> {
     ];
 
     return AppBar(
-      leading: _bulkBusy
-          ? const Padding(
-              padding: EdgeInsets.all(16),
-              child: CircularProgressIndicator(strokeWidth: 2.4),
-            )
-          : IconButton(
-              onPressed: _selection.exit,
-              tooltip: 'Seçimi iptal et',
-              icon: const Icon(LucideIcons.x),
-            ),
+      leading: IconButton(
+        onPressed: _selection.exit,
+        tooltip: 'Seçimi iptal et',
+        icon: const Icon(LucideIcons.x),
+      ),
       title: Text(
         _selection.count == 1 ? '1 seçili' : '${_selection.count} seçili',
       ),
       actions: [
         ...inlineActions,
         PopupMenuButton<String>(
-          enabled: !_bulkBusy,
           tooltip: 'Diğer',
           icon: const Icon(LucideIcons.ellipsisVertical),
           onSelected: (v) {

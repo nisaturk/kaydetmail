@@ -392,26 +392,33 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   Future<bool> _onWillPop() async {
     if (!_hasContent) return true;
-    final editingDraft = widget.editingDraftId != null;
+    if (widget.editingDraftId != null) {
+      final saved = await _saveDraft();
+      if (!mounted) return false;
+      if (saved) return true;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Taslak kaydedilemedi. Tekrar deneyin.')),
+      );
+      return false;
+    }
     return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
-            title: Text(
-              editingDraft
-                  ? 'Değişiklikler kaydedilsin mi?'
-                  : 'Bu e-posta silinsin mi?',
-            ),
-            content: Text(
-              editingDraft
-                  ? 'Taslağın mevcut hali korunabilir veya değişiklikler kaydedilebilir.'
-                  : 'E-postayı taslak olarak kaydedebilir veya içeriği silebilirsiniz.',
-            ),
+            title: const Text('Taslağı kaydedilsin mi?'),
+            content: const Text('Taslağı kaydedebilir veya silebilirsiniz.'),
             actions: [
               TextButton(
                 onPressed: () => Navigator.of(ctx).pop(false),
                 child: const Text('Vazgeç'),
               ),
               TextButton(
+                onPressed: () => Navigator.of(ctx).pop(true),
+                child: Text(
+                  'Taslağı Sil',
+                  style: TextStyle(color: AppTheme.colors(ctx).destructive),
+                ),
+              ),
+              FilledButton(
                 onPressed: () async {
                   final saved = await _saveDraft();
                   if (!mounted || !ctx.mounted) return;
@@ -431,13 +438,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   );
                 },
                 child: const Text('Taslağı Kaydet'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: Text(
-                  editingDraft ? 'Değişiklikleri At' : 'İçeriği Sil',
-                  style: TextStyle(color: AppTheme.colors(ctx).destructive),
-                ),
               ),
             ],
           ),

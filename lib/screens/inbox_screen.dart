@@ -51,9 +51,10 @@ _SwipeAction _fromGesture(SwipeGesture gesture) => switch (gesture) {
 
 /// The action revealed when a row is dragged start-to-end (right in LTR).
 _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
-  MailFolder.inbox || MailFolder.sent || MailFolder.starred => _fromGesture(
-    AppSettingsController.instance.swipeRight,
-  ),
+  MailFolder.inbox ||
+  MailFolder.all ||
+  MailFolder.sent ||
+  MailFolder.starred => _fromGesture(AppSettingsController.instance.swipeRight),
   MailFolder.trash => _SwipeAction.restore,
   MailFolder.spam => _SwipeAction.unspam,
   MailFolder.archive => _SwipeAction.unarchive,
@@ -62,9 +63,10 @@ _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
 
 /// The action revealed when a row is dragged end-to-start (left in LTR).
 _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
-  MailFolder.inbox || MailFolder.sent || MailFolder.starred => _fromGesture(
-    AppSettingsController.instance.swipeLeft,
-  ),
+  MailFolder.inbox ||
+  MailFolder.all ||
+  MailFolder.sent ||
+  MailFolder.starred => _fromGesture(AppSettingsController.instance.swipeLeft),
   MailFolder.spam || MailFolder.archive => _SwipeAction.trash,
   MailFolder.trash => _SwipeAction.deleteForever,
   MailFolder.drafts || MailFolder.snoozed => _SwipeAction.none,
@@ -232,10 +234,11 @@ class _InboxScreenState extends State<InboxScreen>
       _error = null;
     });
     try {
-      if (_repo.getEmailsInFolder(widget.folder).isEmpty) {
+      if (widget.folder == MailFolder.all) {
+        await _refresh();
+      } else if (_repo.getEmailsInFolder(widget.folder).isEmpty) {
         await _repo.loadMoreEmails(widget.folder);
       }
-      if (mounted) setState(() => _initialLoading = false);
       _fillIfShort();
     } catch (e) {
       if (mounted) {
@@ -245,7 +248,10 @@ class _InboxScreenState extends State<InboxScreen>
         });
       }
     } finally {
-      if (mounted) _skeletonController.stop();
+      if (mounted) {
+        setState(() => _initialLoading = false);
+        _skeletonController.stop();
+      }
     }
   }
 
@@ -270,8 +276,17 @@ class _InboxScreenState extends State<InboxScreen>
 
   Future<void> _refresh() async {
     try {
-      await _repo.syncFolder(widget.folder);
-      await _repo.refreshEmails(widget.folder);
+      if (widget.folder == MailFolder.all) {
+        await _repo.syncFolder(MailFolder.all);
+        await _repo.refreshEmails(MailFolder.all);
+      } else {
+        // Starred and snoozed are client-side virtual views, not server folders.
+        if (widget.folder != MailFolder.starred &&
+            widget.folder != MailFolder.snoozed) {
+          await _repo.syncFolder(widget.folder);
+        }
+        await _repo.refreshEmails(widget.folder);
+      }
       unawaited(HomeWidgetService.refreshFromInbox(_repo));
     } catch (error) {
       if (!mounted) return;
@@ -345,9 +360,8 @@ class _InboxScreenState extends State<InboxScreen>
       }
     } catch (_) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
     }
   }
 
@@ -812,6 +826,7 @@ class _EmptyState extends StatelessWidget {
 
   String get _subtitle => switch (folder) {
     MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
+    MailFolder.all => 'Bağlı hesaplarınızdaki e-postalar burada görünür.',
     MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
     MailFolder.starred => 'Yıldızladığınız e-postalar burada görünür.',
     MailFolder.snoozed => 'Ertelediğiniz e-postalar burada görünür.',

@@ -41,8 +41,7 @@ extension DrawerDestinationMeta on DrawerDestination {
 
 /// Navigation drawer: klasörler üstte, uygulama hedefleri altta.
 ///
-/// Sık kullanılan klasörler doğrudan listelenir; Çöp/Spam/Arşiv
-/// "Diğer" başlığı altında toplanır ki menü ilk bakışta kısa kalsın.
+/// Navigation drawer: core folders first, account/folder management and settings below.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({
     super.key,
@@ -57,19 +56,14 @@ class AppDrawer extends StatelessWidget {
   final VoidCallback onLogout;
   final ValueChanged<DrawerDestination> onOpenDestination;
 
-  /// İlk bakışta görünen klasörler; kalanı "Diğer" altında.
   static const _primaryFolders = [
     MailFolder.inbox,
-    MailFolder.starred,
-    MailFolder.snoozed,
     MailFolder.sent,
+    MailFolder.all,
     MailFolder.drafts,
-  ];
-
-  static const _secondaryFolders = [
-    MailFolder.trash,
     MailFolder.spam,
-    MailFolder.archive,
+    MailFolder.trash,
+    MailFolder.starred,
   ];
 
   @override
@@ -126,7 +120,6 @@ class AppDrawer extends StatelessWidget {
                   return ListView(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     children: [
-                      const _MenuHeading('Klasörler'),
                       for (final folder in _primaryFolders)
                         _FolderTile(
                           folder: folder,
@@ -134,37 +127,21 @@ class AppDrawer extends StatelessWidget {
                           onTap: () => onSelectFolder(folder),
                           badgeCount: _badgeCount(repo, folder),
                         ),
-                      ExpansionTile(
-                        shape: const Border(),
-                        tilePadding: const EdgeInsets.symmetric(horizontal: 24),
-                        childrenPadding: EdgeInsets.zero,
-                        leading: Icon(
-                          LucideIcons.archive,
-                          size: 20,
-                          color: AppTheme.colors(context).secondaryText,
-                        ),
-                        title: Text(
-                          'Diğer',
-                          style: TextStyle(
-                            fontSize: 14.5,
-                            color: AppTheme.colors(context).secondaryText,
-                          ),
-                        ),
-                        children: [
-                          for (final folder in _secondaryFolders)
-                            _FolderTile(
-                              folder: folder,
-                              selected: folder == selectedFolder,
-                              onTap: () => onSelectFolder(folder),
-                              badgeCount: _badgeCount(repo, folder),
-                            ),
-                        ],
-                      ),
-                      const _MenuHeading('Uygulama'),
-                      for (final destination in DrawerDestination.values)
+                      const Divider(height: 12),
+                      _MenuHeading('Hesap ve uygulama'),
+                      for (final destination in [
+                        DrawerDestination.accounts,
+                        DrawerDestination.customFolders,
+                        DrawerDestination.settings,
+                      ])
                         _SectionTile(
                           icon: destination.icon,
-                          label: destination.label,
+                          label: switch (destination) {
+                            DrawerDestination.accounts => 'Hesapları eşitle',
+                            DrawerDestination.customFolders =>
+                              'Klasörleri yönet',
+                            _ => destination.label,
+                          },
                           onTap: () => onOpenDestination(destination),
                         ),
                     ],
@@ -193,6 +170,7 @@ class AppDrawer extends StatelessWidget {
       case MailFolder.drafts:
       case MailFolder.spam:
         return repo.unreadCount(folder);
+      case MailFolder.all:
       case MailFolder.sent:
       case MailFolder.starred:
       case MailFolder.trash:
@@ -245,6 +223,9 @@ class _FolderTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: ListTile(
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
+        minTileHeight: 42,
         onTap: onTap,
         selected: selected,
         selectedColor: onSurface,
@@ -288,6 +269,9 @@ class _SectionTile extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 8),
       child: ListTile(
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
+        minTileHeight: 42,
         onTap: onTap,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
         leading: Icon(icon, size: 20, color: secondaryText),

@@ -422,6 +422,67 @@ void main() {
     PendingSendQueue.instance.useStoreForTest(OutboxStore.inMemory());
   });
 
+  group('compose exit behavior', () {
+    testWidgets('new mail offers save as draft or discard', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      await tester.enterText(
+        find.byKey(const Key('body-field')),
+        'keep this draft',
+      );
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Taslağı kaydedilsin mi?'), findsOneWidget);
+      expect(find.text('Taslağı Sil'), findsOneWidget);
+      expect(find.text('Taslağı Kaydet'), findsOneWidget);
+      await tester.tap(find.text('Taslağı Kaydet'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts.single.bodyText, 'keep this draft');
+    });
+
+    testWidgets('discarding a new mail exits without saving it', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      await tester.enterText(
+        find.byKey(const Key('body-field')),
+        'discard this draft',
+      );
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Taslağı Sil'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts, isEmpty);
+    });
+
+    testWidgets('leaving an existing draft saves without asking', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialBody: 'updated draft',
+        editingDraftId: 'draft-existing',
+      );
+
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Taslağı kaydedilsin mi?'), findsNothing);
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts.single.id, 'draft-existing');
+      expect(repo.savedDrafts.single.bodyText, 'updated draft');
+    });
+  });
+
   tearDown(() {
     PendingSendQueue.instance.cancelAll();
     AppConfig.resetForTest();

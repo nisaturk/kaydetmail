@@ -93,6 +93,7 @@ class ApiException implements Exception {
     'mail_move_failed' => 'E-posta taşınamadı. Tekrar deneyin.',
     'mail_delete_failed' => 'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
     'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
+    'pinned_limit_reached' => 'Bir hesapta en fazla 3 e-posta sabitlenebilir.',
     'reply_reminder_in_past' => 'Hatırlatma zamanı gelecekte olmalı.',
     'reply_reminder_already_replied' => 'Bu e-posta zaten yanıtlanmış.',
     'reply_reminder_requires_sent_mail' =>
@@ -135,8 +136,7 @@ class ApiException implements Exception {
     'identity_not_found' => 'Seçilen kimlik bulunamadı.',
     'signature_not_found' => 'Seçilen imza bulunamadı.',
     'identity_already_exists' => 'Bu adres zaten bir kimlik olarak kayıtlı.',
-    'identity_in_use' =>
-      'Bu kimlik zamanlanmış bir gönderimde kullanılıyor.',
+    'identity_in_use' => 'Bu kimlik zamanlanmış bir gönderimde kullanılıyor.',
     'session_revoked' => 'Oturum zaten kapatılmış.',
     'body_required' => 'E-posta gövdesi boş olamaz.',
     'body_too_large' => 'E-posta gövdesi çok büyük.',
