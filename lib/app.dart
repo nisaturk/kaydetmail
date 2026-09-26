@@ -271,14 +271,18 @@ class _AuthGateState extends State<_AuthGate> {
       policy: settings.syncNetworkPolicy,
       connection: await conditions.connection(),
       batterySaverOn:
-          settings.pauseSyncOnBatterySaver &&
-          await conditions.batterySaverOn(),
+          settings.pauseSyncOnBatterySaver && await conditions.batterySaverOn(),
       pauseOnBatterySaver: settings.pauseSyncOnBatterySaver,
     )) {
       return;
     }
     final repo = AppConfig.mailRepository;
     for (final folder in MailFolder.values) {
+      if (folder == MailFolder.all ||
+          folder == MailFolder.starred ||
+          folder == MailFolder.snoozed) {
+        continue;
+      }
       if (repo.getEmailsInFolder(folder).isEmpty) continue;
       try {
         await repo.refreshEmails(folder);

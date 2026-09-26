@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -93,7 +94,7 @@ void main() {
   });
 
   group('ApiMailRepository actions', () {
-    test('markAsRead updates only the ids the server confirmed', () async {
+    test('markAsRead rolls back only the ids the server rejected', () async {
       final mailService = _RecordingMailService(
         folders: [_folder('folder-inbox', 'Inbox')],
         pagesByFolderId: {
@@ -108,12 +109,45 @@ void main() {
           .toList();
       final repo = await _repositoryWithLoadedInbox(mailService);
 
-      await repo.markAsRead(['mail-1', 'mail-2']);
+      await expectLater(
+        repo.markAsRead(['mail-1', 'mail-2']),
+        throwsA(isA<ApiException>()),
+      );
 
       final inbox = repo.getEmailsInFolder(MailFolder.inbox);
       expect(inbox.firstWhere((e) => e.id == 'mail-1').isRead, isTrue);
       expect(inbox.firstWhere((e) => e.id == 'mail-2').isRead, isFalse);
       expect(mailService.bulkActionCalls, ['read:mail-1,mail-2:null']);
+    });
+
+    test('partial move rollback preserves the original cache order', () async {
+      final mailService = _RecordingMailService(
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-trash', 'Trash'),
+        ],
+        pagesByFolderId: {
+          'folder-inbox': _page([
+            _mailJson('mail-1', 'folder-inbox'),
+            _mailJson('mail-2', 'folder-inbox'),
+            _mailJson('mail-3', 'folder-inbox'),
+          ]),
+        },
+      );
+      mailService.bulkResultsOverride = (action, ids) => ids
+          .map((id) => BulkActionResult(mailId: id, success: id == 'mail-1'))
+          .toList();
+      final repo = await _repositoryWithLoadedInbox(mailService);
+
+      await expectLater(
+        repo.moveToTrash(['mail-3', 'mail-1', 'mail-2']),
+        throwsA(isA<ApiException>()),
+      );
+
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).map((email) => email.id),
+        ['mail-2', 'mail-3'],
+      );
     });
 
     test('moveToTrash moves the cached mail into the Trash bucket', () async {
@@ -137,6 +171,30 @@ void main() {
         MailFolder.trash,
       );
     });
+    test(
+      'moveToTrash updates the cache before the server request completes',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-trash', 'Trash'),
+          ],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1', 'folder-inbox')]),
+          },
+        );
+        final repo = await _repositoryWithLoadedInbox(mailService);
+        final response = Completer<List<BulkActionResult>>();
+        mailService.bulkActionCompleter = response;
+
+        final operation = repo.moveToTrash(['mail-1']);
+
+        expect(repo.getEmailsInFolder(MailFolder.inbox), isEmpty);
+        expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+        response.complete([BulkActionResult(mailId: 'mail-1', success: true)]);
+        await operation;
+      },
+    );
 
     test(
       'moveToFolder archives a live mail via the bulk archive action',
@@ -301,6 +359,62 @@ void main() {
         expect(inbox.every((e) => e.isStarred), isTrue);
       },
     );
+
+    test('all mail view aggregates every loaded real folder', () async {
+      final mailService = _RecordingMailService(
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-sent', 'Sent'),
+          _folder('folder-drafts', 'Drafts'),
+          _folder('folder-spam', 'Spam'),
+          _folder('folder-trash', 'Trash'),
+          _folder('folder-archive', 'Archive'),
+        ],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('inbox-mail', 'folder-inbox')]),
+          'folder-sent': _page([_mailJson('sent-mail', 'folder-sent')]),
+          'folder-drafts': _page([_mailJson('draft-mail', 'folder-drafts')]),
+          'folder-spam': _page([_mailJson('spam-mail', 'folder-spam')]),
+          'folder-trash': _page([_mailJson('trash-mail', 'folder-trash')]),
+          'folder-archive': _page([
+            _mailJson('archive-mail', 'folder-archive'),
+          ]),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
+
+      mailService.fetchedFolderIds.clear();
+      await repo.refreshEmails(MailFolder.all);
+      await repo.syncFolder(MailFolder.all);
+      expect(mailService.syncedFolderIds.toSet(), {
+        'folder-inbox',
+        'folder-sent',
+        'folder-drafts',
+        'folder-spam',
+        'folder-trash',
+        'folder-archive',
+      });
+
+      expect(mailService.fetchedFolderIds.toSet(), {
+        'folder-inbox',
+        'folder-sent',
+        'folder-drafts',
+        'folder-spam',
+        'folder-trash',
+        'folder-archive',
+      });
+      expect(
+        repo.getEmailsInFolder(MailFolder.all).map((mail) => mail.id).toSet(),
+        {
+          'inbox-mail',
+          'sent-mail',
+          'draft-mail',
+          'spam-mail',
+          'trash-mail',
+          'archive-mail',
+        },
+      );
+    });
 
     test('syncFolder resolves the folder id; unknown folders throw', () async {
       final mailService = _RecordingMailService(
@@ -521,11 +635,13 @@ class _RecordingMailService extends ApiMailService {
 
   final List<Map<String, dynamic>> folders;
   final Map<String, MailListPage> pagesByFolderId;
+  final List<String> fetchedFolderIds = [];
   final List<String> bulkActionCalls = [];
   final List<String> singleActionCalls = [];
   final List<String> syncedFolderIds = [];
   List<BulkActionResult> Function(String action, List<String> ids)?
   bulkResultsOverride;
+  Completer<List<BulkActionResult>>? bulkActionCompleter;
 
   /// Server folder id each mail's detail reports after a `restore`.
   final Map<String, String> folderAfterRestore = {};
@@ -567,9 +683,11 @@ class _RecordingMailService extends ApiMailService {
     bool? isRead,
     bool? hasAttachments,
     String? search,
-  }) async =>
-      pagesByFolderId[folderId] ??
-      MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+  }) async {
+    fetchedFolderIds.add(folderId);
+    return pagesByFolderId[folderId] ??
+        MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+  }
 
   @override
   Future<void> mailAction(String id, String action) async {
@@ -601,6 +719,8 @@ class _RecordingMailService extends ApiMailService {
     String? folderId,
   }) async {
     bulkActionCalls.add('$action:${mailIds.join(",")}:$folderId');
+    final completer = bulkActionCompleter;
+    if (completer != null) return completer.future;
     final override = bulkResultsOverride;
     if (override != null) return override(action, mailIds);
     return mailIds

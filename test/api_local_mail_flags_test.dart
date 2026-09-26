@@ -1,3 +1,4 @@
+import 'package:kaydetmail/services/api_exception.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -35,7 +36,16 @@ void main() {
         );
         final repo = await _repositoryWithLoadedInbox(mailService);
 
-        await repo.setPinned(['mail-1', 'mail-2', 'mail-3', 'mail-4'], true);
+        await expectLater(
+          repo.setPinned(['mail-1', 'mail-2', 'mail-3', 'mail-4'], true),
+          throwsA(
+            isA<ApiException>().having(
+              (error) => error.code,
+              'code',
+              'pinned_limit_reached',
+            ),
+          ),
+        );
 
         final inbox = repo.getEmailsInFolder(MailFolder.inbox);
         expect(inbox.where((email) => email.isPinned).length, 3);
@@ -375,8 +385,8 @@ class _RecordingMailService extends ApiMailService {
         .toList();
   }
 
-  /// Mirrors the real backend's per-account 3-pinned cap so callers that
-  /// pin more than the limit see the same "extras silently rejected" shape.
+  /// Mirrors the real backend's per-account 3-pinned cap and reports a
+  /// per-item failure when an extra mail exceeds it.
   @override
   Future<List<BulkActionResult>> setPinned(
     List<String> mailIds,
@@ -385,7 +395,13 @@ class _RecordingMailService extends ApiMailService {
     final results = <BulkActionResult>[];
     for (final id in mailIds) {
       if (pinned && pinnedMailIds.length >= 3 && !pinnedMailIds.contains(id)) {
-        results.add(BulkActionResult(mailId: id, success: false));
+        results.add(
+          BulkActionResult(
+            mailId: id,
+            success: false,
+            code: 'pinned_limit_reached',
+          ),
+        );
         continue;
       }
       if (pinned) {

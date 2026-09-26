@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 /// mail regardless of the folder it actually lives in.
 enum MailFolder {
   inbox,
+  all,
   sent,
   starred,
   snoozed,
@@ -17,7 +18,8 @@ enum MailFolder {
 
   String get label => switch (this) {
     MailFolder.inbox => 'Gelen Kutusu',
-    MailFolder.sent => 'Gönderilenler',
+    MailFolder.all => 'Tüm mailler',
+    MailFolder.sent => 'Giden Kutusu',
     MailFolder.starred => 'Yıldızlılar',
     MailFolder.snoozed => 'Ertelenenler',
     MailFolder.drafts => 'Taslaklar',
@@ -28,6 +30,7 @@ enum MailFolder {
 
   IconData get icon => switch (this) {
     MailFolder.inbox => LucideIcons.inbox,
+    MailFolder.all => LucideIcons.mail,
     MailFolder.sent => LucideIcons.send,
     MailFolder.starred => LucideIcons.star,
     MailFolder.snoozed => LucideIcons.clock,

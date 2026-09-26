@@ -44,6 +44,15 @@ import '../services/attachment_download_manager.dart';
 import '../services/token_store.dart';
 import 'mail_repository.dart';
 
+const _allMailSourceFolders = [
+  MailFolder.inbox,
+  MailFolder.sent,
+  MailFolder.drafts,
+  MailFolder.spam,
+  MailFolder.trash,
+  MailFolder.archive,
+];
+
 /// Everything one connected mailbox needs to operate independently: its own
 /// authenticated HTTP session, its own folder/mail cache, and its own
 /// backend-backed pin/snooze/label/contact state plus local reply/forward flags.
@@ -175,6 +184,11 @@ class _Session {
     labelIds: labelMap[email.id] ?? const [],
   );
 }
+
+typedef _MailLocationSnapshot = ({
+  Map<MailFolder, (Email, int)> folders,
+  Map<String, (Email, int)> customFolders,
+});
 
 /// [MailRepository] backed by the real backend. Pins, snoozes, labels and
 /// manual contacts are backend-owned with an offline device cache and queue;
@@ -1085,13 +1099,18 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  int unreadCount(MailFolder folder) => _scopedSessions.fold(
-    0,
-    (sum, s) =>
-        sum +
-        (s.serverUnread[folder] ??
-            (s.emails[folder]?.where((e) => !e.isRead).length ?? 0)),
-  );
+  int unreadCount(MailFolder folder) => folder == MailFolder.all
+      ? getEmailsInFolder(MailFolder.all).where((email) => !email.isRead).length
+      : _scopedSessions.fold(
+          0,
+          (sum, session) =>
+              sum +
+              (session.serverUnread[folder] ??
+                  (session.emails[folder]
+                          ?.where((email) => !email.isRead)
+                          .length ??
+                      0)),
+        );
 
   /// Best-effort re-read of server counts after a mutation.
   Future<void> _refreshCountsFor(_Session session) async {
@@ -1228,18 +1247,118 @@ class ApiMailRepository extends MailRepository {
     _scheduleReconnectRetry(session);
   }
 
-  /// Applies a bulk action within [session], optimistically and durably
-  /// queueing it for replay when the request cannot reach the backend.
-  /// Used for every operation spec docs-dev §8 requires an offline queue
-  /// for (`read`, `unread`, `star`, `unstar`, `archive`, `trash`, `move`;
-  /// `restore` is handled separately in [moveToFolder] since its offline
-  /// target folder is a placeholder corrected on replay, not the final
-  /// state): a transport failure still applies [apply] to the local cache
-  /// optimistically and queues [operation] in [LocalMailFlagsStore] for
-  /// replay once the account reconnects (see [_replayQueuedMutations]),
-  /// instead of throwing. `delete` is deliberately never queued — it is
-  /// permanent and irreversible, so a silent offline queue for it would be
-  /// unsafe.
+  /// Captures exact local bucket positions so rejected requests can be rolled
+  /// back without replacing unrelated cached mail.
+  Map<String, _MailLocationSnapshot> _snapshotMailLocations(
+    _Session session,
+    Iterable<String> ids,
+  ) {
+    final snapshots = {
+      for (final id in ids)
+        id: (
+          folders: <MailFolder, (Email, int)>{},
+          customFolders: <String, (Email, int)>{},
+        ),
+    };
+    for (final entry in session.emails.entries) {
+      for (var index = 0; index < entry.value.length; index++) {
+        final email = entry.value[index];
+        final snapshot = snapshots[email.id];
+        if (snapshot != null) {
+          snapshot.folders[entry.key] = (email, index);
+        }
+      }
+    }
+    for (final entry in session.customFolderEmails.entries) {
+      for (var index = 0; index < entry.value.length; index++) {
+        final email = entry.value[index];
+        final snapshot = snapshots[email.id];
+        if (snapshot != null) {
+          snapshot.customFolders[entry.key] = (email, index);
+        }
+      }
+    }
+    return snapshots;
+  }
+
+  Map<String, _MailLocationSnapshot> _selectMailLocations(
+    Map<String, _MailLocationSnapshot> snapshots,
+    Iterable<String> ids,
+  ) {
+    final selected = <String, _MailLocationSnapshot>{};
+    for (final id in ids) {
+      final snapshot = snapshots[id];
+      if (snapshot != null) selected[id] = snapshot;
+    }
+    return selected;
+  }
+
+  void _restoreMailLocations(
+    _Session session,
+    Map<String, _MailLocationSnapshot> snapshots,
+  ) {
+    if (snapshots.isEmpty) return;
+    final ids = snapshots.keys.toSet();
+    _touch();
+    for (final folder in session.emails.keys.toList()) {
+      session.emails[folder] = [
+        for (final email in session.emails[folder]!)
+          if (!ids.contains(email.id)) email,
+      ];
+    }
+    for (final folderId in session.customFolderEmails.keys.toList()) {
+      session.customFolderEmails[folderId] = [
+        for (final email in session.customFolderEmails[folderId]!)
+          if (!ids.contains(email.id)) email,
+      ];
+    }
+    final folderLocations = <MailFolder, List<(Email, int)>>{};
+    final customFolderLocations = <String, List<(Email, int)>>{};
+    for (final entry in snapshots.entries) {
+      for (final location in entry.value.folders.entries) {
+        folderLocations
+            .putIfAbsent(location.key, () => <(Email, int)>[])
+            .add(location.value);
+      }
+      for (final location in entry.value.customFolders.entries) {
+        customFolderLocations
+            .putIfAbsent(location.key, () => <(Email, int)>[])
+            .add(location.value);
+      }
+      final originalEmail =
+          entry.value.folders.values.firstOrNull?.$1 ??
+          entry.value.customFolders.values.firstOrNull?.$1;
+      if (originalEmail != null) {
+        if (originalEmail.isStarred) {
+          session.starredIds.add(originalEmail.id);
+        } else {
+          session.starredIds.remove(originalEmail.id);
+        }
+      }
+    }
+    for (final entry in folderLocations.entries) {
+      entry.value.sort((a, b) => a.$2.compareTo(b.$2));
+      final list = session.emails.putIfAbsent(entry.key, () => <Email>[]);
+      for (final (email, index) in entry.value) {
+        list.insert(min(index, list.length), email);
+      }
+    }
+    for (final entry in customFolderLocations.entries) {
+      entry.value.sort((a, b) => a.$2.compareTo(b.$2));
+      final list = session.customFolderEmails.putIfAbsent(
+        entry.key,
+        () => <Email>[],
+      );
+      for (final (email, index) in entry.value) {
+        list.insert(min(index, list.length), email);
+      }
+    }
+  }
+
+  /// Applies a bulk action immediately in the local cache, then reconciles
+  /// per-item results with the server. Transport failures keep the optimistic
+  /// state and persist a mutation for replay; rejected items restore their
+  /// previous cache locations. Permanent `delete` is handled separately.
   Future<List<BulkActionResult>> _bulkAndApplyOrQueue(
     _Session session,
     String operation,
@@ -1248,6 +1367,9 @@ class ApiMailRepository extends MailRepository {
     String? folderId,
   }) async {
     if (ids.isEmpty) return const [];
+    final snapshots = _snapshotMailLocations(session, ids);
+    apply(ids);
+    notifyListeners();
     List<BulkActionResult> results;
     try {
       results = await session.mailService.bulkAction(
@@ -1255,34 +1377,66 @@ class ApiMailRepository extends MailRepository {
         ids,
         folderId: folderId,
       );
-    } catch (_) {
-      session.offline = true;
-      _scheduleReconnectRetry(session);
-      final store = session.flagsStore;
-      if (store != null) {
-        for (final id in ids) {
-          await store.queueMutation(id, operation, folderId: folderId);
+    } catch (error) {
+      if (_isOfflineFailure(error)) {
+        _markOffline(session);
+        final store = session.flagsStore;
+        if (store != null) {
+          try {
+            for (final id in ids) {
+              await store.queueMutation(id, operation, folderId: folderId);
+            }
+          } catch (_) {
+            _restoreMailLocations(
+              session,
+              _selectMailLocations(snapshots, ids),
+            );
+            notifyListeners();
+            rethrow;
+          }
         }
+        return const [];
       }
-      apply(ids);
+      _restoreMailLocations(session, _selectMailLocations(snapshots, ids));
       notifyListeners();
-      return const [];
+      rethrow;
     }
-    final succeeded = results
-        .where((r) => r.success)
-        .map((r) => r.mailId)
-        .toList();
+    final successfulIds = results
+        .where((result) => result.success)
+        .map((result) => result.mailId)
+        .toSet();
+    final failedSnapshots = _selectMailLocations(
+      snapshots,
+      ids.where((id) => !successfulIds.contains(id)),
+    );
+    if (failedSnapshots.isNotEmpty) {
+      _restoreMailLocations(session, failedSnapshots);
+      notifyListeners();
+    }
     final store = session.flagsStore;
     if (store != null) {
       final category = mutationCategoryFor(operation);
-      for (final id in succeeded) {
+      for (final id in successfulIds) {
         await store.clearQueuedMutation(id, category);
       }
     }
-    apply(succeeded);
-    notifyListeners();
     unawaited(_refreshCountsFor(session));
     return results;
+  }
+
+  void _throwForFailedBulkResults(
+    Iterable<Iterable<BulkActionResult>> accountResults,
+  ) {
+    final failure = accountResults
+        .expand((results) => results)
+        .where((result) => !result.success)
+        .firstOrNull;
+    if (failure != null) {
+      throw ApiException(
+        status: 0,
+        code: failure.code ?? 'mail_operation_failed',
+      );
+    }
   }
 
   /// Replays queued mail, pin/snooze/label and manual contact mutations.
@@ -1647,12 +1801,17 @@ class ApiMailRepository extends MailRepository {
       pairs.sort((a, b) => a.until.compareTo(b.until));
       return List.unmodifiable([for (final p in pairs) p.email]);
     }
-    final result = folder == MailFolder.starred
+    final result = folder == MailFolder.starred || folder == MailFolder.all
         ? [
             for (final s in sessions)
-              ...s.emails.values
-                  .expand((list) => list)
-                  .where((e) => e.isStarred && _snoozedUntil(s, e.id) == null),
+              ...s.emails.entries
+                  .where((entry) => entry.key != MailFolder.starred)
+                  .expand((entry) => entry.value)
+                  .where(
+                    (e) =>
+                        (folder != MailFolder.starred || e.isStarred) &&
+                        _snoozedUntil(s, e.id) == null,
+                  ),
           ]
         : [
             for (final s in sessions)
@@ -1708,6 +1867,15 @@ class ApiMailRepository extends MailRepository {
 
   @override
   bool hasMoreEmails(MailFolder folder) {
+    if (folder == MailFolder.all) {
+      return _scopedSessions.any(
+        (session) => _allMailSourceFolders.any(
+          (source) =>
+              session.folderIds.containsKey(source) &&
+              (session.hasMore[source] ?? true),
+        ),
+      );
+    }
     if (folder == MailFolder.starred || folder == MailFolder.snoozed) {
       return false;
     }
@@ -1720,10 +1888,13 @@ class ApiMailRepository extends MailRepository {
   @override
   DateTime? lastSyncedAt(MailFolder folder) {
     DateTime? latest;
+    final sources = folder == MailFolder.all ? _allMailSourceFolders : [folder];
     for (final session in _scopedSessions) {
-      final synced = session.lastSynced[folder];
-      if (synced != null && (latest == null || synced.isAfter(latest))) {
-        latest = synced;
+      for (final source in sources) {
+        final synced = session.lastSynced[source];
+        if (synced != null && (latest == null || synced.isAfter(latest))) {
+          latest = synced;
+        }
       }
     }
     return latest;
@@ -1731,10 +1902,19 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<List<Email>> loadMoreEmails(MailFolder folder) async {
+    if (folder == MailFolder.all) {
+      final results = await Future.wait([
+        for (final session in _scopedSessions)
+          for (final source in _allMailSourceFolders)
+            if (session.folderIds.containsKey(source))
+              _loadMoreFor(session, source),
+      ]);
+      return results.expand((items) => items).toList();
+    }
     final results = await Future.wait(
-      _scopedSessions.map((s) => _loadMoreFor(s, folder)),
+      _scopedSessions.map((session) => _loadMoreFor(session, folder)),
     );
-    return results.expand((r) => r).toList();
+    return results.expand((items) => items).toList();
   }
 
   Future<List<Email>> _loadMoreFor(_Session session, MailFolder folder) async {
@@ -1766,8 +1946,20 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<void> refreshEmails(MailFolder folder) =>
-      Future.wait(_scopedSessions.map((s) => _refreshEmailsFor(s, folder)));
+  Future<void> refreshEmails(MailFolder folder) async {
+    if (folder == MailFolder.all) {
+      await Future.wait([
+        for (final session in _scopedSessions)
+          for (final source in _allMailSourceFolders)
+            if (session.folderIds.containsKey(source))
+              _refreshEmailsFor(session, source),
+      ]);
+      return;
+    }
+    await Future.wait(
+      _scopedSessions.map((session) => _refreshEmailsFor(session, folder)),
+    );
+  }
 
   Future<void> _refreshEmailsFor(_Session session, MailFolder folder) async {
     final folderId = session.folderIds[folder];
@@ -1906,14 +2098,24 @@ class ApiMailRepository extends MailRepository {
   /// in scope. Unknown folders throw [ArgumentError].
   @override
   Future<void> syncFolder(MailFolder folder) async {
+    if (folder == MailFolder.starred || folder == MailFolder.snoozed) {
+      return;
+    }
     final sessions = _scopedSessions.toList();
     if (sessions.isEmpty) return;
-    final jobs = [
-      for (final session in sessions)
-        if (session.folderIds[folder] case final String folderId)
-          _syncFolderFor(session, folderId),
-    ];
-    if (jobs.isEmpty) {
+    final jobs = <Future<void>>[];
+    for (final session in sessions) {
+      final sources = folder == MailFolder.all
+          ? _allMailSourceFolders
+          : [folder];
+      for (final source in sources) {
+        final folderId = session.folderIds[source];
+        if (folderId != null) {
+          jobs.add(_syncFolderFor(session, folderId));
+        }
+      }
+    }
+    if (jobs.isEmpty && folder != MailFolder.all) {
       throw ArgumentError('Unknown folder for this account: $folder');
     }
     await Future.wait(jobs);
@@ -3086,9 +3288,16 @@ class ApiMailRepository extends MailRepository {
   Future<void> deleteDraft(String draftId) => _serializeDraftWrite(() async {
     final id = _latestDraftId(draftId);
     final session = _sessionOwning(id) ?? _primarySession;
-    await session.mailService.deleteDraft(id);
-    session.emails[MailFolder.drafts]?.removeWhere((e) => e.id == id);
+    final snapshot = _snapshotMailLocations(session, [id]);
+    _removeMany(session, [id]);
     notifyListeners();
+    try {
+      await session.mailService.deleteDraft(id);
+    } catch (_) {
+      _restoreMailLocations(session, snapshot);
+      notifyListeners();
+      rethrow;
+    }
   });
 
   /// Sends a draft via `POST /api/drafts/{id}/send`. A fresh
@@ -3477,16 +3686,26 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> moveToTrash(List<String> ids) async {
-    await Future.wait(
+    final results = await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApplyOrQueue(
-          e.key,
+        (entry) => _bulkAndApplyOrQueue(
+          entry.key,
           'trash',
-          e.value,
-          (succeeded) => _moveMany(e.key, succeeded, MailFolder.trash),
+          entry.value,
+          (succeeded) => _moveMany(entry.key, succeeded, MailFolder.trash),
         ),
       ),
     );
+    final failure = results
+        .expand((perAccount) => perAccount)
+        .where((result) => !result.success)
+        .firstOrNull;
+    if (failure != null) {
+      throw ApiException(
+        status: 0,
+        code: failure.code ?? 'mail_operation_failed',
+      );
+    }
   }
 
   /// Bulk `delete` (IMAP expunge) per owning account. Only ids the server
@@ -3495,23 +3714,39 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<void> deletePermanently(List<String> ids) async {
     final failures = <String>[];
-    for (final entry in _groupBySession(ids).entries) {
-      final session = entry.key;
-      final results = await session.mailService.bulkAction(
-        'delete',
-        entry.value,
-      );
-      _removeMany(session, [
-        for (final r in results)
-          if (r.success) r.mailId,
-      ]);
-      failures.addAll([
-        for (final r in results)
-          if (!r.success) r.code ?? 'mail_operation_failed',
-      ]);
-      notifyListeners();
-      unawaited(_refreshCountsFor(session));
-    }
+    await Future.wait(
+      _groupBySession(ids).entries.map((entry) async {
+        final session = entry.key;
+        final snapshots = _snapshotMailLocations(session, entry.value);
+        _removeMany(session, entry.value);
+        notifyListeners();
+        late final List<BulkActionResult> results;
+        try {
+          results = await session.mailService.bulkAction('delete', entry.value);
+        } catch (_) {
+          _restoreMailLocations(session, snapshots);
+          notifyListeners();
+          rethrow;
+        }
+        final successfulIds = results
+            .where((result) => result.success)
+            .map((result) => result.mailId)
+            .toSet();
+        final failedSnapshots = _selectMailLocations(
+          snapshots,
+          entry.value.where((id) => !successfulIds.contains(id)),
+        );
+        if (failedSnapshots.isNotEmpty) {
+          _restoreMailLocations(session, failedSnapshots);
+          notifyListeners();
+        }
+        failures.addAll([
+          for (final result in results)
+            if (!result.success) result.code ?? 'mail_operation_failed',
+        ]);
+        unawaited(_refreshCountsFor(session));
+      }),
+    );
     if (failures.isNotEmpty) {
       throw ApiException(status: 0, code: failures.first);
     }
@@ -3555,26 +3790,45 @@ class ApiMailRepository extends MailRepository {
       final idsForSession = entry.value;
       final restoring = _idsInTrashOrSpam(session, idsForSession);
       if (restoring.isNotEmpty) {
+        final snapshots = _snapshotMailLocations(session, restoring);
+        _moveMany(session, restoring, MailFolder.inbox);
+        notifyListeners();
         List<BulkActionResult>? results;
         try {
           results = await session.mailService.bulkAction('restore', restoring);
-        } catch (_) {
-          session.offline = true;
-          _scheduleReconnectRetry(session);
+        } catch (error) {
+          if (!_isOfflineFailure(error)) {
+            _restoreMailLocations(session, snapshots);
+            notifyListeners();
+            rethrow;
+          }
+          _markOffline(session);
           final store = session.flagsStore;
           if (store != null) {
-            for (final id in restoring) {
-              await store.queueMutation(id, 'restore');
+            try {
+              for (final id in restoring) {
+                await store.queueMutation(id, 'restore');
+              }
+            } catch (_) {
+              _restoreMailLocations(session, snapshots);
+              notifyListeners();
+              rethrow;
             }
           }
-          _moveMany(session, restoring, MailFolder.inbox);
-          notifyListeners();
         }
         if (results != null) {
-          final restored = [
-            for (final r in results)
-              if (r.success) r.mailId,
-          ];
+          final restored = results
+              .where((result) => result.success)
+              .map((result) => result.mailId)
+              .toList();
+          final failedSnapshots = _selectMailLocations(
+            snapshots,
+            restoring.where((id) => !restored.contains(id)),
+          );
+          if (failedSnapshots.isNotEmpty) {
+            _restoreMailLocations(session, failedSnapshots);
+            notifyListeners();
+          }
           final store = session.flagsStore;
           if (store != null) {
             for (final id in restored) {
@@ -3582,6 +3836,7 @@ class ApiMailRepository extends MailRepository {
             }
           }
           await _fileRestored(session, restored);
+          _throwForFailedBulkResults([results]);
         }
       }
 
@@ -3589,13 +3844,14 @@ class ApiMailRepository extends MailRepository {
           .where((id) => !restoring.contains(id))
           .toList();
       if (rest.isNotEmpty) {
-        await _bulkAndApplyOrQueue(
+        final results = await _bulkAndApplyOrQueue(
           session,
           folder == MailFolder.archive ? 'archive' : 'move',
           rest,
           (succeeded) => _moveMany(session, succeeded, folder),
           folderId: folder == MailFolder.archive ? null : folderId,
         );
+        _throwForFailedBulkResults([results]);
       }
     }
   }
@@ -3639,32 +3895,40 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> markAsRead(List<String> ids) async {
-    await Future.wait(
+    final results = await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApplyOrQueue(
-          e.key,
+        (entry) => _bulkAndApplyOrQueue(
+          entry.key,
           'read',
-          e.value,
-          (succeeded) =>
-              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: true)),
+          entry.value,
+          (affected) => _replaceMany(
+            entry.key,
+            affected,
+            (mail) => mail.copyWith(isRead: true),
+          ),
         ),
       ),
     );
+    _throwForFailedBulkResults(results);
   }
 
   @override
   Future<void> markAsUnread(List<String> ids) async {
-    await Future.wait(
+    final results = await Future.wait(
       _groupBySession(ids).entries.map(
-        (e) => _bulkAndApplyOrQueue(
-          e.key,
+        (entry) => _bulkAndApplyOrQueue(
+          entry.key,
           'unread',
-          e.value,
-          (succeeded) =>
-              _replaceMany(e.key, succeeded, (m) => m.copyWith(isRead: false)),
+          entry.value,
+          (affected) => _replaceMany(
+            entry.key,
+            affected,
+            (mail) => mail.copyWith(isRead: false),
+          ),
         ),
       ),
     );
+    _throwForFailedBulkResults(results);
   }
 
   @override
@@ -3682,78 +3946,115 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  /// Writes through to the backend first (it enforces the
-  /// [MailRepository.maxPinnedMails]-per-account cap authoritatively); only
-  /// mails the server actually confirmed are applied locally, so a partial
-  /// failure (e.g. cap already full on another device) never desyncs the
-  /// ones that did succeed. A network failure applies the change locally and
-  /// queues it for [_replayQueuedMutations] instead, which reconciles with
-  /// the server's answer once the account reconnects.
+  /// Updates pin state optimistically; the server remains authoritative and
+  /// rejected changes are rolled back before the error is returned.
   @override
   Future<void> setPinned(List<String> ids, bool pinned) async {
     if (ids.isEmpty) return;
+    final accountResults = <List<BulkActionResult>>[];
     await Future.wait(
       _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
-        final store = session.flagsStore;
-        Set<String> succeeded;
-        try {
-          final results = await session.mailService.setPinned(
-            entry.value,
-            pinned,
-          );
-          succeeded = results
-              .where((r) => r.success)
-              .map((r) => r.mailId)
-              .toSet();
-          for (final id in succeeded) {
-            await store?.clearQueuedMutation(id, 'pin_state');
-          }
-        } catch (error) {
-          if (!_isOfflineFailure(error)) rethrow;
-          _markOffline(session);
-          for (final id in entry.value) {
-            await store?.queueMutation(id, pinned ? 'pin' : 'unpin');
-          }
-          succeeded = entry.value.toSet();
+        final affected = entry.value;
+        final previous = {
+          for (final id in affected) id: session.pinnedIds.contains(id),
+        };
+        if (pinned) {
+          session.pinnedIds.addAll(affected);
+        } else {
+          session.pinnedIds.removeAll(affected);
         }
-        if (succeeded.isEmpty) return;
-        pinned
-            ? session.pinnedIds.addAll(succeeded)
-            : session.pinnedIds.removeAll(succeeded);
-        await session.flagsStore?.writePinned(session.pinnedIds);
         _replaceMany(
           session,
-          succeeded,
-          (e) => e.copyWith(isPinned: session.pinnedIds.contains(e.id)),
+          affected,
+          (mail) => mail.copyWith(isPinned: pinned),
         );
+        notifyListeners();
+        List<BulkActionResult> results;
+        try {
+          results = await session.mailService.setPinned(affected, pinned);
+        } catch (error) {
+          if (!_isOfflineFailure(error)) {
+            _restorePinnedState(session, previous);
+            notifyListeners();
+            rethrow;
+          }
+          _markOffline(session);
+          try {
+            for (final id in affected) {
+              await session.flagsStore?.queueMutation(
+                id,
+                pinned ? 'pin' : 'unpin',
+              );
+            }
+          } catch (_) {
+            _restorePinnedState(session, previous);
+            notifyListeners();
+            rethrow;
+          }
+          await session.flagsStore?.writePinned(session.pinnedIds);
+          return;
+        }
+        accountResults.add(results);
+        final successful = results
+            .where((result) => result.success)
+            .map((result) => result.mailId)
+            .toSet();
+        final rejected = {
+          for (final id in affected)
+            if (!successful.contains(id)) id: previous[id]!,
+        };
+        if (rejected.isNotEmpty) {
+          _restorePinnedState(session, rejected);
+          notifyListeners();
+        }
+        for (final id in successful) {
+          await session.flagsStore?.clearQueuedMutation(id, 'pin_state');
+        }
+        await session.flagsStore?.writePinned(session.pinnedIds);
       }),
     );
-    notifyListeners();
+    _throwForFailedBulkResults(accountResults);
+  }
+
+  void _restorePinnedState(_Session session, Map<String, bool> previous) {
+    for (final entry in previous.entries) {
+      if (entry.value) {
+        session.pinnedIds.add(entry.key);
+      } else {
+        session.pinnedIds.remove(entry.key);
+      }
+    }
+    _replaceMany(
+      session,
+      previous.keys,
+      (mail) => mail.copyWith(isPinned: previous[mail.id] ?? false),
+    );
   }
 
   @override
   Future<void> setStarred(List<String> ids, bool starred) async {
-    await Future.wait(
-      _groupBySession(ids).entries.map((e) {
-        final session = e.key;
+    final results = await Future.wait(
+      _groupBySession(ids).entries.map((entry) {
+        final session = entry.key;
         return _bulkAndApplyOrQueue(
           session,
           starred ? 'star' : 'unstar',
-          e.value,
-          (succeeded) {
+          entry.value,
+          (affected) {
             starred
-                ? session.starredIds.addAll(succeeded)
-                : session.starredIds.removeAll(succeeded);
+                ? session.starredIds.addAll(affected)
+                : session.starredIds.removeAll(affected);
             _replaceMany(
               session,
-              succeeded,
-              (m) => m.copyWith(isStarred: starred),
+              affected,
+              (mail) => mail.copyWith(isStarred: starred),
             );
           },
         );
       }),
     );
+    _throwForFailedBulkResults(results);
   }
 
   /// Marks that the user opened the reply screen. The "replied" flag itself
@@ -3786,20 +4087,33 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  /// Unlike pin/star, snoozing changes which folder view a mail is even
-  /// visible in (see [_buildFolderView]), so a write always touches the
-  /// view cache. Writes each id through to the backend individually (there
-  /// is no bulk snooze endpoint); only ids the server actually confirmed
-  /// are applied locally — same silent-partial-success shape as
-  /// [setPinned], including its offline queue.
+  /// Snoozing changes the virtual folder membership, so apply it immediately
+  /// and reconcile each item with the backend response. Offline writes stay
+  /// queued; rejected online writes restore their previous deadlines.
   @override
   Future<void> setSnoozed(List<String> ids, DateTime? until) async {
     if (ids.isEmpty) return;
+    final errors = <Object>[];
     await Future.wait(
       _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
-        final succeeded = <String>[];
         final store = session.flagsStore;
+        final previous = {
+          for (final id in entry.value) id: session.snoozedUntil[id],
+        };
+        if (until == null) {
+          session.snoozedUntil.removeWhere((id, _) => entry.value.contains(id));
+        } else {
+          final deadline = until.toUtc().millisecondsSinceEpoch;
+          for (final id in entry.value) {
+            session.snoozedUntil[id] = deadline;
+          }
+        }
+        _recomputeWatchedSnoozeDeadline();
+        _touch();
+        notifyListeners();
+
+        final rejected = <String>{};
         await Future.wait(
           entry.value.map((id) async {
             try {
@@ -3809,34 +4123,43 @@ class ApiMailRepository extends MailRepository {
                 await session.mailService.setSnooze(id, until);
               }
               await store?.clearQueuedMutation(id, 'snooze_state');
-              succeeded.add(id);
             } catch (error) {
-              if (!_isOfflineFailure(error)) return;
-              _markOffline(session);
-              await store?.queueMutation(
-                id,
-                until == null ? 'unsnooze' : 'snooze',
-                folderId: until?.toUtc().toIso8601String(),
-              );
-              succeeded.add(id);
+              if (_isOfflineFailure(error)) {
+                _markOffline(session);
+                try {
+                  await store?.queueMutation(
+                    id,
+                    until == null ? 'unsnooze' : 'snooze',
+                    folderId: until?.toUtc().toIso8601String(),
+                  );
+                  return;
+                } catch (queueError) {
+                  errors.add(queueError);
+                }
+              } else {
+                errors.add(error);
+              }
+              rejected.add(id);
             }
           }),
         );
-        if (succeeded.isEmpty) return;
-        if (until == null) {
-          session.snoozedUntil.removeWhere((id, _) => succeeded.contains(id));
-        } else {
-          final ms = until.toUtc().millisecondsSinceEpoch;
-          for (final id in succeeded) {
-            session.snoozedUntil[id] = ms;
+        for (final id in rejected) {
+          final deadline = previous[id];
+          if (deadline == null) {
+            session.snoozedUntil.remove(id);
+          } else {
+            session.snoozedUntil[id] = deadline;
           }
         }
-        await session.flagsStore?.writeSnoozed(session.snoozedUntil);
+        await store?.writeSnoozed(session.snoozedUntil);
+        if (rejected.isNotEmpty) {
+          _recomputeWatchedSnoozeDeadline();
+          _touch();
+          notifyListeners();
+        }
       }),
     );
-    _recomputeWatchedSnoozeDeadline();
-    _touch();
-    notifyListeners();
+    if (errors.isNotEmpty) throw errors.first;
   }
 
   @override

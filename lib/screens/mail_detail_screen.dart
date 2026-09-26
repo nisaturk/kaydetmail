@@ -72,11 +72,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   bool _loading = true;
   bool _opened = false;
 
-  /// Set while a folder-move action (restore / "spam değil" / "arşivden
-  /// çıkar") is in flight, so the triggering button disables itself —
-  /// mirrors the busy-flag shape of `_runBulkMove` in HomeScreen.
-  bool _folderActionBusy = false;
-
   /// Set while a reply/reply-all/forward compose context request is in
   /// flight — disables the triggering action so a slow/offline fetch
   /// can't be tapped twice or race a second mode's response into the
@@ -91,6 +86,29 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// already loaded, so listener re-runs never stack or repeat fetches.
   String? _enrichingKey;
   String? _enrichedKey;
+
+  void _watchBackgroundMutation(
+    Future<void> operation, {
+    String? successMessage,
+  }) {
+    final messenger = ScaffoldMessenger.of(context);
+    unawaited(() async {
+      try {
+        await operation;
+        if (successMessage != null && messenger.mounted) {
+          messenger.showSnackBar(SnackBar(content: Text(successMessage)));
+        }
+      } catch (error) {
+        if (messenger.mounted) {
+          messenger.showSnackBar(
+            SnackBar(
+              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+            ),
+          );
+        }
+      }
+    }());
+  }
 
   @override
   void initState() {
@@ -257,7 +275,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     final email = _email;
     if (email == null) return;
     if (!email.isPinned && !_ensurePinSlot(email.accountId)) return;
-    await _repo.setPinned([email.id], !email.isPinned);
+    _watchBackgroundMutation(_repo.setPinned([email.id], !email.isPinned));
   }
 
   Future<void> _toggleStar() async {
@@ -265,23 +283,23 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     if (email == null) return;
     // Star and pin are independent flags: starring never pins, unstarring
     // never unpins. Starring consumes no pin slot.
-    await _repo.setStarred([email.id], !email.isStarred);
+    _watchBackgroundMutation(_repo.setStarred([email.id], !email.isStarred));
   }
 
   /// Snoozed mail is hidden from normal folder views until its backend-owned
-  /// deadline (see `ApiMailRepository._buildFolderView`). The local cache
-  /// keeps the state visible offline until queued changes can be replayed.
+  /// deadline. State changes locally immediately while the backend request
+  /// continues in the background.
   Future<void> _toggleSnooze() async {
     final email = _email;
     if (email == null) return;
     if (_repo.snoozedUntilOf(email.id) != null) {
-      await _repo.setSnoozed([email.id], null);
+      _watchBackgroundMutation(_repo.setSnoozed([email.id], null));
       return;
     }
     final until = await showSnoozePicker(context);
     if (until == null || !mounted) return;
-    await _repo.setSnoozed([email.id], until);
-    if (mounted) await Navigator.of(context).maybePop();
+    _watchBackgroundMutation(_repo.setSnoozed([email.id], until));
+    unawaited(Navigator.of(context).maybePop().then<void>((_) {}));
   }
 
   Future<void> _toggleWatchReply() async {
@@ -330,7 +348,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
   Future<void> _moveMail() async {
     final email = _email;
-    if (email == null || _folderActionBusy) return;
+    if (email == null) return;
     final target = await showMoveFolderSheet(
       context,
       repository: _repo,
@@ -341,35 +359,21 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       currentCustomFolderId: widget.currentCustomFolderId,
     );
     if (target == null || !mounted) return;
-    setState(() => _folderActionBusy = true);
-    try {
-      final custom = target.customFolder;
-      if (custom != null) {
-        await _repo.moveToCustomFolder(
-          [email.id],
-          accountId: custom.accountId,
-          folderId: custom.folderId,
-        );
-      } else if (target.folder == MailFolder.trash) {
-        await _repo.moveToTrash([email.id]);
-      } else {
-        await _repo.moveToFolder([email.id], target.folder!);
-      }
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('E-posta ${target.label} klasörüne taşındı.')),
-      );
-      await Navigator.of(context).maybePop(true);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _folderActionBusy = false);
-    }
+    final custom = target.customFolder;
+    final operation = custom != null
+        ? _repo.moveToCustomFolder(
+            [email.id],
+            accountId: custom.accountId,
+            folderId: custom.folderId,
+          )
+        : target.folder == MailFolder.trash
+        ? _repo.moveToTrash([email.id])
+        : _repo.moveToFolder([email.id], target.folder!);
+    _watchBackgroundMutation(
+      operation,
+      successMessage: 'E-posta ${target.label} klasörüne taşındı.',
+    );
+    unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
   }
 
   /// Moves the open mail back to the inbox. For a mail whose current
@@ -380,23 +384,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// this one call.
   Future<void> _moveToInbox(String successMessage) async {
     final email = _email;
-    if (email == null || _folderActionBusy) return;
-    setState(() => _folderActionBusy = true);
-    try {
-      await _repo.moveToFolder([email.id], MailFolder.inbox);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(successMessage)));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _folderActionBusy = false);
-    }
+    if (email == null) return;
+    _watchBackgroundMutation(
+      _repo.moveToFolder([email.id], MailFolder.inbox),
+      successMessage: successMessage,
+    );
+    unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
   }
 
   /// Folder-specific primary action for the open mail, when its current
@@ -410,25 +403,20 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     switch (email.folder) {
       case MailFolder.trash:
         return IconButton(
-          onPressed: _folderActionBusy
-              ? null
-              : () => _moveToInbox('E-posta geri yüklendi.'),
+          onPressed: () => _moveToInbox('E-posta geri yüklendi.'),
           tooltip: 'Geri yükle',
           icon: const Icon(LucideIcons.rotateCcw),
         );
       case MailFolder.spam:
         return IconButton(
-          onPressed: _folderActionBusy
-              ? null
-              : () => _moveToInbox('E-posta spam değil olarak işaretlendi.'),
+          onPressed: () =>
+              _moveToInbox('E-posta spam değil olarak işaretlendi.'),
           tooltip: 'Spam değil',
           icon: const Icon(LucideIcons.shieldOff),
         );
       case MailFolder.archive:
         return IconButton(
-          onPressed: _folderActionBusy
-              ? null
-              : () => _moveToInbox('E-posta arşivden çıkarıldı.'),
+          onPressed: () => _moveToInbox('E-posta arşivden çıkarıldı.'),
           tooltip: 'Arşivden çıkar',
           icon: const Icon(LucideIcons.archiveRestore),
         );
@@ -660,9 +648,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     if (action == 'reply_all') {
       await _replyAll();
     } else if (action == 'read') {
-      await _repo.markAsRead([widget.emailId]);
+      _watchBackgroundMutation(_repo.markAsRead([widget.emailId]));
     } else if (action == 'unread') {
-      await _repo.markAsUnread([widget.emailId]);
+      _watchBackgroundMutation(_repo.markAsUnread([widget.emailId]));
     } else if (action == 'pin') {
       await _togglePin();
     } else if (action == 'star') {
@@ -702,30 +690,18 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
-  /// Expunges the conversation's Trash messages after a confirmation, then
-  /// leaves the screen — there is nothing left to show.
+  /// Expunges confirmed Trash messages optimistically, then reconciles in the
+  /// background.
   Future<void> _deleteForever() async {
     final ids = idsInFolder(_repo, _conversationIds, MailFolder.trash);
-    if (ids.isEmpty || _folderActionBusy) return;
+    if (ids.isEmpty) return;
     final confirmed = await confirmPermanentDelete(context, ids.length);
     if (!confirmed || !mounted) return;
-    setState(() => _folderActionBusy = true);
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await _repo.deletePermanently(ids);
-      messenger.showSnackBar(
-        const SnackBar(content: Text('E-posta kalıcı olarak silindi.')),
-      );
-      if (mounted) await Navigator.of(context).maybePop();
-    } catch (error) {
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _folderActionBusy = false);
-    }
+    _watchBackgroundMutation(
+      _repo.deletePermanently(ids),
+      successMessage: 'E-posta kalıcı olarak silindi.',
+    );
+    unawaited(Navigator.of(context).maybePop().then<void>((_) {}));
   }
 
   /// Fires the header-driven unsubscribe action for the open mail. A
@@ -994,10 +970,7 @@ class _SingleMessage extends StatelessWidget {
         const SizedBox(height: 8),
         if (compactHeader) ...[
           if (email.cc.isNotEmpty)
-            _RecipientLine(
-              label: 'Cc: ',
-              addresses: recipientText(email.cc),
-            ),
+            _RecipientLine(label: 'Cc: ', addresses: recipientText(email.cc)),
         ] else
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1395,7 +1368,9 @@ class _RemoteContentBannerState extends State<_RemoteContentBanner> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.'),
+          const Text(
+            'Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.',
+          ),
           if (_error != null) ...[
             const SizedBox(height: 4),
             Text(
@@ -1768,8 +1743,7 @@ class _ThreadStackState extends State<_ThreadStack> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
-                                if (_expanded(m) &&
-                                    m.recipients.isNotEmpty)
+                                if (_expanded(m) && m.recipients.isNotEmpty)
                                   Text(
                                     'Alıcı: ${m.recipients.join(', ')}',
                                     maxLines: 1,
