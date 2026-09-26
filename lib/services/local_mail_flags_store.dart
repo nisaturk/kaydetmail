@@ -5,7 +5,7 @@ import 'package:sqlite3/common.dart';
 
 import 'mail_cache.dart';
 
-/// One offline-queued mail mutation waiting to reach the backend — see
+/// One offline-queued mutation waiting to reach the backend — see
 /// [LocalMailFlagsStore.queueMutation]/`ApiMailRepository._replayQueuedMutations`.
 class QueuedMutation {
   const QueuedMutation({
@@ -19,11 +19,14 @@ class QueuedMutation {
 
   /// The verb this replays as: a bulk action (`read`, `unread`, `star`,
   /// `unstar`, `archive`, `trash`, `restore`, `move`), `pin`/`unpin`,
-  /// `snooze`/`unsnooze`, or `label_add`/`label_remove`.
+  /// `snooze`/`unsnooze`, `label_add`/`label_remove`, or
+  /// `contact_create`/`contact_update`/`contact_delete` (with [mailId]
+  /// holding the manual contact id).
   final String operation;
 
   /// Operation argument: target folder id for `move`, the label id for
-  /// `label_add`/`label_remove`, the UTC deadline (ISO-8601) for `snooze`.
+  /// `label_add`/`label_remove`, the UTC deadline (ISO-8601) for `snooze`,
+  /// the JSON `{email, displayName}` for `contact_create`/`contact_update`.
   final String? folderId;
   final int queuedAtMs;
 }
@@ -41,6 +44,7 @@ String mutationCategoryFor(String operation, [String? argument]) =>
       'pin' || 'unpin' => 'pin_state',
       'snooze' || 'unsnooze' => 'snooze_state',
       'label_add' || 'label_remove' => 'label:$argument',
+      'contact_create' || 'contact_update' || 'contact_delete' => 'contact',
       _ => operation,
     };
 
@@ -192,8 +196,8 @@ class LocalMailFlagsStore {
     stmt.close();
   });
 
-  /// Snooze timestamps (mail id -> epoch millis it should reappear).
-  /// Purely client-side, same rationale as pin/replied/forwarded above.
+  /// Cached backend snooze timestamps (mail id -> epoch millis it should
+  /// reappear); also holds the optimistic deadline while a write is queued.
   Future<Map<String, int>> readSnoozed() async => {
     for (final r in _db.select(
       'SELECT mail_id, until_ms FROM snoozes WHERE account_id = ?',

@@ -164,6 +164,8 @@ class ComposeScreen extends StatefulWidget {
     this.initialThreadId,
     this.inReplyToId,
     this.initialIdentityId,
+    this.initialRequestReadReceipt = false,
+    this.initialRequestDeliveryReceipt = false,
   });
 
   /// Lets tests substitute the real OS file picker.
@@ -194,6 +196,8 @@ class ComposeScreen extends StatefulWidget {
   final String? initialThreadId;
   final String? inReplyToId;
   final String? initialIdentityId;
+  final bool initialRequestReadReceipt;
+  final bool initialRequestDeliveryReceipt;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -221,6 +225,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _ccExpanded = false;
   bool _bccExpanded = false;
   bool _sending = false;
+  bool _requestReadReceipt = false;
+  bool _requestDeliveryReceipt = false;
   String? _fromAccount;
   MailIdentity? _fromIdentity;
   List<MailIdentity> _identities = const [];
@@ -266,6 +272,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void initState() {
     super.initState();
+    _requestReadReceipt = widget.initialRequestReadReceipt;
+    _requestDeliveryReceipt = widget.initialRequestDeliveryReceipt;
     _toRecipients.addAll(_parseRecipients(widget.initialTo));
     _ccRecipients.addAll(_parseRecipients(widget.initialCc));
     _bccRecipients.addAll(_parseRecipients(widget.initialBcc));
@@ -345,7 +353,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
     ];
     _contacts = ContactsStore.merge(
       ContactsStore.merge(
-        ContactsStore.merge(DeviceContacts.cached, ContactsStore.cachedPersisted),
+        ContactsStore.merge(
+          DeviceContacts.cached,
+          ContactsStore.cachedPersisted,
+        ),
         manual,
       ),
       ContactsStore.fromEmails(_repo.getAllEmails()),
@@ -698,10 +709,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final template = await showModalBottomSheet<MailTemplate>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _TemplatePicker(
-        accountId: accountId,
-        repository: _repo,
-      ),
+      builder: (_) => _TemplatePicker(accountId: accountId, repository: _repo),
     );
     if (template == null || !mounted || accountId != _resolvedFromAccountId) {
       return;
@@ -942,6 +950,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
       threadId: threadId,
       inReplyToId: inReplyToId,
       identityId: identityId,
+      requestReadReceipt: _requestReadReceipt,
+      requestDeliveryReceipt: _requestDeliveryReceipt,
       draftId: draftId,
     );
 
@@ -1020,6 +1030,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// through the standard pickers, then queues the mail with
   /// `MailRepository.scheduleSend` instead of sending it now.
   Future<void> _scheduleSend() async {
+    if (_requestReadReceipt || _requestDeliveryReceipt) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Alındı bilgisi istekleri zamanlanan gönderide desteklenmiyor. '
+            'Seçenekleri kapatın veya şimdi gönderin.',
+          ),
+        ),
+      );
+      return;
+    }
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
     if (!_validateAttachmentLimits()) return;
@@ -1460,11 +1481,33 @@ class _ComposeScreenState extends State<ComposeScreen> {
                     _send();
                   } else if (value == 'schedule') {
                     _scheduleSend();
+                  } else if (value == 'read_receipt') {
+                    setState(() => _requestReadReceipt = !_requestReadReceipt);
+                  } else if (value == 'delivery_receipt') {
+                    setState(
+                      () => _requestDeliveryReceipt = !_requestDeliveryReceipt,
+                    );
                   }
                 },
-                itemBuilder: (context) => const [
-                  PopupMenuItem(value: 'now', child: Text('Şimdi Gönder')),
-                  PopupMenuItem(value: 'schedule', child: Text('Zamanla')),
+                itemBuilder: (context) => [
+                  const PopupMenuItem(
+                    value: 'now',
+                    child: Text('Şimdi Gönder'),
+                  ),
+                  const PopupMenuItem(
+                    value: 'schedule',
+                    child: Text('Zamanla'),
+                  ),
+                  CheckedPopupMenuItem(
+                    value: 'read_receipt',
+                    checked: _requestReadReceipt,
+                    child: const Text('Okundu bilgisi iste'),
+                  ),
+                  CheckedPopupMenuItem(
+                    value: 'delivery_receipt',
+                    checked: _requestDeliveryReceipt,
+                    child: const Text('Teslim bilgisi iste'),
+                  ),
                 ],
               ),
             ],
@@ -2071,10 +2114,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
 }
 
 class _TemplatePicker extends StatefulWidget {
-  const _TemplatePicker({
-    required this.accountId,
-    required this.repository,
-  });
+  const _TemplatePicker({required this.accountId, required this.repository});
 
   final String accountId;
   final MailRepository repository;
@@ -2099,9 +2139,7 @@ class _TemplatePickerState extends State<_TemplatePicker> {
       _error = null;
     });
     try {
-      final templates = await widget.repository.listTemplates(
-        widget.accountId,
-      );
+      final templates = await widget.repository.listTemplates(widget.accountId);
       if (mounted) setState(() => _templates = templates);
     } catch (error) {
       if (mounted) setState(() => _error = friendlyErrorMessage(error));

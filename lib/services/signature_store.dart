@@ -1,11 +1,8 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Per-account email signature, auto-inserted into new compose bodies.
-///
-/// Purely client-side (same rationale as [LocalMailFlagsStore]'s labels) —
-/// no backend endpoint exists for this. Persisted with SharedPreferences,
-/// same store/key convention as [AppPreferencesStore], but keyed per
-/// account email since each connected mailbox can sign off differently.
+/// Legacy on-device per-account email signature storage. New signatures
+/// live on the backend; this SharedPreferences value is retained only until
+/// `ApiMailRepository._migrateLegacySignature` has copied it to the server.
 class SignatureStore {
   SignatureStore._();
 

@@ -13,34 +13,45 @@ one unified inbox.
 - **Folders + labels.** Standard folders (Gelen Kutusu, Gönderilenler, Taslaklar, Çöp
   Kutusu, Spam, Arşiv) plus a virtual **Yıldızlılar** (pinned) folder that groups pinned
   mail across real folders, user-defined colored labels, and a **Diğer Klasörler**
-  screen that lists and browses any non-standard IMAP folder the server reports
-  (paginated, with manual sync) — read-only for now; creating/renaming/deleting
-  folders isn't supported yet.
-- **Reading, threading & actions.** Conversations render as a collapsible card stack
-  (oldest first); read/unread, star/pin (capped at 3 concurrent pins), trash/restore,
+  screen for custom IMAP folders, including nested browsing, create/rename/delete and
+  move.
+- **Reading, threading & actions.** Conversations render as collapsible cards;
+  read/unread, star/pin (capped at 3 concurrent pins), trash/restore,
   archive, spam, move, and multi-select bulk actions.
-- **Compose.** Attachments (paperclip, multiple files, size shown, removable), drafts,
-  reply/reply-all/forward with quoted history, per-account signatures, and OS
-  share-sheet intake (share a file or link into the app to open compose pre-filled).
+- **Compose.** Attachments (files, camera and gallery), drafts,
+  reply/reply-all/forward with quoted history, templates, snippets, multiple
+  signatures, sender identities and OS share-sheet intake. Immediate sends can
+  optionally request read (MDN) and delivery (SMTP DSN) receipts; neither is
+  guaranteed by recipients or providers. Receipt requests are not supported
+  for scheduled sends.
 - **Scheduled send.** Queue a message for a future time from Compose; the backend
   delivers it even if the app is closed and retries recoverable pre-delivery failures
   with backoff. Failed/delivery-uncertain sends stay visible in Zamanlanmış
   Gönderimler for manual reschedule or cancel — never resent automatically.
-- **Undo send and outbox.** Gönder waits five seconds for "Geri Al"; the complete
-  message and attachment bytes are persisted locally before compose closes.
+- **Undo send and outbox.** Gönder waits for the configured undo interval;
+  the complete message and attachment bytes are persisted locally before compose closes.
   Definitive pre-delivery failures can be retried or edited from Giden Kutusu.
   If delivery is uncertain, the app does not resend automatically; check
   Gönderilenler before deleting the local copy or composing another message.
-- **Rules.** Client-side rules (sender contains → move/label) run against mail already
-  loaded into the app; not yet a server-side engine, so a rule only applies to mail the
-  app has actually fetched.
-- **Search.** Server-backed, always spans every connected account, with an inline label
-  filter row.
+- **Rules.** Account-scoped rules are evaluated server-side after mail sync,
+  including priority, conditions, actions and stop-processing.
+- **Search.** Server-backed account/folder/label filters and IMAP fallback for
+  mail outside the local index.
 - **Offline cache.** An on-device SQLite mirror of loaded mail — including full message
   bodies, but not attachment bytes — paints the last known mailbox instantly on cold
   start and revalidates against the API in the background; falls back to it when the
   backend is unreachable. Pull-to-refresh requests a server sync and waits for it to
   actually finish (not just be queued) before reloading the list.
+  Pin, snooze, label and manual-contact changes queue locally while offline and
+  reconcile with the backend after reconnecting.
+- **Privacy and inspection.** Remote images are blocked by default, with
+  per-mail loading and trusted-sender controls. Tiny/hidden tracking pixels stay
+  blocked even when images are allowed. Mail detail offers full original IMAP
+  headers and raw MIME on demand, plus SPF/DKIM/DMARC results and signed or
+  encrypted format indicators. S/MIME signatures can be verified against the
+  original MIME; OpenPGP verification, key management and decryption are not
+  supported. Indicators for mail indexed before this feature may require
+  re-import; inspecting original source requires a live IMAP connection.
 - **Push notifications (FCM).** Device registration, foreground/background message
   routing, and tap-to-open — see [Push notifications](#push-notifications) below.
 - **Account & session management.** OAuth (Google/Microsoft) or password/manual

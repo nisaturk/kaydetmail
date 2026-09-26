@@ -14,6 +14,7 @@ import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/mail_cache.dart';
 import 'package:kaydetmail/services/token_store.dart';
+import 'package:kaydetmail/services/api_exception.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -109,6 +110,38 @@ void main() {
         );
       },
     );
+    test('a failed folder sync marks a signed-in mailbox offline without dropping cached mail', () async {
+      final db = MailCache.inMemory();
+      db.apply('account-1', [_mail('mail-1', 'inbox')], const []);
+      db.saveFolders('account-1', {'folder-inbox': 'inbox'});
+      final service = _ToggleableMailService(
+        online: true,
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-1')]),
+        },
+      );
+      final repo = await _restoredRepository(service, cache: db);
+      expect(repo.isOffline, isFalse);
+      var notifications = 0;
+      repo.addListener(() => notifications++);
+
+      service.online = false;
+      await expectLater(
+        repo.syncFolder(MailFolder.inbox),
+        throwsA(isA<ApiException>()),
+      );
+      expect(repo.isOffline, isTrue);
+      expect(notifications, greaterThan(0));
+      expect(
+        repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id),
+        contains('mail-1'),
+      );
+
+      service.online = true;
+      await repo.refreshEmails(MailFolder.inbox);
+      expect(repo.isOffline, isFalse);
+    });
   });
 }
 
@@ -214,6 +247,13 @@ class _ToggleableMailService extends ApiMailService {
           ),
         )
         .toList();
+  }
+
+  @override
+  Future<void> syncFolderId(String folderId) async {
+    if (!online) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
   }
 
   @override

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
@@ -10,6 +11,8 @@ import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/compose_limits.dart';
 import '../models/email.dart';
+import '../models/mail_header_entry.dart';
+import '../models/mail_security.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
@@ -43,9 +46,9 @@ import 'mail_repository.dart';
 
 /// Everything one connected mailbox needs to operate independently: its own
 /// authenticated HTTP session, its own folder/mail cache, and its own
-/// client-only state (pins, replied/forwarded, labels). Multiple accounts
-/// hold multiple [_Session]s side by side — connecting a second account
-/// never touches the first one's tokens, mail, or flags.
+/// backend-backed pin/snooze/label/contact state plus local reply/forward flags.
+/// Multiple accounts hold multiple [_Session]s side by side — connecting a
+/// second account never touches the first one's tokens, mail, or flags.
 class _Session {
   _Session({
     required this.authService,
@@ -93,9 +96,9 @@ class _Session {
   List<ManualContact> manualContacts = [];
   List<MailTemplate>? templates;
 
-  /// Mail id -> epoch millis it should reappear (client-only, see
-  /// [LocalMailFlagsStore.readSnoozed]). A mail past its timestamp is
-  /// treated as not-snoozed everywhere below.
+  /// Cached snooze deadlines (mail id -> epoch millis), fetched from the
+  /// backend or read from [LocalMailFlagsStore] while offline. A mail past
+  /// its timestamp is treated as not-snoozed everywhere below.
   Map<String, int> snoozedUntil = {};
 
   /// Scheduled sends known for this account, soonest first. Populated by
@@ -173,8 +176,9 @@ class _Session {
   );
 }
 
-/// [MailRepository] backed by the real backend. Pins, replied/forwarded flags
-/// and labels have no API equivalent and are kept locally per account.
+/// [MailRepository] backed by the real backend. Pins, snoozes, labels and
+/// manual contacts are backend-owned with an offline device cache and queue;
+/// replied/forwarded-from-app flags stay local per account.
 ///
 /// Every connected mailbox gets its own [_Session] — its own authenticated
 /// client, its own folder/mail state, its own local flags — so accounts stay
@@ -634,10 +638,14 @@ class ApiMailRepository extends MailRepository {
       final flags = LocalMailFlagsStore(account.id, _cache!);
       await flags.migrateLegacyPrefs();
       session.pinnedIds = await _loadPinnedIds(session, flags);
-      session.repliedFromKaydetMailIds = await flags.readRepliedFromKaydetMail();
-      session.forwardedFromKaydetMailIds = await flags.readForwardedFromKaydetMail();
-      session.repliedFromKaydetMailThreadIds = await flags.readRepliedFromKaydetMailThreads();
-      session.forwardedFromKaydetMailThreadIds = await flags.readForwardedFromKaydetMailThreads();
+      session.repliedFromKaydetMailIds = await flags
+          .readRepliedFromKaydetMail();
+      session.forwardedFromKaydetMailIds = await flags
+          .readForwardedFromKaydetMail();
+      session.repliedFromKaydetMailThreadIds = await flags
+          .readRepliedFromKaydetMailThreads();
+      session.forwardedFromKaydetMailThreadIds = await flags
+          .readForwardedFromKaydetMailThreads();
       session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
       await _loadLabels(session, flags);
       await _loadManualContacts(session, flags);
@@ -851,9 +859,8 @@ class ApiMailRepository extends MailRepository {
       }
       await MailRulesStore.remapLabelIds(session.account.id, idRemap);
     } catch (_) {
-      // Best-effort — a failure here must never affect login. Labels stay
-      // local-only (via the [_loadLabels] fallback) until the next
-      // successful login re-attempts the migration.
+      // Best-effort — a failure here must never affect login. Cached labels
+      // remain available via [_loadLabels] until migration can run again.
     }
   }
 
@@ -1149,11 +1156,11 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  /// Re-derives every loaded mail's local-only flags (pin/star/replied/
-  /// forwarded/labels) from [session]'s current sets. Used instead of
-  /// [_replaceMany] whenever a change can affect mail beyond the ids the
-  /// caller touched directly — e.g. marking one message replied also marks
-  /// every other loaded message in its thread via `repliedFromKaydetMailThreadIds`.
+  /// Re-derives every loaded mail's flags (backend-backed pin/labels,
+  /// IMAP-backed star and local replied/forwarded) from [session]'s sets.
+  /// Used instead of [_replaceMany] when a change can affect mail beyond
+  /// the ids the caller touched directly — e.g. marking one message replied
+  /// also marks every other loaded message in its thread.
   void _restampFlags(_Session session) {
     _touch();
     for (final folder in session.emails.keys.toList()) {
@@ -1278,27 +1285,29 @@ class ApiMailRepository extends MailRepository {
     return results;
   }
 
-  /// Replays every mutation [session] queued while offline (read, unread,
-  /// star, unstar, archive, trash, move — see
-  /// [ApiMailRepository._bulkAndApplyOrQueue] and `moveToFolder`'s inline
-  /// restore handling). Best-effort and fire-and-forget from every call
-  /// site: a further transport failure just leaves that group queued for
-  /// the next reconnect. A `mail_operation_conflict`/`mailbox_changed`/
-  /// `mail_not_found` result — the mailbox changed underneath the queued
-  /// mutation, or the mail is gone — is NOT retried: it's dropped from the
-  /// queue and surfaced via [offlineMutationConflicts] instead, so a stale
-  /// queued mutation never silently lands on the wrong message. Queued
-  /// mutations in the same category for the same mail already collapsed to
-  /// one row at queue time (see `LocalMailFlagsStore.queueMutation`), so
-  /// FIFO ordering across mails is all that's left to preserve here.
+  /// Replays queued mail, pin/snooze/label and manual contact mutations.
+  /// Transport failures remain queued for the next reconnect. Server
+  /// rejections are dropped and surfaced through [offlineMutationConflicts];
+  /// backend-owned state is re-read to replace rejected optimistic changes.
+  /// Mail changes in the same category and contact changes for the same id
+  /// collapse at queue time (see `LocalMailFlagsStore.queueMutation`).
   Future<void> _replayQueuedMutations(_Session session) async {
     final store = session.flagsStore;
     if (store == null) return;
     final all = await store.readQueuedMutations();
     if (all.isEmpty) return;
+    final contacts = [
+      for (final m in all)
+        if (_contactOperations.contains(m.operation)) m,
+    ];
+    if (contacts.isNotEmpty) {
+      await _replayManualContacts(session, store, contacts);
+    }
     final queued = [
       for (final m in all)
-        if (!_appStateOperations.contains(m.operation)) m,
+        if (!_appStateOperations.contains(m.operation) &&
+            !_contactOperations.contains(m.operation))
+          m,
     ];
     final appState = [
       for (final m in all)
@@ -1448,6 +1457,69 @@ class ApiMailRepository extends MailRepository {
       for (final list in session.emails.values)
         for (final e in list) e.id,
     ]);
+    notifyListeners();
+  }
+
+  static const _contactOperations = {
+    'contact_create',
+    'contact_update',
+    'contact_delete',
+  };
+
+  static const _localContactIdPrefix = 'local-contact-';
+
+  Future<void> _replayManualContacts(
+    _Session session,
+    LocalMailFlagsStore store,
+    List<QueuedMutation> queued,
+  ) async {
+    var stillQueued = false;
+    var createdContact = false;
+    for (final m in queued) {
+      final payload = m.folderId == null
+          ? null
+          : jsonDecode(m.folderId!) as Map<String, dynamic>;
+      try {
+        switch (m.operation) {
+          case 'contact_create':
+            final created = await session.mailService.createContact(
+              payload!['email'] as String,
+              payload['displayName'] as String?,
+            );
+            session.manualContacts = [
+              for (final c in session.manualContacts)
+                c.id == m.mailId
+                    ? ManualContact(
+                        id: created['id'] as String,
+                        accountId: c.accountId,
+                        email: c.email,
+                        displayName: c.displayName,
+                      )
+                    : c,
+            ];
+            createdContact = true;
+          case 'contact_update':
+            await session.mailService.updateContact(
+              m.mailId,
+              payload!['email'] as String,
+              payload['displayName'] as String?,
+            );
+          case 'contact_delete':
+            await session.mailService.deleteContact(m.mailId);
+        }
+        await store.clearQueuedMutation(m.mailId, 'contact');
+      } catch (error) {
+        if (error is ApiException && !_isOfflineFailure(error)) {
+          await store.clearQueuedMutation(m.mailId, 'contact');
+          session.mutationConflicts.add(m.mailId);
+        } else {
+          stillQueued = true;
+        }
+      }
+    }
+    if (createdContact || stillQueued) await _persistManualContacts(session);
+    if (stillQueued) return;
+    await _loadManualContacts(session, store);
     notifyListeners();
   }
 
@@ -1839,12 +1911,24 @@ class ApiMailRepository extends MailRepository {
     final jobs = [
       for (final session in sessions)
         if (session.folderIds[folder] case final String folderId)
-          session.mailService.syncFolderId(folderId),
+          _syncFolderFor(session, folderId),
     ];
     if (jobs.isEmpty) {
       throw ArgumentError('Unknown folder for this account: $folder');
     }
     await Future.wait(jobs);
+  }
+
+  Future<void> _syncFolderFor(_Session session, String folderId) async {
+    try {
+      await session.mailService.syncFolderId(folderId);
+    } catch (error) {
+      if (_isOfflineFailure(error)) {
+        _markOffline(session);
+        notifyListeners();
+      }
+      rethrow;
+    }
   }
 
   @override
@@ -1873,6 +1957,27 @@ class ApiMailRepository extends MailRepository {
     }
     if (sawNotFound || candidates.isEmpty) return null;
     return null;
+  }
+
+  @override
+  Future<List<MailHeaderEntry>> fetchMailHeaders(String mailId) {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    return session.mailService.getMailHeaders(mailId);
+  }
+
+  @override
+  Future<String> fetchMailSource(String mailId) {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    return session.mailService.getMailSource(mailId);
+  }
+
+  @override
+  Future<MailSignatureVerification> verifyMailSignature(String mailId) {
+    final session = _sessionOwning(mailId);
+    if (session == null) throw ArgumentError('Unknown mail: $mailId');
+    return session.mailService.getMailSignature(mailId);
   }
 
   @override
@@ -1922,9 +2027,8 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<List<TrustedSender>> listTrustedSenders(String accountId) async {
-    final items = await _sessionForAccountId(
-      accountId,
-    ).mailService.getTrustedSenders();
+    final items = await _sessionForAccountId(accountId).mailService
+        .getTrustedSenders();
     return [for (final item in items) item.copyWith(accountId: accountId)];
   }
 
@@ -2134,6 +2238,8 @@ class ApiMailRepository extends MailRepository {
     String? threadId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -2154,6 +2260,8 @@ class ApiMailRepository extends MailRepository {
         attachments: attachments,
         replySourceMailId: inReplyToId,
         identityId: identityId,
+        requestReadReceipt: requestReadReceipt,
+        requestDeliveryReceipt: requestDeliveryReceipt,
         idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
         onProgress: onProgress,
         abortTrigger: abortTrigger,
@@ -2344,8 +2452,7 @@ class ApiMailRepository extends MailRepository {
     String mailId,
     DateTime dueAtUtc,
   ) async {
-    final session =
-        _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
+    final session = _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
     if (session == null) throw StateError('No mail session');
     final created = (await session.mailService.setReplyReminder(
       mailId,
@@ -2363,8 +2470,7 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> cancelReplyReminder(String mailId) async {
-    final session =
-        _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
+    final session = _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
     if (session == null) return;
     await session.mailService.cancelReplyReminder(mailId);
     session.replyReminders = [
@@ -2438,9 +2544,8 @@ class ApiMailRepository extends MailRepository {
     MailSignature signature,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final created = (await session.mailService.createSignature(
-      signature,
-    )).copyWith(accountId: accountId);
+    final created = (await session.mailService.createSignature(signature))
+        .copyWith(accountId: accountId);
     final items = session.signatures ?? <MailSignature>[];
     session.signatures = [...items, created]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -2454,9 +2559,8 @@ class ApiMailRepository extends MailRepository {
     MailSignature signature,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final updated = (await session.mailService.updateSignatureItem(
-      signature,
-    )).copyWith(accountId: accountId);
+    final updated = (await session.mailService.updateSignatureItem(signature))
+        .copyWith(accountId: accountId);
     if (session.signatures != null) {
       session.signatures = [
         for (final item in session.signatures!)
@@ -2481,9 +2585,7 @@ class ApiMailRepository extends MailRepository {
     SignatureDefaults defaults,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final updated = await session.mailService.updateSignatureDefaults(
-      defaults,
-    );
+    final updated = await session.mailService.updateSignatureDefaults(defaults);
     session.signatureDefaults = updated;
     notifyListeners();
     return updated;
@@ -2497,15 +2599,16 @@ class ApiMailRepository extends MailRepository {
     final session = _sessionForAccountId(accountId);
     if (!refresh && session.identities != null) return session.identities!;
     final identities = await session.mailService.getIdentities();
-    session.identities = [
-      for (final identity in identities)
-        identity.copyWith(accountId: accountId),
-    ]..sort((a, b) {
-      if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
-      return a.emailAddress.toLowerCase().compareTo(
-        b.emailAddress.toLowerCase(),
-      );
-    });
+    session.identities =
+        [
+          for (final identity in identities)
+            identity.copyWith(accountId: accountId),
+        ]..sort((a, b) {
+          if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
+          return a.emailAddress.toLowerCase().compareTo(
+            b.emailAddress.toLowerCase(),
+          );
+        });
     return session.identities!;
   }
 
@@ -2515,13 +2618,11 @@ class ApiMailRepository extends MailRepository {
     MailIdentity identity,
   ) async {
     final session = _sessionForAccountId(accountId);
-    var created = (await session.mailService.createIdentity(
-      identity,
-    )).copyWith(accountId: accountId);
+    var created = (await session.mailService.createIdentity(identity))
+        .copyWith(accountId: accountId);
     if (created.isDefault) {
       await listIdentities(accountId, refresh: true);
-      created =
-          session.identities!.firstWhere((item) => item.id == created.id);
+      created = session.identities!.firstWhere((item) => item.id == created.id);
     } else {
       final items = session.identities ?? <MailIdentity>[];
       session.identities = [...items, created];
@@ -2536,9 +2637,8 @@ class ApiMailRepository extends MailRepository {
     MailIdentity identity,
   ) async {
     final session = _sessionForAccountId(accountId);
-    var updated = (await session.mailService.updateIdentity(
-      identity,
-    )).copyWith(accountId: accountId);
+    var updated = (await session.mailService.updateIdentity(identity))
+        .copyWith(accountId: accountId);
     if (updated.isDefault) {
       await listIdentities(accountId, refresh: true);
       updated = session.identities!.firstWhere((item) => item.id == updated.id);
@@ -3203,8 +3303,7 @@ class ApiMailRepository extends MailRepository {
     if (!refresh && session.templates != null) return session.templates!;
     final templates = await session.mailService.getTemplates();
     session.templates = [
-      for (final template in templates)
-        template.copyWith(accountId: accountId),
+      for (final template in templates) template.copyWith(accountId: accountId),
     ];
     return session.templates!;
   }
@@ -3215,9 +3314,8 @@ class ApiMailRepository extends MailRepository {
     MailTemplate template,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final created = (await session.mailService.createTemplate(
-      template,
-    )).copyWith(accountId: accountId);
+    final created = (await session.mailService.createTemplate(template))
+        .copyWith(accountId: accountId);
     final items = session.templates ?? <MailTemplate>[];
     session.templates = [...items, created]
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
@@ -3230,9 +3328,8 @@ class ApiMailRepository extends MailRepository {
     MailTemplate template,
   ) async {
     final session = _sessionForAccountId(accountId);
-    final updated = (await session.mailService.updateTemplate(
-      template,
-    )).copyWith(accountId: accountId);
+    final updated = (await session.mailService.updateTemplate(template))
+        .copyWith(accountId: accountId);
     if (session.templates != null) {
       session.templates = [
         for (final item in session.templates!)
@@ -3567,9 +3664,9 @@ class ApiMailRepository extends MailRepository {
   ];
 
   @override
-  void dismissMutationConflict(String mailId) {
+  void dismissMutationConflict(String id) {
     for (final session in _sessions.values) {
-      if (session.mutationConflicts.remove(mailId)) {
+      if (session.mutationConflicts.remove(id)) {
         notifyListeners();
         return;
       }
@@ -3671,7 +3768,9 @@ class ApiMailRepository extends MailRepository {
       }
       await Future.wait([
         store.writeRepliedFromKaydetMail(session.repliedFromKaydetMailIds),
-        store.writeRepliedFromKaydetMailThreads(session.repliedFromKaydetMailThreadIds),
+        store.writeRepliedFromKaydetMailThreads(
+          session.repliedFromKaydetMailThreadIds,
+        ),
       ]);
       _restampFlags(session);
     }
@@ -3760,7 +3859,9 @@ class ApiMailRepository extends MailRepository {
       }
       await Future.wait([
         store.writeForwardedFromKaydetMail(session.forwardedFromKaydetMailIds),
-        store.writeForwardedFromKaydetMailThreads(session.forwardedFromKaydetMailThreadIds),
+        store.writeForwardedFromKaydetMailThreads(
+          session.forwardedFromKaydetMailThreadIds,
+        ),
       ]);
       _restampFlags(session);
     }
@@ -4053,18 +4154,30 @@ class ApiMailRepository extends MailRepository {
     final session = _primarySession;
     final trimmedEmail = email.trim();
     final trimmedName = displayName?.trim();
+    final name = (trimmedName == null || trimmedName.isEmpty)
+        ? null
+        : trimmedName;
     _assertContactEmailIsValid(session, trimmedEmail);
     Map<String, dynamic> created;
     try {
-      created = await session.mailService.createContact(
-        trimmedEmail,
-        (trimmedName == null || trimmedName.isEmpty) ? null : trimmedName,
-      );
+      created = await session.mailService.createContact(trimmedEmail, name);
     } on ApiException catch (e) {
       if (e.code == 'contact_already_exists') {
         throw ArgumentError('Bu e-posta zaten kayıtlı.');
       }
-      rethrow;
+      if (!_isOfflineFailure(e)) rethrow;
+      _markOffline(session);
+      created = {
+        'id': '$_localContactIdPrefix${_newIdempotencyKey()}',
+        'email': trimmedEmail,
+        'displayName': name,
+      };
+      await _queueContactMutation(
+        session,
+        created['id'] as String,
+        'contact_create',
+        created,
+      );
     }
     final contact = ManualContact(
       id: created['id'] as String,
@@ -4090,19 +4203,29 @@ class ApiMailRepository extends MailRepository {
     if (index < 0) return;
     final trimmedEmail = email.trim();
     final trimmedName = displayName?.trim();
+    final name = (trimmedName == null || trimmedName.isEmpty)
+        ? null
+        : trimmedName;
     _assertContactEmailIsValid(session, trimmedEmail, selfId: id);
-    Map<String, dynamic> updated;
-    try {
-      updated = await session.mailService.updateContact(
-        id,
-        trimmedEmail,
-        (trimmedName == null || trimmedName.isEmpty) ? null : trimmedName,
-      );
-    } on ApiException catch (e) {
-      if (e.code == 'contact_already_exists') {
-        throw ArgumentError('Bu e-posta zaten kayıtlı.');
+    Map<String, dynamic> updated = {'email': trimmedEmail, 'displayName': name};
+    if (id.startsWith(_localContactIdPrefix)) {
+      await _queueContactMutation(session, id, 'contact_create', updated);
+    } else {
+      try {
+        updated = await session.mailService.updateContact(
+          id,
+          trimmedEmail,
+          name,
+        );
+        await session.flagsStore?.clearQueuedMutation(id, 'contact');
+      } on ApiException catch (e) {
+        if (e.code == 'contact_already_exists') {
+          throw ArgumentError('Bu e-posta zaten kayıtlı.');
+        }
+        if (!_isOfflineFailure(e)) rethrow;
+        _markOffline(session);
+        await _queueContactMutation(session, id, 'contact_update', updated);
       }
-      rethrow;
     }
     session.manualContacts = [...session.manualContacts]
       ..[index] = ManualContact(
@@ -4119,15 +4242,39 @@ class ApiMailRepository extends MailRepository {
   Future<void> deleteManualContact(String id) async {
     final session = _sessionForManualContact(id);
     if (session == null) return;
-    try {
-      await session.mailService.deleteContact(id);
-    } catch (_) {
-      return;
+    final store = session.flagsStore;
+    if (id.startsWith(_localContactIdPrefix)) {
+      await store?.clearQueuedMutation(id, 'contact');
+    } else {
+      try {
+        await session.mailService.deleteContact(id);
+        await store?.clearQueuedMutation(id, 'contact');
+      } catch (error) {
+        if (!_isOfflineFailure(error)) return;
+        _markOffline(session);
+        await store?.queueMutation(id, 'contact_delete');
+      }
     }
     session.manualContacts = session.manualContacts
         .where((c) => c.id != id)
         .toList();
     await _persistManualContacts(session);
     notifyListeners();
+  }
+
+  Future<void> _queueContactMutation(
+    _Session session,
+    String id,
+    String operation,
+    Map<String, dynamic> contact,
+  ) async {
+    await session.flagsStore?.queueMutation(
+      id,
+      operation,
+      folderId: jsonEncode({
+        'email': contact['email'],
+        'displayName': contact['displayName'],
+      }),
+    );
   }
 }

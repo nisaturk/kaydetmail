@@ -8,6 +8,8 @@ import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
 import '../models/compose_limits.dart';
 import '../models/email.dart';
+import '../models/mail_header_entry.dart';
+import '../models/mail_security.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
@@ -140,17 +142,15 @@ abstract class MailRepository extends ChangeNotifier {
   /// snapshot instead. Always false for implementations without a cache.
   bool get isOffline => false;
 
-  /// Mail ids whose offline mutation (read/unread, star/unstar, archive,
-  /// trash, restore, or move) could not be replayed after reconnecting —
-  /// the mailbox changed underneath it (stale UID) or the mail no longer
-  /// exists, so replaying it blind risked landing on the wrong message.
-  /// Empty for implementations without an offline mutation queue. See
-  /// [markAsRead]/[markAsUnread]/[setStarred]/[moveToTrash]/[moveToFolder].
+  /// Mail or manual contact ids whose offline changes were permanently
+  /// rejected on replay. The device drops those queued changes and reloads
+  /// backend-owned state; the UI should surface a one-shot message for each.
+  /// Empty for implementations without an offline mutation queue.
   List<String> get offlineMutationConflicts => const [];
 
-  /// Acknowledges one entry from [offlineMutationConflicts] (e.g. after
-  /// showing it to the user) so it isn't surfaced again.
-  void dismissMutationConflict(String mailId) {}
+  /// Acknowledges one entry from [offlineMutationConflicts] after showing it
+  /// to the user so it isn't surfaced again.
+  void dismissMutationConflict(String id) {}
 
   /// Sending accounts for the Compose "Kimden" picker.
   List<MailAccount> get accounts;
@@ -290,6 +290,15 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<Email?> getEmail(String id);
 
+  Future<List<MailHeaderEntry>> fetchMailHeaders(String mailId) =>
+      throw UnimplementedError('fetchMailHeaders');
+
+  Future<String> fetchMailSource(String mailId) =>
+      throw UnimplementedError('fetchMailSource');
+
+  Future<MailSignatureVerification> verifyMailSignature(String mailId) =>
+      throw UnimplementedError('verifyMailSignature');
+
   Future<Email> loadRemoteImages(String id) =>
       throw UnimplementedError('loadRemoteImages');
 
@@ -379,6 +388,8 @@ abstract class MailRepository extends ChangeNotifier {
     String? threadId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
+    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -530,21 +541,21 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Adds a contact to the primary/active account. Throws [ArgumentError]
   /// (Turkish message) for an invalid or already-saved (case-insensitive)
-  /// email.
+  /// email. Offline changes are queued locally until the backend confirms.
   Future<ManualContact> addManualContact({
     required String email,
     String? displayName,
   });
 
-  /// Edits a contact's email/display name. Same validation as
-  /// [addManualContact].
+  /// Edits a contact's email/display name. Same validation and offline
+  /// queue semantics as [addManualContact].
   Future<void> updateManualContact({
     required String id,
     required String email,
     String? displayName,
   });
 
-  /// Removes a contact. Unknown ids are ignored.
+  /// Removes a contact. Unknown ids are ignored; offline deletes are queued.
   Future<void> deleteManualContact(String id);
 
   /// Aggregates the IMAP-answered, replied-from-app and forwarded-from-app
@@ -647,11 +658,9 @@ abstract class MailRepository extends ChangeNotifier {
     AccountNotificationSettings settings,
   ) => throw UnimplementedError('updateNotificationSettings');
 
-  /// Mail ids with a not-yet-replayed offline mutation for [accountId]
-  /// (star/unstar/archive/trash/restore/move/read/unread - see
-  /// [offlineMutationConflicts] for ones that failed to replay after
-  /// reconnecting). Default 0 for implementations without an offline
-  /// mutation queue.
+  /// Number of not-yet-replayed offline mutations for [accountId], including
+  /// mail state, pin/snooze/label state and manual contacts. Default 0 for
+  /// implementations without an offline mutation queue.
   Future<int> queuedOfflineMutationCount(String accountId) async => 0;
 
   /// Conversations matching a client-side text [query] and an optional label
@@ -683,12 +692,12 @@ abstract class MailRepository extends ChangeNotifier {
     return results;
   }
 
-  // --- Snooze (client-side only; see LocalMailFlagsStore) -----------
+  // --- Snooze (backend-owned; cached and queued while offline) -------
 
   /// Hides mail from its normal folder view until [until] (UTC), when it
   /// reappears where it already lives — same independence as pin/star.
-  /// `until: null` clears the snooze immediately. Never synced to the
-  /// backend or to other devices signed into the same account.
+  /// `until: null` clears the snooze. The backend is authoritative; offline
+  /// changes are queued and reconciled when the account reconnects.
   Future<void> setSnoozed(List<String> ids, DateTime? until);
 
   /// The snooze deadline for [mailId], or null when it isn't snoozed (or
