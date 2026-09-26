@@ -7,6 +7,7 @@ import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/services/api_exception.dart';
+import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -34,7 +35,10 @@ SendEmail _send(Future<Email> Function(String? key) action) =>
       String? fromAccountId,
       String? threadId,
       String? inReplyToId,
+    String? identityId,
       String? idempotencyKey,
+      void Function(int sent, int total)? onProgress,
+      Future<void>? abortTrigger,
     }) => action(idempotencyKey);
 
 /// Only overrides [sendEmail]/[deleteDraft] — the only two
@@ -57,7 +61,10 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     sendCalls++;
     if (!succeedNextSend) {
@@ -74,7 +81,47 @@ class _FakeMailRepository extends MailRepository {
 }
 
 void main() {
-  setUp(() => SharedPreferences.setMockInitialValues({}));
+  setUp(() {
+    SharedPreferences.setMockInitialValues({});
+    AppSettingsController.resetForTest();
+  });
+
+  testWidgets('undo window follows the configured delay', (tester) async {
+    await tester.pumpWidget(const SizedBox());
+    AppSettingsController.instance.undoSendDelay = UndoSendDelay.seconds20;
+    final queue = PendingSendQueue.forTest(OutboxStore.inMemory());
+    var sent = 0;
+    await queue.enqueue(
+      const PendingSend(id: 'send-d', to: ['a@b.com'], subject: 'S', body: 'B'),
+      sendEmail: _send((_) async {
+        sent++;
+        return _sent();
+      }),
+    );
+    await tester.pump(const Duration(seconds: 19));
+    expect(sent, 0);
+    expect(queue.cancel('send-d'), isTrue);
+    await tester.pump(const Duration(seconds: 5));
+    expect(sent, 0);
+  });
+
+  testWidgets('delay off dispatches without an undo window', (tester) async {
+    await tester.pumpWidget(const SizedBox());
+    AppSettingsController.instance.undoSendDelay = UndoSendDelay.off;
+    final queue = PendingSendQueue.forTest(OutboxStore.inMemory());
+    var sent = 0;
+    await queue.enqueue(
+      const PendingSend(id: 'send-o', to: ['a@b.com'], subject: 'S', body: 'B'),
+      sendEmail: _send((_) async {
+        sent++;
+        return _sent();
+      }),
+    );
+    await tester.pump(const Duration(milliseconds: 10));
+    await tester.pump(const Duration(milliseconds: 10));
+    expect(sent, 1);
+    expect(queue.cancel('send-o'), isFalse);
+  });
 
   testWidgets('undo only cancels a persisted send before dispatch', (
     tester,

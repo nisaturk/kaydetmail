@@ -47,6 +47,8 @@ Map<String, dynamic> _realisticDetail() => {
     'hasRemoteContent': true,
     'remoteContentHosts': ['track.example.com'],
     'trackingPixelHosts': ['track.example.com'],
+    'remoteImageHosts': ['images.example.com'],
+    'remoteImagesAllowed': false,
   },
   'isRead': false,
   'answered': false,
@@ -61,6 +63,12 @@ Map<String, dynamic> _realisticDetail() => {
   'headers': [
     {'name': 'X-Mailer', 'value': 'x'},
   ],
+  'authentication': {
+    'authservId': 'mx.example.test',
+    'spf': 'pass',
+    'dkim': 'pass',
+    'dmarc': 'fail',
+  },
   'attachments': [
     {
       'id': 'att-1',
@@ -110,6 +118,8 @@ void main() {
       expect(email.threadId, 'conv-7');
       expect(email.inReplyToId, '<parent@mail.example.com>');
       expect(email.hasRemoteContent, isTrue);
+      expect(email.remoteImageHosts, ['images.example.com']);
+      expect(email.remoteImagesAllowed, isFalse);
       expect(
         email.bodyHtml,
         '<p>Merhaba,</p><p>yarın saat 10:00\'da toplantımız var.</p>',
@@ -118,6 +128,10 @@ void main() {
       expect(email.attachments.single.name, 'notlar.pdf');
       expect(email.attachments.single.sizeBytes, 48211);
       expect(email.attachments.single.mimeType, 'application/pdf');
+      expect(email.authentication?.authservId, 'mx.example.test');
+      expect(email.authentication?.spf, 'pass');
+      expect(email.authentication?.dkim, 'pass');
+      expect(email.authentication?.dmarc, 'fail');
       // UTC from the API, shown in the device zone: same instant, local clock.
       expect(email.timestamp.isUtc, isFalse);
       expect(email.timestamp, DateTime.parse('2026-09-18T08:00:00Z').toLocal());
@@ -335,6 +349,7 @@ class _ThreadMailService extends _RecordingMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async {
     if (id == 'm-bad') {
       throw const ApiException(status: 500, code: 'unexpected_error');
@@ -368,6 +383,7 @@ class _SingleMailService extends _RecordingMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async => Email(
     id: id,
     senderName: 'S',

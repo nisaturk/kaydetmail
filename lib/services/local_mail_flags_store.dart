@@ -17,11 +17,13 @@ class QueuedMutation {
 
   final String mailId;
 
-  /// The bulk-action verb this replays as: `read`, `unread`, `star`,
-  /// `unstar`, `archive`, `trash`, `restore`, or `move`.
+  /// The verb this replays as: a bulk action (`read`, `unread`, `star`,
+  /// `unstar`, `archive`, `trash`, `restore`, `move`), `pin`/`unpin`,
+  /// `snooze`/`unsnooze`, or `label_add`/`label_remove`.
   final String operation;
 
-  /// Target folder id — only set (and only meaningful) for `move`.
+  /// Operation argument: target folder id for `move`, the label id for
+  /// `label_add`/`label_remove`, the UTC deadline (ISO-8601) for `snooze`.
   final String? folderId;
   final int queuedAtMs;
 }
@@ -31,12 +33,16 @@ class QueuedMutation {
 /// instead of stacking, so e.g. read→unread→read collapses to a single
 /// replayed `read`, and archive→trash collapses to a single `trash` (see
 /// spec docs-dev §8 "Replay kuralları").
-String mutationCategoryFor(String operation) => switch (operation) {
-  'read' || 'unread' => 'read_state',
-  'star' || 'unstar' => 'star_state',
-  'archive' || 'trash' || 'restore' || 'move' => 'location',
-  _ => operation,
-};
+String mutationCategoryFor(String operation, [String? argument]) =>
+    switch (operation) {
+      'read' || 'unread' => 'read_state',
+      'star' || 'unstar' => 'star_state',
+      'archive' || 'trash' || 'restore' || 'move' => 'location',
+      'pin' || 'unpin' => 'pin_state',
+      'snooze' || 'unsnooze' => 'snooze_state',
+      'label_add' || 'label_remove' => 'label:$argument',
+      _ => operation,
+    };
 
 /// Local cache for mail state, in the on-device SQLite database
 /// ([MailCache]).
@@ -86,34 +92,34 @@ class LocalMailFlagsStore {
   }
 
   Future<Set<String>> readPinned() => _read('pinned');
-  Future<Set<String>> readReplied() => _read('replied');
-  Future<Set<String>> readForwarded() => _read('forwarded');
+  Future<Set<String>> readRepliedFromKaydetMail() => _read('replied');
+  Future<Set<String>> readForwardedFromKaydetMail() => _read('forwarded');
 
-  /// ThreadId-keyed companions to [readReplied]/[readForwarded]: a reply or
+  /// ThreadId-keyed companions to [readRepliedFromKaydetMail]/[readForwardedFromKaydetMail]: a reply or
   /// forward is stamped on every message in the conversation, not only the
   /// one the user actually opened — so the inbox row for a thread whose
   /// answered message isn't currently loaded into memory (e.g. it lives in
   /// an unfetched folder) still shows the icon. See [ApiMailRepository]
   /// `stampLocalFlags`.
-  Future<Set<String>> readRepliedThreads() => _read('replied_threads');
-  Future<Set<String>> readForwardedThreads() => _read('forwarded_threads');
+  Future<Set<String>> readRepliedFromKaydetMailThreads() => _read('replied_threads');
+  Future<Set<String>> readForwardedFromKaydetMailThreads() => _read('forwarded_threads');
 
   /// ThreadId-keyed set of Sent-folder conversations that have received an
-  /// inbound reply — the mirror direction of [readRepliedThreads]: that one
+  /// inbound reply — the mirror direction of [readRepliedFromKaydetMailThreads]: that one
   /// marks a thread the user replied *into*, this one marks a thread the
   /// user *sent* that got answered back. Powers the Sent-folder
   /// "Yanıtlanmadı" nudge in `MailListItem`. See
   /// `ApiMailRepository._markSentThreadsAnswered`.
-  Future<Set<String>> readAnsweredThreads() => _read('answered_threads');
+  Future<Set<String>> readThreadsReceivedReply() => _read('answered_threads');
   Future<void> writePinned(Set<String> ids) async => _write('pinned', ids);
-  Future<void> writeReplied(Set<String> ids) async => _write('replied', ids);
-  Future<void> writeForwarded(Set<String> ids) async =>
+  Future<void> writeRepliedFromKaydetMail(Set<String> ids) async => _write('replied', ids);
+  Future<void> writeForwardedFromKaydetMail(Set<String> ids) async =>
       _write('forwarded', ids);
-  Future<void> writeRepliedThreads(Set<String> ids) async =>
+  Future<void> writeRepliedFromKaydetMailThreads(Set<String> ids) async =>
       _write('replied_threads', ids);
-  Future<void> writeForwardedThreads(Set<String> ids) async =>
+  Future<void> writeForwardedFromKaydetMailThreads(Set<String> ids) async =>
       _write('forwarded_threads', ids);
-  Future<void> writeAnsweredThreads(Set<String> ids) async =>
+  Future<void> writeThreadsReceivedReply(Set<String> ids) async =>
       _write('answered_threads', ids);
 
   Future<List<Map<String, dynamic>>> readContacts() async => [
@@ -205,7 +211,8 @@ class LocalMailFlagsStore {
     stmt.close();
   });
 
-  /// Queues [operation] for [mailId] — [folderId] only for `move` — after a
+  /// Queues [operation] for [mailId] — [folderId] carries the operation
+  /// argument (see [QueuedMutation.folderId]) — after a
   /// network failure stopped it from reaching the backend, so it can be
   /// replayed once the account reconnects (see
   /// `ApiMailRepository._replayQueuedMutations`). A later call in the same
@@ -223,7 +230,7 @@ class LocalMailFlagsStore {
       [
         _accountId,
         mailId,
-        mutationCategoryFor(operation),
+        mutationCategoryFor(operation, folderId),
         operation,
         folderId,
         DateTime.now().millisecondsSinceEpoch,

@@ -153,6 +153,9 @@ class _FakeMailService extends ApiMailService {
   Future<List<ApiMailFolder>> getFolders() async => folders;
 
   @override
+  Future<int> refreshFolders() async => folders.length;
+
+  @override
   Future<MailListPage> getMails({
     required String folderId,
     required MailFolder Function(String folderId) resolveFolder,

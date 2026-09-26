@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -6,6 +8,7 @@ import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
 import '../services/api_health_service.dart';
+import '../services/device_contacts.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
@@ -16,6 +19,10 @@ import 'accounts_screen.dart';
 import 'notification_settings_screen.dart';
 import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
+import 'templates_screen.dart';
+import 'signatures_screen.dart';
+import 'snippets_screen.dart';
+import 'trusted_senders_screen.dart';
 import 'sync_status_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
@@ -93,6 +100,12 @@ class SettingsScreen extends StatelessWidget {
             page: (_) => [_SyncSection()],
           ),
           _CategoryTile(
+            icon: LucideIcons.paperclip,
+            title: 'Ekler',
+            subtitle: 'Otomatik indirme ve önbellek',
+            page: (_) => [_AttachmentSettingsSection()],
+          ),
+          _CategoryTile(
             icon: LucideIcons.tag,
             title: 'Etiketler',
             subtitle: 'Etiket oluştur, düzenle, sil',
@@ -102,7 +115,7 @@ class SettingsScreen extends StatelessWidget {
             icon: LucideIcons.contact,
             title: 'Kişiler',
             subtitle: 'Hiç mailleşmediğiniz kişileri önceden ekleyin',
-            page: (_) => [_ContactsSection()],
+            page: (_) => [_DeviceContactsSection(), _ContactsSection()],
           ),
           _CategoryTile(
             icon: LucideIcons.filter,
@@ -113,19 +126,51 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           _CategoryTile(
+            icon: LucideIcons.layoutTemplate,
+            title: 'Şablonlar',
+            subtitle: 'Tekrar kullanılan konu ve metinler',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const TemplatesScreen()),
+            ),
+          ),
+          _CategoryTile(
             icon: LucideIcons.slidersHorizontal,
             title: 'Genel',
-            subtitle: 'Kaydırma hareketleri',
-            page: (_) => [_SwipeSection()],
+            subtitle: 'Kaydırma hareketleri ve göndermeyi geri alma',
+            page: (_) => [_SwipeSection(), _UndoSendSection()],
           ),
           _CategoryTile(
             icon: LucideIcons.penLine,
+            title: 'İmzalar ve Kimlikler',
+            subtitle: 'Gönderen kimlikleri ve e-posta imzaları',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const SignaturesScreen()),
+            ),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.signature,
             title: 'İmza',
             subtitle: 'Gönderdiğiniz e-postalara eklenir',
             onTap: (ctx) => Navigator.of(ctx).push(
               MaterialPageRoute(
                 builder: (_) => const SignatureSettingsScreen(),
               ),
+            ),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.messageSquareText,
+            title: 'Hazır Metinler',
+            subtitle: 'E-postalara tek dokunuşla eklenen kısa metinler',
+            onTap: (ctx) => Navigator.of(
+              ctx,
+            ).push(MaterialPageRoute(builder: (_) => const SnippetsScreen())),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.image,
+            title: 'Güvenilir Göndericiler',
+            subtitle: 'Uzak görselleri otomatik yüklenen gönderici ve alan adları',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(builder: (_) => const TrustedSendersScreen()),
             ),
           ),
           _CategoryTile(
@@ -446,6 +491,56 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
 /// before ever exchanging mail with them. Synced through the backend (see
 /// `MailRepository.addManualContact`); distinct from the automatic
 /// mail-participant suggestions in `ContactsStore`.
+class _DeviceContactsSection extends StatefulWidget {
+  const _DeviceContactsSection();
+
+  @override
+  State<_DeviceContactsSection> createState() => _DeviceContactsSectionState();
+}
+
+class _DeviceContactsSectionState extends State<_DeviceContactsSection> {
+  bool _busy = false;
+
+  Future<void> _toggle(bool enable) async {
+    final settings = AppSettingsController.instance;
+    if (!enable) {
+      settings.deviceContactsEnabled = false;
+      DeviceContacts.clear();
+      return;
+    }
+    setState(() => _busy = true);
+    final granted = await const PlatformDeviceContacts().requestAccess();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Kişilere erişim izni verilmedi. Öneriler mail geçmişinden '
+            've eklediğiniz kişilerden gelmeye devam eder.',
+          ),
+        ),
+      );
+      return;
+    }
+    settings.deviceContactsEnabled = true;
+    unawaited(DeviceContacts.refresh(enabled: true));
+  }
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    key: const Key('device-contacts-toggle'),
+    dense: true,
+    title: const Text('Cihaz kişilerini öner'),
+    subtitle: const Text(
+      'Alıcı yazarken telefon rehberindeki e-posta adreslerini de önerir. '
+      'Rehber yalnızca bu cihazda okunur, sunucuya gönderilmez.',
+    ),
+    value: AppSettingsController.instance.deviceContactsEnabled,
+    onChanged: _busy ? null : _toggle,
+  );
+}
+
 class _ContactsSection extends StatelessWidget {
   const _ContactsSection();
 
@@ -765,15 +860,39 @@ class _BiometricLockSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
-    return SwitchListTile(
-      dense: true,
-      title: const Text('Uygulama Kilidi'),
-      subtitle: const Text(
-        'Uygulamayı her açtığınızda ya da arka plandan döndüğünde parmak '
-        'izi/Face ID veya cihaz şifresi ister.',
-      ),
-      value: settings.biometricLockEnabled,
-      onChanged: (v) => settings.biometricLockEnabled = v,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          dense: true,
+          title: const Text('Uygulama Kilidi'),
+          subtitle: const Text(
+            'Uygulamayı açtığınızda ya da seçilen süreden uzun arka planda '
+            'kaldıktan sonra parmak izi/Face ID veya cihaz şifresi ister.',
+          ),
+          value: settings.biometricLockEnabled,
+          onChanged: (v) => settings.biometricLockEnabled = v,
+        ),
+        if (settings.biometricLockEnabled) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              'Arka plandan dönünce kilitle',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+          for (final timeout in BiometricLockTimeout.values)
+            ListTile(
+              dense: true,
+              key: ValueKey('biometric-timeout-${timeout.name}'),
+              title: Text(timeout.label),
+              trailing: timeout == settings.biometricLockTimeout
+                  ? const Icon(LucideIcons.check, size: 20)
+                  : null,
+              onTap: () => settings.biometricLockTimeout = timeout,
+            ),
+        ],
+      ],
     );
   }
 }
@@ -1039,6 +1158,38 @@ class _SyncSection extends StatelessWidget {
             onTap: () => settings.syncInterval = interval,
           ),
         const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            'Otomatik yenileme ağı',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: secondaryText,
+            ),
+          ),
+        ),
+        for (final policy in SyncNetworkPolicy.values)
+          ListTile(
+            dense: true,
+            key: ValueKey('sync-network-${policy.name}'),
+            title: Text(policy.label),
+            trailing: policy == settings.syncNetworkPolicy
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.syncNetworkPolicy = policy,
+          ),
+        SwitchListTile(
+          dense: true,
+          title: const Text('Pil tasarrufunda duraklat'),
+          subtitle: const Text(
+            'Pil tasarrufu açıkken otomatik yenileme yapılmaz; aşağı çekerek '
+            'yenileme ve bildirimler çalışmaya devam eder.',
+          ),
+          value: settings.pauseSyncOnBatterySaver,
+          onChanged: (v) => settings.pauseSyncOnBatterySaver = v,
+        ),
+        const Divider(height: 1),
         ListTile(
           leading: Icon(LucideIcons.activity, size: 20, color: secondaryText),
           title: const Text('Senkronizasyon durumu'),
@@ -1093,14 +1244,230 @@ class _SwipeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
-    return SwitchListTile(
-      dense: true,
-      title: const Text('Kaydırarak sil'),
-      subtitle: const Text(
-        'Listede sola kaydırınca e-postayı çöp kutusuna taşır.',
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          dense: true,
+          title: const Text('Kaydırma hareketleri'),
+          subtitle: const Text(
+            'Listede e-postayı sağa veya sola kaydırarak aşağıdaki '
+            'işlemleri yapın. Çöp, Spam ve Arşiv klasörleri kendi '
+            'işlemlerini kullanır.',
+          ),
+          value: settings.swipeDeleteEnabled,
+          onChanged: (v) => settings.swipeDeleteEnabled = v,
+        ),
+        if (settings.swipeDeleteEnabled) ...[
+          _SwipeGestureTile(
+            key: const Key('swipe-right-setting'),
+            title: 'Sağa kaydırınca',
+            value: settings.swipeRight,
+            onChanged: (v) => settings.swipeRight = v,
+          ),
+          _SwipeGestureTile(
+            key: const Key('swipe-left-setting'),
+            title: 'Sola kaydırınca',
+            value: settings.swipeLeft,
+            onChanged: (v) => settings.swipeLeft = v,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _SwipeGestureTile extends StatelessWidget {
+  const _SwipeGestureTile({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final SwipeGesture value;
+  final ValueChanged<SwipeGesture> onChanged;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    dense: true,
+    title: Text(title),
+    trailing: DropdownButton<SwipeGesture>(
+      value: value,
+      underline: const SizedBox.shrink(),
+      onChanged: (v) {
+        if (v != null) onChanged(v);
+      },
+      items: [
+        for (final gesture in SwipeGesture.values)
+          DropdownMenuItem(value: gesture, child: Text(gesture.label)),
+      ],
+    ),
+  );
+}
+
+class _UndoSendSection extends StatelessWidget {
+  const _UndoSendSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 1),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            'Göndermeyi geri alma süresi',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+        for (final delay in UndoSendDelay.values)
+          ListTile(
+            dense: true,
+            title: Text(delay.label),
+            trailing: delay == settings.undoSendDelay
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.undoSendDelay = delay,
+          ),
+      ],
+    );
+  }
+}
+
+class _AttachmentSettingsSection extends StatefulWidget {
+  @override
+  State<_AttachmentSettingsSection> createState() =>
+      _AttachmentSettingsSectionState();
+}
+
+class _AttachmentSettingsSectionState
+    extends State<_AttachmentSettingsSection> {
+  int? _cacheBytes;
+  Object? _error;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadSize();
+  }
+
+  Future<void> _loadSize() async {
+    try {
+      final size = await AppConfig.mailRepository.attachmentCacheSize();
+      if (mounted) {
+        setState(() {
+          _cacheBytes = size;
+          _error = null;
+        });
+      }
+    } catch (error) {
+      if (mounted) setState(() => _error = error);
+    }
+  }
+
+  Future<void> _clear() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Ek önbelleğini temizle?'),
+        content: Text('$_sizeLabel boyutundaki indirilen ekler silinecek.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Vazgeç'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Temizle'),
+          ),
+        ],
       ),
-      value: settings.swipeDeleteEnabled,
-      onChanged: (v) => settings.swipeDeleteEnabled = v,
+    );
+    if (confirmed != true) return;
+    setState(() => _busy = true);
+    try {
+      await AppConfig.mailRepository.clearAttachmentCache();
+      await _loadSize();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Ek önbelleği temizlendi.')),
+        );
+      }
+    } catch (_) {
+      if (mounted) setState(() => _error = 'Önbellek temizlenemedi.');
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  String get _sizeLabel {
+    final bytes = _cacheBytes ?? 0;
+    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(0)} KB';
+    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    final secondary = AppTheme.colors(context).secondaryText;
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+          child: Text(
+            'Ekler yalnızca posta açıldığında, seçilen ağda ve boyut sınırının altındaysa otomatik indirilir.',
+            style: TextStyle(fontSize: 12.5, color: secondary),
+          ),
+        ),
+        for (final mode in AttachmentAutoDownloadMode.values)
+          ListTile(
+            dense: true,
+            title: Text(mode.label),
+            trailing: mode == settings.attachmentAutoDownloadMode
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.attachmentAutoDownloadMode = mode,
+          ),
+        const Divider(height: 1),
+        for (final limit in AttachmentAutoDownloadLimit.values)
+          ListTile(
+            dense: true,
+            title: Text('Otomatik indirme sınırı: ${limit.label}'),
+            trailing: limit == settings.attachmentAutoDownloadLimit
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.attachmentAutoDownloadLimit = limit,
+          ),
+        const Divider(height: 1),
+        ListTile(
+          key: const Key('clear-attachment-cache'),
+          leading: Icon(LucideIcons.trash2, size: 20, color: secondary),
+          title: const Text('Ek önbelleğini temizle'),
+          subtitle: _error != null
+              ? Row(
+                  children: [
+                    const Expanded(child: Text('Boyut alınamadı.')),
+                    TextButton(
+                      onPressed: _loadSize,
+                      child: const Text('Tekrar dene'),
+                    ),
+                  ],
+                )
+              : Text(_cacheBytes == null ? 'Boyut hesaplanıyor…' : _sizeLabel),
+          trailing: _busy || _cacheBytes == null
+              ? const SizedBox.square(
+                  dimension: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : null,
+          onTap: _busy || _cacheBytes == null ? null : _clear,
+        ),
+      ],
     );
   }
 }

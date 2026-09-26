@@ -18,6 +18,7 @@ import '../utils/error_messages.dart';
 import '../utils/mail_threads.dart';
 import '../widgets/mail_list_item.dart';
 import '../widgets/permanent_delete_dialog.dart';
+import '../widgets/snooze_picker.dart';
 import 'compose_screen.dart';
 import 'mail_detail_screen.dart';
 
@@ -34,13 +35,25 @@ enum _SwipeAction {
   restore,
   unspam,
   unarchive,
+  toggleRead,
+  star,
+  snooze,
 }
+
+_SwipeAction _fromGesture(SwipeGesture gesture) => switch (gesture) {
+  SwipeGesture.archive => _SwipeAction.archive,
+  SwipeGesture.trash => _SwipeAction.trash,
+  SwipeGesture.toggleRead => _SwipeAction.toggleRead,
+  SwipeGesture.star => _SwipeAction.star,
+  SwipeGesture.snooze => _SwipeAction.snooze,
+  SwipeGesture.none => _SwipeAction.none,
+};
 
 /// The action revealed when a row is dragged start-to-end (right in LTR).
 _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
-  MailFolder.inbox ||
-  MailFolder.sent ||
-  MailFolder.starred => _SwipeAction.archive,
+  MailFolder.inbox || MailFolder.sent || MailFolder.starred => _fromGesture(
+    AppSettingsController.instance.swipeRight,
+  ),
   MailFolder.trash => _SwipeAction.restore,
   MailFolder.spam => _SwipeAction.unspam,
   MailFolder.archive => _SwipeAction.unarchive,
@@ -49,11 +62,10 @@ _SwipeAction _swipeStartAction(MailFolder folder) => switch (folder) {
 
 /// The action revealed when a row is dragged end-to-start (left in LTR).
 _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
-  MailFolder.inbox ||
-  MailFolder.sent ||
-  MailFolder.starred ||
-  MailFolder.spam ||
-  MailFolder.archive => _SwipeAction.trash,
+  MailFolder.inbox || MailFolder.sent || MailFolder.starred => _fromGesture(
+    AppSettingsController.instance.swipeLeft,
+  ),
+  MailFolder.spam || MailFolder.archive => _SwipeAction.trash,
   MailFolder.trash => _SwipeAction.deleteForever,
   MailFolder.drafts || MailFolder.snoozed => _SwipeAction.none,
 };
@@ -75,6 +87,12 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
         label: 'Arşivden çıkar',
         icon: LucideIcons.archiveRestore,
       ),
+      _SwipeAction.toggleRead => (
+        label: 'Okundu / okunmadı',
+        icon: LucideIcons.mailOpen,
+      ),
+      _SwipeAction.star => (label: 'Yıldız', icon: LucideIcons.star),
+      _SwipeAction.snooze => (label: 'Ertele', icon: LucideIcons.clock),
       _SwipeAction.none => throw UnsupportedError(
         '_SwipeAction.none has no swipe metadata; callers must filter it out.',
       ),
@@ -89,6 +107,9 @@ String _swipeActionDone(_SwipeAction action) => switch (action) {
   _SwipeAction.restore => 'geri yüklendi',
   _SwipeAction.unspam => 'spam değil olarak işaretlendi',
   _SwipeAction.unarchive => 'arşivden çıkarıldı',
+  _SwipeAction.toggleRead ||
+  _SwipeAction.star ||
+  _SwipeAction.snooze ||
   _SwipeAction.none => throw UnsupportedError('unreachable'),
 };
 
@@ -101,6 +122,9 @@ String _swipeActionFailed(_SwipeAction action) => switch (action) {
   _SwipeAction.restore => 'E-posta geri yüklenemedi. Tekrar deneyin.',
   _SwipeAction.unspam => 'E-posta spam dışına alınamadı. Tekrar deneyin.',
   _SwipeAction.unarchive => 'E-posta arşivden çıkarılamadı. Tekrar deneyin.',
+  _SwipeAction.toggleRead => 'Okundu durumu değiştirilemedi. Tekrar deneyin.',
+  _SwipeAction.star => 'Yıldız durumu değiştirilemedi. Tekrar deneyin.',
+  _SwipeAction.snooze => 'E-posta ertelenemedi. Tekrar deneyin.',
   _SwipeAction.none => throw UnsupportedError('unreachable'),
 };
 
@@ -123,8 +147,8 @@ String _relativeSyncLabel(DateTime time, {DateTime? now}) {
 /// mode is entered by long-pressing a mail avatar.
 ///
 /// Swipe actions are folder-contextual (see [_swipeStartAction] and
-/// [_swipeEndAction]): Inbox/Sent/Starred keep the original archive-right,
-/// delete-left gesture; Trash offers restore and a confirmed permanent
+/// [_swipeEndAction]): Inbox/Sent/Starred use the user's configured
+/// right/left gestures (archive-right, delete-left by default); Trash offers restore and a confirmed permanent
 /// delete (no Undo — the server expunges it); Spam swaps archive for
 /// "Spam değil"; Archive swaps archive for "Arşivden çıkar"; Drafts disables
 /// swipe entirely because deleting a draft needs the dedicated
@@ -301,8 +325,39 @@ class _InboxScreenState extends State<InboxScreen>
   /// Every message's original folder is captured first so Undo can put each
   /// of them back exactly where they were — only the folder changes, every
   /// other bit of state (labels, read/star/pin, attachments, …) survives.
+  Future<void> _swipeToggle(Email representative, _SwipeAction action) async {
+    final ids = expandThreadIds(_repo, [representative.id]);
+    if (ids.isEmpty) return;
+    try {
+      switch (action) {
+        case _SwipeAction.toggleRead:
+          representative.isRead
+              ? await _repo.markAsUnread(ids)
+              : await _repo.markAsRead(ids);
+        case _SwipeAction.star:
+          await _repo.setStarred(ids, !representative.isStarred);
+        case _SwipeAction.snooze:
+          final until = await showSnoozePicker(context);
+          if (until == null || !mounted) return;
+          await _repo.setSnoozed(ids, until);
+        default:
+          return;
+      }
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+    }
+  }
+
   Future<void> _swipeMove(Email representative, _SwipeAction action) async {
     if (action == _SwipeAction.none) return;
+    if (action == _SwipeAction.toggleRead ||
+        action == _SwipeAction.star ||
+        action == _SwipeAction.snooze) {
+      return _swipeToggle(representative, action);
+    }
     final threadIds = expandThreadIds(_repo, [representative.id]);
     final ids = switch (action) {
       _SwipeAction.restore ||
@@ -341,6 +396,9 @@ class _InboxScreenState extends State<InboxScreen>
         _SwipeAction.restore ||
         _SwipeAction.unspam ||
         _SwipeAction.unarchive => _repo.moveToFolder(ids, MailFolder.inbox),
+        _SwipeAction.toggleRead ||
+        _SwipeAction.star ||
+        _SwipeAction.snooze ||
         _SwipeAction.none => Future<void>.value(),
       };
       await op;

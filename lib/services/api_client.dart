@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -64,14 +65,34 @@ class ApiClient {
   Future<Map<String, dynamic>> postJson(
     String path,
     Map<String, dynamic> body, {
+    Map<String, String> headers = const {},
     bool authenticated = true,
-  }) => _jsonRequest('POST', path, body: body, authenticated: authenticated);
+  }) => _jsonRequest(
+    'POST',
+    path,
+    body: body,
+    headers: headers,
+    authenticated: authenticated,
+  );
 
   Future<Map<String, dynamic>> putJson(
     String path,
     Map<String, dynamic> body, {
+    Map<String, String> headers = const {},
     bool authenticated = true,
-  }) => _jsonRequest('PUT', path, body: body, authenticated: authenticated);
+  }) => _jsonRequest(
+    'PUT',
+    path,
+    body: body,
+    headers: headers,
+    authenticated: authenticated,
+  );
+
+  Future<Map<String, dynamic>> patchJson(
+    String path,
+    Map<String, dynamic> body, {
+    bool authenticated = true,
+  }) => _jsonRequest('PATCH', path, body: body, authenticated: authenticated);
 
   Future<void> post(String path, {bool authenticated = true}) async {
     await _sendWithRefresh(
@@ -95,34 +116,199 @@ class ApiClient {
     return response.bodyBytes;
   }
 
+  Future<http.StreamedResponse> getStream(
+    String path, {
+    int? rangeStart,
+    Future<void>? abortTrigger,
+    void Function(int receivedBytes, int? totalBytes)? onProgress,
+  }) async {
+    final accountId = _boundAccountId;
+    var token = await tokenStore.readAccessToken(accountId);
+    for (var attempt = 0; attempt < 2; attempt++) {
+      final uri = await _uri(path);
+      final requestAbort = Completer<void>();
+      abortTrigger?.then((_) {
+        if (!requestAbort.isCompleted) requestAbort.complete();
+      });
+      final request = http.AbortableRequest(
+        'GET',
+        uri,
+        abortTrigger: requestAbort.future,
+      )..headers['accept'] = '*/*';
+      if (token != null) request.headers['authorization'] = 'Bearer $token';
+      if (rangeStart != null && rangeStart > 0) {
+        request.headers['range'] = 'bytes=$rangeStart-';
+      }
+      late http.StreamedResponse response;
+      try {
+        response = await _httpClient.send(request).timeout(_requestTimeout);
+      } on TimeoutException {
+        if (!requestAbort.isCompleted) requestAbort.complete();
+        throw const ApiException(
+          status: 408,
+          code: 'request_timeout',
+          title: 'Request timed out',
+        );
+      } on http.ClientException {
+        if (abortTrigger != null) throw http.RequestAbortedException(uri);
+        throw const ApiException(
+          status: 0,
+          code: 'network_unavailable',
+          title: 'Network unavailable',
+        );
+      }
+      if (response.statusCode == 401 && attempt == 0) {
+        await response.stream.listen((_) {}).cancel();
+        final currentToken = await tokenStore.readAccessToken(accountId);
+        if (currentToken == token) await _refreshOnce();
+        token = await tokenStore.readAccessToken(accountId);
+        continue;
+      }
+      if (response.statusCode >= 400) {
+        final body = await response.stream.bytesToString();
+        throw ApiException.fromResponse(response.statusCode, body);
+      }
+      return http.StreamedResponse(
+        _withIdleTimeout(
+          response.stream,
+          requestAbort,
+          totalBytes: response.contentLength,
+          onProgress: onProgress,
+        ),
+        response.statusCode,
+        contentLength: response.contentLength,
+        request: response.request,
+        headers: response.headers,
+        isRedirect: response.isRedirect,
+        persistentConnection: response.persistentConnection,
+        reasonPhrase: response.reasonPhrase,
+      );
+    }
+    throw StateError('Unreachable');
+  }
+
+  Stream<List<int>> _withIdleTimeout(
+    Stream<List<int>> source,
+    Completer<void> abort, {
+    int? totalBytes,
+    void Function(int receivedBytes, int? totalBytes)? onProgress,
+  }) {
+    late StreamController<List<int>> controller;
+    StreamSubscription<List<int>>? subscription;
+    Timer? timer;
+    var receivedBytes = 0;
+    var done = false;
+    void finishError(Object error, [StackTrace? stack]) {
+      if (done) return;
+      done = true;
+      timer?.cancel();
+      controller.addError(error, stack);
+      unawaited(controller.close());
+    }
+
+    controller = StreamController<List<int>>(
+      onListen: () {
+        void arm() {
+          timer?.cancel();
+          timer = Timer(const Duration(seconds: 30), () {
+            if (!abort.isCompleted) abort.complete();
+            finishError(
+              const ApiException(
+                status: 408,
+                code: 'request_timeout',
+                title: 'Request timed out',
+              ),
+            );
+          });
+        }
+
+        arm();
+        subscription = source.listen(
+          (chunk) {
+            arm();
+            receivedBytes += chunk.length;
+            onProgress?.call(receivedBytes, totalBytes);
+            controller.add(chunk);
+          },
+          onError: (Object error, StackTrace stack) =>
+              finishError(error, stack),
+          onDone: () {
+            if (done) return;
+            done = true;
+            timer?.cancel();
+            unawaited(controller.close());
+          },
+        );
+      },
+      onPause: () => subscription?.pause(),
+      onResume: () => subscription?.resume(),
+      onCancel: () async {
+        done = true;
+        timer?.cancel();
+        await subscription?.cancel();
+      },
+    );
+    abort.future.then((_) {
+      finishError(http.RequestAbortedException());
+      unawaited(subscription?.cancel());
+    });
+    return controller.stream;
+  }
+
   Future<Map<String, dynamic>> multipart(
     String path, {
     required Map<String, String> fields,
-    List<http.MultipartFile> files = const [],
+    List<http.MultipartFile> Function()? files,
     Map<String, String> headers = const {},
-  }) async {
-    final response = await _sendWithRefresh(() async {
-      final request = http.MultipartRequest('POST', await _uri(path));
-      request.fields.addAll(fields);
-      request.files.addAll(files);
-      request.headers.addAll(headers);
-      return request;
-    }, authenticated: true);
-    return _decodeObject(response.body);
-  }
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
+  }) => _multipart(
+    'POST',
+    path,
+    fields: fields,
+    files: files,
+    headers: headers,
+    onProgress: onProgress,
+    abortTrigger: abortTrigger,
+  );
 
   /// Same as [multipart] but with the PUT method — `PUT /api/drafts/{id}`
   /// replaces a draft server-side.
   Future<Map<String, dynamic>> multipartPut(
     String path, {
     required Map<String, String> fields,
-    List<http.MultipartFile> files = const [],
+    List<http.MultipartFile> Function()? files,
     Map<String, String> headers = const {},
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
+  }) => _multipart(
+    'PUT',
+    path,
+    fields: fields,
+    files: files,
+    headers: headers,
+    onProgress: onProgress,
+    abortTrigger: abortTrigger,
+  );
+
+  Future<Map<String, dynamic>> _multipart(
+    String method,
+    String path, {
+    required Map<String, String> fields,
+    required List<http.MultipartFile> Function()? files,
+    required Map<String, String> headers,
+    required void Function(int sent, int total)? onProgress,
+    required Future<void>? abortTrigger,
   }) async {
     final response = await _sendWithRefresh(() async {
-      final request = http.MultipartRequest('PUT', await _uri(path));
+      final request = _UploadMultipartRequest(
+        method,
+        await _uri(path),
+        onProgress: onProgress,
+        cancelTrigger: abortTrigger,
+      );
       request.fields.addAll(fields);
-      request.files.addAll(files);
+      if (files != null) request.files.addAll(files());
       request.headers.addAll(headers);
       return request;
     }, authenticated: true);
@@ -148,6 +334,7 @@ class ApiClient {
     String method,
     String path, {
     Map<String, dynamic>? body,
+    Map<String, String> headers = const {},
     required bool authenticated,
   }) async {
     final response = await _sendWithRefresh(() async {
@@ -156,6 +343,7 @@ class ApiClient {
         request.headers['content-type'] = 'application/json';
         request.body = jsonEncode(body);
       }
+      request.headers.addAll(headers);
       return request;
     }, authenticated: authenticated);
     return _decodeObject(response.body);
@@ -233,9 +421,11 @@ class ApiClient {
     late final http.Response response;
     try {
       response = await FirebaseMonitoring.traceApiRequest(
-        () async => http.Response.fromStream(
-          await _httpClient.send(request).timeout(_requestTimeout),
-        ).timeout(_requestTimeout),
+        () async => request is _UploadMultipartRequest
+            ? _sendUpload(request)
+            : http.Response.fromStream(
+                await _httpClient.send(request).timeout(_requestTimeout),
+              ).timeout(_requestTimeout),
       );
     } on TimeoutException {
       throw const ApiException(
@@ -254,6 +444,84 @@ class ApiClient {
       throw ApiException.fromResponse(response.statusCode, response.body);
     }
     return response;
+  }
+
+  static const int _uploadChunkBytes = 64 * 1024;
+
+  Future<http.Response> _sendUpload(_UploadMultipartRequest multipart) async {
+    final total = multipart.contentLength;
+    final body = multipart.finalize();
+    final abort = Completer<void>();
+    var sent = 0;
+    var cancelled = false;
+    var timedOut = false;
+    Timer? idle;
+    void stop({required bool timeout}) {
+      if (abort.isCompleted) return;
+      timedOut = timeout;
+      cancelled = !timeout;
+      abort.complete();
+    }
+
+    void armIdle() {
+      idle?.cancel();
+      idle = Timer(_requestTimeout, () => stop(timeout: true));
+    }
+
+    multipart.cancelTrigger?.whenComplete(() {
+      if (sent < total) stop(timeout: false);
+    }).ignore();
+
+    Stream<List<int>> counted() async* {
+      multipart.onProgress?.call(0, total);
+      await for (final chunk in body) {
+        var offset = 0;
+        while (offset < chunk.length) {
+          if (abort.isCompleted) {
+            throw http.RequestAbortedException(multipart.url);
+          }
+          final end = min(offset + _uploadChunkBytes, chunk.length);
+          yield chunk is Uint8List
+              ? Uint8List.sublistView(chunk, offset, end)
+              : chunk.sublist(offset, end);
+          sent += end - offset;
+          offset = end;
+          armIdle();
+          multipart.onProgress?.call(sent, total);
+        }
+      }
+    }
+
+    final request = _UploadStreamRequest(
+      multipart.method,
+      multipart.url,
+      counted(),
+      abortTrigger: abort.future,
+    )..contentLength = total;
+    request.headers.addAll(multipart.headers);
+    armIdle();
+    try {
+      final streamed = await Future.any([
+        _httpClient.send(request),
+        abort.future.then<http.StreamedResponse>(
+          (_) => throw http.RequestAbortedException(multipart.url),
+        ),
+      ]);
+      idle?.cancel();
+      return await http.Response.fromStream(streamed).timeout(_requestTimeout);
+    } catch (_) {
+      if (cancelled) {
+        throw const ApiException(
+          status: 0,
+          code: 'upload_cancelled',
+          title: 'Upload cancelled',
+        );
+      }
+      if (timedOut) throw TimeoutException('Upload stalled', _requestTimeout);
+      rethrow;
+    } finally {
+      idle?.cancel();
+    }
   }
 
   Future<void> _refreshOnce() {
@@ -307,4 +575,36 @@ class ApiClient {
   }
 
   void close() => _httpClient.close();
+}
+
+class _UploadMultipartRequest extends http.MultipartRequest {
+  _UploadMultipartRequest(
+    super.method,
+    super.url, {
+    this.onProgress,
+    this.cancelTrigger,
+  });
+
+  final void Function(int sent, int total)? onProgress;
+  final Future<void>? cancelTrigger;
+}
+
+class _UploadStreamRequest extends http.BaseRequest with http.Abortable {
+  _UploadStreamRequest(
+    super.method,
+    super.url,
+    this._body, {
+    this.abortTrigger,
+  });
+
+  final Stream<List<int>> _body;
+
+  @override
+  final Future<void>? abortTrigger;
+
+  @override
+  http.ByteStream finalize() {
+    super.finalize();
+    return http.ByteStream(_body);
+  }
 }

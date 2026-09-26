@@ -17,6 +17,7 @@ import 'screens/mail_detail_screen.dart';
 import 'services/home_widget_compose_router.dart';
 import 'services/home_widget_service.dart';
 import 'services/push_service.dart';
+import 'services/sync_policy.dart';
 import 'theme/app_theme.dart';
 import 'widgets/biometric_lock_gate.dart';
 
@@ -131,6 +132,11 @@ class _AuthGateState extends State<_AuthGate> {
     await Future.wait([
       AppSettingsController.instance.loadServerAddress(),
       AppSettingsController.instance.loadBehaviorPreferences(),
+      AppSettingsController.instance.loadAttachmentPreferences(),
+      AppSettingsController.instance.loadUndoSendDelay(),
+      AppSettingsController.instance.loadSyncPolicy(),
+      AppSettingsController.instance.loadSwipeGestures(),
+      AppSettingsController.instance.loadDeviceContactsEnabled(),
     ]);
     if (!mounted) return;
     final emails = await SessionStore.loadEmails();
@@ -259,6 +265,18 @@ class _AuthGateState extends State<_AuthGate> {
   /// Refreshes every folder that already has mail loaded — matches what
   /// pull-to-refresh does per folder, just on a timer instead of a gesture.
   Future<void> _syncLoadedFolders() async {
+    final settings = AppSettingsController.instance;
+    final conditions = PlatformDeviceSyncConditions();
+    if (!shouldRunPeriodicSync(
+      policy: settings.syncNetworkPolicy,
+      connection: await conditions.connection(),
+      batterySaverOn:
+          settings.pauseSyncOnBatterySaver &&
+          await conditions.batterySaverOn(),
+      pauseOnBatterySaver: settings.pauseSyncOnBatterySaver,
+    )) {
+      return;
+    }
     final repo = AppConfig.mailRepository;
     for (final folder in MailFolder.values) {
       if (repo.getEmailsInFolder(folder).isEmpty) continue;

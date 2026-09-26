@@ -32,6 +32,33 @@ void main() {
     );
   });
 
+  test('numbered lines become an ordered list and keep their start number', () {
+    const plain = '3. üç\n4. dört';
+    expect(
+      markdownLiteToHtml(plain),
+      '<ol start="3"><li>üç</li><li>dört</li></ol>',
+    );
+    expect(plain, '3. üç\n4. dört');
+  });
+
+  test('two-space indentation becomes nested lists', () {
+    const plain = '1. ana\n  1. alt\n  2. ikinci alt\n2. son';
+    expect(
+      markdownLiteToHtml(plain),
+      '<ol><li>ana<ol><li>alt</li><li>ikinci alt</li></ol></li><li>son</li></ol>',
+    );
+    expect(plain, contains('  1. alt'));
+  });
+
+  test('quote markers become nested blockquotes', () {
+    const plain = '> alıntı\n> > iç alıntı';
+    expect(
+      markdownLiteToHtml(plain),
+      '<blockquote><p>alıntı</p><blockquote><p>iç alıntı</p></blockquote></blockquote>',
+    );
+    expect(plain, startsWith('> '));
+  });
+
   test('links only become anchors for http(s)/mailto schemes', () {
     expect(
       markdownLiteToHtml('[site](https://example.com)'),
@@ -70,6 +97,8 @@ void main() {
       expect(hasMarkdownLiteMarkup('- madde'), isTrue);
       expect(hasMarkdownLiteMarkup('metin\n- madde\ndevam'), isTrue);
       expect(hasMarkdownLiteMarkup('[site](https://example.com)'), isTrue);
+      expect(hasMarkdownLiteMarkup('1. numaralı'), isTrue);
+      expect(hasMarkdownLiteMarkup('> alıntı'), isTrue);
     });
 
     test('plain unformatted text is not flagged', () {

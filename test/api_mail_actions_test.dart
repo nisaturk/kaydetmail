@@ -534,6 +534,7 @@ class _RecordingMailService extends ApiMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async => Email(
     id: id,
     senderName: 'Sender',

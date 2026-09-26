@@ -7,13 +7,15 @@ enum ScheduledSendStatus {
   pending,
   sent,
   cancelled,
-  failed;
+  failed,
+  deliveryUnknown;
 
   static ScheduledSendStatus fromApi(String value) => switch (value) {
     'Pending' => ScheduledSendStatus.pending,
     'Sent' => ScheduledSendStatus.sent,
     'Cancelled' => ScheduledSendStatus.cancelled,
     'Failed' => ScheduledSendStatus.failed,
+    'DeliveryUnknown' => ScheduledSendStatus.deliveryUnknown,
     _ => ScheduledSendStatus.pending,
   };
 }
@@ -36,6 +38,8 @@ class ScheduledSend {
     required this.createdAt,
     this.sentMailId,
     this.failureReason,
+    this.attemptCount = 0,
+    this.nextAttemptAtUtc,
     this.accountId = '',
   });
 
@@ -49,6 +53,8 @@ class ScheduledSend {
   final DateTime createdAt;
   final String? sentMailId;
   final String? failureReason;
+  final int attemptCount;
+  final DateTime? nextAttemptAtUtc;
 
   /// Id of the [MailAccount] this was scheduled from — stamped on ingest,
   /// same convention as [Email.accountId].
@@ -65,6 +71,8 @@ class ScheduledSend {
     createdAt: createdAt,
     sentMailId: sentMailId,
     failureReason: failureReason,
+    attemptCount: attemptCount,
+    nextAttemptAtUtc: nextAttemptAtUtc,
     accountId: accountId ?? this.accountId,
   );
 

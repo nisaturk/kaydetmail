@@ -188,6 +188,99 @@ void main() {
     await repo.refreshEmails(MailFolder.inbox);
     expect(mailService.bulkActionCalls, isEmpty);
   });
+
+  group('offline pin, snooze and label changes', () {
+    test(
+      'apply locally, queue, then replay and reconcile on reconnect',
+      () async {
+        final mailService = _RecordingMailService();
+        final repo = await _repositoryWithLoadedInbox(
+          mailService,
+          cache: MailCache.inMemory(),
+        );
+        final until = DateTime.utc(2030, 1, 1, 9);
+
+        mailService.appStateOffline = true;
+        await repo.setPinned(['mail-1'], true);
+        await repo.addLabelsToEmails(['mail-1'], ['label-1']);
+        await repo.setSnoozed(['mail-1'], until);
+
+        expect(repo.isOffline, isTrue);
+        expect(repo.snoozedUntilOf('mail-1')!.isAtSameMomentAs(until), isTrue);
+        expect(await repo.queuedOfflineMutationCount('account-1'), 3);
+        expect(mailService.serverPinned, isEmpty);
+        expect(mailService.serverLabels, isEmpty);
+
+        mailService.appStateOffline = false;
+        await repo.refreshEmails(MailFolder.inbox);
+
+        expect(mailService.serverPinned, {'mail-1'});
+        expect(mailService.serverLabels['mail-1'], ['label-1']);
+        expect(mailService.serverSnoozed['mail-1'], until);
+        expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+        expect(repo.offlineMutationConflicts, isEmpty);
+        expect(repo.snoozedUntilOf('mail-1')!.isAtSameMomentAs(until), isTrue);
+      },
+    );
+
+    test('pin then unpin offline replays only the final state', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(
+        mailService,
+        cache: MailCache.inMemory(),
+      );
+      mailService.serverPinned.add('mail-1');
+
+      mailService.appStateOffline = true;
+      await repo.setPinned(['mail-1'], true);
+      await repo.setPinned(['mail-1'], false);
+      expect(await repo.queuedOfflineMutationCount('account-1'), 1);
+
+      mailService.appStateOffline = false;
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(mailService.serverPinned, isEmpty);
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+    });
+
+    test('a pin the server rejects on replay is surfaced and reverted to '
+        'the server state', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(
+        mailService,
+        cache: MailCache.inMemory(),
+      );
+
+      mailService.appStateOffline = true;
+      await repo.setPinned(['mail-1'], true);
+      final pinnedOffline = repo
+          .getEmailsInFolder(MailFolder.inbox)
+          .single
+          .isPinned;
+
+      mailService.appStateOffline = false;
+      mailService.pinRejections['mail-1'] = 'pin_limit_reached';
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(pinnedOffline, isTrue);
+      expect(repo.offlineMutationConflicts, ['mail-1']);
+      expect(repo.getEmailsInFolder(MailFolder.inbox).single.isPinned, isFalse);
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+    });
+
+    test('a server-side validation error is not queued', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(
+        mailService,
+        cache: MailCache.inMemory(),
+      );
+      mailService.pinRejections.clear();
+
+      await repo.setPinned(['mail-1'], true);
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+      expect(repo.isOffline, isFalse);
+    });
+  });
 }
 
 Future<ApiMailRepository> _repositoryWithLoadedInbox(
@@ -296,6 +389,7 @@ class _RecordingMailService extends ApiMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async {
     final folder = resolveFolder(
       restoreDestinationFolderId[id] ?? 'folder-inbox',
@@ -311,6 +405,99 @@ class _RecordingMailService extends ApiMailService {
       isRead: false,
       folder: folder,
     );
+  }
+
+  bool appStateOffline = false;
+  final Set<String> serverPinned = {};
+  final Map<String, DateTime> serverSnoozed = {};
+  final Map<String, List<String>> serverLabels = {};
+  final Map<String, String> pinRejections = {};
+
+  void _throwIfOffline() {
+    if (appStateOffline) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+  }
+
+  @override
+  Future<List<String>> getPinnedMailIds() async {
+    _throwIfOffline();
+    return serverPinned.toList();
+  }
+
+  @override
+  Future<List<BulkActionResult>> setPinned(
+    List<String> mailIds,
+    bool pinned,
+  ) async {
+    _throwIfOffline();
+    return [
+      for (final id in mailIds)
+        if (pinRejections[id] case final code?)
+          BulkActionResult(mailId: id, success: false, code: code)
+        else ...[
+          BulkActionResult(mailId: id, success: true),
+        ],
+    ].also((_) {
+      for (final id in mailIds) {
+        if (pinRejections.containsKey(id)) continue;
+        pinned ? serverPinned.add(id) : serverPinned.remove(id);
+      }
+    });
+  }
+
+  @override
+  Future<Map<String, DateTime>> getSnoozed() async {
+    _throwIfOffline();
+    return Map.of(serverSnoozed);
+  }
+
+  @override
+  Future<void> setSnooze(String mailId, DateTime untilUtc) async {
+    _throwIfOffline();
+    serverSnoozed[mailId] = untilUtc.toUtc();
+  }
+
+  @override
+  Future<void> clearSnooze(String mailId) async {
+    _throwIfOffline();
+    serverSnoozed.remove(mailId);
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> getLabels() async {
+    _throwIfOffline();
+    return [
+      {'id': 'label-1', 'name': 'İş', 'color': 0xFF3E7CB1},
+    ];
+  }
+
+  @override
+  Future<Map<String, List<String>>> getLabelAssignments() async {
+    _throwIfOffline();
+    return {for (final e in serverLabels.entries) e.key: List.of(e.value)};
+  }
+
+  @override
+  Future<void> assignLabels(List<String> mailIds, List<String> labelIds) async {
+    _throwIfOffline();
+    for (final id in mailIds) {
+      final current = serverLabels.putIfAbsent(id, () => []);
+      for (final label in labelIds) {
+        if (!current.contains(label)) current.add(label);
+      }
+    }
+  }
+
+  @override
+  Future<void> unassignLabels(
+    List<String> mailIds,
+    List<String> labelIds,
+  ) async {
+    _throwIfOffline();
+    for (final id in mailIds) {
+      serverLabels[id]?.removeWhere(labelIds.contains);
+    }
   }
 
   @override
@@ -331,6 +518,13 @@ class _RecordingMailService extends ApiMailService {
           code: forcedResultCodes[id],
         ),
     ];
+  }
+}
+
+extension _Also<T> on T {
+  T also(void Function(T value) action) {
+    action(this);
+    return this;
   }
 }
 

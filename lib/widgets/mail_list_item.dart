@@ -76,7 +76,7 @@ class MailListItem extends StatelessWidget {
     }
     return switch (email.folder) {
       MailFolder.inbox => !email.isReplied,
-      MailFolder.sent => !email.isAnswered,
+      MailFolder.sent => !email.threadReceivedReply,
       _ => false,
     };
   }
@@ -90,7 +90,7 @@ class MailListItem extends StatelessWidget {
     if (email.isStarred) parts.add('yıldızlı');
     if (email.isPinned) parts.add('sabitlenmiş');
     if (email.isReplied) parts.add('yanıtlandı');
-    if (email.isForwarded) parts.add('iletildi');
+    if (email.forwardedFromKaydetMail) parts.add('iletildi');
     if (_needsReply) parts.add('yanıt bekliyor');
     if (email.attachments.isNotEmpty || email.hasAttachments) {
       parts.add('ek içeriyor');
@@ -336,7 +336,7 @@ class _StatusIcons extends StatelessWidget {
           const SizedBox(width: 5),
           Icon(LucideIcons.reply, size: 13, color: colors.tertiaryText),
         ],
-        if (email.isForwarded) ...[
+        if (email.forwardedFromKaydetMail) ...[
           const SizedBox(width: 5),
           Icon(LucideIcons.forward, size: 13, color: colors.tertiaryText),
         ],

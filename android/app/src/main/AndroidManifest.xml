@@ -4,6 +4,7 @@
     <!-- local_auth: required to show the biometric/device-credential prompt
          (BiometricLockGate). -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC"/>
+    <uses-permission android:name="android.permission.READ_CONTACTS"/>
     <application
         android:label="kaydetmail"
         android:name="${applicationName}"

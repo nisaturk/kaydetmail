@@ -21,7 +21,18 @@ class _OutboxScreenState extends State<OutboxScreen> {
   @override
   void initState() {
     super.initState();
+    PendingSendQueue.instance.uploadProgress.addListener(_refreshForProgress);
     _refresh();
+  }
+
+  void _refreshForProgress() => _refresh();
+
+  @override
+  void dispose() {
+    PendingSendQueue.instance.uploadProgress.removeListener(
+      _refreshForProgress,
+    );
+    super.dispose();
   }
 
   Future<void> _refresh() async {
@@ -194,6 +205,41 @@ class _OutboxScreenState extends State<OutboxScreen> {
                         ),
                         Text('Kime: ${send.to.join(', ')}'),
                         Text(status),
+                        if (item.status == OutboxStatus.sending &&
+                            send.attachments.isNotEmpty)
+                          ValueListenableBuilder<Map<String, SendProgress>>(
+                            valueListenable:
+                                PendingSendQueue.instance.uploadProgress,
+                            builder: (context, progressMap, _) {
+                              final progress = progressMap[send.id];
+                              if (progress == null) {
+                                return const LinearProgressIndicator();
+                              }
+                              final percent = (progress.fraction * 100).round();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  LinearProgressIndicator(
+                                    value: progress.fraction,
+                                  ),
+                                  Row(
+                                    children: [
+                                      Text('$percent%'),
+                                      const Spacer(),
+                                      if (progress.sent < progress.total)
+                                        TextButton(
+                                          onPressed: () {
+                                            PendingSendQueue.instance
+                                                .cancelUpload(send.id);
+                                          },
+                                          child: const Text('İptal'),
+                                        ),
+                                    ],
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
                         if (item.error != null) Text(item.error!),
                         if (waitingForNetwork)
                           const Text(

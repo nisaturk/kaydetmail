@@ -10,6 +10,63 @@ import '../services/server_address_store.dart';
 /// How often the mailbox refreshes itself in the background while the app
 /// is open. `manual` ([duration] null) means only pull-to-refresh, push
 /// notifications and app-open trigger a refresh.
+enum AttachmentAutoDownloadMode {
+  off('Kapalı'),
+  wifiOnly('Yalnız Wi-Fi'),
+  wifiAndMobile('Wi-Fi ve mobil veri');
+
+  const AttachmentAutoDownloadMode(this.label);
+
+  final String label;
+}
+
+enum AttachmentAutoDownloadLimit {
+  oneMb('1 MB', 1024 * 1024),
+  fiveMb('5 MB', 5 * 1024 * 1024),
+  tenMb('10 MB', 10 * 1024 * 1024);
+
+  const AttachmentAutoDownloadLimit(this.label, this.bytes);
+
+  final String label;
+  final int bytes;
+}
+
+enum UndoSendDelay {
+  off('Kapalı', null),
+  seconds5('5 saniye', Duration(seconds: 5)),
+  seconds10('10 saniye', Duration(seconds: 10)),
+  seconds20('20 saniye', Duration(seconds: 20)),
+  seconds30('30 saniye', Duration(seconds: 30));
+
+  const UndoSendDelay(this.label, this.duration);
+
+  final String label;
+
+  final Duration? duration;
+}
+
+enum SwipeGesture {
+  archive('Arşivle'),
+  trash('Sil'),
+  toggleRead('Okundu / okunmadı'),
+  star('Yıldızla / yıldızı kaldır'),
+  snooze('Ertele'),
+  none('Kapalı');
+
+  const SwipeGesture(this.label);
+
+  final String label;
+}
+
+enum SyncNetworkPolicy {
+  wifiAndMobile('Wi-Fi ve mobil veri'),
+  wifiOnly('Yalnız Wi-Fi');
+
+  const SyncNetworkPolicy(this.label);
+
+  final String label;
+}
+
 enum SyncInterval {
   manual('Manuel', null),
   every5Minutes('Her 5 dakikada bir', Duration(minutes: 5)),
@@ -23,6 +80,18 @@ enum SyncInterval {
 
   /// Background refresh period, or null for [manual].
   final Duration? duration;
+}
+
+enum BiometricLockTimeout {
+  immediately('Hemen', Duration.zero),
+  oneMinute('1 dakika sonra', Duration(minutes: 1)),
+  fiveMinutes('5 dakika sonra', Duration(minutes: 5)),
+  fifteenMinutes('15 dakika sonra', Duration(minutes: 15));
+
+  const BiometricLockTimeout(this.label, this.duration);
+
+  final String label;
+  final Duration duration;
 }
 
 /// App-level settings state.
@@ -44,16 +113,27 @@ class AppSettingsController extends ChangeNotifier {
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
   bool _biometricLockEnabled = false;
-
+  BiometricLockTimeout _biometricLockTimeout = BiometricLockTimeout.immediately;
+  AttachmentAutoDownloadMode _attachmentAutoDownloadMode =
+      AttachmentAutoDownloadMode.off;
+  UndoSendDelay _undoSendDelay = UndoSendDelay.seconds5;
+  SyncNetworkPolicy _syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile;
+  SwipeGesture _swipeRight = SwipeGesture.archive;
+  bool _deviceContactsEnabled = false;
+  SwipeGesture _swipeLeft = SwipeGesture.trash;
+  bool _pauseSyncOnBatterySaver = true;
+  AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
+      AttachmentAutoDownloadLimit.fiveMb;
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
 
-  /// Whether the inbox supports swipe-to-delete (`Kaydırarak sil`).
+  /// Whether list swipe gestures are enabled (`Kaydırma hareketleri`).
   bool get swipeDeleteEnabled => _swipeDeleteEnabled;
 
   /// Whether the app requires a biometric/device-credential check on cold
   /// start and on returning from the background. See `BiometricLockGate`.
   bool get biometricLockEnabled => _biometricLockEnabled;
+  BiometricLockTimeout get biometricLockTimeout => _biometricLockTimeout;
 
   /// Configured HTTP API base URL, normalized (no trailing slash).
   String get serverBaseUrl => _serverBaseUrl;
@@ -62,6 +142,79 @@ class AppSettingsController extends ChangeNotifier {
   /// override it. Defaults to `system` — the palette itself never changes
   /// (grayscale by design), only which end of it is the background.
   ThemeMode get themeMode => _themeMode;
+
+  AttachmentAutoDownloadMode get attachmentAutoDownloadMode =>
+      _attachmentAutoDownloadMode;
+  AttachmentAutoDownloadLimit get attachmentAutoDownloadLimit =>
+      _attachmentAutoDownloadLimit;
+
+  UndoSendDelay get undoSendDelay => _undoSendDelay;
+
+  SyncNetworkPolicy get syncNetworkPolicy => _syncNetworkPolicy;
+
+  SwipeGesture get swipeRight => _swipeRight;
+
+  bool get deviceContactsEnabled => _deviceContactsEnabled;
+
+  set deviceContactsEnabled(bool value) {
+    if (_deviceContactsEnabled == value) return;
+    _deviceContactsEnabled = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveDeviceContactsEnabled(value));
+  }
+
+  SwipeGesture get swipeLeft => _swipeLeft;
+
+  set swipeRight(SwipeGesture value) {
+    if (_swipeRight == value) return;
+    _swipeRight = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeGesture(right: true, value.name));
+  }
+
+  set swipeLeft(SwipeGesture value) {
+    if (_swipeLeft == value) return;
+    _swipeLeft = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeGesture(right: false, value.name));
+  }
+
+  bool get pauseSyncOnBatterySaver => _pauseSyncOnBatterySaver;
+
+  set syncNetworkPolicy(SyncNetworkPolicy value) {
+    if (_syncNetworkPolicy == value) return;
+    _syncNetworkPolicy = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSyncNetworkPolicy(value.name));
+  }
+
+  set pauseSyncOnBatterySaver(bool value) {
+    if (_pauseSyncOnBatterySaver == value) return;
+    _pauseSyncOnBatterySaver = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.savePauseSyncOnBatterySaver(value));
+  }
+
+  set attachmentAutoDownloadMode(AttachmentAutoDownloadMode value) {
+    if (_attachmentAutoDownloadMode == value) return;
+    _attachmentAutoDownloadMode = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveAttachmentAutoDownloadMode(value.name));
+  }
+
+  set undoSendDelay(UndoSendDelay value) {
+    if (_undoSendDelay == value) return;
+    _undoSendDelay = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveUndoSendDelay(value.name));
+  }
+
+  set attachmentAutoDownloadLimit(AttachmentAutoDownloadLimit value) {
+    if (_attachmentAutoDownloadLimit == value) return;
+    _attachmentAutoDownloadLimit = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveAttachmentAutoDownloadLimit(value.name));
+  }
 
   set notificationsEnabled(bool value) {
     if (_notificationsEnabled == value) return;
@@ -89,6 +242,13 @@ class AppSettingsController extends ChangeNotifier {
     _biometricLockEnabled = value;
     notifyListeners();
     unawaited(AppPreferencesStore.saveBiometricLockEnabled(value));
+  }
+
+  set biometricLockTimeout(BiometricLockTimeout value) {
+    if (_biometricLockTimeout == value) return;
+    _biometricLockTimeout = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveBiometricLockTimeout(value.name));
   }
 
   set themeMode(ThemeMode value) {
@@ -125,14 +285,75 @@ class AppSettingsController extends ChangeNotifier {
         .firstOrNull;
     final swipe = await AppPreferencesStore.loadSwipeDeleteEnabled();
     final biometricLock = await AppPreferencesStore.loadBiometricLockEnabled();
+    final timeoutName = await AppPreferencesStore.loadBiometricLockTimeout();
+    final biometricTimeout = BiometricLockTimeout.values
+        .where((value) => value.name == timeoutName)
+        .firstOrNull;
     if (sync == null &&
         swipe == _swipeDeleteEnabled &&
-        biometricLock == _biometricLockEnabled) {
+        biometricLock == _biometricLockEnabled &&
+        (biometricTimeout == null ||
+            biometricTimeout == _biometricLockTimeout)) {
       return;
     }
     _syncInterval = sync ?? SyncInterval.every5Minutes;
     _swipeDeleteEnabled = swipe;
     _biometricLockEnabled = biometricLock;
+    _biometricLockTimeout =
+        biometricTimeout ?? BiometricLockTimeout.immediately;
+    notifyListeners();
+  }
+
+  Future<void> loadAttachmentPreferences() async {
+    final modeName = await AppPreferencesStore.loadAttachmentAutoDownloadMode();
+    final limitName =
+        await AppPreferencesStore.loadAttachmentAutoDownloadLimit();
+    _attachmentAutoDownloadMode =
+        AttachmentAutoDownloadMode.values
+            .where((value) => value.name == modeName)
+            .firstOrNull ??
+        AttachmentAutoDownloadMode.off;
+    _attachmentAutoDownloadLimit =
+        AttachmentAutoDownloadLimit.values
+            .where((value) => value.name == limitName)
+            .firstOrNull ??
+        AttachmentAutoDownloadLimit.fiveMb;
+    notifyListeners();
+  }
+
+  Future<void> loadDeviceContactsEnabled() async {
+    _deviceContactsEnabled =
+        await AppPreferencesStore.loadDeviceContactsEnabled();
+    notifyListeners();
+  }
+
+  Future<void> loadSwipeGestures() async {
+    SwipeGesture? parse(String? name) =>
+        SwipeGesture.values.where((v) => v.name == name).firstOrNull;
+    _swipeRight =
+        parse(await AppPreferencesStore.loadSwipeGesture(right: true)) ??
+        SwipeGesture.archive;
+    _swipeLeft =
+        parse(await AppPreferencesStore.loadSwipeGesture(right: false)) ??
+        SwipeGesture.trash;
+    notifyListeners();
+  }
+
+  Future<void> loadSyncPolicy() async {
+    final name = await AppPreferencesStore.loadSyncNetworkPolicy();
+    _syncNetworkPolicy =
+        SyncNetworkPolicy.values.where((v) => v.name == name).firstOrNull ??
+        SyncNetworkPolicy.wifiAndMobile;
+    _pauseSyncOnBatterySaver =
+        await AppPreferencesStore.loadPauseSyncOnBatterySaver();
+    notifyListeners();
+  }
+
+  Future<void> loadUndoSendDelay() async {
+    final name = await AppPreferencesStore.loadUndoSendDelay();
+    _undoSendDelay =
+        UndoSendDelay.values.where((v) => v.name == name).firstOrNull ??
+        UndoSendDelay.seconds5;
     notifyListeners();
   }
 
@@ -170,6 +391,15 @@ class AppSettingsController extends ChangeNotifier {
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
       .._biometricLockEnabled = false
+      .._biometricLockTimeout = BiometricLockTimeout.immediately
+      .._attachmentAutoDownloadMode = AttachmentAutoDownloadMode.off
+      .._attachmentAutoDownloadLimit = AttachmentAutoDownloadLimit.fiveMb
+      .._undoSendDelay = UndoSendDelay.seconds5
+      .._syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile
+      .._pauseSyncOnBatterySaver = true
+      .._swipeRight = SwipeGesture.archive
+      .._deviceContactsEnabled = false
+      .._swipeLeft = SwipeGesture.trash
       ..notifyListeners();
   }
 }

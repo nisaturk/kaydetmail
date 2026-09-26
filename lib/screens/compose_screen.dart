@@ -2,21 +2,36 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import '../models/compose_limits.dart';
+import '../models/mail_template.dart';
+import '../models/mail_snippet.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
+import '../services/device_contacts.dart';
+import '../state/app_settings_controller.dart';
 import '../state/pending_send_queue.dart';
+import '../models/mail_signature.dart';
 import '../theme/app_theme.dart';
+import '../utils/compose_signature.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
+import '../utils/html_to_text.dart';
 import '../utils/markdown_lite_to_html.dart';
+import '../utils/markdown_lite_editing.dart';
+import '../utils/attachment_mime.dart';
+import '../utils/image_resize.dart';
 
 /// Non-ready states for a remote attachment awaiting/needing its content —
 /// see `_ComposeScreenState._attachmentIssues`.
 enum _AttachmentIssue { downloading, failed }
+
+enum _AttachmentSource { file, gallery, camera }
 
 /// Borderless field decoration shared by every compose input.
 ///
@@ -148,6 +163,7 @@ class ComposeScreen extends StatefulWidget {
     this.composeTitle,
     this.initialThreadId,
     this.inReplyToId,
+    this.initialIdentityId,
   });
 
   /// Lets tests substitute the real OS file picker.
@@ -177,6 +193,7 @@ class ComposeScreen extends StatefulWidget {
   /// a new conversation; the repository generates a fresh thread id.
   final String? initialThreadId;
   final String? inReplyToId;
+  final String? initialIdentityId;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -205,6 +222,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _bccExpanded = false;
   bool _sending = false;
   String? _fromAccount;
+  MailIdentity? _fromIdentity;
+  List<MailIdentity> _identities = const [];
+  ComposeLimits? _limits;
+  bool _resizingImages = false;
 
   final List<Attachment> _attachments = [];
 
@@ -220,7 +241,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final Map<Attachment, ({_AttachmentIssue status, String? error})>
   _attachmentIssues = {};
 
-  bool get _attachmentsReady => _attachmentIssues.isEmpty;
+  bool get _attachmentsReady => _attachmentIssues.isEmpty && !_resizingImages;
 
   // --- Contact autocomplete (Kime/Cc/Bcc) --------------------------------
   final _toLink = LayerLink();
@@ -274,8 +295,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ? _repo.currentUser
           : (accounts.isNotEmpty ? accounts.first.email : null);
     }
+    unawaited(_loadComposeLimits());
+    unawaited(_loadIdentities());
     ContactsStore.startListening(_repo);
     _refreshContacts();
+    unawaited(
+      DeviceContacts.refresh(
+        enabled: AppSettingsController.instance.deviceContactsEnabled,
+      ).then((_) {
+        if (mounted) _refreshContacts();
+      }),
+    );
     _repo.addListener(_refreshContacts);
     _toFocus.addListener(() => _handleFieldFocusChange(_toFocus));
     _ccFocus.addListener(() => _handleFieldFocusChange(_ccFocus));
@@ -314,7 +344,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ),
     ];
     _contacts = ContactsStore.merge(
-      ContactsStore.merge(ContactsStore.cachedPersisted, manual),
+      ContactsStore.merge(
+        ContactsStore.merge(DeviceContacts.cached, ContactsStore.cachedPersisted),
+        manual,
+      ),
       ContactsStore.fromEmails(_repo.getAllEmails()),
     );
   }
@@ -540,21 +573,58 @@ class _ComposeScreenState extends State<ComposeScreen> {
   String _signatureSuffix(String signature) =>
       signature.trim().isEmpty ? '' : '\n\n--\n$signature';
 
-  /// Applies the signature for the current Kimden account, but only while
-  /// the body still exactly matches [_bodyBeforeSignature] plus whatever
-  /// signature was last inserted — i.e. the user hasn't typed anything else
-  /// since. Called once on open and again every time Kimden changes, so a
-  /// switch re-applies the new account's signature without ever clobbering
-  /// real typing.
+  Future<void> _loadIdentities() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    try {
+      final identities = await _repo.listIdentities(accountId);
+      if (!mounted || accountId != _resolvedFromAccountId) return;
+      final wanted = widget.initialIdentityId;
+      setState(() {
+        _identities = identities;
+        _fromIdentity = wanted == null
+            ? identities.where((i) => i.isDefault).firstOrNull
+            : identities.where((i) => i.id == wanted).firstOrNull;
+      });
+      unawaited(_syncSignature());
+    } catch (_) {}
+  }
+
+  Future<void> _pickIdentity(MailIdentity identity) async {
+    setState(() => _fromIdentity = identity);
+    await _syncSignature();
+  }
+
+  /// Applies the signature for the current Kimden account and compose mode
+  /// (new/reply/forward default, or the chosen identity's own signature), but
+  /// only while the body still exactly matches [_bodyBeforeSignature] plus
+  /// whatever signature was last inserted — i.e. the user hasn't typed
+  /// anything else since. Called once on open and again every time Kimden
+  /// changes, so a switch re-applies the new account's signature without
+  /// ever clobbering real typing.
   Future<void> _syncSignature() async {
     if (!_signatureEligible) return;
     final expected =
         _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
     if (_bodyController.text != expected) return;
     final account = _fromAccount;
-    if (account == null) return;
-    final match = _repo.accounts.where((a) => a.email == account);
-    final signature = match.isEmpty ? '' : (match.first.signature ?? '');
+    final accountId = _resolvedFromAccountId;
+    if (account == null || accountId == null) return;
+    final legacy = _repo.accounts
+        .where((a) => a.email == account)
+        .firstOrNull
+        ?.signature;
+    final signature = await resolveComposeSignature(
+      _repo,
+      accountId: accountId,
+      mode: widget.inReplyToId != null
+          ? ComposeSignatureMode.reply
+          : widget.attachmentSourceMailId != null
+          ? ComposeSignatureMode.forward
+          : ComposeSignatureMode.newMail,
+      identity: _fromIdentity,
+      legacySignature: legacy,
+    );
     if (!mounted || _fromAccount != account) return;
     if (_bodyController.text != expected) return;
     setState(() {
@@ -589,30 +659,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     });
   }
 
-  /// Prefixes every line touched by the current selection (or just the
-  /// line under the cursor) with `- `, skipping lines already prefixed.
-  void _toggleBulletList() {
-    final text = _bodyController.text;
-    final selection = _bodyController.selection;
-    final start = selection.isValid ? selection.start : text.length;
-    final end = selection.isValid ? selection.end : text.length;
-    final newlineBefore = start == 0 ? -1 : text.lastIndexOf('\n', start - 1);
-    final lineStart = newlineBefore + 1;
-    final nextNewline = text.indexOf('\n', end);
-    final lineEnd = nextNewline == -1 ? text.length : nextNewline;
-    final block = text.substring(lineStart, lineEnd);
-    final prefixed = block
-        .split('\n')
-        .map((line) => line.startsWith('- ') ? line : '- $line')
-        .join('\n');
-    final newText = text.replaceRange(lineStart, lineEnd, prefixed);
-    final delta = prefixed.length - block.length;
-    setState(() {
-      _bodyController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: end + delta),
-      );
-    });
+  void _applyBodyEdit(TextEditingValue Function(TextEditingValue value) edit) {
+    setState(() => _bodyController.value = edit(_bodyController.value));
   }
 
   /// Prompts for a URL, then inserts `[selected text](url)` — the selected
@@ -644,6 +692,89 @@ class _ComposeScreenState extends State<ComposeScreen> {
     });
   }
 
+  Future<void> _pickTemplate() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    final template = await showModalBottomSheet<MailTemplate>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _TemplatePicker(
+        accountId: accountId,
+        repository: _repo,
+      ),
+    );
+    if (template == null || !mounted || accountId != _resolvedFromAccountId) {
+      return;
+    }
+    if (template.subject.isNotEmpty &&
+        _subjectController.text.trim().isNotEmpty &&
+        _subjectController.text.trim() != template.subject) {
+      final replace = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Konuyu değiştir?'),
+          content: const Text('Mevcut konu şablondaki konuyla değiştirilecek.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Konuyu koru'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Değiştir'),
+            ),
+          ],
+        ),
+      );
+      if (replace == true) _subjectController.text = template.subject;
+    } else if (_subjectController.text.trim().isEmpty) {
+      _subjectController.text = template.subject;
+    }
+    if (!mounted) return;
+    final body = template.bodyText?.trim().isNotEmpty == true
+        ? template.bodyText!
+        : htmlToPlainText(template.bodyHtml ?? '');
+    _insertReusableText(body);
+  }
+
+  void _insertReusableText(String inserted) {
+    if (inserted.isEmpty) return;
+    final signature = _signatureSuffix(_insertedSignature);
+    final managedSignature =
+        _signatureEligible &&
+        _bodyController.text == _bodyBeforeSignature + signature;
+    final source = managedSignature
+        ? _bodyBeforeSignature
+        : _bodyController.text;
+    final selection = _bodyController.selection;
+    final selectionStart = selection.isValid
+        ? selection.start.clamp(0, source.length)
+        : source.length;
+    final selectionEnd = selection.isValid
+        ? selection.end.clamp(0, source.length)
+        : source.length;
+    final replaceEmpty = source.trim().isEmpty;
+    final start = replaceEmpty ? 0 : selectionStart;
+    final end = replaceEmpty ? source.length : selectionEnd;
+    final updated = source.replaceRange(start, end, inserted);
+    final cursor = start + inserted.length;
+    setState(() {
+      if (managedSignature) {
+        _bodyBeforeSignature = updated;
+        _bodyController.value = TextEditingValue(
+          text: updated + signature,
+          selection: TextSelection.collapsed(offset: cursor),
+        );
+      } else {
+        _bodyController.value = TextEditingValue(
+          text: updated,
+          selection: TextSelection.collapsed(offset: cursor),
+        );
+      }
+    });
+    _bodyFocus.requestFocus();
+  }
+
   // --- Send / schedule -------------------------------------------------
 
   /// Resolves [_fromAccount]'s connected-account id, captured once at
@@ -659,6 +790,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return null;
   }
 
+  Future<void> _loadComposeLimits() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    try {
+      final limits = await _repo.composeLimits(accountId);
+      if (mounted && accountId == _resolvedFromAccountId) {
+        setState(() => _limits = limits);
+      }
+    } catch (_) {}
+  }
+
+  String? _attachmentLimitError(List<Attachment> attachments) =>
+      _limits?.violationFor(attachments);
+
   /// The HTML alternative to send/save alongside the plain-text [body], or
   /// null when [body] uses none of the formatting-toolbar markup — so a
   /// plain unformatted mail never carries a redundant html alternative.
@@ -668,6 +813,36 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// not tracked separately per compose-open kind.
   String? _bodyHtmlFor(String body) =>
       hasMarkdownLiteMarkup(body) ? markdownLiteToHtml(body) : null;
+
+  Future<void> _pickSnippet() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    final snippet = await showModalBottomSheet<MailSnippet>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _SnippetPicker(accountId: accountId, repository: _repo),
+    );
+    if (snippet == null || !mounted || accountId != _resolvedFromAccountId) {
+      return;
+    }
+    final text = _bodyController.text;
+    final selection = _bodyController.selection;
+    final start = selection.isValid
+        ? selection.start.clamp(0, text.length)
+        : text.length;
+    final end = selection.isValid
+        ? selection.end.clamp(0, text.length)
+        : text.length;
+    final head = text.substring(0, start);
+    final needsGap = head.isNotEmpty && !head.endsWith('\n');
+    final insert = '${needsGap ? '\n' : ''}${snippet.text}';
+    setState(() {
+      _bodyController.value = TextEditingValue(
+        text: text.replaceRange(start, end, insert),
+        selection: TextSelection.collapsed(offset: start + insert.length),
+      );
+    });
+  }
 
   /// Commits pending recipient text into chips, then validates there is at
   /// least one To recipient and every chip looks like a real address.
@@ -724,13 +899,20 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return false;
   }
 
+  bool _validateAttachmentLimits() {
+    final error = _attachmentLimitError(_attachments);
+    if (error == null) return true;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(error)));
+    return false;
+  }
+
   /// Persist the full message before leaving compose and starting undo.
   /// A storage failure leaves the editor open.
   Future<void> _send() async {
     if (_sending) return;
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
-
+    if (!_validateAttachmentLimits()) return;
     final to = _addressStrings(_toRecipients);
     final cc = _addressStrings(_ccRecipients);
     final bcc = _addressStrings(_bccRecipients);
@@ -739,6 +921,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final bodyHtml = _bodyHtmlFor(body);
     final attachments = List<Attachment>.unmodifiable(_attachments);
     final from = _fromAccount;
+    final identityId = _fromIdentity?.id;
     final fromAccountId = _resolvedFromAccountId;
     final threadId = widget.initialThreadId;
     final inReplyToId = widget.inReplyToId;
@@ -758,6 +941,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       fromAccountId: fromAccountId,
       threadId: threadId,
       inReplyToId: inReplyToId,
+      identityId: identityId,
       draftId: draftId,
     );
 
@@ -785,45 +969,49 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
     if (!mounted) return;
 
-    final controller = messenger.showSnackBar(
-      SnackBar(
-        key: const Key('undo-send-snackbar'),
-        duration: PendingSendQueue.undoWindow,
-        content: _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
-        action: SnackBarAction(
-          label: 'Geri Al',
-          onPressed: () {
-            if (!PendingSendQueue.instance.cancel(pending.id)) return;
-            navigator.push(
-              MaterialPageRoute(
-                builder: (_) => ComposeScreen(
-                  composeTitle: composeTitle,
-                  editingDraftId: draftId,
-                  initialFrom: from,
-                  initialTo: to.join(', '),
-                  initialCc: cc.join(', '),
-                  initialBcc: bcc.join(', '),
-                  initialSubject: subject,
-                  initialBody: body,
-                  initialAttachments: attachments,
-                  initialThreadId: threadId,
-                  inReplyToId: inReplyToId,
+    final undoWindow = PendingSendQueue.undoWindow;
+    if (undoWindow > Duration.zero) {
+      final controller = messenger.showSnackBar(
+        SnackBar(
+          key: const Key('undo-send-snackbar'),
+          duration: undoWindow,
+          content: _UndoSendSnackContent(duration: undoWindow),
+          action: SnackBarAction(
+            label: 'Geri Al',
+            onPressed: () {
+              if (!PendingSendQueue.instance.cancel(pending.id)) return;
+              navigator.push(
+                MaterialPageRoute(
+                  builder: (_) => ComposeScreen(
+                    composeTitle: composeTitle,
+                    editingDraftId: draftId,
+                    initialFrom: from,
+                    initialTo: to.join(', '),
+                    initialCc: cc.join(', '),
+                    initialBcc: bcc.join(', '),
+                    initialSubject: subject,
+                    initialBody: body,
+                    initialAttachments: attachments,
+                    initialThreadId: threadId,
+                    inReplyToId: inReplyToId,
+                    initialIdentityId: identityId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
-      ),
-    );
-    unawaited(
-      Future<void>.delayed(PendingSendQueue.undoWindow, () {
-        try {
-          controller.close();
-        } catch (_) {
-          // Already gone.
-        }
-      }),
-    );
+      );
+      unawaited(
+        Future<void>.delayed(undoWindow, () {
+          try {
+            controller.close();
+          } catch (_) {
+            // Already gone.
+          }
+        }),
+      );
+    }
 
     navigator.pop(true);
   }
@@ -834,7 +1022,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   Future<void> _scheduleSend() async {
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
-
+    if (!_validateAttachmentLimits()) return;
     final now = DateTime.now();
     final date = await showDatePicker(
       context: context,
@@ -875,6 +1063,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         from: _fromAccount,
         fromAccountId: _resolvedFromAccountId,
         inReplyToId: widget.inReplyToId,
+        identityId: _fromIdentity?.id,
         sendAt: sendAt,
       );
       final draftId = _draftId;
@@ -928,6 +1117,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       final saved = await _repo.saveDraft(
         from: _fromAccount,
         fromAccountId: _resolvedFromAccountId,
+        identityId: _fromIdentity?.id,
         to: _addressStrings(_toRecipients),
         cc: _addressStrings(_ccRecipients),
         bcc: _addressStrings(_bccRecipients),
@@ -948,25 +1138,197 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   Future<List<Attachment>?> _osPickAttachments() async {
-    final files = await FilePicker.pickFiles(type: FileType.any);
-    if (files.isEmpty) return null;
-    return [
-      for (final file in files)
-        if (file.name.isNotEmpty)
-          Attachment(
-            name: file.name,
-            sizeBytes: file.lengthSync() ?? 0,
-            mimeType: file.extension,
-            bytes: await file.readAsBytes(),
+    final source = await showModalBottomSheet<_AttachmentSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const Key('attach-source-file'),
+              leading: const Icon(LucideIcons.file),
+              title: const Text('Dosya seç'),
+              onTap: () => Navigator.pop(ctx, _AttachmentSource.file),
+            ),
+            ListTile(
+              key: const Key('attach-source-gallery'),
+              leading: const Icon(LucideIcons.image),
+              title: const Text('Fotoğraf seç'),
+              onTap: () => Navigator.pop(ctx, _AttachmentSource.gallery),
+            ),
+            ListTile(
+              key: const Key('attach-source-camera'),
+              leading: const Icon(LucideIcons.camera),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.pop(ctx, _AttachmentSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return null;
+    if (source == _AttachmentSource.file) return _pickFiles();
+    try {
+      final picker = ImagePicker();
+      final images = source == _AttachmentSource.camera
+          ? [?await picker.pickImage(source: ImageSource.camera)]
+          : await picker.pickMultiImage();
+      if (images.isEmpty) return null;
+      return [
+        for (final image in images)
+          await _attachmentFromXFile(
+            image,
+            fromCamera: source == _AttachmentSource.camera,
           ),
-    ];
+      ];
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              source == _AttachmentSource.camera
+                  ? 'Kameraya erişilemedi. İzinleri kontrol edin veya dosya seçin.'
+                  : 'Fotoğraflara erişilemedi. İzinleri kontrol edin veya dosya seçin.',
+            ),
+          ),
+        );
+      }
+      return null;
+    }
   }
 
+  Future<Attachment> _attachmentFromXFile(
+    XFile file, {
+    required bool fromCamera,
+  }) async {
+    final bytes = await file.readAsBytes();
+    final name = fromCamera || file.name.isEmpty
+        ? cameraPhotoName(DateTime.now(), file.name)
+        : file.name;
+    return Attachment(
+      name: name,
+      sizeBytes: bytes.length,
+      mimeType: attachmentContentType(name, file.mimeType),
+      bytes: bytes,
+    );
+  }
+
+  Future<List<Attachment>?> _pickFiles() async {
+    final files = await FilePicker.pickFiles(type: FileType.any);
+    if (files.isEmpty) return null;
+    final attachments = <Attachment>[];
+    for (final file in files) {
+      if (file.name.isEmpty) continue;
+      final bytes = await file.readAsBytes();
+      attachments.add(
+        Attachment(
+          name: file.name,
+          sizeBytes: bytes.length,
+          mimeType: attachmentContentType(file.name, null),
+          bytes: bytes,
+        ),
+      );
+    }
+    return attachments;
+  }
+
+  Future<ImageResizeChoice?> _chooseResize() => showDialog<ImageResizeChoice>(
+    context: context,
+    builder: (context) => SimpleDialog(
+      title: const Text('Görsel boyutu'),
+      children: [
+        for (final choice in ImageResizeChoice.values)
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, choice),
+            child: Text(switch (choice) {
+              ImageResizeChoice.original => 'Orijinal',
+              ImageResizeChoice.large => 'Büyük (2048 px)',
+              ImageResizeChoice.medium => 'Orta (1280 px)',
+              ImageResizeChoice.small => 'Küçük (640 px)',
+            }),
+          ),
+      ],
+    ),
+  );
+
   Future<void> _attach() async {
-    if (_sending) return;
+    if (_sending || _resizingImages) return;
     final picked = await (widget.pickAttachments ?? _osPickAttachments)();
     if (picked == null || picked.isEmpty || !mounted) return;
-    setState(() => _attachments.addAll(picked));
+    final limits = _limits;
+    if (limits != null) {
+      final oversized = picked.where(
+        (file) => file.sizeBytes > limits.maxAttachmentBytes,
+      );
+      if (oversized.isNotEmpty) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(limits.fileTooLargeMessage)));
+        return;
+      }
+      if (_attachments.length + picked.length > limits.maxAttachmentCount) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(limits.tooManyMessage)));
+        return;
+      }
+    }
+    var result = picked;
+    final images = picked.where(isResizableImage).toList();
+    if (images.isNotEmpty) {
+      final choice = await _chooseResize();
+      if (choice == null || !mounted) return;
+      if (choice != ImageResizeChoice.original) {
+        setState(() => _resizingImages = true);
+        var completed = 0;
+        try {
+          final resized = <Attachment, Attachment>{};
+          for (final attachment in images) {
+            completed++;
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    'Görseller hazırlanıyor… ($completed/${images.length})',
+                  ),
+                  duration: const Duration(minutes: 1),
+                ),
+              );
+            }
+            final replacement = await resizeAttachment(attachment, choice);
+            if (replacement == null && mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(
+                    '${attachment.name}: Görsel küçültülemedi; özgün dosya kullanılacak.',
+                  ),
+                ),
+              );
+            }
+            if (replacement != null) resized[attachment] = replacement;
+          }
+          result = [
+            for (final attachment in picked) resized[attachment] ?? attachment,
+          ];
+        } finally {
+          if (mounted) {
+            ScaffoldMessenger.of(context).hideCurrentSnackBar();
+            setState(() => _resizingImages = false);
+          }
+        }
+      }
+    }
+    if (!mounted) return;
+    if (limits != null &&
+        _attachments.length + result.length > limits.maxAttachmentCount) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(limits.tooManyMessage)));
+      return;
+    }
+    setState(() => _attachments.addAll(result));
+    final totalError = _attachmentLimitError(_attachments);
+    if (totalError != null) {
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(totalError)));
+    }
   }
 
   void _removeAttachment(Attachment attachment) {
@@ -1266,6 +1628,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         enabled: !_sending,
                       ),
                       const Divider(indent: 0, endIndent: 0, height: 1),
+                      if (_resizingImages) const LinearProgressIndicator(),
+                      if (_attachmentLimitError(_attachments) case final error?)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          child: Text(
+                            error,
+                            style: TextStyle(color: colors.destructive),
+                          ),
+                        ),
                       if (_attachments.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         for (final attachment in _attachments)
@@ -1285,6 +1656,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                         controller: _bodyController,
                         focusNode: _bodyFocus,
                         enabled: !_sending,
+                        inputFormatters: [MarkdownLitePasteFormatter()],
                         maxLines: null,
                         textAlignVertical: TextAlignVertical.top,
                         decoration: _flatBodyDecoration,
@@ -1308,9 +1680,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   /// Small toolbar of markdown-lite formatting shortcuts above the body:
-  /// bold/italic/underline wrap the current selection, the list button
-  /// bullet-prefixes the current line(s), and the link button prompts for a
-  /// URL. See `_wrapSelection`/`_toggleBulletList`/`_insertLink`.
+  /// inline buttons wrap the selection, block buttons edit current lines,
+  /// and the link button prompts for a URL.
   Widget _formattingToolbar(AppColors colors) {
     Widget button(
       Key key,
@@ -1330,40 +1701,74 @@ class _ComposeScreenState extends State<ComposeScreen> {
       );
     }
 
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.start,
-      children: [
-        button(
-          const Key('format-bold'),
-          LucideIcons.bold,
-          'Kalın',
-          () => _wrapSelection('**', '**'),
-        ),
-        button(
-          const Key('format-italic'),
-          LucideIcons.italic,
-          'İtalik',
-          () => _wrapSelection('*', '*'),
-        ),
-        button(
-          const Key('format-underline'),
-          LucideIcons.underline,
-          'Altı çizili',
-          () => _wrapSelection('__', '__'),
-        ),
-        button(
-          const Key('format-list'),
-          LucideIcons.list,
-          'Madde işaretli liste',
-          _toggleBulletList,
-        ),
-        button(
-          const Key('format-link'),
-          LucideIcons.link,
-          'Bağlantı ekle',
-          _insertLink,
-        ),
-      ],
+    return SingleChildScrollView(
+      key: const Key('format-toolbar'),
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.start,
+        children: [
+          button(
+            const Key('format-bold'),
+            LucideIcons.bold,
+            'Kalın',
+            () => _wrapSelection('**', '**'),
+          ),
+          button(
+            const Key('format-italic'),
+            LucideIcons.italic,
+            'İtalik',
+            () => _wrapSelection('*', '*'),
+          ),
+          button(
+            const Key('format-underline'),
+            LucideIcons.underline,
+            'Altı çizili',
+            () => _wrapSelection('__', '__'),
+          ),
+          button(
+            const Key('format-list'),
+            LucideIcons.list,
+            'Madde işaretli liste',
+            () => _applyBodyEdit(toggleBulletList),
+          ),
+          button(
+            const Key('format-numbered-list'),
+            LucideIcons.listOrdered,
+            'Numaralı liste',
+            () => _applyBodyEdit(toggleNumberedList),
+          ),
+          button(
+            const Key('format-quote'),
+            LucideIcons.quote,
+            'Alıntı',
+            () => _applyBodyEdit(toggleQuote),
+          ),
+          button(
+            const Key('format-indent-increase'),
+            LucideIcons.indentIncrease,
+            'Girintiyi artır',
+            () => _applyBodyEdit(increaseIndent),
+          ),
+          button(
+            const Key('format-indent-decrease'),
+            LucideIcons.indentDecrease,
+            'Girintiyi azalt',
+            () => _applyBodyEdit(decreaseIndent),
+          ),
+          button(
+            const Key('format-link'),
+            LucideIcons.link,
+            'Bağlantı ekle',
+            _insertLink,
+          ),
+          button(
+            const Key('format-clear'),
+            LucideIcons.removeFormatting,
+            'Biçimlendirmeyi temizle',
+            () => _applyBodyEdit(clearFormatting),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1518,12 +1923,62 @@ class _ComposeScreenState extends State<ComposeScreen> {
           ),
           Expanded(
             child: Text(
-              selected,
+              _fromIdentity == null
+                  ? selected
+                  : '${_fromIdentity!.displayName.isEmpty ? _fromIdentity!.emailAddress : _fromIdentity!.displayName} <${_fromIdentity!.emailAddress}>',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(fontSize: 15, color: colors.bodyText),
             ),
           ),
+          if (_identities.isNotEmpty)
+            PopupMenuButton<String>(
+              key: const Key('from-identity-menu'),
+              tooltip: 'Kimlik seç',
+              padding: EdgeInsets.zero,
+              enabled: !_sending,
+              icon: Icon(
+                LucideIcons.userRoundPen,
+                size: 18,
+                color: colors.secondaryText,
+              ),
+              onSelected: (picked) async {
+                final identity = _identities
+                    .where((i) => i.id == picked)
+                    .firstOrNull;
+                if (identity == null) return;
+                await _pickIdentity(identity);
+              },
+              itemBuilder: (context) => [
+                for (final identity in _identities)
+                  PopupMenuItem(
+                    key: ValueKey('identity-${identity.id}'),
+                    value: identity.id,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            identity.emailAddress,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ),
+                        if (identity.id == _fromIdentity?.id)
+                          Padding(
+                            padding: const EdgeInsets.only(left: 12),
+                            child: Icon(
+                              LucideIcons.check,
+                              size: 18,
+                              color: colors.bodyText,
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
           if (accounts.length > 1)
             PopupMenuButton<String>(
               key: const Key('from-account-menu'),
@@ -1536,8 +1991,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 color: colors.secondaryText,
               ),
               onSelected: (picked) {
-                setState(() => _fromAccount = picked);
+                setState(() {
+                  _fromAccount = picked;
+                  _fromIdentity = null;
+                  _identities = const [];
+                });
                 _syncSignature();
+                _limits = null;
+                unawaited(_loadComposeLimits());
+                unawaited(_loadIdentities());
               },
               itemBuilder: (context) => [
                 for (final account in accounts)
@@ -1586,9 +2048,21 @@ class _ComposeScreenState extends State<ComposeScreen> {
         children: [
           IconButton(
             key: const Key('attach-button'),
-            onPressed: _sending ? null : _attach,
+            onPressed: _sending || _resizingImages ? null : _attach,
             icon: const Icon(LucideIcons.paperclip, size: 22),
             tooltip: 'Dosya ekle',
+          ),
+          TextButton.icon(
+            key: const Key('template-button'),
+            onPressed: _sending ? null : _pickTemplate,
+            icon: const Icon(LucideIcons.layoutTemplate, size: 20),
+            label: const Text('Şablon'),
+          ),
+          IconButton(
+            key: const Key('snippet-button'),
+            onPressed: _sending ? null : _pickSnippet,
+            icon: const Icon(LucideIcons.messageSquareText, size: 20),
+            tooltip: 'Hazır metin ekle',
           ),
         ],
       ),
@@ -1596,9 +2070,226 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 }
 
+class _TemplatePicker extends StatefulWidget {
+  const _TemplatePicker({
+    required this.accountId,
+    required this.repository,
+  });
+
+  final String accountId;
+  final MailRepository repository;
+
+  @override
+  State<_TemplatePicker> createState() => _TemplatePickerState();
+}
+
+class _TemplatePickerState extends State<_TemplatePicker> {
+  List<MailTemplate>? _templates;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _templates = null;
+      _error = null;
+    });
+    try {
+      final templates = await widget.repository.listTemplates(
+        widget.accountId,
+      );
+      if (mounted) setState(() => _templates = templates);
+    } catch (error) {
+      if (mounted) setState(() => _error = friendlyErrorMessage(error));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.55,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Şablon seç',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Kapat',
+                  icon: const Icon(LucideIcons.x),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(_error!, textAlign: TextAlign.center),
+                        ),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Tekrar dene'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _templates == null
+                ? const Center(child: CircularProgressIndicator())
+                : _templates!.isEmpty
+                ? const Center(child: Text('Bu hesapta şablon yok'))
+                : ListView.separated(
+                    itemCount: _templates!.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final template = _templates![index];
+                      return ListTile(
+                        key: ValueKey('pick-template-${template.id}'),
+                        title: Text(template.name),
+                        subtitle: template.subject.isEmpty
+                            ? null
+                            : Text(template.subject, maxLines: 1),
+                        onTap: () => Navigator.pop(context, template),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 /// A single recipient chip. [recipient.valid] false renders it in the
 /// destructive palette instead of silently dropping or silently sending a
 /// broken address — the user has to see and fix it.
+class _SnippetPicker extends StatefulWidget {
+  const _SnippetPicker({required this.accountId, required this.repository});
+
+  final String accountId;
+  final MailRepository repository;
+
+  @override
+  State<_SnippetPicker> createState() => _SnippetPickerState();
+}
+
+class _SnippetPickerState extends State<_SnippetPicker> {
+  List<MailSnippet>? _snippets;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _snippets = null;
+      _error = null;
+    });
+    try {
+      final snippets = await widget.repository.listSnippets(widget.accountId);
+      if (mounted) setState(() => _snippets = snippets);
+    } catch (error) {
+      if (mounted) setState(() => _error = friendlyErrorMessage(error));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.5,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Hazır metin ekle',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Kapat',
+                  icon: const Icon(LucideIcons.x),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(_error!, textAlign: TextAlign.center),
+                        ),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Tekrar dene'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _snippets == null
+                ? const Center(child: CircularProgressIndicator())
+                : _snippets!.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Bu hesapta hazır metin yok.\nAyarlar > Hazır Metinler',
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: _snippets!.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final snippet = _snippets![index];
+                      final hasTitle = snippet.title?.isNotEmpty == true;
+                      return ListTile(
+                        key: ValueKey('pick-snippet-${snippet.id}'),
+                        title: Text(
+                          hasTitle ? snippet.title! : snippet.text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: hasTitle
+                            ? Text(snippet.text, maxLines: 2)
+                            : null,
+                        onTap: () => Navigator.pop(context, snippet),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _RecipientChip extends StatelessWidget {
   const _RecipientChip({
     super.key,

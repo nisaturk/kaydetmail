@@ -3,16 +3,20 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/mail_folder.dart';
+import '../models/email.dart';
 import '../repositories/mail_repository.dart';
 import '../services/session_store.dart';
 import '../services/share_intake.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/bulk_pin.dart';
 import '../utils/mail_threads.dart';
 import '../utils/error_messages.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
+import '../widgets/move_folder_sheet.dart';
 import '../widgets/permanent_delete_dialog.dart';
+import '../widgets/snooze_picker.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'custom_folders_screen.dart';
@@ -20,6 +24,7 @@ import 'inbox_screen.dart';
 import 'mail_detail_screen.dart';
 import 'outbox_screen.dart';
 import 'scheduled_sends_screen.dart';
+import 'reply_reminders_screen.dart';
 import 'search_screen.dart';
 import 'settings_screen.dart';
 
@@ -146,6 +151,12 @@ class _HomeScreenState extends State<HomeScreen> {
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const ScheduledSendsScreen()));
+  }
+
+  void _openReplyReminders() {
+    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const ReplyRemindersScreen()));
   }
 
   void _openOutbox() {
@@ -467,6 +478,57 @@ class _HomeScreenState extends State<HomeScreen> {
     return ids.every((id) => byId[id]?.isStarred ?? false);
   }
 
+  bool get _selectionAllPinned {
+    final selected = _selection.selectedIds.toSet();
+    final emails = _repo.getAllEmails().where((e) => selected.contains(e.id));
+    return emails.isNotEmpty && emails.every((e) => e.isPinned);
+  }
+
+  Future<void> _actionPin() async {
+    final ids = _selection.selectedIds.toList();
+    if (ids.isEmpty) return;
+    final unpin = _selectionAllPinned;
+    if (!unpin) {
+      final error = bulkPinLimitError(_repo.getAllEmails(), ids);
+      if (error != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+        return;
+      }
+    }
+    try {
+      await _repo.setPinned(ids, !unpin);
+      _selection.exit();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _actionSnooze() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return;
+    if (_folder == MailFolder.snoozed) {
+      await _repo.setSnoozed(ids, null);
+      _selection.exit();
+      return;
+    }
+    final until = await showSnoozePicker(context);
+    if (until == null || !mounted) return;
+    await _repo.setSnoozed(ids, until);
+    _selection.exit();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${ids.length} e-posta ertelendi.')),
+      );
+    }
+  }
+
   Future<void> _actionLabel() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
@@ -481,6 +543,54 @@ class _HomeScreenState extends State<HomeScreen> {
     if (ids.isEmpty) return;
     await removeAllLabels(_repo, ids);
     _selection.exit();
+  }
+
+  Future<void> _actionMove() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final byId = {for (final email in _repo.getAllEmails()) email.id: email};
+    final emails = ids.map((id) => byId[id]).whereType<Email>().toList();
+    if (emails.isEmpty) return;
+    final targets = await showMoveFolderSheet(
+      context,
+      repository: _repo,
+      accountIds: emails.map((email) => email.accountId).toSet(),
+      currentFolders: emails.map((email) => email.folder).toSet(),
+    );
+    if (targets == null || !mounted) return;
+    setState(() => _bulkBusy = true);
+    try {
+      final custom = targets.customFolder;
+      if (custom != null) {
+        await _repo.moveToCustomFolder(
+          emails.map((email) => email.id).toList(),
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+      } else if (targets.folder == MailFolder.trash) {
+        await _repo.moveToTrash(emails.map((email) => email.id).toList());
+      } else {
+        await _repo.moveToFolder(
+          emails.map((email) => email.id).toList(),
+          targets.folder!,
+        );
+      }
+      _selection.exit();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('${emails.length} e-posta taşındı.')),
+        );
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _bulkBusy = false);
+    }
   }
 
   // ── Build ─────────────────────────────────────────────────────────────
@@ -500,6 +610,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onOpenSettings: _openSettings,
           onOpenAccounts: _openAccounts,
           onOpenScheduledSends: _openScheduledSends,
+          onOpenReplyReminders: _openReplyReminders,
           onOpenOutbox: _openOutbox,
           onOpenCustomFolders: _openCustomFolders,
         );
@@ -699,6 +810,18 @@ class _HomeScreenState extends State<HomeScreen> {
         value: 'star',
         child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
       ),
+      if (_folder != MailFolder.drafts)
+        PopupMenuItem(
+          value: 'pin',
+          child: Text(_selectionAllPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'),
+        ),
+      if (_folder != MailFolder.drafts)
+        PopupMenuItem(
+          value: 'snooze',
+          child: Text(
+            _folder == MailFolder.snoozed ? 'Ertelemeyi kaldır' : 'Ertele',
+          ),
+        ),
       if (_showMarkAsSpamAction)
         const PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
       if (_showMarkNotSpamAction)
@@ -707,6 +830,8 @@ class _HomeScreenState extends State<HomeScreen> {
         const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
       else
         const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+      if (_folder != MailFolder.drafts)
+        const PopupMenuItem(value: 'move', child: Text('Taşı')),
       const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
     ];
 
@@ -734,10 +859,16 @@ class _HomeScreenState extends State<HomeScreen> {
             switch (v) {
               case 'star':
                 _actionStar();
+              case 'pin':
+                _actionPin();
+              case 'snooze':
+                _actionSnooze();
               case 'spam':
                 _actionSpam();
               case 'not_spam':
                 _actionMarkNotSpam();
+              case 'move':
+                _actionMove();
               case 'label':
                 _actionLabel();
               case 'unlabel':

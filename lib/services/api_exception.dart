@@ -72,6 +72,7 @@ class ApiException implements Exception {
     'email_not_allowlisted' => 'Bu e-posta adresi için erişim henüz açılmadı.',
     'mail_account_disabled' => 'Bu posta hesabı devre dışı bırakıldı.',
     'mail_account_already_exists' => 'Bu hesap zaten bağlı.',
+    'template_name_taken' => 'Bu adla bir şablon zaten var.',
     'mail_account_not_found' => 'Bu e-posta için kayıtlı hesap bulunamadı.',
     'mail_discovery_failed' => 'Otomatik sunucu keşfi başarısız oldu.',
     'discovery_expired' => 'Sunucu keşfinin süresi doldu. Tekrar deneyin.',
@@ -92,6 +93,10 @@ class ApiException implements Exception {
     'mail_move_failed' => 'E-posta taşınamadı. Tekrar deneyin.',
     'mail_delete_failed' => 'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
     'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
+    'reply_reminder_in_past' => 'Hatırlatma zamanı gelecekte olmalı.',
+    'reply_reminder_already_replied' => 'Bu e-posta zaten yanıtlanmış.',
+    'reply_reminder_requires_sent_mail' =>
+      'Hatırlatma yalnızca gönderilen e-postalar için kurulabilir.',
     'delivery_unknown' =>
       'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',
     'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',
@@ -112,6 +117,22 @@ class ApiException implements Exception {
     'oauth_refresh_lock_unavailable' =>
       'Sunucu meşgul. Birazdan tekrar deneyin.',
     'draft_delete_failed' => 'Taslak silinemedi. Tekrar deneyin.',
+    'scheduled_send_in_past' => 'Geçmiş bir zamana gönderim zamanlanamaz.',
+    'scheduled_send_not_pending' =>
+      'Bu gönderim artık beklemede değil. Listeyi yenileyin.',
+    'scheduled_send_modified' =>
+      'Gönderim başka bir cihazda değiştirildi. Yenileyip tekrar deneyin.',
+    'scheduled_send_already_sent' =>
+      'Bu gönderim artık düzenlenemez. Gönderilenler\u2019i kontrol edin.',
+    'scheduled_send_not_found' =>
+      'Zamanlanmış gönderim bulunamadı. Listeyi yenileyin.',
+    'scheduled_send_attachment_not_found' =>
+      'Bekletilen ek bulunamadı. Listeyi yenileyin.',
+    'identity_not_found' => 'Seçilen kimlik bulunamadı.',
+    'signature_not_found' => 'Seçilen imza bulunamadı.',
+    'identity_already_exists' => 'Bu adres zaten bir kimlik olarak kayıtlı.',
+    'identity_in_use' =>
+      'Bu kimlik zamanlanmış bir gönderimde kullanılıyor.',
     'session_revoked' => 'Oturum zaten kapatılmış.',
     'body_required' => 'E-posta gövdesi boş olamaz.',
     'body_too_large' => 'E-posta gövdesi çok büyük.',

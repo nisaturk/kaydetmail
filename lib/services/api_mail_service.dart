@@ -5,15 +5,24 @@ import 'package:http/http.dart' as http;
 
 import '../models/account_notification_settings.dart';
 import '../models/compose_prefill.dart';
+import '../models/compose_limits.dart';
 import '../models/email.dart';
+import '../models/mail_authentication.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
 import '../models/remote_search_result.dart';
+import '../models/mail_template.dart';
 import '../models/server_mail_rule.dart';
 import '../models/scheduled_send.dart';
+import '../models/scheduled_send_detail.dart';
+import '../models/mail_signature.dart';
+import '../models/reply_reminder.dart';
+import '../models/mail_snippet.dart';
+import '../models/trusted_sender.dart';
 import '../utils/html_to_text.dart';
+import '../utils/attachment_mime.dart';
 import 'api_auth_service.dart';
 import 'api_client.dart';
 import 'api_exception.dart';
@@ -148,21 +157,27 @@ class ApiMailService {
   Future<List<ApiMailFolder>> getFolders() async {
     final items = await _client.getList('/api/folders');
     return items
-        .map(
-          (item) => ApiMailFolder(
-            id: item['id'] as String,
-            mailAccountId: item['mailAccountId'] as String,
-            name: item['name'] as String,
-            fullName: item['fullName'] as String? ?? item['name'] as String,
-            type: item['folderType'] as String,
-            unreadCount: (item['unreadCount'] as num?)?.toInt(),
-            totalCount: (item['totalCount'] as num?)?.toInt(),
-            isSyncEnabled: item['isSyncEnabled'] as bool? ?? false,
-            isAvailable: item['isAvailable'] as bool? ?? true,
-          ),
-        )
+        .map((item) => ApiMailFolder.fromJson(item as Map<String, dynamic>))
         .toList();
   }
+
+  Future<ApiMailFolder> createFolder(String name, {String? parentId}) async =>
+      ApiMailFolder.fromJson(
+        await _client.postJson('/api/folders', {
+          'name': name,
+          'parentId': parentId,
+        }),
+      );
+
+  Future<ApiMailFolder> renameFolder(String id, String name) async =>
+      ApiMailFolder.fromJson(
+        await _client.patchJson('/api/folders/${Uri.encodeComponent(id)}', {
+          'name': name,
+        }),
+      );
+
+  Future<void> deleteFolder(String id) =>
+      _client.delete('/api/folders/${Uri.encodeComponent(id)}');
 
   Future<MailListPage> getMails({
     required String folderId,
@@ -196,8 +211,11 @@ class ApiMailService {
   Future<Email> getMail(
     String id, {
     required MailFolder Function(String folderId) resolveFolder,
+    bool allowRemoteImages = false,
   }) async {
-    final body = await _client.get('/api/mails/${Uri.encodeComponent(id)}');
+    final path =
+        '/api/mails/${Uri.encodeComponent(id)}${allowRemoteImages ? '?remoteContent=allow' : ''}';
+    final body = await _client.get(path);
     return _mapMailDetail(body, resolveFolder);
   }
 
@@ -519,6 +537,81 @@ class ApiMailService {
   Future<void> deleteRule(String id) =>
       _client.delete('/api/rules/${Uri.encodeComponent(id)}');
 
+  Future<List<MailTemplate>> getTemplates() async {
+    final items = await _client.getList('/api/templates');
+    return items
+        .map(
+          (item) => MailTemplate.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<MailTemplate> createTemplate(MailTemplate template) async =>
+      MailTemplate.fromJson(
+        await _client.postJson('/api/templates', template.toJson()),
+      );
+
+  Future<MailTemplate> updateTemplate(MailTemplate template) async =>
+      MailTemplate.fromJson(
+        await _client.putJson(
+          '/api/templates/${Uri.encodeComponent(template.id)}',
+          template.toJson(),
+        ),
+      );
+
+  Future<void> deleteTemplate(String id) =>
+      _client.delete('/api/templates/${Uri.encodeComponent(id)}');
+
+  Future<List<MailSnippet>> getSnippets() async {
+    final items = await _client.getList('/api/snippets');
+    return items
+        .map(
+          (item) =>
+              MailSnippet.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
+        .toList();
+  }
+
+  Future<MailSnippet> createSnippet(MailSnippet snippet) async =>
+      MailSnippet.fromJson(
+        await _client.postJson('/api/snippets', snippet.toJson()),
+      );
+
+  Future<MailSnippet> updateSnippet(MailSnippet snippet) async =>
+      MailSnippet.fromJson(
+        await _client.putJson(
+          '/api/snippets/${Uri.encodeComponent(snippet.id)}',
+          snippet.toJson(),
+        ),
+      );
+
+  Future<void> deleteSnippet(String id) =>
+      _client.delete('/api/snippets/${Uri.encodeComponent(id)}');
+
+  Future<List<TrustedSender>> getTrustedSenders() async {
+    final body = await _client.get('/api/trusted-senders');
+    final items = body['items'] as List? ?? const [];
+    return [
+      for (final item in items)
+        TrustedSender.fromJson(Map<String, dynamic>.from(item as Map)),
+    ];
+  }
+
+  Future<TrustedSender> addTrustedSender(
+    TrustedSenderKind kind,
+    String value,
+  ) async => TrustedSender.fromJson(
+    await _client.postJson('/api/trusted-senders', {
+      'kind': kind.apiValue,
+      'value': value,
+    }),
+  );
+
+  Future<void> removeTrustedSender(String id) =>
+      _client.delete('/api/trusted-senders/${Uri.encodeComponent(id)}');
+
   /// Full mail id -> assigned label ids map for the current mailbox.
   Future<Map<String, List<String>>> getLabelAssignments() async {
     final body = await _client.get('/api/labels/assignments');
@@ -707,6 +800,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async {
     final body = await _client.multipartPut(
       '/api/drafts/${Uri.encodeComponent(id)}',
@@ -715,8 +809,10 @@ class ApiMailService {
         bodyText: bodyText,
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
+        identityId: identityId,
       ),
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
     );
     return DraftResult(
       created: body['created'] as bool? ?? false,
@@ -740,6 +836,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
   }) async {
     final body = await _client.multipart(
       '/api/drafts',
@@ -748,8 +845,10 @@ class ApiMailService {
         bodyText: bodyText,
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
+        identityId: identityId,
       ),
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
     );
     return DraftResult(
       created: body['created'] as bool? ?? true,
@@ -834,7 +933,10 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
     required String idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final body = await _client.multipart(
       '/api/mails/send',
@@ -843,9 +945,13 @@ class ApiMailService {
         bodyText: bodyText,
         bodyHtml: bodyHtml,
         replySourceMailId: replySourceMailId,
+        identityId: identityId,
       ),
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
       headers: {'Idempotency-Key': idempotencyKey},
+      onProgress: onProgress,
+      abortTrigger: abortTrigger,
     );
     return SendResult(
       sent: body['sent'] as bool? ?? false,
@@ -855,6 +961,9 @@ class ApiMailService {
       conversationId: body['conversationId'] as String?,
     );
   }
+
+  Future<ComposeLimits> getComposeLimits() async =>
+      ComposeLimits.fromJson(await _client.get('/api/compose/limits'));
 
   /// Queues a mail to send at [sendAtUtc] instead of now, via
   /// `POST /api/scheduled-sends`. Same field set/idempotency contract as
@@ -868,6 +977,7 @@ class ApiMailService {
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? replySourceMailId,
+    String? identityId,
     required DateTime sendAtUtc,
     required String idempotencyKey,
   }) async {
@@ -879,10 +989,12 @@ class ApiMailService {
           bodyText: bodyText,
           bodyHtml: bodyHtml,
           replySourceMailId: replySourceMailId,
+          identityId: identityId,
         ),
         'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
       },
-      files: _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      files: () =>
+          _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
       headers: {'Idempotency-Key': idempotencyKey},
     );
     return _mapScheduledSend(body);
@@ -892,6 +1004,167 @@ class ApiMailService {
   /// `DELETE /api/scheduled-sends/{id}` (`204`).
   Future<void> cancelScheduledSend(String id) =>
       _client.delete('/api/scheduled-sends/${Uri.encodeComponent(id)}');
+
+  /// Fetches one scheduled send with its body and staged attachments via
+  /// `GET /api/scheduled-sends/{id}`.
+  Future<ScheduledSendDetail> getScheduledSend(String id) async {
+    final body = await _client.get(
+      '/api/scheduled-sends/${Uri.encodeComponent(id)}',
+    );
+    return ScheduledSendDetail.fromJson(body);
+  }
+
+  /// Replaces a pending scheduled send's content atomically via
+  /// `PUT /api/scheduled-sends/{id}` (multipart). Staged attachments not
+  /// listed in [keepAttachmentIds] are removed; [attachments] are staged
+  /// as new files.
+  Future<void> updateScheduledSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String bodyText = '',
+    String? bodyHtml,
+    required DateTime sendAtUtc,
+    List<String> keepAttachmentIds = const [],
+    List<Attachment> attachments = const [],
+  }) => _client.multipartPut(
+    '/api/scheduled-sends/${Uri.encodeComponent(id)}',
+    fields: {
+      ..._composeFields(
+        subject: subject,
+        bodyText: bodyText,
+        bodyHtml: bodyHtml,
+      ),
+      'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+    },
+    files: () => [
+      ..._composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
+      for (final kept in keepAttachmentIds)
+        http.MultipartFile.fromString('keepAttachmentIds', kept),
+    ],
+  );
+
+  /// Re-queues a failed send as a new pending one via
+  /// `POST /api/scheduled-sends/{id}/reschedule` (JSON). A null
+  /// [attachmentIds] preserves every staged attachment; [idempotencyKey]
+  /// must be fresh — reusing the failed send's key is a 409.
+  Future<void> rescheduleFailedSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String bodyText = '',
+    String? bodyHtml,
+    List<String>? attachmentIds,
+    required DateTime sendAtUtc,
+    required String idempotencyKey,
+  }) => _client.postJson(
+    '/api/scheduled-sends/${Uri.encodeComponent(id)}/reschedule',
+    {
+      'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+      'to': to,
+      'cc': cc,
+      'bcc': bcc,
+      'subject': subject,
+      'bodyText': bodyText,
+      'bodyHtml': bodyHtml,
+      'attachmentIds': attachmentIds,
+    },
+    headers: {'Idempotency-Key': idempotencyKey},
+  );
+
+  Future<({List<MailSignature> items, SignatureDefaults defaults})>
+  getSignatures() async {
+    final body = await _client.get('/api/signatures');
+    final items = body['items'] as List? ?? const [];
+    return (
+      items: [
+        for (final item in items)
+          MailSignature.fromJson(Map<String, dynamic>.from(item as Map)),
+      ],
+      defaults: SignatureDefaults.fromJson(
+        Map<String, dynamic>.from(body['defaults'] as Map? ?? const {}),
+      ),
+    );
+  }
+
+  Future<MailSignature> createSignature(MailSignature signature) async =>
+      MailSignature.fromJson(
+        await _client.postJson('/api/signatures', signature.toJson()),
+      );
+
+  Future<MailSignature> updateSignatureItem(MailSignature signature) async =>
+      MailSignature.fromJson(
+        await _client.putJson(
+          '/api/signatures/${Uri.encodeComponent(signature.id)}',
+          signature.toJson(),
+        ),
+      );
+
+  Future<void> deleteSignature(String id) =>
+      _client.delete('/api/signatures/${Uri.encodeComponent(id)}');
+
+  Future<SignatureDefaults> updateSignatureDefaults(
+    SignatureDefaults defaults,
+  ) async => SignatureDefaults.fromJson(
+    await _client.putJson('/api/signatures/defaults', defaults.toJson()),
+  );
+
+  Future<List<MailIdentity>> getIdentities() async {
+    final items = await _client.getList('/api/identities');
+    return items
+        .map(
+          (item) => MailIdentity.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
+
+  Future<MailIdentity> createIdentity(MailIdentity identity) async =>
+      MailIdentity.fromJson(
+        await _client.postJson('/api/identities', identity.toJson()),
+      );
+
+  Future<MailIdentity> updateIdentity(MailIdentity identity) async =>
+      MailIdentity.fromJson(
+        await _client.putJson(
+          '/api/identities/${Uri.encodeComponent(identity.id)}',
+          identity.toJson(),
+        ),
+      );
+
+  Future<void> deleteIdentity(String id) =>
+      _client.delete('/api/identities/${Uri.encodeComponent(id)}');
+
+  Future<ReplyReminder> setReplyReminder(
+    String mailId,
+    DateTime dueAtUtc,
+  ) async => ReplyReminder.fromJson(
+    await _client.postJson(
+      '/api/mails/${Uri.encodeComponent(mailId)}/reply-reminder',
+      {'dueAtUtc': dueAtUtc.toUtc().toIso8601String()},
+    ),
+  );
+
+  Future<void> cancelReplyReminder(String mailId) => _client.delete(
+    '/api/mails/${Uri.encodeComponent(mailId)}/reply-reminder',
+  );
+
+  Future<List<ReplyReminder>> listReplyReminders() async {
+    final body = await _client.get('/api/reply-reminders');
+    final items = body['items'] as List? ?? const [];
+    return items
+        .map(
+          (item) => ReplyReminder.fromJson(
+            Map<String, dynamic>.from(item as Map),
+          ),
+        )
+        .toList();
+  }
 
   /// Lists every scheduled send for the account via
   /// `GET /api/scheduled-sends`.
@@ -903,29 +1176,44 @@ class ApiMailService {
         .toList();
   }
 
-  ScheduledSend _mapScheduledSend(Map<String, dynamic> body) => ScheduledSend(
-    id: body['id'] as String,
-    to: _addresses(body['to']),
-    cc: _addresses(body['cc']),
-    bcc: _addresses(body['bcc']),
-    subject: body['subject'] as String? ?? '',
-    sendAt: DateTime.parse(body['sendAtUtc'] as String).toLocal(),
-    status: ScheduledSendStatus.fromApi(body['status'] as String? ?? 'Pending'),
-    createdAt: DateTime.parse(body['createdAtUtc'] as String).toLocal(),
-    sentMailId: body['sentMailId'] as String?,
-    failureReason: body['failureReason'] as String?,
-  );
+  /// `POST`/`PUT` responses only carry `{ id, sendAtUtc, status }` —
+  /// every other field falls back to a neutral default instead of throwing.
+  ScheduledSend _mapScheduledSend(Map<String, dynamic> body) {
+    DateTime orNow(Object? value) => value is String
+        ? DateTime.parse(value).toLocal()
+        : DateTime.now();
+    return ScheduledSend(
+      id: body['id'] as String,
+      to: _addresses(body['to']),
+      cc: _addresses(body['cc']),
+      bcc: _addresses(body['bcc']),
+      subject: body['subject'] as String? ?? '',
+      sendAt: orNow(body['sendAtUtc']),
+      status: ScheduledSendStatus.fromApi(
+        body['status'] as String? ?? 'Pending',
+      ),
+      createdAt: orNow(body['createdAtUtc']),
+      sentMailId: body['sentMailId'] as String?,
+      failureReason: body['failureReason'] as String?,
+      attemptCount: (body['attemptCount'] as num?)?.toInt() ?? 0,
+      nextAttemptAtUtc: body['nextAttemptAtUtc'] is String
+          ? DateTime.parse(body['nextAttemptAtUtc'] as String).toLocal()
+          : null,
+    );
+  }
 
   Map<String, String> _composeFields({
     required String subject,
     required String bodyText,
     String? bodyHtml,
     String? replySourceMailId,
+    String? identityId,
   }) => {
     'subject': subject,
     'bodyText': bodyText,
     'bodyHtml': ?bodyHtml,
     'replySourceMailId': ?replySourceMailId,
+    'identityId': ?identityId,
   };
 
   /// `To`/`Cc`/`Bcc` are read server-side as repeated same-name form
@@ -950,6 +1238,10 @@ class ApiMailService {
           'attachments',
           attachment.bytes!,
           filename: attachment.name,
+          contentType: attachmentMediaType(
+            attachment.name,
+            attachment.mimeType,
+          ),
         ),
   ];
 
@@ -985,7 +1277,7 @@ class ApiMailService {
     timestamp: _optionalDate(item['receivedAt']) ?? DateTime.now(),
     isRead: item['isRead'] as bool? ?? false,
     isStarred: item['flagged'] as bool? ?? false,
-    isReplied: item['answered'] as bool? ?? false,
+    imapAnswered: item['answered'] as bool? ?? false,
     hasAttachments: item['hasAttachments'] as bool? ?? false,
     accountId: item['accountId'] as String? ?? '',
     folder: resolveFolder(item['folderId'] as String),
@@ -1005,6 +1297,10 @@ class ApiMailService {
           entry['address'] as String,
     ];
   }
+
+  static List<String> _stringList(dynamic value) => value is List
+      ? value.whereType<String>().toList(growable: false)
+      : const [];
 
   /// First parseable timestamp out of the documented date fields, falling
   /// back to now so a malformed/missing date never breaks the whole mail.
@@ -1055,6 +1351,8 @@ class ApiMailService {
       bodyText: _resolveBodyText(item, body),
       bodyHtml: _nonEmpty(body?['html']),
       hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
+      remoteImageHosts: _stringList(body?['remoteImageHosts']),
+      remoteImagesAllowed: body?['remoteImagesAllowed'] as bool? ?? false,
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
       folder: resolveFolder(item['folderId'] as String),
@@ -1104,10 +1402,12 @@ class ApiMailService {
       bodyText: _resolveBodyText(item, body),
       bodyHtml: _nonEmpty(body?['html']),
       hasRemoteContent: body?['hasRemoteContent'] as bool? ?? false,
+      remoteImageHosts: _stringList(body?['remoteImageHosts']),
+      remoteImagesAllowed: body?['remoteImagesAllowed'] as bool? ?? false,
       timestamp: _parseDate(item),
       isRead: item['isRead'] as bool? ?? false,
       isStarred: item['flagged'] as bool? ?? false,
-      isReplied: item['answered'] as bool? ?? false,
+      imapAnswered: item['answered'] as bool? ?? false,
       accountId: item['accountId'] as String? ?? '',
       folder: resolveFolder(item['folderId'] as String),
       threadId: item['conversationId'] as String? ?? '',
@@ -1115,6 +1415,7 @@ class ApiMailService {
       attachments: attachments,
       hasAttachments: item['hasAttachments'] as bool? ?? attachments.isNotEmpty,
       headers: _mapHeaders(item['headers']),
+      authentication: _mapAuthentication(item['authentication']),
     );
   }
 
@@ -1132,6 +1433,17 @@ class ApiMailService {
       map[name.toLowerCase()] = value;
     }
     return map;
+  }
+
+  static MailAuthentication? _mapAuthentication(dynamic raw) {
+    if (raw is! Map<String, dynamic>) return null;
+    final authentication = MailAuthentication(
+      authservId: raw['authservId'] as String?,
+      spf: raw['spf'] as String?,
+      dkim: raw['dkim'] as String?,
+      dmarc: raw['dmarc'] as String?,
+    );
+    return authentication.hasResults ? authentication : null;
   }
 }
 
@@ -1221,7 +1533,23 @@ class ApiMailFolder {
     this.totalCount,
     this.isSyncEnabled = false,
     this.isAvailable = true,
+    this.delimiter,
+    this.parentId,
   }) : fullName = fullName ?? name;
+
+  factory ApiMailFolder.fromJson(Map<String, dynamic> item) => ApiMailFolder(
+    id: item['id'] as String,
+    mailAccountId: item['mailAccountId'] as String,
+    name: item['name'] as String,
+    fullName: item['fullName'] as String? ?? item['name'] as String,
+    type: item['folderType'] as String,
+    unreadCount: (item['unreadCount'] as num?)?.toInt(),
+    totalCount: (item['totalCount'] as num?)?.toInt(),
+    isSyncEnabled: item['isSyncEnabled'] as bool? ?? false,
+    isAvailable: item['isAvailable'] as bool? ?? true,
+    delimiter: item['delimiter'] as String?,
+    parentId: item['parentId'] as String?,
+  );
 
   final String id;
   final String mailAccountId;
@@ -1243,6 +1571,9 @@ class ApiMailFolder {
 
   /// `false` means the folder was deleted on the mail server — hide it.
   final bool isAvailable;
+
+  final String? delimiter;
+  final String? parentId;
 }
 
 /// Per-item outcome from `POST /api/mails/bulk/{action}`.

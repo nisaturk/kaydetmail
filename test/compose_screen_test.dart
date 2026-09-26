@@ -161,7 +161,10 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   }) async {
     final email = Email(
       id: 'sent-${sent.length}',
@@ -195,6 +198,7 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? draftId,
   }) async {
     final email = Email(
@@ -336,6 +340,7 @@ class _FakeMailRepository extends MailRepository {
     String? from,
     String? fromAccountId,
     String? inReplyToId,
+    String? identityId,
     required DateTime sendAt,
   }) async {
     final result = ScheduledSend(
@@ -583,6 +588,56 @@ void main() {
         '- Alınacaklar',
       );
     });
+
+    testWidgets(
+      'number, quote, indent and clear actions work from scrollable toolbar',
+      (tester) async {
+        tester.view
+          ..physicalSize = const Size(320, 900)
+          ..devicePixelRatio = 1;
+        addTearDown(tester.view.reset);
+        final repo = _FakeMailRepository(accounts: const [_accountA]);
+        await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+        final body = tester
+            .widget<TextField>(find.byKey(const Key('body-field')))
+            .controller!;
+
+        await tester.enterText(find.byKey(const Key('body-field')), 'ana\nalt');
+        body.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: body.text.length,
+        );
+        await tester.tap(find.byKey(const Key('format-numbered-list')));
+        await tester.pump();
+        expect(body.text, '1. ana\n2. alt');
+
+        body.selection = const TextSelection.collapsed(offset: 10);
+        await tester.tap(find.byKey(const Key('format-indent-increase')));
+        await tester.pump();
+        expect(body.text, '1. ana\n  1. alt');
+
+        body.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: body.text.length,
+        );
+        await tester.tap(find.byKey(const Key('format-quote')));
+        await tester.pump();
+        expect(body.text, '> 1. ana\n>   1. alt');
+
+        await tester.drag(
+          find.byKey(const Key('format-toolbar')),
+          const Offset(-300, 0),
+        );
+        await tester.pumpAndSettle();
+        body.selection = TextSelection(
+          baseOffset: 0,
+          extentOffset: body.text.length,
+        );
+        await tester.tap(find.byKey(const Key('format-clear')));
+        await tester.pump();
+        expect(body.text, 'ana\nalt');
+      },
+    );
 
     testWidgets(
       'link button inserts markdown-lite markup from the URL dialog',

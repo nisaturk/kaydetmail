@@ -1,10 +1,12 @@
-import 'dart:typed_data';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../models/account_notification_settings.dart';
 import '../models/account_sync_scope.dart';
 import '../models/compose_prefill.dart';
+import '../models/compose_limits.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
@@ -13,9 +15,16 @@ import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
+import '../models/mail_template.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
+import '../models/scheduled_send_detail.dart';
+import '../models/mail_signature.dart';
+import '../models/reply_reminder.dart';
+import '../models/mail_snippet.dart';
+import '../models/trusted_sender.dart';
 import '../models/server_mail_rule.dart';
+import '../models/attachment_download_state.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -151,6 +160,50 @@ abstract class MailRepository extends ChangeNotifier {
   /// [ArgumentError] for an unknown accountId.
   Future<void> setSignature(String accountId, String? signature) async {}
 
+  Future<List<MailSignature>> listSignatures(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listSignatures');
+
+  Future<SignatureDefaults> getSignatureDefaults(String accountId) =>
+      throw UnimplementedError('getSignatureDefaults');
+
+  Future<MailSignature> createSignature(
+    String accountId,
+    MailSignature signature,
+  ) => throw UnimplementedError('createSignature');
+
+  Future<MailSignature> updateSignature(
+    String accountId,
+    MailSignature signature,
+  ) => throw UnimplementedError('updateSignature');
+
+  Future<void> deleteSignature(String accountId, String signatureId) =>
+      throw UnimplementedError('deleteSignature');
+
+  Future<SignatureDefaults> updateSignatureDefaults(
+    String accountId,
+    SignatureDefaults defaults,
+  ) => throw UnimplementedError('updateSignatureDefaults');
+
+  Future<List<MailIdentity>> listIdentities(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listIdentities');
+
+  Future<MailIdentity> createIdentity(
+    String accountId,
+    MailIdentity identity,
+  ) => throw UnimplementedError('createIdentity');
+
+  Future<MailIdentity> updateIdentity(
+    String accountId,
+    MailIdentity identity,
+  ) => throw UnimplementedError('updateIdentity');
+
+  Future<void> deleteIdentity(String accountId, String identityId) =>
+      throw UnimplementedError('deleteIdentity');
+
   /// Id of the account whose mailbox is currently shown, or `null` for the
   /// unified mailbox ("Tüm Gelen Kutuları") spanning all connected accounts.
   String? get activeAccountId;
@@ -237,6 +290,20 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<Email?> getEmail(String id);
 
+  Future<Email> loadRemoteImages(String id) =>
+      throw UnimplementedError('loadRemoteImages');
+
+  Future<Email> trustSenderForRemoteImages(
+    String mailId,
+    TrustedSenderKind kind,
+  ) => throw UnimplementedError('trustSenderForRemoteImages');
+
+  Future<List<TrustedSender>> listTrustedSenders(String accountId) =>
+      throw UnimplementedError('listTrustedSenders');
+
+  Future<void> removeTrustedSender(String accountId, String id) =>
+      throw UnimplementedError('removeTrustedSender');
+
   /// Backend-computed reply/reply-all/forward context: recipients,
   /// subject and threading headers computed server-side — the UI must
   /// never re-derive recipients/subject itself (Reply-To vs. From
@@ -256,6 +323,23 @@ abstract class MailRepository extends ChangeNotifier {
   /// the attachment is gone). Attachments picked locally and not yet
   /// uploaded carry no server id — those return the bytes already held.
   Future<Uint8List> downloadAttachment(String mailId, Attachment attachment);
+
+  Future<File> ensureAttachmentFile(String mailId, Attachment attachment) =>
+      throw UnimplementedError('ensureAttachmentFile');
+
+  ValueListenable<AttachmentDownloadState> attachmentDownloadState(
+    String mailId,
+    Attachment attachment,
+  ) => throw UnimplementedError('attachmentDownloadState');
+
+  Future<void> cancelAttachmentDownload(String mailId, Attachment attachment) =>
+      throw UnimplementedError('cancelAttachmentDownload');
+
+  Future<int> attachmentCacheSize() =>
+      throw UnimplementedError('attachmentCacheSize');
+
+  Future<void> clearAttachmentCache() =>
+      throw UnimplementedError('clearAttachmentCache');
 
   /// Every mail belonging to the same conversation, oldest first.
   /// Grouped by [threadId] — never by subject/account, which can coincide
@@ -294,8 +378,14 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? idempotencyKey,
+    void Function(int sent, int total)? onProgress,
+    Future<void>? abortTrigger,
   });
+
+  Future<ComposeLimits> composeLimits(String accountId) async =>
+      throw UnimplementedError();
 
   /// Creates a new draft, or — when [draftId] is given — updates the
   /// existing draft in place instead of creating a duplicate.
@@ -315,6 +405,7 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? threadId,
     String? inReplyToId,
+    String? identityId,
     String? draftId,
   });
 
@@ -361,6 +452,38 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<void> deleteRule(String accountId, String ruleId) =>
       throw UnsupportedError('Rules unavailable');
+
+  Future<List<MailTemplate>> listTemplates(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listTemplates');
+
+  Future<MailTemplate> createTemplate(
+    String accountId,
+    MailTemplate template,
+  ) => throw UnimplementedError('createTemplate');
+
+  Future<MailTemplate> updateTemplate(
+    String accountId,
+    MailTemplate template,
+  ) => throw UnimplementedError('updateTemplate');
+
+  Future<void> deleteTemplate(String accountId, String templateId) =>
+      throw UnimplementedError('deleteTemplate');
+
+  Future<List<MailSnippet>> listSnippets(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listSnippets');
+
+  Future<MailSnippet> createSnippet(String accountId, MailSnippet snippet) =>
+      throw UnimplementedError('createSnippet');
+
+  Future<MailSnippet> updateSnippet(String accountId, MailSnippet snippet) =>
+      throw UnimplementedError('updateSnippet');
+
+  Future<void> deleteSnippet(String accountId, String snippetId) =>
+      throw UnimplementedError('deleteSnippet');
 
   // --- Labels -------------------------------------------------------
 
@@ -424,7 +547,8 @@ abstract class MailRepository extends ChangeNotifier {
   /// Removes a contact. Unknown ids are ignored.
   Future<void> deleteManualContact(String id);
 
-  /// Aggregates isReplied/isForwarded across every message sharing
+  /// Aggregates the IMAP-answered, replied-from-app and forwarded-from-app
+  /// flags across every message sharing
   /// [representative]'s thread, so a thread's single list row reflects the
   /// whole conversation instead of only whichever message happens to
   /// represent it (the newest, which may not be the one the user actually
@@ -433,14 +557,21 @@ abstract class MailRepository extends ChangeNotifier {
     if (representative.threadId.isEmpty) return representative;
     final members = getThreadEmails(representative.threadId);
     if (members.isEmpty) return representative;
-    final replied = representative.isReplied || members.any((m) => m.isReplied);
-    final forwarded =
-        representative.isForwarded || members.any((m) => m.isForwarded);
-    if (replied == representative.isReplied &&
-        forwarded == representative.isForwarded) {
+    bool any(bool Function(Email) flag) =>
+        flag(representative) || members.any(flag);
+    final answered = any((m) => m.imapAnswered);
+    final replied = any((m) => m.repliedFromKaydetMail);
+    final forwarded = any((m) => m.forwardedFromKaydetMail);
+    if (answered == representative.imapAnswered &&
+        replied == representative.repliedFromKaydetMail &&
+        forwarded == representative.forwardedFromKaydetMail) {
       return representative;
     }
-    return representative.copyWith(isReplied: replied, isForwarded: forwarded);
+    return representative.copyWith(
+      imapAnswered: answered,
+      repliedFromKaydetMail: replied,
+      forwardedFromKaydetMail: forwarded,
+    );
   }
 
   // --- Search -------------------------------------------------------
@@ -579,12 +710,46 @@ abstract class MailRepository extends ChangeNotifier {
     String? from,
     String? fromAccountId,
     String? inReplyToId,
+    String? identityId,
     required DateTime sendAt,
   });
 
   /// Cancels a still-[ScheduledSendStatus.pending] scheduled send. Throws
   /// if it already sent.
   Future<void> cancelScheduledSend(String id);
+
+  /// Fetches one scheduled send with its body and staged attachments.
+  Future<ScheduledSendDetail> getScheduledSend(String id) =>
+      throw UnimplementedError('getScheduledSend');
+
+  /// Replaces a pending scheduled send's content atomically. Staged
+  /// attachments not listed in [keepAttachmentIds] are removed.
+  Future<void> updateScheduledSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String body = '',
+    String? bodyHtml,
+    required DateTime sendAt,
+    List<String> keepAttachmentIds = const [],
+    List<Attachment> attachments = const [],
+  }) => throw UnimplementedError('updateScheduledSend');
+
+  /// Re-queues a failed send as a new pending one, preserving staged
+  /// attachments when [attachmentIds] is null.
+  Future<void> rescheduleFailedSend({
+    required String id,
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    required String subject,
+    String body = '',
+    String? bodyHtml,
+    List<String>? attachmentIds,
+    required DateTime sendAt,
+  }) => throw UnimplementedError('rescheduleFailedSend');
 
   /// Current snapshot of every scheduled send in the active mailbox scope,
   /// soonest first. Populated by [refreshScheduledSends].
@@ -593,15 +758,27 @@ abstract class MailRepository extends ChangeNotifier {
   /// Re-fetches the scheduled-send list from the backend.
   Future<void> refreshScheduledSends() async {}
 
+  Future<ReplyReminder> setReplyReminder(String mailId, DateTime dueAtUtc) =>
+      throw UnimplementedError('setReplyReminder');
+
+  Future<void> cancelReplyReminder(String mailId) =>
+      throw UnimplementedError('cancelReplyReminder');
+
+  List<ReplyReminder> getReplyReminders() => const [];
+
+  Future<void> refreshReplyReminders() async {}
+
   // --- Custom folders -------------------------------------------------
 
   /// Non-standard IMAP folders across every account in the active mailbox
-  /// scope — distinct from [MailFolder]'s fixed set and from virtual
-  /// groupings like starred/pinned. Populated by [refreshCustomFolders].
-  List<MailCustomFolder> getCustomFolders() => const [];
+  /// scope, or only [accountId]'s when given (regardless of scope) —
+  /// distinct from [MailFolder]'s fixed set and from virtual groupings like
+  /// starred/pinned. Populated by [refreshCustomFolders].
+  List<MailCustomFolder> getCustomFolders({String? accountId}) => const [];
 
-  /// Re-fetches the custom folder list for every account in scope.
-  Future<void> refreshCustomFolders() async {}
+  /// Re-fetches the custom folder list for every account in scope, or only
+  /// for [accountId] when given.
+  Future<void> refreshCustomFolders({String? accountId}) async {}
 
   /// One page of mail from one custom folder, newest first. Independent of
   /// the [MailFolder]-keyed paging used elsewhere — custom folders are
@@ -630,4 +807,30 @@ abstract class MailRepository extends ChangeNotifier {
     required String accountId,
     required String folderId,
   }) async {}
+
+  Future<void> createCustomFolder({
+    required String accountId,
+    required String name,
+    String? parentFolderId,
+  }) => throw UnimplementedError('createCustomFolder');
+
+  Future<void> renameCustomFolder({
+    required String accountId,
+    required String folderId,
+    required String name,
+  }) => throw UnimplementedError('renameCustomFolder');
+
+  Future<void> deleteCustomFolder({
+    required String accountId,
+    required String folderId,
+  }) => throw UnimplementedError('deleteCustomFolder');
+
+  Future<void> moveToCustomFolder(
+    List<String> ids, {
+    required String accountId,
+    required String folderId,
+  }) => throw UnimplementedError('moveToCustomFolder');
+
+  Set<MailFolder> availableFolders(String accountId) =>
+      throw UnimplementedError('availableFolders');
 }

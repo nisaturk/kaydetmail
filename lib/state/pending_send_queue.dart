@@ -8,10 +8,20 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import 'app_settings_controller.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../utils/error_messages.dart';
 import 'outbox_store.dart';
+
+@immutable
+class SendProgress {
+  const SendProgress(this.sent, this.total);
+
+  final int sent;
+  final int total;
+  double get fraction => total <= 0 ? 0 : (sent / total).clamp(0, 1);
+}
 
 /// Complete send snapshot. Metadata lives in the outbox journal; attachment
 /// bytes are stored separately as SQLite BLOBs.
@@ -30,6 +40,7 @@ class PendingSend {
     this.fromAccountId,
     this.threadId,
     this.inReplyToId,
+    this.identityId,
     this.draftId,
     this.idempotencyKey,
   });
@@ -55,6 +66,7 @@ class PendingSend {
   final String? fromAccountId;
   final String? threadId;
   final String? inReplyToId;
+  final String? identityId;
 
   /// The draft this send originated from, if any — deleted only once the
   /// deferred send actually goes through, same as the old synchronous flow
@@ -87,6 +99,7 @@ class PendingSend {
     'fromAccountId': fromAccountId,
     'threadId': threadId,
     'inReplyToId': inReplyToId,
+    'identityId': identityId,
     'draftId': draftId,
   };
 
@@ -121,6 +134,7 @@ class PendingSend {
     fromAccountId: json['fromAccountId'] as String?,
     threadId: json['threadId'] as String?,
     inReplyToId: json['inReplyToId'] as String?,
+    identityId: json['identityId'] as String?,
     draftId: json['draftId'] as String?,
   );
 }
@@ -137,7 +151,10 @@ typedef SendEmail = Future<Email> Function({
   String? fromAccountId,
   String? threadId,
   String? inReplyToId,
+  String? identityId,
   String? idempotencyKey,
+  void Function(int sent, int total)? onProgress,
+  Future<void>? abortTrigger,
 });
 
 class _PendingEntry {
@@ -168,7 +185,9 @@ class PendingSendQueue with WidgetsBindingObserver {
     : _storeFuture = Future.value(store);
 
   static final PendingSendQueue instance = PendingSendQueue._();
-  static const Duration undoWindow = Duration(seconds: 5);
+  static Duration get undoWindow =>
+      AppSettingsController.instance.undoSendDelay.duration ?? Duration.zero;
+
   static const String _legacyPrefsKey = 'pending_send_queue_v1';
 
   /// Same cadence as `ApiMailRepository._scheduleReconnectRetry` — no
@@ -180,6 +199,11 @@ class PendingSendQueue with WidgetsBindingObserver {
   OutboxStore? _loadedStore;
   final Map<String, _PendingEntry> _entries = {};
   final Set<String> _inFlight = {};
+  final ValueNotifier<Map<String, SendProgress>> uploadProgress = ValueNotifier(
+    const {},
+  );
+  final Map<String, Completer<void>> _uploadAborts = {};
+  final Map<String, SendProgress> _currentProgress = {};
   Timer? _networkRetryTimer;
   @visibleForTesting
   void useStoreForTest(OutboxStore store) {
@@ -272,6 +296,12 @@ class PendingSendQueue with WidgetsBindingObserver {
       }
       rethrow;
     }
+    final abort = Completer<void>();
+    _uploadAborts[send.id] = abort;
+    _currentProgress.remove(send.id);
+    _publishProgress();
+    var uploadCancelled = false;
+    var lastSnackPercent = -10;
     try {
       await doSend(
         to: send.to,
@@ -285,7 +315,30 @@ class PendingSendQueue with WidgetsBindingObserver {
         fromAccountId: send.fromAccountId,
         threadId: send.threadId,
         inReplyToId: send.inReplyToId,
+        identityId: send.identityId,
         idempotencyKey: send.idempotencyKey ?? send.id,
+        onProgress: (sent, total) {
+          _currentProgress[send.id] = SendProgress(sent, total);
+          _publishProgress();
+          if (send.attachments.isNotEmpty &&
+              total > 0 &&
+              messenger != null &&
+              messenger.mounted) {
+            final percent = (sent * 100 ~/ total).clamp(0, 100);
+            if (percent == 100 || percent - lastSnackPercent >= 10) {
+              lastSnackPercent = percent;
+              messenger
+                ..removeCurrentSnackBar()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text('Ek yükleniyor: $percent%'),
+                    duration: const Duration(seconds: 3),
+                  ),
+                );
+            }
+          }
+        },
+        abortTrigger: abort.future,
       );
       store.remove(send.id);
       if (send.draftId != null) {
@@ -303,8 +356,12 @@ class PendingSendQueue with WidgetsBindingObserver {
       // decide to retry (see the `uncertain` test coverage below).
       final networkUnavailable =
           error is ApiException && error.code == 'network_unavailable';
+      uploadCancelled =
+          abort.isCompleted ||
+          (error is ApiException && error.code == 'upload_cancelled');
       final uncertain =
           !networkUnavailable &&
+          !uploadCancelled &&
           error is! SendBeforeDeliveryException &&
           (error is! ApiException ||
               error.isTransient ||
@@ -313,18 +370,28 @@ class PendingSendQueue with WidgetsBindingObserver {
                 'send_in_progress',
                 'idempotency_conflict',
               ].contains(error.code));
-      final status = networkUnavailable
+      final status = uploadCancelled
+          ? OutboxStatus.failed
+          : networkUnavailable
           ? OutboxStatus.waitingForNetwork
           : uncertain
           ? OutboxStatus.uncertain
           : OutboxStatus.failed;
-      store.updateStatus(send.id, status, error: friendlyErrorMessage(error));
+      store.updateStatus(
+        send.id,
+        status,
+        error: uploadCancelled
+            ? 'Gönderim iptal edildi.'
+            : friendlyErrorMessage(error),
+      );
       if (networkUnavailable) _scheduleNetworkRetry();
       if (messenger != null && messenger.mounted) {
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              networkUnavailable
+              uploadCancelled
+                  ? 'Gönderim iptal edildi.'
+                  : networkUnavailable
                   ? 'İnternet bağlantısı yok. Bağlantı gelince otomatik gönderilecek.'
                   : uncertain
                   ? 'Mesaj gönderilmiş olabilir. Giden Kutusu ve Gönderilenler’i kontrol edin.'
@@ -335,7 +402,27 @@ class PendingSendQueue with WidgetsBindingObserver {
       }
     } finally {
       _inFlight.remove(send.id);
+      _uploadAborts.remove(send.id);
+      _currentProgress.remove(send.id);
+      _publishProgress();
     }
+  }
+
+  void _publishProgress() {
+    uploadProgress.value = Map.unmodifiable(_currentProgress);
+  }
+
+  bool cancelUpload(String id) {
+    final progress = _currentProgress[id];
+    final abort = _uploadAborts[id];
+    if (progress == null ||
+        progress.sent >= progress.total ||
+        abort == null ||
+        abort.isCompleted) {
+      return false;
+    }
+    abort.complete();
+    return true;
   }
 
   /// Starts (or leaves running) a 15s poll that redispatches every

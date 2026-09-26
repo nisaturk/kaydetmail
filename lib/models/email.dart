@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import 'mail_folder.dart';
+import 'mail_authentication.dart';
 
 /// A file attached to an email.
 @immutable
@@ -62,13 +63,16 @@ class Email {
     required this.bodyText,
     this.bodyHtml,
     this.hasRemoteContent = false,
+    this.remoteImageHosts = const [],
+    this.remoteImagesAllowed = false,
     required this.timestamp,
     this.isRead = false,
     this.isPinned = false,
     this.isStarred = false,
-    this.isReplied = false,
-    this.isForwarded = false,
-    this.isAnswered = false,
+    this.imapAnswered = false,
+    this.repliedFromKaydetMail = false,
+    this.forwardedFromKaydetMail = false,
+    this.threadReceivedReply = false,
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
@@ -77,6 +81,7 @@ class Email {
     this.threadId = '',
     this.inReplyToId,
     this.headers = const {},
+    this.authentication,
   });
 
   final String id;
@@ -102,19 +107,24 @@ class Email {
   /// automatically; this flag only preserves the server's signal for a
   /// future "load remote content" prompt.
   final bool hasRemoteContent;
+  final List<String> remoteImageHosts;
+  final bool remoteImagesAllowed;
 
   final DateTime timestamp;
   final bool isRead;
   final bool isPinned;
   final bool isStarred;
-  final bool isReplied;
-  final bool isForwarded;
+  final bool imapAnswered;
+  final bool repliedFromKaydetMail;
+  final bool forwardedFromKaydetMail;
+
+  bool get isReplied => imapAnswered || repliedFromKaydetMail;
 
   /// Sent-folder-only: whether this conversation has received an inbound
   /// reply back from the recipient (client-only tracking, mirror of
-  /// [isReplied] — see `ApiMailRepository._markSentThreadsAnswered`).
+  /// [repliedFromKaydetMail] — see `ApiMailRepository._markSentThreadsAnswered`).
   /// Meaningless outside Sent; always false on mail from other folders.
-  final bool isAnswered;
+  final bool threadReceivedReply;
   final MailFolder folder;
 
   /// Ids of the labels attached to this mail (see `MailLabel`).
@@ -151,6 +161,7 @@ class Email {
   /// one-click unsubscribe (`List-Unsubscribe`); never shown to the user
   /// directly.
   final Map<String, String> headers;
+  final MailAuthentication? authentication;
 
   static final _previewCache = Expando<String>('Email.preview');
   static final _whitespace = RegExp(r'\s+');
@@ -188,13 +199,16 @@ class Email {
     String? bodyText,
     String? bodyHtml,
     bool? hasRemoteContent,
+    List<String>? remoteImageHosts,
+    bool? remoteImagesAllowed,
     DateTime? timestamp,
     bool? isRead,
     bool? isPinned,
     bool? isStarred,
-    bool? isReplied,
-    bool? isForwarded,
-    bool? isAnswered,
+    bool? imapAnswered,
+    bool? repliedFromKaydetMail,
+    bool? forwardedFromKaydetMail,
+    bool? threadReceivedReply,
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
@@ -203,6 +217,7 @@ class Email {
     String? threadId,
     String? inReplyToId,
     Map<String, String>? headers,
+    MailAuthentication? authentication,
   }) {
     return Email(
       id: id,
@@ -215,13 +230,18 @@ class Email {
       bodyText: bodyText ?? this.bodyText,
       bodyHtml: bodyHtml ?? this.bodyHtml,
       hasRemoteContent: hasRemoteContent ?? this.hasRemoteContent,
+      remoteImageHosts: remoteImageHosts ?? this.remoteImageHosts,
+      remoteImagesAllowed: remoteImagesAllowed ?? this.remoteImagesAllowed,
       timestamp: timestamp ?? this.timestamp,
       isRead: isRead ?? this.isRead,
       isPinned: isPinned ?? this.isPinned,
       isStarred: isStarred ?? this.isStarred,
-      isReplied: isReplied ?? this.isReplied,
-      isForwarded: isForwarded ?? this.isForwarded,
-      isAnswered: isAnswered ?? this.isAnswered,
+      imapAnswered: imapAnswered ?? this.imapAnswered,
+      repliedFromKaydetMail:
+          repliedFromKaydetMail ?? this.repliedFromKaydetMail,
+      forwardedFromKaydetMail:
+          forwardedFromKaydetMail ?? this.forwardedFromKaydetMail,
+      threadReceivedReply: threadReceivedReply ?? this.threadReceivedReply,
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,
@@ -230,6 +250,7 @@ class Email {
       threadId: threadId ?? this.threadId,
       inReplyToId: inReplyToId ?? this.inReplyToId,
       headers: headers ?? this.headers,
+      authentication: authentication ?? this.authentication,
     );
   }
 
