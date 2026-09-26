@@ -798,15 +798,39 @@ class _BiometricLockSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
-    return SwitchListTile(
-      dense: true,
-      title: const Text('Uygulama Kilidi'),
-      subtitle: const Text(
-        'Uygulamayı her açtığınızda ya da arka plandan döndüğünde parmak '
-        'izi/Face ID veya cihaz şifresi ister.',
-      ),
-      value: settings.biometricLockEnabled,
-      onChanged: (v) => settings.biometricLockEnabled = v,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          dense: true,
+          title: const Text('Uygulama Kilidi'),
+          subtitle: const Text(
+            'Uygulamayı açtığınızda ya da seçilen süreden uzun arka planda '
+            'kaldıktan sonra parmak izi/Face ID veya cihaz şifresi ister.',
+          ),
+          value: settings.biometricLockEnabled,
+          onChanged: (v) => settings.biometricLockEnabled = v,
+        ),
+        if (settings.biometricLockEnabled) ...[
+          const Padding(
+            padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
+            child: Text(
+              'Arka plandan dönünce kilitle',
+              style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+            ),
+          ),
+          for (final timeout in BiometricLockTimeout.values)
+            ListTile(
+              dense: true,
+              key: ValueKey('biometric-timeout-${timeout.name}'),
+              title: Text(timeout.label),
+              trailing: timeout == settings.biometricLockTimeout
+                  ? const Icon(LucideIcons.check, size: 20)
+                  : null,
+              onTap: () => settings.biometricLockTimeout = timeout,
+            ),
+        ],
+      ],
     );
   }
 }

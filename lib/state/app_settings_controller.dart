@@ -60,6 +60,18 @@ enum SyncInterval {
   final Duration? duration;
 }
 
+enum BiometricLockTimeout {
+  immediately('Hemen', Duration.zero),
+  oneMinute('1 dakika sonra', Duration(minutes: 1)),
+  fiveMinutes('5 dakika sonra', Duration(minutes: 5)),
+  fifteenMinutes('15 dakika sonra', Duration(minutes: 15));
+
+  const BiometricLockTimeout(this.label, this.duration);
+
+  final String label;
+  final Duration duration;
+}
+
 /// App-level settings state.
 ///
 /// Swipe-to-delete and sync interval directly gate real inbox/refresh
@@ -79,6 +91,7 @@ class AppSettingsController extends ChangeNotifier {
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
   bool _biometricLockEnabled = false;
+  BiometricLockTimeout _biometricLockTimeout = BiometricLockTimeout.immediately;
   AttachmentAutoDownloadMode _attachmentAutoDownloadMode =
       AttachmentAutoDownloadMode.off;
   UndoSendDelay _undoSendDelay = UndoSendDelay.seconds5;
@@ -93,6 +106,7 @@ class AppSettingsController extends ChangeNotifier {
   /// Whether the app requires a biometric/device-credential check on cold
   /// start and on returning from the background. See `BiometricLockGate`.
   bool get biometricLockEnabled => _biometricLockEnabled;
+  BiometricLockTimeout get biometricLockTimeout => _biometricLockTimeout;
 
   /// Configured HTTP API base URL, normalized (no trailing slash).
   String get serverBaseUrl => _serverBaseUrl;
@@ -158,6 +172,13 @@ class AppSettingsController extends ChangeNotifier {
     unawaited(AppPreferencesStore.saveBiometricLockEnabled(value));
   }
 
+  set biometricLockTimeout(BiometricLockTimeout value) {
+    if (_biometricLockTimeout == value) return;
+    _biometricLockTimeout = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveBiometricLockTimeout(value.name));
+  }
+
   set themeMode(ThemeMode value) {
     if (_themeMode == value) return;
     _themeMode = value;
@@ -192,14 +213,22 @@ class AppSettingsController extends ChangeNotifier {
         .firstOrNull;
     final swipe = await AppPreferencesStore.loadSwipeDeleteEnabled();
     final biometricLock = await AppPreferencesStore.loadBiometricLockEnabled();
+    final timeoutName = await AppPreferencesStore.loadBiometricLockTimeout();
+    final biometricTimeout = BiometricLockTimeout.values
+        .where((value) => value.name == timeoutName)
+        .firstOrNull;
     if (sync == null &&
         swipe == _swipeDeleteEnabled &&
-        biometricLock == _biometricLockEnabled) {
+        biometricLock == _biometricLockEnabled &&
+        (biometricTimeout == null ||
+            biometricTimeout == _biometricLockTimeout)) {
       return;
     }
     _syncInterval = sync ?? SyncInterval.every5Minutes;
     _swipeDeleteEnabled = swipe;
     _biometricLockEnabled = biometricLock;
+    _biometricLockTimeout =
+        biometricTimeout ?? BiometricLockTimeout.immediately;
     notifyListeners();
   }
 
@@ -262,6 +291,7 @@ class AppSettingsController extends ChangeNotifier {
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
       .._biometricLockEnabled = false
+      .._biometricLockTimeout = BiometricLockTimeout.immediately
       .._attachmentAutoDownloadMode = AttachmentAutoDownloadMode.off
       .._attachmentAutoDownloadLimit = AttachmentAutoDownloadLimit.fiveMb
       .._undoSendDelay = UndoSendDelay.seconds5

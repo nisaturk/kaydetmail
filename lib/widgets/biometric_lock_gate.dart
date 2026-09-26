@@ -6,10 +6,12 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/biometric_lock_policy.dart';
 
 /// Gates [child] behind a biometric/device-credential check when
 /// [AppSettingsController.biometricLockEnabled] is on — re-checked on cold
-/// start and every time the app returns from the background.
+/// start and when the app returns from the background after
+/// [AppSettingsController.biometricLockTimeout] has elapsed.
 ///
 /// When the setting is off this is a plain passthrough: no
 /// [WidgetsBindingObserver] is registered and [child] renders directly, so
@@ -31,6 +33,8 @@ class _BiometricLockGateState extends State<BiometricLockGate>
   bool _wasBackgrounded = false;
   bool _unlocked = false;
   bool _authenticating = false;
+  Stopwatch? _backgroundedWatch;
+  DateTime? _backgroundedAt;
 
   /// True once `local_auth` has reported this device can't authenticate at
   /// all (no biometrics enrolled and no device passcode/pattern/PIN set) —
@@ -89,11 +93,26 @@ class _BiometricLockGateState extends State<BiometricLockGate>
     if (!_lockEnabled) return;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
+      if (!_wasBackgrounded) {
+        _backgroundedWatch = Stopwatch()..start();
+        _backgroundedAt = DateTime.now();
+      }
       _wasBackgrounded = true;
       return;
     }
     if (state == AppLifecycleState.resumed && _wasBackgrounded) {
       _wasBackgrounded = false;
+      final relock = shouldLockBiometric(
+        timeout: AppSettingsController.instance.biometricLockTimeout,
+        coldStart: false,
+        monotonicElapsed: _backgroundedWatch?.elapsed,
+        wallClockElapsed: _backgroundedAt == null
+            ? null
+            : DateTime.now().difference(_backgroundedAt!),
+      );
+      _backgroundedWatch = null;
+      _backgroundedAt = null;
+      if (!relock) return;
       setState(() {
         _unlocked = false;
         _deviceUnsupported = false;

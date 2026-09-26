@@ -11,6 +11,7 @@ class AppPreferencesStore {
   static const _swipeDeleteKey = 'kaydet.swipe.deleteEnabled';
   static const _themeModeKey = 'kaydet.theme.mode';
   static const _biometricLockKey = 'kaydet.security.biometricLockEnabled';
+  static const _biometricLockTimeoutKey = 'kaydet.security.biometricLockTimeout';
 
   static const _undoSendDelayKey = 'kaydet.compose.undoSendDelay';
 
@@ -115,5 +116,19 @@ class AppPreferencesStore {
   static Future<void> saveBiometricLockEnabled(bool value) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_biometricLockKey, value);
+  }
+
+  static Future<String?> loadBiometricLockTimeout() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_biometricLockTimeoutKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveBiometricLockTimeout(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_biometricLockTimeoutKey, value);
   }
 }
