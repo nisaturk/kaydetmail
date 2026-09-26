@@ -20,6 +20,7 @@ import '../utils/error_messages.dart';
 import '../utils/mail_pdf_export.dart';
 import '../utils/mail_threads.dart';
 import '../utils/mail_unsubscribe.dart';
+import '../utils/sender_block.dart';
 import '../widgets/move_folder_sheet.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
@@ -613,6 +614,13 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
             value: 'share_pdf',
             child: Text('PDF olarak paylaş'),
           ),
+          if (email.folder != MailFolder.sent &&
+              email.folder != MailFolder.drafts &&
+              email.senderEmail.contains('@'))
+            const PopupMenuItem(
+              value: 'block_sender',
+              child: Text('Gönderen engeli…'),
+            ),
           if (parseUnsubscribeHeaders(email.headers)?.hasAction ?? false)
             const PopupMenuItem(
               value: 'unsubscribe',
@@ -658,6 +666,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await _printMail();
     } else if (action == 'share_pdf') {
       await _sharePdf();
+    } else if (action == 'block_sender') {
+      await _toggleSenderBlock();
     } else if (action == 'unsubscribe') {
       await _unsubscribe();
     }
@@ -693,6 +703,62 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// one-click (RFC 8058) request asks for confirmation first — it's a
   /// real POST to the sender's server and, unlike opening a browser tab,
   /// can't be walked back by just closing the page.
+  Future<void> _toggleSenderBlock() async {
+    final email = _email;
+    if (email == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final sender = email.senderEmail.trim().toLowerCase();
+    try {
+      final blocked = (await findBlockRules(
+        _repo,
+        email.accountId,
+        sender,
+      )).isNotEmpty;
+      if (!mounted) return;
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: Text(blocked ? 'Engeli kaldır' : 'Göndereni engelle'),
+          content: Text(
+            blocked
+                ? '$sender adresinden gelen yeni e-postalar artık Spam '
+                      'klasörüne taşınmayacak.'
+                : '$sender adresinden gelen yeni e-postalar otomatik olarak '
+                      'Spam klasörüne taşınacak. Kural, Ayarlar > Kurallar '
+                      'ekranında görünür.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('Vazgeç'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: Text(blocked ? 'Engeli kaldır' : 'Engelle'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true) return;
+      if (blocked) {
+        await unblockSender(_repo, email.accountId, sender);
+      } else {
+        await blockSender(_repo, email.accountId, sender);
+      }
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text(
+            blocked ? '$sender engeli kaldırıldı.' : '$sender engellendi.',
+          ),
+        ),
+      );
+    } catch (error) {
+      messenger.showSnackBar(
+        SnackBar(content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}')),
+      );
+    }
+  }
+
   Future<void> _unsubscribe() async {
     final email = _email;
     if (email == null) return;
