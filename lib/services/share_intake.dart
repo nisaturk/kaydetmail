@@ -38,37 +38,87 @@ class ShareIntake {
 
   Future<void> _handle(List<SharedMediaFile> media) async {
     if (media.isEmpty) return;
-    final attachments = <Attachment>[];
-    final text = StringBuffer();
-    for (final m in media) {
-      if (m.type == SharedMediaType.text || m.type == SharedMediaType.url) {
-        if (text.isNotEmpty) text.writeln();
-        text.write(m.path);
-        continue;
-      }
-      try {
-        final bytes = await platform.readSharedFileBytes(m.path);
-        attachments.add(
-          Attachment(
-            name: platform.fileNameFromPath(m.path),
-            sizeBytes: bytes.length,
-            mimeType: m.mimeType,
-            bytes: bytes,
-          ),
-        );
-      } catch (_) {}
-    }
+    final draft = await buildShareDraft(media, platform.readSharedFileBytes);
     final ctx = _context();
     if (ctx == null || !ctx.mounted) return;
     ReceiveSharingIntent.instance.reset();
-    if (attachments.isEmpty && text.isEmpty) return;
+    final messenger = ScaffoldMessenger.maybeOf(ctx);
+    if (draft.isEmpty) {
+      if (draft.failedNames.isNotEmpty) {
+        messenger?.showSnackBar(
+          SnackBar(content: Text(_failureMessage(draft.failedNames))),
+        );
+      }
+      return;
+    }
     Navigator.of(ctx).push(
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
-          initialAttachments: attachments,
-          initialBody: text.toString(),
+          initialAttachments: draft.attachments,
+          initialBody: draft.body,
         ),
       ),
     );
+    if (draft.failedNames.isNotEmpty) {
+      messenger?.showSnackBar(
+        SnackBar(content: Text(_failureMessage(draft.failedNames))),
+      );
+    }
   }
+
+  static String _failureMessage(List<String> names) =>
+      'Paylaşılan ${names.length == 1 ? 'dosya' : '${names.length} dosya'} '
+      'okunamadı: ${names.join(', ')}';
+}
+
+typedef ShareDraft = ({
+  List<Attachment> attachments,
+  String body,
+  List<String> failedNames,
+});
+
+extension ShareDraftX on ShareDraft {
+  bool get isEmpty => attachments.isEmpty && body.isEmpty;
+}
+
+Future<ShareDraft> buildShareDraft(
+  List<SharedMediaFile> media,
+  Future<Uint8List> Function(String path) readBytes,
+) async {
+  final attachments = <Attachment>[];
+  final failedNames = <String>[];
+  final lines = <String>[];
+  void addLine(String? value) {
+    final trimmed = value?.trim();
+    if (trimmed == null || trimmed.isEmpty || lines.contains(trimmed)) return;
+    lines.add(trimmed);
+  }
+
+  for (final m in media) {
+    if (m.type == SharedMediaType.text || m.type == SharedMediaType.url) {
+      addLine(m.path);
+      addLine(m.message);
+      continue;
+    }
+    addLine(m.message);
+    final name = platform.fileNameFromPath(m.path);
+    try {
+      final bytes = await readBytes(m.path);
+      attachments.add(
+        Attachment(
+          name: name,
+          sizeBytes: bytes.length,
+          mimeType: m.mimeType,
+          bytes: bytes,
+        ),
+      );
+    } catch (_) {
+      failedNames.add(name);
+    }
+  }
+  return (
+    attachments: attachments,
+    body: lines.join('\n'),
+    failedNames: failedNames,
+  );
 }
