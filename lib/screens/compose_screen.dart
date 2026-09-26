@@ -1471,15 +1471,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 key: const Key('send-options-menu'),
                 tooltip: 'Gönderme seçenekleri',
                 padding: EdgeInsets.zero,
+                position: PopupMenuPosition.under,
                 icon: Icon(
                   LucideIcons.chevronDown,
                   size: 18,
                   color: colors.secondaryText,
                 ),
                 onSelected: (value) {
-                  if (value == 'now') {
-                    _send();
-                  } else if (value == 'schedule') {
+                  if (value == 'schedule') {
                     _scheduleSend();
                   } else if (value == 'read_receipt') {
                     setState(() => _requestReadReceipt = !_requestReadReceipt);
@@ -1491,13 +1490,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 },
                 itemBuilder: (context) => [
                   const PopupMenuItem(
-                    value: 'now',
-                    child: Text('Şimdi Gönder'),
-                  ),
-                  const PopupMenuItem(
                     value: 'schedule',
-                    child: Text('Zamanla'),
+                    child: ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      leading: Icon(LucideIcons.calendarClock, size: 20),
+                      title: Text('Zamanla'),
+                    ),
                   ),
+                  const PopupMenuDivider(),
                   CheckedPopupMenuItem(
                     value: 'read_receipt',
                     checked: _requestReadReceipt,

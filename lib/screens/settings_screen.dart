@@ -167,8 +167,8 @@ class SettingsScreen extends StatelessWidget {
           ),
           _CategoryTile(
             icon: LucideIcons.image,
-            title: 'Güvenilir Göndericiler',
-            subtitle: 'Uzak görselleri otomatik yüklenen gönderici ve alan adları',
+            title: 'Kayıtlı Görsel Tercihleri',
+            subtitle: 'Önceden güvenilir işaretlenen gönderici ve alan adları',
             onTap: (ctx) => Navigator.of(ctx).push(
               MaterialPageRoute(builder: (_) => const TrustedSendersScreen()),
             ),

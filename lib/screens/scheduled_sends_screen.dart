@@ -104,27 +104,27 @@ class _ScheduledRow extends StatelessWidget {
     final colors = AppTheme.colors(context);
     final status = switch (item.status) {
       ScheduledSendStatus.pending => (
-        label: 'Zamanland\u0131',
+        label: 'Zamanlandı',
         color: Theme.of(context).colorScheme.primary,
         icon: LucideIcons.clock,
       ),
       ScheduledSendStatus.sent => (
-        label: 'G\u00f6nderildi',
+        label: 'Gönderildi',
         color: colors.secondaryText,
         icon: LucideIcons.check,
       ),
       ScheduledSendStatus.cancelled => (
-        label: '\u0130ptal edildi',
+        label: 'İptal edildi',
         color: colors.secondaryText,
         icon: LucideIcons.x,
       ),
       ScheduledSendStatus.failed => (
-        label: item.failureReason ?? 'G\u00f6nderilemedi',
+        label: item.failureReason ?? 'Gönderilemedi',
         color: colors.destructive,
         icon: LucideIcons.triangleAlert,
       ),
       ScheduledSendStatus.deliveryUnknown => (
-        label: 'Sonu\u00e7 belirsiz \u2014 G\u00f6nderilenler\u2019i kontrol edin',
+        label: 'Sonuç belirsiz — Gönderilenler’i kontrol edin',
         color: colors.destructive,
         icon: LucideIcons.circleHelp,
       ),
@@ -139,12 +139,24 @@ class _ScheduledRow extends StatelessWidget {
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
-      subtitle: Text(
-        '${item.to.join(', ')}\n${status.label} \u00b7 ${_formatDateTime(item.sendAt)}',
-        maxLines: 2,
-        overflow: TextOverflow.ellipsis,
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            item.to.join(', '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          const SizedBox(height: 2),
+          Text(
+            '${status.label} · ${_formatDateTime(item.sendAt)}',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: status.color),
+          ),
+        ],
       ),
-      isThreeLine: true,
       trailing: tappable
           ? Icon(
               LucideIcons.chevronRight,
@@ -417,51 +429,86 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
           : _error != null
           ? _ErrorState(error: _error!, onRetry: _load)
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.fromLTRB(
+                16,
+                16,
+                16,
+                16 + MediaQuery.paddingOf(context).bottom,
+              ),
               children: [
-                if (_failed && widget.item.failureReason != null)
+                if (_failed && widget.item.failureReason != null) ...[
                   Card(
                     child: ListTile(
-                      leading: const Icon(LucideIcons.triangleAlert),
-                      title: const Text('G\u00f6nderim ba\u015far\u0131s\u0131z'),
+                      leading: Icon(
+                        LucideIcons.triangleAlert,
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                      title: const Text('Gönderim başarısız'),
                       subtitle: Text(widget.item.failureReason!),
                     ),
                   ),
+                  const SizedBox(height: 16),
+                ],
+                const _FormHeading('Alıcılar'),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _toController,
-                  decoration: const InputDecoration(labelText: 'Kime'),
+                  decoration: const InputDecoration(
+                    labelText: 'Kime',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _ccController,
-                  decoration: const InputDecoration(labelText: 'Cc'),
+                  decoration: const InputDecoration(
+                    labelText: 'Cc',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _bccController,
-                  decoration: const InputDecoration(labelText: 'Bcc'),
+                  decoration: const InputDecoration(
+                    labelText: 'Bcc',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
+                const SizedBox(height: 16),
+                const _FormHeading('İçerik'),
+                const SizedBox(height: 8),
                 TextField(
                   controller: _subjectController,
-                  decoration: const InputDecoration(labelText: 'Konu'),
+                  decoration: const InputDecoration(
+                    labelText: 'Konu',
+                    border: OutlineInputBorder(),
+                  ),
                 ),
-                const SizedBox(height: 8),
+                const SizedBox(height: 12),
                 TextField(
                   controller: _bodyController,
                   maxLines: 8,
-                  decoration: const InputDecoration(labelText: 'G\u00f6vde'),
-                ),
-                const SizedBox(height: 8),
-                ListTile(
-                  contentPadding: EdgeInsets.zero,
-                  leading: const Icon(LucideIcons.calendarClock),
-                  title: const Text('G\u00f6nderim zaman\u0131'),
-                  subtitle: Text(_formatDateTime(_sendAt)),
-                  trailing: TextButton(
-                    onPressed: _saving ? null : _pickSendAt,
-                    child: const Text('De\u011fi\u015ftir'),
+                  decoration: const InputDecoration(
+                    labelText: 'Gövde',
+                    border: OutlineInputBorder(),
+                    alignLabelWithHint: true,
                   ),
                 ),
-                const Divider(),
-                const Text('Ekler'),
+                const SizedBox(height: 8),
+                Card(
+                  margin: EdgeInsets.zero,
+                  child: ListTile(
+                    leading: const Icon(LucideIcons.calendarClock),
+                    title: const Text('Gönderim zamanı'),
+                    subtitle: Text(_formatDateTime(_sendAt)),
+                    trailing: TextButton(
+                      onPressed: _saving ? null : _pickSendAt,
+                      child: const Text('Değiştir'),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                const _FormHeading('Ekler'),
                 for (final kept in _keptAttachments)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -491,10 +538,13 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                     ),
                   ),
                 if (!_failed)
-                  TextButton.icon(
-                    onPressed: _saving ? null : _pickAttachments,
-                    icon: const Icon(LucideIcons.plus, size: 18),
-                    label: const Text('Ek ekle'),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      onPressed: _saving ? null : _pickAttachments,
+                      icon: const Icon(LucideIcons.plus, size: 18),
+                      label: const Text('Ek ekle'),
+                    ),
                   ),
                 const SizedBox(height: 12),
                 if (_failed)
@@ -502,20 +552,19 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                     onPressed: _saving ? null : _retryFailed,
                     icon: const Icon(LucideIcons.refreshCw, size: 18),
                     label: const Text('Yeniden dene'),
+                  )
+                else
+                  FilledButton(
+                    onPressed: _saving ? null : _savePending,
+                    child: const Text('Kaydet'),
                   ),
-                if (_failed) const SizedBox(height: 8),
-                FilledButton(
-                  onPressed: _saving
-                      ? null
-                      : _failed
-                      ? _retryFailed
-                      : _savePending,
-                  child: Text(_failed ? 'D\u00fczenleyip yeniden dene' : 'Kaydet'),
-                ),
                 const SizedBox(height: 8),
                 OutlinedButton(
                   onPressed: _saving ? null : _confirmCancel,
-                  child: const Text('G\u00f6nderimi iptal et'),
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: Theme.of(context).colorScheme.error,
+                  ),
+                  child: const Text('Gönderimi iptal et'),
                 ),
               ],
             ),
@@ -526,6 +575,24 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
 String _formatDateTime(DateTime dt) {
   String two(int n) => n.toString().padLeft(2, '0');
   return '${two(dt.day)}.${two(dt.month)}.${dt.year} ${two(dt.hour)}:${two(dt.minute)}';
+}
+
+class _FormHeading extends StatelessWidget {
+  const _FormHeading(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Text(
+      text,
+      style: TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w700,
+        color: Theme.of(context).colorScheme.primary,
+      ),
+    );
+  }
 }
 
 class _EmptyState extends StatelessWidget {

@@ -44,9 +44,11 @@ one unified inbox.
   actually finish (not just be queued) before reloading the list.
   Pin, snooze, label and manual-contact changes queue locally while offline and
   reconcile with the backend after reconnecting.
-- **Privacy and inspection.** Remote images are blocked by default, with
-  per-mail loading and trusted-sender controls. Tiny/hidden tracking pixels stay
-  blocked even when images are allowed. Mail detail offers full original IMAP
+- **Privacy and inspection.** Ordinary remote images load by default except in
+  Junk or mail reporting DMARC failure; these messages offer a per-mail load
+  action. Tiny/hidden tracking pixels remain blocked even when images load.
+  Loading remote images may tell the sender when and from where a mail was
+  opened. Mail detail offers full original IMAP
   headers and raw MIME on demand, plus SPF/DKIM/DMARC results and signed or
   encrypted format indicators. S/MIME signatures can be verified against the
   original MIME; OpenPGP verification, key management and decryption are not

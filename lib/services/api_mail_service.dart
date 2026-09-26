@@ -1207,12 +1207,16 @@ class ApiMailService {
   Future<List<ReplyReminder>> listReplyReminders() async {
     final body = await _client.get('/api/reply-reminders');
     final items = body['items'] as List? ?? const [];
-    return items
-        .map(
-          (item) =>
-              ReplyReminder.fromJson(Map<String, dynamic>.from(item as Map)),
-        )
-        .toList();
+    return [
+      for (final item in items)
+        if (item is Map)
+          ...() {
+            final parsed = ReplyReminder.tryParse(
+              Map<String, dynamic>.from(item),
+            );
+            return parsed == null ? const <ReplyReminder>[] : [parsed];
+          }(),
+    ];
   }
 
   /// Lists every scheduled send for the account via
