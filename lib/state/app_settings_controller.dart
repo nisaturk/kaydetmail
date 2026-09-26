@@ -45,6 +45,15 @@ enum UndoSendDelay {
   final Duration? duration;
 }
 
+enum SyncNetworkPolicy {
+  wifiAndMobile('Wi-Fi ve mobil veri'),
+  wifiOnly('Yalnız Wi-Fi');
+
+  const SyncNetworkPolicy(this.label);
+
+  final String label;
+}
+
 enum SyncInterval {
   manual('Manuel', null),
   every5Minutes('Her 5 dakikada bir', Duration(minutes: 5)),
@@ -95,6 +104,8 @@ class AppSettingsController extends ChangeNotifier {
   AttachmentAutoDownloadMode _attachmentAutoDownloadMode =
       AttachmentAutoDownloadMode.off;
   UndoSendDelay _undoSendDelay = UndoSendDelay.seconds5;
+  SyncNetworkPolicy _syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile;
+  bool _pauseSyncOnBatterySaver = true;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
       AttachmentAutoDownloadLimit.fiveMb;
   bool get notificationsEnabled => _notificationsEnabled;
@@ -122,6 +133,24 @@ class AppSettingsController extends ChangeNotifier {
       _attachmentAutoDownloadLimit;
 
   UndoSendDelay get undoSendDelay => _undoSendDelay;
+
+  SyncNetworkPolicy get syncNetworkPolicy => _syncNetworkPolicy;
+
+  bool get pauseSyncOnBatterySaver => _pauseSyncOnBatterySaver;
+
+  set syncNetworkPolicy(SyncNetworkPolicy value) {
+    if (_syncNetworkPolicy == value) return;
+    _syncNetworkPolicy = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSyncNetworkPolicy(value.name));
+  }
+
+  set pauseSyncOnBatterySaver(bool value) {
+    if (_pauseSyncOnBatterySaver == value) return;
+    _pauseSyncOnBatterySaver = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.savePauseSyncOnBatterySaver(value));
+  }
 
   set attachmentAutoDownloadMode(AttachmentAutoDownloadMode value) {
     if (_attachmentAutoDownloadMode == value) return;
@@ -249,6 +278,16 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadSyncPolicy() async {
+    final name = await AppPreferencesStore.loadSyncNetworkPolicy();
+    _syncNetworkPolicy =
+        SyncNetworkPolicy.values.where((v) => v.name == name).firstOrNull ??
+        SyncNetworkPolicy.wifiAndMobile;
+    _pauseSyncOnBatterySaver =
+        await AppPreferencesStore.loadPauseSyncOnBatterySaver();
+    notifyListeners();
+  }
+
   Future<void> loadUndoSendDelay() async {
     final name = await AppPreferencesStore.loadUndoSendDelay();
     _undoSendDelay =
@@ -295,6 +334,8 @@ class AppSettingsController extends ChangeNotifier {
       .._attachmentAutoDownloadMode = AttachmentAutoDownloadMode.off
       .._attachmentAutoDownloadLimit = AttachmentAutoDownloadLimit.fiveMb
       .._undoSendDelay = UndoSendDelay.seconds5
+      .._syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile
+      .._pauseSyncOnBatterySaver = true
       ..notifyListeners();
   }
 }

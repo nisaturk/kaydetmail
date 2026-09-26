@@ -1105,6 +1105,38 @@ class _SyncSection extends StatelessWidget {
             onTap: () => settings.syncInterval = interval,
           ),
         const Divider(height: 1),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            'Otomatik yenileme ağı',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: secondaryText,
+            ),
+          ),
+        ),
+        for (final policy in SyncNetworkPolicy.values)
+          ListTile(
+            dense: true,
+            key: ValueKey('sync-network-${policy.name}'),
+            title: Text(policy.label),
+            trailing: policy == settings.syncNetworkPolicy
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.syncNetworkPolicy = policy,
+          ),
+        SwitchListTile(
+          dense: true,
+          title: const Text('Pil tasarrufunda duraklat'),
+          subtitle: const Text(
+            'Pil tasarrufu açıkken otomatik yenileme yapılmaz; aşağı çekerek '
+            'yenileme ve bildirimler çalışmaya devam eder.',
+          ),
+          value: settings.pauseSyncOnBatterySaver,
+          onChanged: (v) => settings.pauseSyncOnBatterySaver = v,
+        ),
+        const Divider(height: 1),
         ListTile(
           leading: Icon(LucideIcons.activity, size: 20, color: secondaryText),
           title: const Text('Senkronizasyon durumu'),

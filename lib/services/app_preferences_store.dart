@@ -14,11 +14,41 @@ class AppPreferencesStore {
   static const _biometricLockTimeoutKey = 'kaydet.security.biometricLockTimeout';
 
   static const _undoSendDelayKey = 'kaydet.compose.undoSendDelay';
+  static const _syncNetworkPolicyKey = 'kaydet.sync.networkPolicy';
+  static const _pauseSyncOnBatterySaverKey = 'kaydet.sync.pauseOnBatterySaver';
 
   static const _attachmentAutoDownloadModeKey =
       'kaydet.attachments.autoDownloadMode';
   static const _attachmentAutoDownloadLimitKey =
       'kaydet.attachments.autoDownloadLimit';
+
+  static Future<String?> loadSyncNetworkPolicy() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_syncNetworkPolicyKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveSyncNetworkPolicy(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_syncNetworkPolicyKey, value);
+  }
+
+  static Future<bool> loadPauseSyncOnBatterySaver() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getBool(_pauseSyncOnBatterySaverKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<void> savePauseSyncOnBatterySaver(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_pauseSyncOnBatterySaverKey, value);
+  }
 
   static Future<String?> loadUndoSendDelay() async {
     try {
