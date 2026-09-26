@@ -547,7 +547,8 @@ abstract class MailRepository extends ChangeNotifier {
   /// Removes a contact. Unknown ids are ignored.
   Future<void> deleteManualContact(String id);
 
-  /// Aggregates isReplied/isForwarded across every message sharing
+  /// Aggregates the IMAP-answered, replied-from-app and forwarded-from-app
+  /// flags across every message sharing
   /// [representative]'s thread, so a thread's single list row reflects the
   /// whole conversation instead of only whichever message happens to
   /// represent it (the newest, which may not be the one the user actually
@@ -556,14 +557,21 @@ abstract class MailRepository extends ChangeNotifier {
     if (representative.threadId.isEmpty) return representative;
     final members = getThreadEmails(representative.threadId);
     if (members.isEmpty) return representative;
-    final replied = representative.isReplied || members.any((m) => m.isReplied);
-    final forwarded =
-        representative.isForwarded || members.any((m) => m.isForwarded);
-    if (replied == representative.isReplied &&
-        forwarded == representative.isForwarded) {
+    bool any(bool Function(Email) flag) =>
+        flag(representative) || members.any(flag);
+    final answered = any((m) => m.imapAnswered);
+    final replied = any((m) => m.repliedFromKaydetMail);
+    final forwarded = any((m) => m.forwardedFromKaydetMail);
+    if (answered == representative.imapAnswered &&
+        replied == representative.repliedFromKaydetMail &&
+        forwarded == representative.forwardedFromKaydetMail) {
       return representative;
     }
-    return representative.copyWith(isReplied: replied, isForwarded: forwarded);
+    return representative.copyWith(
+      imapAnswered: answered,
+      repliedFromKaydetMail: replied,
+      forwardedFromKaydetMail: forwarded,
+    );
   }
 
   // --- Search -------------------------------------------------------

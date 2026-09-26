@@ -78,15 +78,15 @@ class _Session {
 
   Set<String> pinnedIds = {};
   final Set<String> starredIds = {};
-  Set<String> repliedIds = {};
-  Set<String> forwardedIds = {};
-  Set<String> repliedThreadIds = {};
-  Set<String> forwardedThreadIds = {};
+  Set<String> repliedFromKaydetMailIds = {};
+  Set<String> forwardedFromKaydetMailIds = {};
+  Set<String> repliedFromKaydetMailThreadIds = {};
+  Set<String> forwardedFromKaydetMailThreadIds = {};
 
   /// ThreadId-keyed: Sent-folder conversations that have received an
-  /// inbound reply — the mirror direction of [repliedThreadIds]. See
+  /// inbound reply — the mirror direction of [repliedFromKaydetMailThreadIds]. See
   /// [ApiMailRepository._markSentThreadsAnswered].
-  Set<String> answeredThreadIds = {};
+  Set<String> threadsReceivedReplyIds = {};
 
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
@@ -157,17 +157,18 @@ class _Session {
     accountId: account.id,
     isStarred: email.isStarred || starredIds.contains(email.id),
     isPinned: pinnedIds.contains(email.id),
-    isReplied:
-        email.isReplied ||
-        repliedIds.contains(email.id) ||
+    repliedFromKaydetMail:
+        email.repliedFromKaydetMail ||
+        repliedFromKaydetMailIds.contains(email.id) ||
         (email.threadId.isNotEmpty &&
-            repliedThreadIds.contains(email.threadId)),
-    isForwarded:
-        forwardedIds.contains(email.id) ||
+            repliedFromKaydetMailThreadIds.contains(email.threadId)),
+    forwardedFromKaydetMail:
+        forwardedFromKaydetMailIds.contains(email.id) ||
         (email.threadId.isNotEmpty &&
-            forwardedThreadIds.contains(email.threadId)),
-    isAnswered:
-        email.threadId.isNotEmpty && answeredThreadIds.contains(email.threadId),
+            forwardedFromKaydetMailThreadIds.contains(email.threadId)),
+    threadReceivedReply:
+        email.threadId.isNotEmpty &&
+        threadsReceivedReplyIds.contains(email.threadId),
     labelIds: labelMap[email.id] ?? const [],
   );
 }
@@ -633,11 +634,11 @@ class ApiMailRepository extends MailRepository {
       final flags = LocalMailFlagsStore(account.id, _cache!);
       await flags.migrateLegacyPrefs();
       session.pinnedIds = await _loadPinnedIds(session, flags);
-      session.repliedIds = await flags.readReplied();
-      session.forwardedIds = await flags.readForwarded();
-      session.repliedThreadIds = await flags.readRepliedThreads();
-      session.forwardedThreadIds = await flags.readForwardedThreads();
-      session.answeredThreadIds = await flags.readAnsweredThreads();
+      session.repliedFromKaydetMailIds = await flags.readRepliedFromKaydetMail();
+      session.forwardedFromKaydetMailIds = await flags.readForwardedFromKaydetMail();
+      session.repliedFromKaydetMailThreadIds = await flags.readRepliedFromKaydetMailThreads();
+      session.forwardedFromKaydetMailThreadIds = await flags.readForwardedFromKaydetMailThreads();
+      session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
       await _loadLabels(session, flags);
       await _loadManualContacts(session, flags);
       session.snoozedUntil = await _loadSnoozedUntil(session, flags);
@@ -1152,7 +1153,7 @@ class ApiMailRepository extends MailRepository {
   /// forwarded/labels) from [session]'s current sets. Used instead of
   /// [_replaceMany] whenever a change can affect mail beyond the ids the
   /// caller touched directly — e.g. marking one message replied also marks
-  /// every other loaded message in its thread via `repliedThreadIds`.
+  /// every other loaded message in its thread via `repliedFromKaydetMailThreadIds`.
   void _restampFlags(_Session session) {
     _touch();
     for (final folder in session.emails.keys.toList()) {
@@ -1459,7 +1460,7 @@ class ApiMailRepository extends MailRepository {
   /// [MailRepository.unansweredReminderEnabled], currently off.
   static bool _isStaleUnanswered(Email email) =>
       MailRepository.unansweredReminderEnabled &&
-      !email.isAnswered &&
+      !email.threadReceivedReply &&
       DateTime.now().difference(email.timestamp) >
           MailRepository.unansweredReminderThreshold;
 
@@ -1774,8 +1775,8 @@ class ApiMailRepository extends MailRepository {
   /// A reply landing in Inbox for a thread the user has mail in Sent marks
   /// that Sent-folder conversation "answered" — the mirror direction of
   /// [markAsReplied] (replying to something in Inbox marks it via
-  /// [_Session.repliedThreadIds]; here, receiving a reply marks the Sent
-  /// thread via [_Session.answeredThreadIds]). Threads whose Sent message
+  /// [_Session.repliedFromKaydetMailThreadIds]; here, receiving a reply marks the Sent
+  /// thread via [_Session.threadsReceivedReplyIds]). Threads whose Sent message
   /// hasn't been loaded into memory this session simply can't be detected
   /// yet — it catches up once Sent is opened and a further reply arrives,
   /// same best-effort tradeoff as [stampLocalFlags]'s thread-level sets.
@@ -1792,12 +1793,12 @@ class ApiMailRepository extends MailRepository {
     for (final email in newlyArrived) {
       if (email.threadId.isEmpty) continue;
       if (!sentThreadIds.contains(email.threadId)) continue;
-      if (session.answeredThreadIds.add(email.threadId)) changed = true;
+      if (session.threadsReceivedReplyIds.add(email.threadId)) changed = true;
     }
     if (!changed) return;
     final store = session.flagsStore;
     if (store != null) {
-      await store.writeAnsweredThreads(session.answeredThreadIds);
+      await store.writeThreadsReceivedReply(session.threadsReceivedReplyIds);
     }
     _restampFlags(session);
   }
@@ -3661,16 +3662,16 @@ class ApiMailRepository extends MailRepository {
       final session = entry.key;
       final store = session.flagsStore;
       if (store == null) continue;
-      session.repliedIds.addAll(entry.value);
+      session.repliedFromKaydetMailIds.addAll(entry.value);
       for (final id in entry.value) {
         final threadId = session.findLoaded(id)?.threadId;
         if (threadId != null && threadId.isNotEmpty) {
-          session.repliedThreadIds.add(threadId);
+          session.repliedFromKaydetMailThreadIds.add(threadId);
         }
       }
       await Future.wait([
-        store.writeReplied(session.repliedIds),
-        store.writeRepliedThreads(session.repliedThreadIds),
+        store.writeRepliedFromKaydetMail(session.repliedFromKaydetMailIds),
+        store.writeRepliedFromKaydetMailThreads(session.repliedFromKaydetMailThreadIds),
       ]);
       _restampFlags(session);
     }
@@ -3750,16 +3751,16 @@ class ApiMailRepository extends MailRepository {
       final session = entry.key;
       final store = session.flagsStore;
       if (store == null) continue;
-      session.forwardedIds.addAll(entry.value);
+      session.forwardedFromKaydetMailIds.addAll(entry.value);
       for (final id in entry.value) {
         final threadId = session.findLoaded(id)?.threadId;
         if (threadId != null && threadId.isNotEmpty) {
-          session.forwardedThreadIds.add(threadId);
+          session.forwardedFromKaydetMailThreadIds.add(threadId);
         }
       }
       await Future.wait([
-        store.writeForwarded(session.forwardedIds),
-        store.writeForwardedThreads(session.forwardedThreadIds),
+        store.writeForwardedFromKaydetMail(session.forwardedFromKaydetMailIds),
+        store.writeForwardedFromKaydetMailThreads(session.forwardedFromKaydetMailThreadIds),
       ]);
       _restampFlags(session);
     }

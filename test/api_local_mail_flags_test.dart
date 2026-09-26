@@ -97,7 +97,7 @@ void main() {
         await repo.markAsForwarded(['mail-1']);
 
         final email = repo.getEmailsInFolder(MailFolder.inbox).single;
-        expect(email.isForwarded, isTrue);
+        expect(email.forwardedFromKaydetMail, isTrue);
         expect(email.isRead, isTrue);
         // "Forwarded" is local-only; the resulting read state is a real mail
         // state, so it goes through the bulk read action, not a local fake.
@@ -160,7 +160,7 @@ void main() {
       final mailTwo = repo2.getEmailsInFolder(MailFolder.inbox).single;
 
       expect(mailTwo.isReplied, isTrue);
-      expect(mailTwo.isForwarded, isTrue);
+      expect(mailTwo.forwardedFromKaydetMail, isTrue);
     });
   });
   group('starred virtual folder', () {

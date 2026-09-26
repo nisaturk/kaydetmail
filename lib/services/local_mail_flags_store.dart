@@ -92,34 +92,34 @@ class LocalMailFlagsStore {
   }
 
   Future<Set<String>> readPinned() => _read('pinned');
-  Future<Set<String>> readReplied() => _read('replied');
-  Future<Set<String>> readForwarded() => _read('forwarded');
+  Future<Set<String>> readRepliedFromKaydetMail() => _read('replied');
+  Future<Set<String>> readForwardedFromKaydetMail() => _read('forwarded');
 
-  /// ThreadId-keyed companions to [readReplied]/[readForwarded]: a reply or
+  /// ThreadId-keyed companions to [readRepliedFromKaydetMail]/[readForwardedFromKaydetMail]: a reply or
   /// forward is stamped on every message in the conversation, not only the
   /// one the user actually opened — so the inbox row for a thread whose
   /// answered message isn't currently loaded into memory (e.g. it lives in
   /// an unfetched folder) still shows the icon. See [ApiMailRepository]
   /// `stampLocalFlags`.
-  Future<Set<String>> readRepliedThreads() => _read('replied_threads');
-  Future<Set<String>> readForwardedThreads() => _read('forwarded_threads');
+  Future<Set<String>> readRepliedFromKaydetMailThreads() => _read('replied_threads');
+  Future<Set<String>> readForwardedFromKaydetMailThreads() => _read('forwarded_threads');
 
   /// ThreadId-keyed set of Sent-folder conversations that have received an
-  /// inbound reply — the mirror direction of [readRepliedThreads]: that one
+  /// inbound reply — the mirror direction of [readRepliedFromKaydetMailThreads]: that one
   /// marks a thread the user replied *into*, this one marks a thread the
   /// user *sent* that got answered back. Powers the Sent-folder
   /// "Yanıtlanmadı" nudge in `MailListItem`. See
   /// `ApiMailRepository._markSentThreadsAnswered`.
-  Future<Set<String>> readAnsweredThreads() => _read('answered_threads');
+  Future<Set<String>> readThreadsReceivedReply() => _read('answered_threads');
   Future<void> writePinned(Set<String> ids) async => _write('pinned', ids);
-  Future<void> writeReplied(Set<String> ids) async => _write('replied', ids);
-  Future<void> writeForwarded(Set<String> ids) async =>
+  Future<void> writeRepliedFromKaydetMail(Set<String> ids) async => _write('replied', ids);
+  Future<void> writeForwardedFromKaydetMail(Set<String> ids) async =>
       _write('forwarded', ids);
-  Future<void> writeRepliedThreads(Set<String> ids) async =>
+  Future<void> writeRepliedFromKaydetMailThreads(Set<String> ids) async =>
       _write('replied_threads', ids);
-  Future<void> writeForwardedThreads(Set<String> ids) async =>
+  Future<void> writeForwardedFromKaydetMailThreads(Set<String> ids) async =>
       _write('forwarded_threads', ids);
-  Future<void> writeAnsweredThreads(Set<String> ids) async =>
+  Future<void> writeThreadsReceivedReply(Set<String> ids) async =>
       _write('answered_threads', ids);
 
   Future<List<Map<String, dynamic>>> readContacts() async => [

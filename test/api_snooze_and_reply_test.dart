@@ -106,7 +106,7 @@ void main() {
         await repo.loadMoreEmails(MailFolder.sent);
 
         final beforeReply = repo.getEmailsInFolder(MailFolder.sent).single;
-        expect(beforeReply.isAnswered, isFalse);
+        expect(beforeReply.threadReceivedReply, isFalse);
 
         // The reply lands in Inbox, sharing the sent message's threadId.
         mailService.pagesByFolderId['folder-inbox'] = _page([
@@ -119,7 +119,7 @@ void main() {
         await repo.refreshEmails(MailFolder.inbox);
 
         final afterReply = repo.getEmailsInFolder(MailFolder.sent).single;
-        expect(afterReply.isAnswered, isTrue);
+        expect(afterReply.threadReceivedReply, isTrue);
       },
     );
 
@@ -144,7 +144,7 @@ void main() {
       await repo.refreshEmails(MailFolder.inbox);
 
       expect(
-        repo.getEmailsInFolder(MailFolder.sent).single.isAnswered,
+        repo.getEmailsInFolder(MailFolder.sent).single.threadReceivedReply,
         isFalse,
       );
     });
@@ -170,14 +170,14 @@ void main() {
         ]);
         await repo1.refreshEmails(MailFolder.inbox);
         expect(
-          repo1.getEmailsInFolder(MailFolder.sent).single.isAnswered,
+          repo1.getEmailsInFolder(MailFolder.sent).single.threadReceivedReply,
           isTrue,
         );
 
         final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
         await repo2.loadMoreEmails(MailFolder.sent);
         expect(
-          repo2.getEmailsInFolder(MailFolder.sent).single.isAnswered,
+          repo2.getEmailsInFolder(MailFolder.sent).single.threadReceivedReply,
           isTrue,
         );
       },
@@ -195,7 +195,7 @@ void main() {
           bodyText: 'Gövde',
           timestamp: timestamp,
           folder: MailFolder.sent,
-          isAnswered: answered,
+          threadReceivedReply: answered,
         );
 
     Widget harness(Email email) => MaterialApp(

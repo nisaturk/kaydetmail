@@ -69,9 +69,10 @@ class Email {
     this.isRead = false,
     this.isPinned = false,
     this.isStarred = false,
-    this.isReplied = false,
-    this.isForwarded = false,
-    this.isAnswered = false,
+    this.imapAnswered = false,
+    this.repliedFromKaydetMail = false,
+    this.forwardedFromKaydetMail = false,
+    this.threadReceivedReply = false,
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
@@ -113,14 +114,17 @@ class Email {
   final bool isRead;
   final bool isPinned;
   final bool isStarred;
-  final bool isReplied;
-  final bool isForwarded;
+  final bool imapAnswered;
+  final bool repliedFromKaydetMail;
+  final bool forwardedFromKaydetMail;
+
+  bool get isReplied => imapAnswered || repliedFromKaydetMail;
 
   /// Sent-folder-only: whether this conversation has received an inbound
   /// reply back from the recipient (client-only tracking, mirror of
-  /// [isReplied] — see `ApiMailRepository._markSentThreadsAnswered`).
+  /// [repliedFromKaydetMail] — see `ApiMailRepository._markSentThreadsAnswered`).
   /// Meaningless outside Sent; always false on mail from other folders.
-  final bool isAnswered;
+  final bool threadReceivedReply;
   final MailFolder folder;
 
   /// Ids of the labels attached to this mail (see `MailLabel`).
@@ -201,9 +205,10 @@ class Email {
     bool? isRead,
     bool? isPinned,
     bool? isStarred,
-    bool? isReplied,
-    bool? isForwarded,
-    bool? isAnswered,
+    bool? imapAnswered,
+    bool? repliedFromKaydetMail,
+    bool? forwardedFromKaydetMail,
+    bool? threadReceivedReply,
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
@@ -231,9 +236,12 @@ class Email {
       isRead: isRead ?? this.isRead,
       isPinned: isPinned ?? this.isPinned,
       isStarred: isStarred ?? this.isStarred,
-      isReplied: isReplied ?? this.isReplied,
-      isForwarded: isForwarded ?? this.isForwarded,
-      isAnswered: isAnswered ?? this.isAnswered,
+      imapAnswered: imapAnswered ?? this.imapAnswered,
+      repliedFromKaydetMail:
+          repliedFromKaydetMail ?? this.repliedFromKaydetMail,
+      forwardedFromKaydetMail:
+          forwardedFromKaydetMail ?? this.forwardedFromKaydetMail,
+      threadReceivedReply: threadReceivedReply ?? this.threadReceivedReply,
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,
