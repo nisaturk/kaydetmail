@@ -13,6 +13,8 @@ import '../models/mail_template.dart';
 import '../models/mail_snippet.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
+import '../services/device_contacts.dart';
+import '../state/app_settings_controller.dart';
 import '../state/pending_send_queue.dart';
 import '../models/mail_signature.dart';
 import '../theme/app_theme.dart';
@@ -296,6 +298,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
     unawaited(_loadIdentities());
     ContactsStore.startListening(_repo);
     _refreshContacts();
+    unawaited(
+      DeviceContacts.refresh(
+        enabled: AppSettingsController.instance.deviceContactsEnabled,
+      ).then((_) {
+        if (mounted) _refreshContacts();
+      }),
+    );
     _repo.addListener(_refreshContacts);
     _toFocus.addListener(() => _handleFieldFocusChange(_toFocus));
     _ccFocus.addListener(() => _handleFieldFocusChange(_ccFocus));
@@ -334,7 +343,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ),
     ];
     _contacts = ContactsStore.merge(
-      ContactsStore.merge(ContactsStore.cachedPersisted, manual),
+      ContactsStore.merge(
+        ContactsStore.merge(DeviceContacts.cached, ContactsStore.cachedPersisted),
+        manual,
+      ),
       ContactsStore.fromEmails(_repo.getAllEmails()),
     );
   }

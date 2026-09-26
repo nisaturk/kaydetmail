@@ -119,6 +119,7 @@ class AppSettingsController extends ChangeNotifier {
   UndoSendDelay _undoSendDelay = UndoSendDelay.seconds5;
   SyncNetworkPolicy _syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile;
   SwipeGesture _swipeRight = SwipeGesture.archive;
+  bool _deviceContactsEnabled = false;
   SwipeGesture _swipeLeft = SwipeGesture.trash;
   bool _pauseSyncOnBatterySaver = true;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
@@ -152,6 +153,15 @@ class AppSettingsController extends ChangeNotifier {
   SyncNetworkPolicy get syncNetworkPolicy => _syncNetworkPolicy;
 
   SwipeGesture get swipeRight => _swipeRight;
+
+  bool get deviceContactsEnabled => _deviceContactsEnabled;
+
+  set deviceContactsEnabled(bool value) {
+    if (_deviceContactsEnabled == value) return;
+    _deviceContactsEnabled = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveDeviceContactsEnabled(value));
+  }
 
   SwipeGesture get swipeLeft => _swipeLeft;
 
@@ -311,6 +321,12 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadDeviceContactsEnabled() async {
+    _deviceContactsEnabled =
+        await AppPreferencesStore.loadDeviceContactsEnabled();
+    notifyListeners();
+  }
+
   Future<void> loadSwipeGestures() async {
     SwipeGesture? parse(String? name) =>
         SwipeGesture.values.where((v) => v.name == name).firstOrNull;
@@ -382,6 +398,7 @@ class AppSettingsController extends ChangeNotifier {
       .._syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile
       .._pauseSyncOnBatterySaver = true
       .._swipeRight = SwipeGesture.archive
+      .._deviceContactsEnabled = false
       .._swipeLeft = SwipeGesture.trash
       ..notifyListeners();
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -6,6 +8,7 @@ import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
 import '../services/api_health_service.dart';
+import '../services/device_contacts.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
@@ -112,7 +115,7 @@ class SettingsScreen extends StatelessWidget {
             icon: LucideIcons.contact,
             title: 'Kişiler',
             subtitle: 'Hiç mailleşmediğiniz kişileri önceden ekleyin',
-            page: (_) => [_ContactsSection()],
+            page: (_) => [_DeviceContactsSection(), _ContactsSection()],
           ),
           _CategoryTile(
             icon: LucideIcons.filter,
@@ -488,6 +491,56 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
 /// before ever exchanging mail with them. Synced through the backend (see
 /// `MailRepository.addManualContact`); distinct from the automatic
 /// mail-participant suggestions in `ContactsStore`.
+class _DeviceContactsSection extends StatefulWidget {
+  const _DeviceContactsSection();
+
+  @override
+  State<_DeviceContactsSection> createState() => _DeviceContactsSectionState();
+}
+
+class _DeviceContactsSectionState extends State<_DeviceContactsSection> {
+  bool _busy = false;
+
+  Future<void> _toggle(bool enable) async {
+    final settings = AppSettingsController.instance;
+    if (!enable) {
+      settings.deviceContactsEnabled = false;
+      DeviceContacts.clear();
+      return;
+    }
+    setState(() => _busy = true);
+    final granted = await const PlatformDeviceContacts().requestAccess();
+    if (!mounted) return;
+    setState(() => _busy = false);
+    if (!granted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Kişilere erişim izni verilmedi. Öneriler mail geçmişinden '
+            've eklediğiniz kişilerden gelmeye devam eder.',
+          ),
+        ),
+      );
+      return;
+    }
+    settings.deviceContactsEnabled = true;
+    unawaited(DeviceContacts.refresh(enabled: true));
+  }
+
+  @override
+  Widget build(BuildContext context) => SwitchListTile(
+    key: const Key('device-contacts-toggle'),
+    dense: true,
+    title: const Text('Cihaz kişilerini öner'),
+    subtitle: const Text(
+      'Alıcı yazarken telefon rehberindeki e-posta adreslerini de önerir. '
+      'Rehber yalnızca bu cihazda okunur, sunucuya gönderilmez.',
+    ),
+    value: AppSettingsController.instance.deviceContactsEnabled,
+    onChanged: _busy ? null : _toggle,
+  );
+}
+
 class _ContactsSection extends StatelessWidget {
   const _ContactsSection();
 

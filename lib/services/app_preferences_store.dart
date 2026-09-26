@@ -16,6 +16,7 @@ class AppPreferencesStore {
   static const _undoSendDelayKey = 'kaydet.compose.undoSendDelay';
   static const _syncNetworkPolicyKey = 'kaydet.sync.networkPolicy';
   static const _swipeRightKey = 'kaydet.swipe.right';
+  static const _deviceContactsKey = 'kaydet.contacts.deviceEnabled';
   static const _swipeLeftKey = 'kaydet.swipe.left';
   static const _pauseSyncOnBatterySaverKey = 'kaydet.sync.pauseOnBatterySaver';
 
@@ -23,6 +24,20 @@ class AppPreferencesStore {
       'kaydet.attachments.autoDownloadMode';
   static const _attachmentAutoDownloadLimitKey =
       'kaydet.attachments.autoDownloadLimit';
+
+  static Future<bool> loadDeviceContactsEnabled() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getBool(_deviceContactsKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> saveDeviceContactsEnabled(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_deviceContactsKey, value);
+  }
 
   static Future<String?> loadSwipeGesture({required bool right}) async {
     try {
