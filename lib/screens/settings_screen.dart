@@ -1191,16 +1191,67 @@ class _SwipeSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final settings = AppSettingsController.instance;
-    return SwitchListTile(
-      dense: true,
-      title: const Text('Kaydırarak sil'),
-      subtitle: const Text(
-        'Listede sola kaydırınca e-postayı çöp kutusuna taşır.',
-      ),
-      value: settings.swipeDeleteEnabled,
-      onChanged: (v) => settings.swipeDeleteEnabled = v,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SwitchListTile(
+          dense: true,
+          title: const Text('Kaydırma hareketleri'),
+          subtitle: const Text(
+            'Listede e-postayı sağa veya sola kaydırarak aşağıdaki '
+            'işlemleri yapın. Çöp, Spam ve Arşiv klasörleri kendi '
+            'işlemlerini kullanır.',
+          ),
+          value: settings.swipeDeleteEnabled,
+          onChanged: (v) => settings.swipeDeleteEnabled = v,
+        ),
+        if (settings.swipeDeleteEnabled) ...[
+          _SwipeGestureTile(
+            key: const Key('swipe-right-setting'),
+            title: 'Sağa kaydırınca',
+            value: settings.swipeRight,
+            onChanged: (v) => settings.swipeRight = v,
+          ),
+          _SwipeGestureTile(
+            key: const Key('swipe-left-setting'),
+            title: 'Sola kaydırınca',
+            value: settings.swipeLeft,
+            onChanged: (v) => settings.swipeLeft = v,
+          ),
+        ],
+      ],
     );
   }
+}
+
+class _SwipeGestureTile extends StatelessWidget {
+  const _SwipeGestureTile({
+    super.key,
+    required this.title,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final String title;
+  final SwipeGesture value;
+  final ValueChanged<SwipeGesture> onChanged;
+
+  @override
+  Widget build(BuildContext context) => ListTile(
+    dense: true,
+    title: Text(title),
+    trailing: DropdownButton<SwipeGesture>(
+      value: value,
+      underline: const SizedBox.shrink(),
+      onChanged: (v) {
+        if (v != null) onChanged(v);
+      },
+      items: [
+        for (final gesture in SwipeGesture.values)
+          DropdownMenuItem(value: gesture, child: Text(gesture.label)),
+      ],
+    ),
+  );
 }
 
 class _UndoSendSection extends StatelessWidget {

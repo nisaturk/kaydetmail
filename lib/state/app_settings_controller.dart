@@ -45,6 +45,19 @@ enum UndoSendDelay {
   final Duration? duration;
 }
 
+enum SwipeGesture {
+  archive('Arşivle'),
+  trash('Sil'),
+  toggleRead('Okundu / okunmadı'),
+  star('Yıldızla / yıldızı kaldır'),
+  snooze('Ertele'),
+  none('Kapalı');
+
+  const SwipeGesture(this.label);
+
+  final String label;
+}
+
 enum SyncNetworkPolicy {
   wifiAndMobile('Wi-Fi ve mobil veri'),
   wifiOnly('Yalnız Wi-Fi');
@@ -105,13 +118,15 @@ class AppSettingsController extends ChangeNotifier {
       AttachmentAutoDownloadMode.off;
   UndoSendDelay _undoSendDelay = UndoSendDelay.seconds5;
   SyncNetworkPolicy _syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile;
+  SwipeGesture _swipeRight = SwipeGesture.archive;
+  SwipeGesture _swipeLeft = SwipeGesture.trash;
   bool _pauseSyncOnBatterySaver = true;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
       AttachmentAutoDownloadLimit.fiveMb;
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
 
-  /// Whether the inbox supports swipe-to-delete (`Kaydırarak sil`).
+  /// Whether list swipe gestures are enabled (`Kaydırma hareketleri`).
   bool get swipeDeleteEnabled => _swipeDeleteEnabled;
 
   /// Whether the app requires a biometric/device-credential check on cold
@@ -135,6 +150,24 @@ class AppSettingsController extends ChangeNotifier {
   UndoSendDelay get undoSendDelay => _undoSendDelay;
 
   SyncNetworkPolicy get syncNetworkPolicy => _syncNetworkPolicy;
+
+  SwipeGesture get swipeRight => _swipeRight;
+
+  SwipeGesture get swipeLeft => _swipeLeft;
+
+  set swipeRight(SwipeGesture value) {
+    if (_swipeRight == value) return;
+    _swipeRight = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeGesture(right: true, value.name));
+  }
+
+  set swipeLeft(SwipeGesture value) {
+    if (_swipeLeft == value) return;
+    _swipeLeft = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeGesture(right: false, value.name));
+  }
 
   bool get pauseSyncOnBatterySaver => _pauseSyncOnBatterySaver;
 
@@ -278,6 +311,18 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadSwipeGestures() async {
+    SwipeGesture? parse(String? name) =>
+        SwipeGesture.values.where((v) => v.name == name).firstOrNull;
+    _swipeRight =
+        parse(await AppPreferencesStore.loadSwipeGesture(right: true)) ??
+        SwipeGesture.archive;
+    _swipeLeft =
+        parse(await AppPreferencesStore.loadSwipeGesture(right: false)) ??
+        SwipeGesture.trash;
+    notifyListeners();
+  }
+
   Future<void> loadSyncPolicy() async {
     final name = await AppPreferencesStore.loadSyncNetworkPolicy();
     _syncNetworkPolicy =
@@ -336,6 +381,8 @@ class AppSettingsController extends ChangeNotifier {
       .._undoSendDelay = UndoSendDelay.seconds5
       .._syncNetworkPolicy = SyncNetworkPolicy.wifiAndMobile
       .._pauseSyncOnBatterySaver = true
+      .._swipeRight = SwipeGesture.archive
+      .._swipeLeft = SwipeGesture.trash
       ..notifyListeners();
   }
 }

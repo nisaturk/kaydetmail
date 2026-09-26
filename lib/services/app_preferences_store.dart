@@ -15,12 +15,31 @@ class AppPreferencesStore {
 
   static const _undoSendDelayKey = 'kaydet.compose.undoSendDelay';
   static const _syncNetworkPolicyKey = 'kaydet.sync.networkPolicy';
+  static const _swipeRightKey = 'kaydet.swipe.right';
+  static const _swipeLeftKey = 'kaydet.swipe.left';
   static const _pauseSyncOnBatterySaverKey = 'kaydet.sync.pauseOnBatterySaver';
 
   static const _attachmentAutoDownloadModeKey =
       'kaydet.attachments.autoDownloadMode';
   static const _attachmentAutoDownloadLimitKey =
       'kaydet.attachments.autoDownloadLimit';
+
+  static Future<String?> loadSwipeGesture({required bool right}) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(right ? _swipeRightKey : _swipeLeftKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveSwipeGesture(
+    String value, {
+    required bool right,
+  }) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(right ? _swipeRightKey : _swipeLeftKey, value);
+  }
 
   static Future<String?> loadSyncNetworkPolicy() async {
     try {
