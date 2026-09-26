@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -25,6 +27,8 @@ import '../utils/image_resize.dart';
 /// Non-ready states for a remote attachment awaiting/needing its content —
 /// see `_ComposeScreenState._attachmentIssues`.
 enum _AttachmentIssue { downloading, failed }
+
+enum _AttachmentSource { file, gallery, camera }
 
 /// Borderless field decoration shared by every compose input.
 ///
@@ -1128,6 +1132,76 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   Future<List<Attachment>?> _osPickAttachments() async {
+    final source = await showModalBottomSheet<_AttachmentSource>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              key: const Key('attach-source-file'),
+              leading: const Icon(LucideIcons.file),
+              title: const Text('Dosya seç'),
+              onTap: () => Navigator.pop(ctx, _AttachmentSource.file),
+            ),
+            ListTile(
+              key: const Key('attach-source-gallery'),
+              leading: const Icon(LucideIcons.image),
+              title: const Text('Fotoğraf seç'),
+              onTap: () => Navigator.pop(ctx, _AttachmentSource.gallery),
+            ),
+            ListTile(
+              key: const Key('attach-source-camera'),
+              leading: const Icon(LucideIcons.camera),
+              title: const Text('Kamera'),
+              onTap: () => Navigator.pop(ctx, _AttachmentSource.camera),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null) return null;
+    if (source == _AttachmentSource.file) return _pickFiles();
+    try {
+      final picker = ImagePicker();
+      final images = source == _AttachmentSource.camera
+          ? [?await picker.pickImage(source: ImageSource.camera)]
+          : await picker.pickMultiImage();
+      if (images.isEmpty) return null;
+      return [
+        for (final image in images)
+          await _attachmentFromXFile(image),
+      ];
+    } on PlatformException {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              source == _AttachmentSource.camera
+                  ? 'Kameraya erişilemedi. İzinleri kontrol edin veya dosya seçin.'
+                  : 'Fotoğraflara erişilemedi. İzinleri kontrol edin veya dosya seçin.',
+            ),
+          ),
+        );
+      }
+      return null;
+    }
+  }
+
+  Future<Attachment> _attachmentFromXFile(XFile file) async {
+    final bytes = await file.readAsBytes();
+    final name = file.name.isEmpty
+        ? 'foto-${DateTime.now().millisecondsSinceEpoch}.jpg'
+        : file.name;
+    return Attachment(
+      name: name,
+      sizeBytes: bytes.length,
+      mimeType: attachmentContentType(name, file.mimeType),
+      bytes: bytes,
+    );
+  }
+
+  Future<List<Attachment>?> _pickFiles() async {
     final files = await FilePicker.pickFiles(type: FileType.any);
     if (files.isEmpty) return null;
     final attachments = <Attachment>[];
