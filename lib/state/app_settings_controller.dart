@@ -31,6 +31,20 @@ enum AttachmentAutoDownloadLimit {
   final int bytes;
 }
 
+enum UndoSendDelay {
+  off('Kapalı', null),
+  seconds5('5 saniye', Duration(seconds: 5)),
+  seconds10('10 saniye', Duration(seconds: 10)),
+  seconds20('20 saniye', Duration(seconds: 20)),
+  seconds30('30 saniye', Duration(seconds: 30));
+
+  const UndoSendDelay(this.label, this.duration);
+
+  final String label;
+
+  final Duration? duration;
+}
+
 enum SyncInterval {
   manual('Manuel', null),
   every5Minutes('Her 5 dakikada bir', Duration(minutes: 5)),
@@ -67,6 +81,7 @@ class AppSettingsController extends ChangeNotifier {
   bool _biometricLockEnabled = false;
   AttachmentAutoDownloadMode _attachmentAutoDownloadMode =
       AttachmentAutoDownloadMode.off;
+  UndoSendDelay _undoSendDelay = UndoSendDelay.seconds5;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
       AttachmentAutoDownloadLimit.fiveMb;
   bool get notificationsEnabled => _notificationsEnabled;
@@ -92,11 +107,20 @@ class AppSettingsController extends ChangeNotifier {
   AttachmentAutoDownloadLimit get attachmentAutoDownloadLimit =>
       _attachmentAutoDownloadLimit;
 
+  UndoSendDelay get undoSendDelay => _undoSendDelay;
+
   set attachmentAutoDownloadMode(AttachmentAutoDownloadMode value) {
     if (_attachmentAutoDownloadMode == value) return;
     _attachmentAutoDownloadMode = value;
     notifyListeners();
     unawaited(AppPreferencesStore.saveAttachmentAutoDownloadMode(value.name));
+  }
+
+  set undoSendDelay(UndoSendDelay value) {
+    if (_undoSendDelay == value) return;
+    _undoSendDelay = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveUndoSendDelay(value.name));
   }
 
   set attachmentAutoDownloadLimit(AttachmentAutoDownloadLimit value) {
@@ -196,6 +220,14 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadUndoSendDelay() async {
+    final name = await AppPreferencesStore.loadUndoSendDelay();
+    _undoSendDelay =
+        UndoSendDelay.values.where((v) => v.name == name).firstOrNull ??
+        UndoSendDelay.seconds5;
+    notifyListeners();
+  }
+
   /// Loads the persisted theme mode. Awaited before `runApp` in `main()` so
   /// the very first frame already uses the right mode — no light-then-dark
   /// flash.
@@ -232,6 +264,7 @@ class AppSettingsController extends ChangeNotifier {
       .._biometricLockEnabled = false
       .._attachmentAutoDownloadMode = AttachmentAutoDownloadMode.off
       .._attachmentAutoDownloadLimit = AttachmentAutoDownloadLimit.fiveMb
+      .._undoSendDelay = UndoSendDelay.seconds5
       ..notifyListeners();
   }
 }

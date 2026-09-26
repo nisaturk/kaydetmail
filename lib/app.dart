@@ -132,6 +132,7 @@ class _AuthGateState extends State<_AuthGate> {
       AppSettingsController.instance.loadServerAddress(),
       AppSettingsController.instance.loadBehaviorPreferences(),
       AppSettingsController.instance.loadAttachmentPreferences(),
+      AppSettingsController.instance.loadUndoSendDelay(),
     ]);
     if (!mounted) return;
     final emails = await SessionStore.loadEmails();

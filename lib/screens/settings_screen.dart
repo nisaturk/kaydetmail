@@ -131,8 +131,8 @@ class SettingsScreen extends StatelessWidget {
           _CategoryTile(
             icon: LucideIcons.slidersHorizontal,
             title: 'Genel',
-            subtitle: 'Kaydırma hareketleri',
-            page: (_) => [_SwipeSection()],
+            subtitle: 'Kaydırma hareketleri ve göndermeyi geri alma',
+            page: (_) => [_SwipeSection(), _UndoSendSection()],
           ),
           _CategoryTile(
             icon: LucideIcons.penLine,
@@ -1125,6 +1125,37 @@ class _SwipeSection extends StatelessWidget {
       ),
       value: settings.swipeDeleteEnabled,
       onChanged: (v) => settings.swipeDeleteEnabled = v,
+    );
+  }
+}
+
+class _UndoSendSection extends StatelessWidget {
+  const _UndoSendSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Divider(height: 1),
+        const Padding(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
+          child: Text(
+            'Göndermeyi geri alma süresi',
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+        ),
+        for (final delay in UndoSendDelay.values)
+          ListTile(
+            dense: true,
+            title: Text(delay.label),
+            trailing: delay == settings.undoSendDelay
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () => settings.undoSendDelay = delay,
+          ),
+      ],
     );
   }
 }

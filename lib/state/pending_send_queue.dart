@@ -8,6 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import 'app_settings_controller.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../utils/error_messages.dart';
@@ -184,7 +185,9 @@ class PendingSendQueue with WidgetsBindingObserver {
     : _storeFuture = Future.value(store);
 
   static final PendingSendQueue instance = PendingSendQueue._();
-  static const Duration undoWindow = Duration(seconds: 5);
+  static Duration get undoWindow =>
+      AppSettingsController.instance.undoSendDelay.duration ?? Duration.zero;
+
   static const String _legacyPrefsKey = 'pending_send_queue_v1';
 
   /// Same cadence as `ApiMailRepository._scheduleReconnectRetry` — no

@@ -928,46 +928,49 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
     if (!mounted) return;
 
-    final controller = messenger.showSnackBar(
-      SnackBar(
-        key: const Key('undo-send-snackbar'),
-        duration: PendingSendQueue.undoWindow,
-        content: _UndoSendSnackContent(duration: PendingSendQueue.undoWindow),
-        action: SnackBarAction(
-          label: 'Geri Al',
-          onPressed: () {
-            if (!PendingSendQueue.instance.cancel(pending.id)) return;
-            navigator.push(
-              MaterialPageRoute(
-                builder: (_) => ComposeScreen(
-                  composeTitle: composeTitle,
-                  editingDraftId: draftId,
-                  initialFrom: from,
-                  initialTo: to.join(', '),
-                  initialCc: cc.join(', '),
-                  initialBcc: bcc.join(', '),
-                  initialSubject: subject,
-                  initialBody: body,
-                  initialAttachments: attachments,
-                  initialThreadId: threadId,
-                  inReplyToId: inReplyToId,
-                  initialIdentityId: identityId,
+    final undoWindow = PendingSendQueue.undoWindow;
+    if (undoWindow > Duration.zero) {
+      final controller = messenger.showSnackBar(
+        SnackBar(
+          key: const Key('undo-send-snackbar'),
+          duration: undoWindow,
+          content: _UndoSendSnackContent(duration: undoWindow),
+          action: SnackBarAction(
+            label: 'Geri Al',
+            onPressed: () {
+              if (!PendingSendQueue.instance.cancel(pending.id)) return;
+              navigator.push(
+                MaterialPageRoute(
+                  builder: (_) => ComposeScreen(
+                    composeTitle: composeTitle,
+                    editingDraftId: draftId,
+                    initialFrom: from,
+                    initialTo: to.join(', '),
+                    initialCc: cc.join(', '),
+                    initialBcc: bcc.join(', '),
+                    initialSubject: subject,
+                    initialBody: body,
+                    initialAttachments: attachments,
+                    initialThreadId: threadId,
+                    inReplyToId: inReplyToId,
+                    initialIdentityId: identityId,
+                  ),
                 ),
-              ),
-            );
-          },
+              );
+            },
+          ),
         ),
-      ),
-    );
-    unawaited(
-      Future<void>.delayed(PendingSendQueue.undoWindow, () {
-        try {
-          controller.close();
-        } catch (_) {
-          // Already gone.
-        }
-      }),
-    );
+      );
+      unawaited(
+        Future<void>.delayed(undoWindow, () {
+          try {
+            controller.close();
+          } catch (_) {
+            // Already gone.
+          }
+        }),
+      );
+    }
 
     navigator.pop(true);
   }
