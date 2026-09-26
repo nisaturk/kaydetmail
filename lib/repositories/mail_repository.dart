@@ -140,17 +140,15 @@ abstract class MailRepository extends ChangeNotifier {
   /// snapshot instead. Always false for implementations without a cache.
   bool get isOffline => false;
 
-  /// Mail ids whose offline mutation (read/unread, star/unstar, archive,
-  /// trash, restore, or move) could not be replayed after reconnecting —
-  /// the mailbox changed underneath it (stale UID) or the mail no longer
-  /// exists, so replaying it blind risked landing on the wrong message.
-  /// Empty for implementations without an offline mutation queue. See
-  /// [markAsRead]/[markAsUnread]/[setStarred]/[moveToTrash]/[moveToFolder].
+  /// Mail or manual contact ids whose offline changes were permanently
+  /// rejected on replay. The device drops those queued changes and reloads
+  /// backend-owned state; the UI should surface a one-shot message for each.
+  /// Empty for implementations without an offline mutation queue.
   List<String> get offlineMutationConflicts => const [];
 
-  /// Acknowledges one entry from [offlineMutationConflicts] (e.g. after
-  /// showing it to the user) so it isn't surfaced again.
-  void dismissMutationConflict(String mailId) {}
+  /// Acknowledges one entry from [offlineMutationConflicts] after showing it
+  /// to the user so it isn't surfaced again.
+  void dismissMutationConflict(String id) {}
 
   /// Sending accounts for the Compose "Kimden" picker.
   List<MailAccount> get accounts;
@@ -530,21 +528,21 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Adds a contact to the primary/active account. Throws [ArgumentError]
   /// (Turkish message) for an invalid or already-saved (case-insensitive)
-  /// email.
+  /// email. Offline changes are queued locally until the backend confirms.
   Future<ManualContact> addManualContact({
     required String email,
     String? displayName,
   });
 
-  /// Edits a contact's email/display name. Same validation as
-  /// [addManualContact].
+  /// Edits a contact's email/display name. Same validation and offline
+  /// queue semantics as [addManualContact].
   Future<void> updateManualContact({
     required String id,
     required String email,
     String? displayName,
   });
 
-  /// Removes a contact. Unknown ids are ignored.
+  /// Removes a contact. Unknown ids are ignored; offline deletes are queued.
   Future<void> deleteManualContact(String id);
 
   /// Aggregates the IMAP-answered, replied-from-app and forwarded-from-app
@@ -647,11 +645,9 @@ abstract class MailRepository extends ChangeNotifier {
     AccountNotificationSettings settings,
   ) => throw UnimplementedError('updateNotificationSettings');
 
-  /// Mail ids with a not-yet-replayed offline mutation for [accountId]
-  /// (star/unstar/archive/trash/restore/move/read/unread - see
-  /// [offlineMutationConflicts] for ones that failed to replay after
-  /// reconnecting). Default 0 for implementations without an offline
-  /// mutation queue.
+  /// Number of not-yet-replayed offline mutations for [accountId], including
+  /// mail state, pin/snooze/label state and manual contacts. Default 0 for
+  /// implementations without an offline mutation queue.
   Future<int> queuedOfflineMutationCount(String accountId) async => 0;
 
   /// Conversations matching a client-side text [query] and an optional label

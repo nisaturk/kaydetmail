@@ -92,6 +92,149 @@ void main() {
 
     expect(repo.getManualContacts().single.email, 'keep@example.com');
   });
+
+  group('offline manual contact changes', () {
+    test('a contact created offline shows immediately, then replays once '
+        'after reconnecting', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(mailService);
+
+      mailService.offline = true;
+      final created = await repo.addManualContact(
+        email: 'friend@example.com',
+        displayName: 'Arkadaş',
+      );
+
+      expect(repo.isOffline, isTrue);
+      expect(repo.getManualContacts().single.email, 'friend@example.com');
+      expect(await repo.queuedOfflineMutationCount('account-1'), 1);
+      expect(mailService.contacts, isEmpty);
+
+      mailService.offline = false;
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(mailService.contacts.single['email'], 'friend@example.com');
+      expect(mailService.contacts.single['displayName'], 'Arkadaş');
+      final synced = repo.getManualContacts().single;
+      expect(synced.id, mailService.contacts.single['id']);
+      expect(synced.id, isNot(created.id));
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+      expect(repo.offlineMutationConflicts, isEmpty);
+    });
+
+    test('editing a contact created offline replays a single create with '
+        'the edited values', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(mailService);
+
+      mailService.offline = true;
+      final created = await repo.addManualContact(email: 'old@example.com');
+      await repo.updateManualContact(
+        id: created.id,
+        email: 'new@example.com',
+        displayName: 'Yeni',
+      );
+      expect(await repo.queuedOfflineMutationCount('account-1'), 1);
+
+      mailService.offline = false;
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(mailService.contacts.single['email'], 'new@example.com');
+      expect(mailService.contacts.single['displayName'], 'Yeni');
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+    });
+
+    test(
+      'a queued create survives a repository restart while offline',
+      () async {
+        final mailService = _RecordingMailService();
+        final cache = MailCache.inMemory();
+        final first = await _repositoryWithLoadedInbox(
+          mailService,
+          cache: cache,
+        );
+
+        mailService.offline = true;
+        await first.addManualContact(email: 'saved@example.com');
+        final restored = await _repositoryWithLoadedInbox(
+          mailService,
+          cache: cache,
+        );
+        expect(restored.getManualContacts().single.email, 'saved@example.com');
+        expect(await restored.queuedOfflineMutationCount('account-1'), 1);
+
+        mailService.offline = false;
+        await restored.refreshEmails(MailFolder.inbox);
+        expect(
+          restored.getManualContacts().single.id,
+          mailService.contacts.single['id'],
+        );
+        expect(await restored.queuedOfflineMutationCount('account-1'), 0);
+      },
+    );
+
+    test(
+      'deleting a contact created offline cancels its queued create',
+      () async {
+        final mailService = _RecordingMailService();
+        final repo = await _repositoryWithLoadedInbox(mailService);
+        mailService.offline = true;
+        final created = await repo.addManualContact(
+          email: 'cancel@example.com',
+        );
+
+        await repo.deleteManualContact(created.id);
+        expect(repo.getManualContacts(), isEmpty);
+        expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+
+        mailService.offline = false;
+        await repo.refreshEmails(MailFolder.inbox);
+        expect(mailService.contacts, isEmpty);
+      },
+    );
+
+    test('a contact deleted offline disappears immediately, then the delete '
+        'replays after reconnecting', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      final contact = await repo.addManualContact(email: 'gone@example.com');
+
+      mailService.offline = true;
+      await repo.deleteManualContact(contact.id);
+
+      expect(repo.getManualContacts(), isEmpty);
+      expect(mailService.contacts, hasLength(1));
+      expect(await repo.queuedOfflineMutationCount('account-1'), 1);
+
+      mailService.offline = false;
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(mailService.contacts, isEmpty);
+      expect(repo.getManualContacts(), isEmpty);
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+    });
+
+    test('an offline edit the server rejects on replay is surfaced and '
+        'rolled back to the server state', () async {
+      final mailService = _RecordingMailService();
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      final contact = await repo.addManualContact(email: 'old@example.com');
+
+      mailService.offline = true;
+      await repo.updateManualContact(id: contact.id, email: 'new@example.com');
+      final editedOffline = repo.getManualContacts().single.email;
+
+      mailService.offline = false;
+      mailService.rejectionCode = 'validation_failed';
+      await repo.refreshEmails(MailFolder.inbox);
+
+      expect(editedOffline, 'new@example.com');
+      expect(repo.offlineMutationConflicts, [contact.id]);
+      expect(repo.getManualContacts().single.email, 'old@example.com');
+      expect(mailService.contacts.single['email'], 'old@example.com');
+      expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+    });
+  });
 }
 
 Future<ApiMailRepository> _repositoryWithLoadedInbox(
@@ -128,6 +271,8 @@ class _RecordingMailService extends ApiMailService {
 
   final List<Map<String, dynamic>> contacts = [];
   bool failNextDelete = false;
+  bool offline = false;
+  String? rejectionCode;
   int _seq = 0;
 
   @override
@@ -153,13 +298,24 @@ class _RecordingMailService extends ApiMailService {
       MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
 
   @override
-  Future<List<Map<String, dynamic>>> getContacts() async => List.from(contacts);
+  Future<List<Map<String, dynamic>>> getContacts() async {
+    if (offline) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+    return List.from(contacts);
+  }
 
   @override
   Future<Map<String, dynamic>> createContact(
     String email,
     String? displayName,
   ) async {
+    if (offline) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+    if (rejectionCode case final code?) {
+      throw ApiException(status: 409, code: code);
+    }
     final normalized = email.toLowerCase();
     if (contacts.any(
       (c) => (c['email'] as String).toLowerCase() == normalized,
@@ -181,6 +337,12 @@ class _RecordingMailService extends ApiMailService {
     String email,
     String? displayName,
   ) async {
+    if (offline) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+    if (rejectionCode case final code?) {
+      throw ApiException(status: 409, code: code);
+    }
     final index = contacts.indexWhere((c) => c['id'] == id);
     final updated = {'id': id, 'email': email, 'displayName': displayName};
     if (index >= 0) contacts[index] = updated;
@@ -189,6 +351,12 @@ class _RecordingMailService extends ApiMailService {
 
   @override
   Future<void> deleteContact(String id) async {
+    if (offline) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+    if (rejectionCode case final code?) {
+      throw ApiException(status: 409, code: code);
+    }
     if (failNextDelete) {
       failNextDelete = false;
       throw const ApiException(status: 500);

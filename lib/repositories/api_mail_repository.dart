@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
@@ -1278,27 +1279,29 @@ class ApiMailRepository extends MailRepository {
     return results;
   }
 
-  /// Replays every mutation [session] queued while offline (read, unread,
-  /// star, unstar, archive, trash, move — see
-  /// [ApiMailRepository._bulkAndApplyOrQueue] and `moveToFolder`'s inline
-  /// restore handling). Best-effort and fire-and-forget from every call
-  /// site: a further transport failure just leaves that group queued for
-  /// the next reconnect. A `mail_operation_conflict`/`mailbox_changed`/
-  /// `mail_not_found` result — the mailbox changed underneath the queued
-  /// mutation, or the mail is gone — is NOT retried: it's dropped from the
-  /// queue and surfaced via [offlineMutationConflicts] instead, so a stale
-  /// queued mutation never silently lands on the wrong message. Queued
-  /// mutations in the same category for the same mail already collapsed to
-  /// one row at queue time (see `LocalMailFlagsStore.queueMutation`), so
-  /// FIFO ordering across mails is all that's left to preserve here.
+  /// Replays queued mail, pin/snooze/label and manual contact mutations.
+  /// Transport failures remain queued for the next reconnect. Server
+  /// rejections are dropped and surfaced through [offlineMutationConflicts];
+  /// backend-owned state is re-read to replace rejected optimistic changes.
+  /// Mail changes in the same category and contact changes for the same id
+  /// collapse at queue time (see `LocalMailFlagsStore.queueMutation`).
   Future<void> _replayQueuedMutations(_Session session) async {
     final store = session.flagsStore;
     if (store == null) return;
     final all = await store.readQueuedMutations();
     if (all.isEmpty) return;
+    final contacts = [
+      for (final m in all)
+        if (_contactOperations.contains(m.operation)) m,
+    ];
+    if (contacts.isNotEmpty) {
+      await _replayManualContacts(session, store, contacts);
+    }
     final queued = [
       for (final m in all)
-        if (!_appStateOperations.contains(m.operation)) m,
+        if (!_appStateOperations.contains(m.operation) &&
+            !_contactOperations.contains(m.operation))
+          m,
     ];
     final appState = [
       for (final m in all)
@@ -1448,6 +1451,75 @@ class ApiMailRepository extends MailRepository {
       for (final list in session.emails.values)
         for (final e in list) e.id,
     ]);
+    notifyListeners();
+  }
+
+  static const _contactOperations = {
+    'contact_create',
+    'contact_update',
+    'contact_delete',
+  };
+
+  static const _localContactIdPrefix = 'local-contact-';
+
+  /// Replays queued manual contact changes, oldest first, with the same
+  /// outcome rules as [_replayAppState]: a still-unreachable backend leaves
+  /// them queued, a server rejection (e.g. the email was saved on another
+  /// device meanwhile) drops the change and surfaces the contact id via
+  /// [offlineMutationConflicts]. Once nothing is left queued, contacts are
+  /// re-read from the backend, which also rolls back any rejected change.
+  Future<void> _replayManualContacts(
+    _Session session,
+    LocalMailFlagsStore store,
+    List<QueuedMutation> queued,
+  ) async {
+    var stillQueued = false;
+    var createdContact = false;
+    for (final m in queued) {
+      final payload = m.folderId == null
+          ? null
+          : jsonDecode(m.folderId!) as Map<String, dynamic>;
+      try {
+        switch (m.operation) {
+          case 'contact_create':
+            final created = await session.mailService.createContact(
+              payload!['email'] as String,
+              payload['displayName'] as String?,
+            );
+            session.manualContacts = [
+              for (final c in session.manualContacts)
+                c.id == m.mailId
+                    ? ManualContact(
+                        id: created['id'] as String,
+                        accountId: c.accountId,
+                        email: c.email,
+                        displayName: c.displayName,
+                      )
+                    : c,
+            ];
+            createdContact = true;
+          case 'contact_update':
+            await session.mailService.updateContact(
+              m.mailId,
+              payload!['email'] as String,
+              payload['displayName'] as String?,
+            );
+          case 'contact_delete':
+            await session.mailService.deleteContact(m.mailId);
+        }
+        await store.clearQueuedMutation(m.mailId, 'contact');
+      } catch (error) {
+        if (error is ApiException && !_isOfflineFailure(error)) {
+          await store.clearQueuedMutation(m.mailId, 'contact');
+          session.mutationConflicts.add(m.mailId);
+        } else {
+          stillQueued = true;
+        }
+      }
+    }
+    if (createdContact || stillQueued) await _persistManualContacts(session);
+    if (stillQueued) return;
+    await _loadManualContacts(session, store);
     notifyListeners();
   }
 
@@ -3567,9 +3639,9 @@ class ApiMailRepository extends MailRepository {
   ];
 
   @override
-  void dismissMutationConflict(String mailId) {
+  void dismissMutationConflict(String id) {
     for (final session in _sessions.values) {
-      if (session.mutationConflicts.remove(mailId)) {
+      if (session.mutationConflicts.remove(id)) {
         notifyListeners();
         return;
       }
@@ -4053,18 +4125,30 @@ class ApiMailRepository extends MailRepository {
     final session = _primarySession;
     final trimmedEmail = email.trim();
     final trimmedName = displayName?.trim();
+    final name = (trimmedName == null || trimmedName.isEmpty)
+        ? null
+        : trimmedName;
     _assertContactEmailIsValid(session, trimmedEmail);
     Map<String, dynamic> created;
     try {
-      created = await session.mailService.createContact(
-        trimmedEmail,
-        (trimmedName == null || trimmedName.isEmpty) ? null : trimmedName,
-      );
+      created = await session.mailService.createContact(trimmedEmail, name);
     } on ApiException catch (e) {
       if (e.code == 'contact_already_exists') {
         throw ArgumentError('Bu e-posta zaten kayıtlı.');
       }
-      rethrow;
+      if (!_isOfflineFailure(e)) rethrow;
+      _markOffline(session);
+      created = {
+        'id': '$_localContactIdPrefix${_newIdempotencyKey()}',
+        'email': trimmedEmail,
+        'displayName': name,
+      };
+      await _queueContactMutation(
+        session,
+        created['id'] as String,
+        'contact_create',
+        created,
+      );
     }
     final contact = ManualContact(
       id: created['id'] as String,
@@ -4090,19 +4174,29 @@ class ApiMailRepository extends MailRepository {
     if (index < 0) return;
     final trimmedEmail = email.trim();
     final trimmedName = displayName?.trim();
+    final name = (trimmedName == null || trimmedName.isEmpty)
+        ? null
+        : trimmedName;
     _assertContactEmailIsValid(session, trimmedEmail, selfId: id);
-    Map<String, dynamic> updated;
-    try {
-      updated = await session.mailService.updateContact(
-        id,
-        trimmedEmail,
-        (trimmedName == null || trimmedName.isEmpty) ? null : trimmedName,
-      );
-    } on ApiException catch (e) {
-      if (e.code == 'contact_already_exists') {
-        throw ArgumentError('Bu e-posta zaten kayıtlı.');
+    Map<String, dynamic> updated = {'email': trimmedEmail, 'displayName': name};
+    if (id.startsWith(_localContactIdPrefix)) {
+      await _queueContactMutation(session, id, 'contact_create', updated);
+    } else {
+      try {
+        updated = await session.mailService.updateContact(
+          id,
+          trimmedEmail,
+          name,
+        );
+        await session.flagsStore?.clearQueuedMutation(id, 'contact');
+      } on ApiException catch (e) {
+        if (e.code == 'contact_already_exists') {
+          throw ArgumentError('Bu e-posta zaten kayıtlı.');
+        }
+        if (!_isOfflineFailure(e)) rethrow;
+        _markOffline(session);
+        await _queueContactMutation(session, id, 'contact_update', updated);
       }
-      rethrow;
     }
     session.manualContacts = [...session.manualContacts]
       ..[index] = ManualContact(
@@ -4119,15 +4213,39 @@ class ApiMailRepository extends MailRepository {
   Future<void> deleteManualContact(String id) async {
     final session = _sessionForManualContact(id);
     if (session == null) return;
-    try {
-      await session.mailService.deleteContact(id);
-    } catch (_) {
-      return;
+    final store = session.flagsStore;
+    if (id.startsWith(_localContactIdPrefix)) {
+      await store?.clearQueuedMutation(id, 'contact');
+    } else {
+      try {
+        await session.mailService.deleteContact(id);
+        await store?.clearQueuedMutation(id, 'contact');
+      } catch (error) {
+        if (!_isOfflineFailure(error)) return;
+        _markOffline(session);
+        await store?.queueMutation(id, 'contact_delete');
+      }
     }
     session.manualContacts = session.manualContacts
         .where((c) => c.id != id)
         .toList();
     await _persistManualContacts(session);
     notifyListeners();
+  }
+
+  Future<void> _queueContactMutation(
+    _Session session,
+    String id,
+    String operation,
+    Map<String, dynamic> contact,
+  ) async {
+    await session.flagsStore?.queueMutation(
+      id,
+      operation,
+      folderId: jsonEncode({
+        'email': contact['email'],
+        'displayName': contact['displayName'],
+      }),
+    );
   }
 }
