@@ -9,12 +9,16 @@ import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
+import '../models/mail_signature.dart';
 import '../models/trusted_sender.dart';
 import '../repositories/mail_repository.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_auto_download_policy.dart';
+import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
+import '../utils/compose_signature.dart';
+import '../utils/conversation_text.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/mail_pdf_export.dart';
@@ -288,14 +292,16 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       try {
         await _repo.cancelReplyReminder(email.id);
         if (mounted) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(const SnackBar(content: Text('Yanıt takibi kaldırıldı.')));
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Yanıt takibi kaldırıldı.')),
+          );
         }
       } catch (e) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Kaldırılamadı: ${friendlyErrorMessage(e)}')),
+            SnackBar(
+              content: Text('Kaldırılamadı: ${friendlyErrorMessage(e)}'),
+            ),
           );
         }
       }
@@ -434,8 +440,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
   /// The address a reply/forward is sent from: the originating account, so a
   /// mail received on account B is never answered from account A.
-  String? _originatingFrom() {
-    final email = _email;
+  String? _originatingFrom([Email? target]) {
+    final email = target ?? _email;
     if (email == null || email.accountId.isEmpty) return null;
     return _repo.getAccount(email.accountId)?.email;
   }
@@ -444,8 +450,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   /// (`GET /api/mails/{id}/compose/{mode}`) instead of recomputing
   /// recipients/subject/threading client-side — see docs-dev spec §4.
   /// [mode] is `'reply'`, `'reply-all'` or `'forward'`.
-  Future<void> _openComposePrefill(String mode, {required String title}) async {
-    final email = _email;
+  Future<void> _openComposePrefill(
+    String mode, {
+    required String title,
+    Email? target,
+  }) async {
+    final email = target ?? _email;
     if (email == null || _composeActionBusy) return;
     setState(() => _composeActionBusy = true);
     final ComposePrefill prefill;
@@ -490,7 +500,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
           composeTitle: title,
-          initialFrom: _originatingFrom(),
+          initialFrom: _originatingFrom(email),
           initialTo: prefill.to.join(', '),
           initialCc: prefill.cc.join(', '),
           initialSubject: prefill.suggestedSubject,
@@ -754,7 +764,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       );
     } catch (error) {
       messenger.showSnackBar(
-        SnackBar(content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}')),
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
       );
     }
   }
@@ -918,9 +930,15 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               messages: _thread,
               openedId: email.id,
               labelsFor: _labelsFor,
+              onCompose: (mode, title, target) =>
+                  _openComposePrefill(mode, title: title, target: target),
             )
           else
             _SingleMessage(email: email, labels: _labelsFor(email)),
+          if (email.folder != MailFolder.drafts) ...[
+            const SizedBox(height: 16),
+            _QuickReply(email: email, from: _originatingFrom(email)),
+          ],
         ],
       ),
     );
@@ -933,10 +951,15 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 /// One mail in the classic detail layout (single-message conversations stay
 /// simple — no collapsible header).
 class _SingleMessage extends StatelessWidget {
-  const _SingleMessage({required this.email, required this.labels});
+  const _SingleMessage({
+    required this.email,
+    required this.labels,
+    this.collapseQuoted = false,
+  });
 
   final Email email;
   final List<MailLabel> labels;
+  final bool collapseQuoted;
 
   @override
   Widget build(BuildContext context) {
@@ -1024,7 +1047,7 @@ class _SingleMessage extends StatelessWidget {
           _RemoteContentBanner(email: email),
           const SizedBox(height: 12),
         ],
-        _MessageBody(email: email),
+        _MessageBody(email: email, collapseQuoted: collapseQuoted),
       ],
     );
   }
@@ -1032,37 +1055,219 @@ class _SingleMessage extends StatelessWidget {
   String recipientText(List<String> recipients) => recipients.join(', ');
 }
 
-class _MessageBody extends StatelessWidget {
-  const _MessageBody({required this.email});
+class _MessageBody extends StatefulWidget {
+  const _MessageBody({required this.email, this.collapseQuoted = false});
 
   final Email email;
+  final bool collapseQuoted;
+
+  @override
+  State<_MessageBody> createState() => _MessageBodyState();
+}
+
+class _MessageBodyState extends State<_MessageBody> {
+  bool _showQuoted = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final email = widget.email;
+    final colors = AppTheme.colors(context);
+    final style = TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText);
+    final html = email.bodyHtml;
+    final hideQuoted = widget.collapseQuoted && !_showQuoted;
+    final Widget body;
+    final bool hasQuoted;
+    if (html == null || html.trim().isEmpty) {
+      final collapsed = collapseQuotedText(email.bodyText);
+      hasQuoted = widget.collapseQuoted && collapsed.collapsed;
+      body = SelectableText(
+        hideQuoted ? collapsed.visible : email.bodyText,
+        style: style,
+      );
+    } else {
+      hasQuoted = widget.collapseQuoted && htmlHasQuotedContent(html);
+      body = SelectionArea(
+        child: HtmlWidget(
+          html,
+          textStyle: style,
+          factoryBuilder: () => MailLinkWidgetFactory(
+            onLinkTap: (href, text) => unawaited(
+              MailLinkOpener.open(context, href, displayText: text),
+            ),
+          ),
+          customWidgetBuilder: (element) {
+            if (hideQuoted &&
+                isQuotedHtmlElement(
+                  element.localName,
+                  element.classes,
+                  element.id,
+                )) {
+              return const SizedBox.shrink();
+            }
+            if (element.localName != 'img') return null;
+            final src = element.attributes['src'] ?? '';
+            if (src.startsWith('data:')) return null;
+            if (email.remoteImagesAllowed &&
+                (src.startsWith('https://') || src.startsWith('http://'))) {
+              return null;
+            }
+            return const SizedBox.shrink();
+          },
+        ),
+      );
+    }
+    if (!hasQuoted) return body;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        body,
+        TextButton(
+          key: Key('toggle-quoted-${email.id}'),
+          onPressed: () => setState(() => _showQuoted = !_showQuoted),
+          child: Text(
+            _showQuoted ? 'Alıntıyı gizle' : 'Alıntı ve imzayı göster',
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _QuickReply extends StatefulWidget {
+  const _QuickReply({required this.email, required this.from});
+
+  final Email email;
+  final String? from;
+
+  @override
+  State<_QuickReply> createState() => _QuickReplyState();
+}
+
+class _QuickReplyState extends State<_QuickReply> {
+  final _controller = TextEditingController();
+  bool _sending = false;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _send() async {
+    final text = _controller.text.trim();
+    if (text.isEmpty || _sending) return;
+    final repo = AppConfig.mailRepository;
+    final email = widget.email;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _sending = true);
+    try {
+      final prefill = await repo.getComposePrefill(email.id, 'reply');
+      MailIdentity? identity;
+      try {
+        identity = (await repo.listIdentities(
+          email.accountId,
+        )).where((item) => item.isDefault).firstOrNull;
+      } catch (_) {}
+      final signature = await resolveComposeSignature(
+        repo,
+        accountId: email.accountId,
+        mode: ComposeSignatureMode.reply,
+        identity: identity,
+      );
+      final queue = PendingSendQueue.instance;
+      final pending = PendingSend(
+        id: queue.nextId(),
+        to: prefill.to,
+        cc: prefill.cc,
+        subject: prefill.suggestedSubject,
+        body: signature.trim().isEmpty ? text : '$text\n\n--\n$signature',
+        from: widget.from,
+        fromAccountId: email.accountId,
+        threadId: email.threadId,
+        inReplyToId: email.id,
+        identityId: identity?.id,
+      );
+      await queue.enqueue(pending, messenger: messenger);
+      await repo.markAsReplied([email.id]);
+      if (!mounted) return;
+      _controller.clear();
+      setState(() => _sending = false);
+      final undoWindow = PendingSendQueue.undoWindow;
+      messenger.showSnackBar(
+        SnackBar(
+          content: const Text('Yanıt gönderiliyor'),
+          duration: undoWindow > Duration.zero
+              ? undoWindow
+              : const Duration(seconds: 3),
+          action: undoWindow > Duration.zero
+              ? SnackBarAction(
+                  label: 'Geri Al',
+                  onPressed: () {
+                    if (queue.cancel(pending.id) && mounted) {
+                      _controller.text = text;
+                    }
+                  },
+                )
+              : null,
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      messenger.showSnackBar(
+        SnackBar(
+          content: Text('Yanıt gönderilemedi: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
-    final style = TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText);
-    final html = email.bodyHtml;
-    if (html == null || html.trim().isEmpty) {
-      return SelectableText(email.bodyText, style: style);
-    }
-    return SelectionArea(
-      child: HtmlWidget(
-        html,
-        textStyle: style,
-        factoryBuilder: () => MailLinkWidgetFactory(
-          onLinkTap: (href, text) =>
-              unawaited(MailLinkOpener.open(context, href, displayText: text)),
-        ),
-        customWidgetBuilder: (element) {
-          if (element.localName != 'img') return null;
-          final src = element.attributes['src'] ?? '';
-          if (src.startsWith('data:')) return null;
-          if (email.remoteImagesAllowed &&
-              (src.startsWith('https://') || src.startsWith('http://'))) {
-            return null;
-          }
-          return const SizedBox.shrink();
-        },
+    return Container(
+      key: const Key('quick-reply'),
+      padding: const EdgeInsets.only(left: 12, right: 4),
+      decoration: BoxDecoration(
+        border: Border.all(color: colors.border),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: TextField(
+              key: const Key('quick-reply-field'),
+              controller: _controller,
+              enabled: !_sending,
+              minLines: 1,
+              maxLines: 5,
+              textCapitalization: TextCapitalization.sentences,
+              onChanged: (_) => setState(() {}),
+              decoration: const InputDecoration(
+                hintText: 'Hızlı yanıt yaz…',
+                border: InputBorder.none,
+                enabledBorder: InputBorder.none,
+                focusedBorder: InputBorder.none,
+                disabledBorder: InputBorder.none,
+                filled: false,
+              ),
+            ),
+          ),
+          IconButton(
+            key: const Key('quick-reply-send'),
+            tooltip: 'Yanıtı gönder',
+            onPressed: _sending || _controller.text.trim().isEmpty
+                ? null
+                : _send,
+            icon: _sending
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(LucideIcons.send),
+          ),
+        ],
       ),
     );
   }
@@ -1403,11 +1608,14 @@ class _ThreadStack extends StatefulWidget {
     required this.messages,
     required this.openedId,
     required this.labelsFor,
+    required this.onCompose,
   });
 
   final List<Email> messages;
   final String openedId;
   final List<MailLabel> Function(Email) labelsFor;
+  final Future<void> Function(String mode, String title, Email target)
+  onCompose;
 
   @override
   State<_ThreadStack> createState() => _ThreadStackState();
@@ -1417,17 +1625,45 @@ class _ThreadStackState extends State<_ThreadStack> {
   /// Ids the user toggled away from their default state.
   final _toggled = <String>{};
 
-  bool _expanded(Email m) {
-    final byDefault =
-        m.id == widget.openedId || m.id == widget.messages.first.id;
-    return byDefault != _toggled.contains(m.id);
-  }
+  bool _defaultExpanded(Email m) =>
+      m.id == widget.openedId || m.id == widget.messages.first.id;
+
+  bool _expanded(Email m) => _defaultExpanded(m) != _toggled.contains(m.id);
+
+  bool get _allExpanded => widget.messages.every(_expanded);
+
+  void _setAll(bool expanded) => setState(() {
+    _toggled
+      ..clear()
+      ..addAll([
+        for (final m in widget.messages)
+          if (_defaultExpanded(m) != expanded) m.id,
+      ]);
+  });
 
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
     return Column(
       children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                threadParticipantSummary(widget.messages),
+                key: const Key('thread-participants'),
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 13, color: colors.secondaryText),
+              ),
+            ),
+            TextButton(
+              key: const Key('thread-toggle-all'),
+              onPressed: () => _setAll(!_allExpanded),
+              child: Text(_allExpanded ? 'Tümünü kapat' : 'Tümünü aç'),
+            ),
+          ],
+        ),
         for (final m in widget.messages)
           Card(
             elevation: 0,
@@ -1500,10 +1736,43 @@ class _ThreadStackState extends State<_ThreadStack> {
                 ),
                 if (_expanded(m))
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
                     child: _SingleMessage(
                       email: m,
                       labels: widget.labelsFor(m),
+                      collapseQuoted: true,
+                    ),
+                  ),
+                if (_expanded(m))
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
+                    child: Row(
+                      children: [
+                        TextButton.icon(
+                          key: Key('message-reply-${m.id}'),
+                          onPressed: () =>
+                              widget.onCompose('reply', 'Yanıtla', m),
+                          icon: const Icon(LucideIcons.reply, size: 16),
+                          label: const Text('Yanıtla'),
+                        ),
+                        TextButton.icon(
+                          key: Key('message-reply-all-${m.id}'),
+                          onPressed: () => widget.onCompose(
+                            'reply-all',
+                            'Tümünü Yanıtla',
+                            m,
+                          ),
+                          icon: const Icon(LucideIcons.replyAll, size: 16),
+                          label: const Text('Tümünü yanıtla'),
+                        ),
+                        TextButton.icon(
+                          key: Key('message-forward-${m.id}'),
+                          onPressed: () =>
+                              widget.onCompose('forward', 'İlet', m),
+                          icon: const Icon(LucideIcons.forward, size: 16),
+                          label: const Text('İlet'),
+                        ),
+                      ],
                     ),
                   ),
               ],
