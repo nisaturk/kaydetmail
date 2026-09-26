@@ -18,6 +18,7 @@ import '../state/app_settings_controller.dart';
 import '../state/pending_send_queue.dart';
 import '../models/mail_signature.dart';
 import '../theme/app_theme.dart';
+import '../utils/compose_signature.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/html_to_text.dart';
@@ -572,12 +573,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
   String _signatureSuffix(String signature) =>
       signature.trim().isEmpty ? '' : '\n\n--\n$signature';
 
-  /// Applies the signature for the current Kimden account, but only while
-  /// the body still exactly matches [_bodyBeforeSignature] plus whatever
-  /// signature was last inserted — i.e. the user hasn't typed anything else
-  /// since. Called once on open and again every time Kimden changes, so a
-  /// switch re-applies the new account's signature without ever clobbering
-  /// real typing.
   Future<void> _loadIdentities() async {
     final accountId = _resolvedFromAccountId;
     if (accountId == null) return;
@@ -600,37 +595,36 @@ class _ComposeScreenState extends State<ComposeScreen> {
     await _syncSignature();
   }
 
-  Future<String> _identitySignatureText(MailIdentity identity) async {
-    final signatureId = identity.signatureId;
-    if (signatureId == null) return '';
-    final accountId = _resolvedFromAccountId;
-    if (accountId == null) return '';
-    try {
-      final signatures = await _repo.listSignatures(accountId);
-      return signatures
-          .where((item) => item.id == signatureId)
-          .firstOrNull
-          ?.bodyText ??
-          '';
-    } catch (_) {
-      return '';
-    }
-  }
-
+  /// Applies the signature for the current Kimden account and compose mode
+  /// (new/reply/forward default, or the chosen identity's own signature), but
+  /// only while the body still exactly matches [_bodyBeforeSignature] plus
+  /// whatever signature was last inserted — i.e. the user hasn't typed
+  /// anything else since. Called once on open and again every time Kimden
+  /// changes, so a switch re-applies the new account's signature without
+  /// ever clobbering real typing.
   Future<void> _syncSignature() async {
     if (!_signatureEligible) return;
     final expected =
         _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
     if (_bodyController.text != expected) return;
-    final identity = _fromIdentity;
     final account = _fromAccount;
-    if (account == null) return;
-    final signature = identity == null
-        ? () {
-            final match = _repo.accounts.where((a) => a.email == account);
-            return match.isEmpty ? '' : (match.first.signature ?? '');
-          }()
-        : await _identitySignatureText(identity);
+    final accountId = _resolvedFromAccountId;
+    if (account == null || accountId == null) return;
+    final legacy = _repo.accounts
+        .where((a) => a.email == account)
+        .firstOrNull
+        ?.signature;
+    final signature = await resolveComposeSignature(
+      _repo,
+      accountId: accountId,
+      mode: widget.inReplyToId != null
+          ? ComposeSignatureMode.reply
+          : widget.attachmentSourceMailId != null
+          ? ComposeSignatureMode.forward
+          : ComposeSignatureMode.newMail,
+      identity: _fromIdentity,
+      legacySignature: legacy,
+    );
     if (!mounted || _fromAccount != account) return;
     if (_bodyController.text != expected) return;
     setState(() {
