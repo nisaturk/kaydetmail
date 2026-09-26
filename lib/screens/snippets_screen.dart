@@ -147,7 +147,7 @@ class _SnippetsScreenState extends State<SnippetsScreen> {
               final snippet = _snippets[index];
               return ListTile(
                 key: ValueKey('snippet-${snippet.id}'),
-                leading: const Icon(LucideIcons.quote),
+                leading: const Icon(LucideIcons.messageSquareText),
                 title: Text(
                   (snippet.title?.isNotEmpty == true
                       ? snippet.title!

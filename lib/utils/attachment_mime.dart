@@ -24,3 +24,14 @@ MediaType? _parse(String? value) {
     return null;
   }
 }
+
+String cameraPhotoName(DateTime takenAt, String originalName) {
+  String two(int value) => value.toString().padLeft(2, '0');
+  final dot = originalName.lastIndexOf('.');
+  final extension = dot >= 0 && dot < originalName.length - 1
+      ? originalName.substring(dot + 1).toLowerCase()
+      : 'jpg';
+  return 'foto-${takenAt.year}${two(takenAt.month)}${two(takenAt.day)}-'
+      '${two(takenAt.hour)}${two(takenAt.minute)}${two(takenAt.second)}'
+      '.$extension';
+}

@@ -158,7 +158,7 @@ class SettingsScreen extends StatelessWidget {
             ),
           ),
           _CategoryTile(
-            icon: LucideIcons.quote,
+            icon: LucideIcons.messageSquareText,
             title: 'Hazır Metinler',
             subtitle: 'E-postalara tek dokunuşla eklenen kısa metinler',
             onTap: (ctx) => Navigator.of(

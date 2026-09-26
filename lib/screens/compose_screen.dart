@@ -1176,7 +1176,10 @@ class _ComposeScreenState extends State<ComposeScreen> {
       if (images.isEmpty) return null;
       return [
         for (final image in images)
-          await _attachmentFromXFile(image),
+          await _attachmentFromXFile(
+            image,
+            fromCamera: source == _AttachmentSource.camera,
+          ),
       ];
     } on PlatformException {
       if (mounted) {
@@ -1194,10 +1197,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
     }
   }
 
-  Future<Attachment> _attachmentFromXFile(XFile file) async {
+  Future<Attachment> _attachmentFromXFile(
+    XFile file, {
+    required bool fromCamera,
+  }) async {
     final bytes = await file.readAsBytes();
-    final name = file.name.isEmpty
-        ? 'foto-${DateTime.now().millisecondsSinceEpoch}.jpg'
+    final name = fromCamera || file.name.isEmpty
+        ? cameraPhotoName(DateTime.now(), file.name)
         : file.name;
     return Attachment(
       name: name,
@@ -2055,7 +2061,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
           IconButton(
             key: const Key('snippet-button'),
             onPressed: _sending ? null : _pickSnippet,
-            icon: const Icon(LucideIcons.quote, size: 20),
+            icon: const Icon(LucideIcons.messageSquareText, size: 20),
             tooltip: 'Hazır metin ekle',
           ),
         ],
