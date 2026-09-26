@@ -18,6 +18,7 @@ import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
 import 'templates_screen.dart';
 import 'signatures_screen.dart';
+import 'snippets_screen.dart';
 import 'sync_status_screen.dart';
 
 /// Settings screen: labels, server address, notifications, sync and gestures.
@@ -151,6 +152,14 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => const SignatureSettingsScreen(),
               ),
             ),
+          ),
+          _CategoryTile(
+            icon: LucideIcons.quote,
+            title: 'Hazır Metinler',
+            subtitle: 'E-postalara tek dokunuşla eklenen kısa metinler',
+            onTap: (ctx) => Navigator.of(
+              ctx,
+            ).push(MaterialPageRoute(builder: (_) => const SnippetsScreen())),
           ),
           _CategoryTile(
             icon: LucideIcons.shieldCheck,

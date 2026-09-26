@@ -24,6 +24,7 @@ import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/reply_reminder.dart';
+import '../models/mail_snippet.dart';
 import '../models/server_mail_rule.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -3061,6 +3062,24 @@ class ApiMailRepository extends MailRepository {
     await session.mailService.deleteTemplate(templateId);
     session.templates?.removeWhere((item) => item.id == templateId);
   }
+
+  @override
+  Future<List<MailSnippet>> listSnippets(
+    String accountId, {
+    bool refresh = false,
+  }) => _sessionForAccountId(accountId).mailService.getSnippets();
+
+  @override
+  Future<MailSnippet> createSnippet(String accountId, MailSnippet snippet) =>
+      _sessionForAccountId(accountId).mailService.createSnippet(snippet);
+
+  @override
+  Future<MailSnippet> updateSnippet(String accountId, MailSnippet snippet) =>
+      _sessionForAccountId(accountId).mailService.updateSnippet(snippet);
+
+  @override
+  Future<void> deleteSnippet(String accountId, String snippetId) =>
+      _sessionForAccountId(accountId).mailService.deleteSnippet(snippetId);
 
   @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {

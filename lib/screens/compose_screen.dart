@@ -8,6 +8,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/compose_limits.dart';
 import '../models/mail_template.dart';
+import '../models/mail_snippet.dart';
 import '../repositories/mail_repository.dart';
 import '../services/contacts_store.dart';
 import '../state/pending_send_queue.dart';
@@ -802,6 +803,36 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// not tracked separately per compose-open kind.
   String? _bodyHtmlFor(String body) =>
       hasMarkdownLiteMarkup(body) ? markdownLiteToHtml(body) : null;
+
+  Future<void> _pickSnippet() async {
+    final accountId = _resolvedFromAccountId;
+    if (accountId == null) return;
+    final snippet = await showModalBottomSheet<MailSnippet>(
+      context: context,
+      isScrollControlled: true,
+      builder: (_) => _SnippetPicker(accountId: accountId, repository: _repo),
+    );
+    if (snippet == null || !mounted || accountId != _resolvedFromAccountId) {
+      return;
+    }
+    final text = _bodyController.text;
+    final selection = _bodyController.selection;
+    final start = selection.isValid
+        ? selection.start.clamp(0, text.length)
+        : text.length;
+    final end = selection.isValid
+        ? selection.end.clamp(0, text.length)
+        : text.length;
+    final head = text.substring(0, start);
+    final needsGap = head.isNotEmpty && !head.endsWith('\n');
+    final insert = '${needsGap ? '\n' : ''}${snippet.text}';
+    setState(() {
+      _bodyController.value = TextEditingValue(
+        text: text.replaceRange(start, end, insert),
+        selection: TextSelection.collapsed(offset: start + insert.length),
+      );
+    });
+  }
 
   /// Commits pending recipient text into chips, then validates there is at
   /// least one To recipient and every chip looks like a real address.
@@ -1941,6 +1972,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
             icon: const Icon(LucideIcons.layoutTemplate, size: 20),
             label: const Text('Şablon'),
           ),
+          IconButton(
+            key: const Key('snippet-button'),
+            onPressed: _sending ? null : _pickSnippet,
+            icon: const Icon(LucideIcons.quote, size: 20),
+            tooltip: 'Hazır metin ekle',
+          ),
         ],
       ),
     );
@@ -2056,6 +2093,117 @@ class _TemplatePickerState extends State<_TemplatePicker> {
 /// A single recipient chip. [recipient.valid] false renders it in the
 /// destructive palette instead of silently dropping or silently sending a
 /// broken address — the user has to see and fix it.
+class _SnippetPicker extends StatefulWidget {
+  const _SnippetPicker({required this.accountId, required this.repository});
+
+  final String accountId;
+  final MailRepository repository;
+
+  @override
+  State<_SnippetPicker> createState() => _SnippetPickerState();
+}
+
+class _SnippetPickerState extends State<_SnippetPicker> {
+  List<MailSnippet>? _snippets;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _snippets = null;
+      _error = null;
+    });
+    try {
+      final snippets = await widget.repository.listSnippets(widget.accountId);
+      if (mounted) setState(() => _snippets = snippets);
+    } catch (error) {
+      if (mounted) setState(() => _error = friendlyErrorMessage(error));
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => SafeArea(
+    child: SizedBox(
+      height: MediaQuery.sizeOf(context).height * 0.5,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Hazır metin ekle',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Kapat',
+                  icon: const Icon(LucideIcons.x),
+                  onPressed: () => Navigator.pop(context),
+                ),
+              ],
+            ),
+          ),
+          Expanded(
+            child: _error != null
+                ? Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Text(_error!, textAlign: TextAlign.center),
+                        ),
+                        TextButton(
+                          onPressed: _load,
+                          child: const Text('Tekrar dene'),
+                        ),
+                      ],
+                    ),
+                  )
+                : _snippets == null
+                ? const Center(child: CircularProgressIndicator())
+                : _snippets!.isEmpty
+                ? const Center(
+                    child: Text(
+                      'Bu hesapta hazır metin yok.\nAyarlar > Hazır Metinler',
+                      textAlign: TextAlign.center,
+                    ),
+                  )
+                : ListView.separated(
+                    itemCount: _snippets!.length,
+                    separatorBuilder: (_, _) => const Divider(height: 1),
+                    itemBuilder: (context, index) {
+                      final snippet = _snippets![index];
+                      final hasTitle = snippet.title?.isNotEmpty == true;
+                      return ListTile(
+                        key: ValueKey('pick-snippet-${snippet.id}'),
+                        title: Text(
+                          hasTitle ? snippet.title! : snippet.text,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                        subtitle: hasTitle
+                            ? Text(snippet.text, maxLines: 2)
+                            : null,
+                        onTap: () => Navigator.pop(context, snippet),
+                      );
+                    },
+                  ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class _RecipientChip extends StatelessWidget {
   const _RecipientChip({
     super.key,

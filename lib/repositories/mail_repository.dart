@@ -21,6 +21,7 @@ import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
 import '../models/reply_reminder.dart';
+import '../models/mail_snippet.dart';
 import '../models/server_mail_rule.dart';
 import '../models/attachment_download_state.dart';
 
@@ -454,6 +455,20 @@ abstract class MailRepository extends ChangeNotifier {
 
   Future<void> deleteTemplate(String accountId, String templateId) =>
       throw UnimplementedError('deleteTemplate');
+
+  Future<List<MailSnippet>> listSnippets(
+    String accountId, {
+    bool refresh = false,
+  }) => throw UnimplementedError('listSnippets');
+
+  Future<MailSnippet> createSnippet(String accountId, MailSnippet snippet) =>
+      throw UnimplementedError('createSnippet');
+
+  Future<MailSnippet> updateSnippet(String accountId, MailSnippet snippet) =>
+      throw UnimplementedError('updateSnippet');
+
+  Future<void> deleteSnippet(String accountId, String snippetId) =>
+      throw UnimplementedError('deleteSnippet');
 
   // --- Labels -------------------------------------------------------
 

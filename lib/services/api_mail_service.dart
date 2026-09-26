@@ -18,6 +18,7 @@ import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
 import '../models/reply_reminder.dart';
+import '../models/mail_snippet.dart';
 import '../utils/html_to_text.dart';
 import '../utils/attachment_mime.dart';
 import 'api_auth_service.dart';
@@ -557,6 +558,32 @@ class ApiMailService {
 
   Future<void> deleteTemplate(String id) =>
       _client.delete('/api/templates/${Uri.encodeComponent(id)}');
+
+  Future<List<MailSnippet>> getSnippets() async {
+    final items = await _client.getList('/api/snippets');
+    return items
+        .map(
+          (item) =>
+              MailSnippet.fromJson(Map<String, dynamic>.from(item as Map)),
+        )
+        .toList();
+  }
+
+  Future<MailSnippet> createSnippet(MailSnippet snippet) async =>
+      MailSnippet.fromJson(
+        await _client.postJson('/api/snippets', snippet.toJson()),
+      );
+
+  Future<MailSnippet> updateSnippet(MailSnippet snippet) async =>
+      MailSnippet.fromJson(
+        await _client.putJson(
+          '/api/snippets/${Uri.encodeComponent(snippet.id)}',
+          snippet.toJson(),
+        ),
+      );
+
+  Future<void> deleteSnippet(String id) =>
+      _client.delete('/api/snippets/${Uri.encodeComponent(id)}');
 
   /// Full mail id -> assigned label ids map for the current mailbox.
   Future<Map<String, List<String>>> getLabelAssignments() async {
