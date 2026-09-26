@@ -2198,6 +2198,7 @@ class ApiMailRepository extends MailRepository {
           'conversationId': threadId,
         }, session.resolveFolder);
         if (raw['hasAttachments'] != true &&
+            summary.remoteImageHosts.isEmpty &&
             !_remoteImageMailIds.contains(id)) {
           return summary;
         }
@@ -2489,16 +2490,24 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> refreshReplyReminders() async {
+    // Tek hesap patlayınca diğer hesapların listesi korunur; hatalı hesap
+    // sessizce eski verisini tutar, hata ekrana olduğu gibi çıkar.
+    final errors = <Object>[];
     await Future.wait(
       _scopedSessions.map((session) async {
-        final items = await session.mailService.listReplyReminders();
-        session.replyReminders = [
-          for (final item in items)
-            item.copyWith(accountId: session.account.id),
-        ]..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
+        try {
+          final items = await session.mailService.listReplyReminders();
+          session.replyReminders = [
+            for (final item in items)
+              item.copyWith(accountId: session.account.id),
+          ]..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
+        } catch (e) {
+          errors.add(e);
+        }
       }),
     );
     notifyListeners();
+    if (errors.isNotEmpty) throw errors.first;
   }
 
   @override

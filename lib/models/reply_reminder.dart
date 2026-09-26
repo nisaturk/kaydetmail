@@ -28,20 +28,39 @@ class ReplyReminder {
   final String recipient;
   final DateTime sentAt;
 
-  factory ReplyReminder.fromJson(Map<String, dynamic> json) => ReplyReminder(
-    id: json['id'] as String,
-    mailId: json['mailId'] as String,
-    conversationId: json['conversationId'] as String?,
-    dueAtUtc: DateTime.parse(json['dueAtUtc'] as String),
-    createdAt: DateTime.parse(json['createdAt'] as String),
-    status: json['status'] as String? ?? 'Pending',
-    notifiedAt: json['notifiedAt'] == null
-        ? null
-        : DateTime.parse(json['notifiedAt'] as String),
-    subject: json['subject'] as String? ?? '',
-    recipient: json['recipient'] as String? ?? '',
-    sentAt: DateTime.parse(json['sentAt'] as String),
-  );
+  /// Backend alan adları camelCase gelir; tek bozuk kayıt tüm listeyi
+  /// düşürmesin diye [tryParse] null döner, listeleyen taraf atlar.
+  factory ReplyReminder.fromJson(Map<String, dynamic> json) =>
+      tryParse(json) ??
+      (throw const FormatException('Geçersiz yanıt takibi kaydı.'));
+
+  static ReplyReminder? tryParse(Map<String, dynamic> json) {
+    final id = json['id'] as String?;
+    final mailId = json['mailId'] as String?;
+    final dueAt = _parseDate(json['dueAtUtc']);
+    final createdAt = _parseDate(json['createdAt']);
+    final sentAt = _parseDate(json['sentAt']);
+    if (id == null || mailId == null || dueAt == null || createdAt == null || sentAt == null) {
+      return null;
+    }
+    return ReplyReminder(
+      id: id,
+      mailId: mailId,
+      conversationId: json['conversationId'] as String?,
+      dueAtUtc: dueAt,
+      createdAt: createdAt,
+      status: json['status'] as String? ?? 'Pending',
+      notifiedAt: json['notifiedAt'] == null ? null : _parseDate(json['notifiedAt']),
+      subject: json['subject'] as String? ?? '',
+      recipient: json['recipient'] as String? ?? '',
+      sentAt: sentAt,
+    );
+  }
+
+  static DateTime? _parseDate(Object? raw) {
+    if (raw is! String || raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
 
   ReplyReminder copyWith({String? accountId}) => ReplyReminder(
     id: id,

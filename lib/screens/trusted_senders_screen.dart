@@ -71,7 +71,7 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Güvenilir Göndericiler'),
+      title: const Text('Kayıtlı Görsel Tercihleri'),
       actions: [
         if (_repo.accounts.length > 1)
           PopupMenuButton<String>(
@@ -112,9 +112,8 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'Uzak görselleri otomatik yüklenen gönderici yok.\n'
-                'Bir e-postada "Bu göndericiden her zaman" seçeneğiyle '
-                'ekleyebilirsiniz.',
+                'Henüz kayıtlı gönderici yok.\n'
+                'Normal görseller, bu listeye ekleme yapılmadan da yüklenir.',
                 textAlign: TextAlign.center,
               ),
             ),

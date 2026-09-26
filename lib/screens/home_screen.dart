@@ -132,41 +132,18 @@ class _HomeScreenState extends State<HomeScreen> {
         .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
   }
 
-  void _openSettings() {
+  void _openDestination(DrawerDestination destination) {
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const SettingsScreen()));
-  }
-
-  void _openAccounts() {
-    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
-    _selection.exit();
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const AccountsScreen()));
-  }
-
-  void _openScheduledSends() {
-    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const ScheduledSendsScreen()));
-  }
-
-  void _openReplyReminders() {
-    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const ReplyRemindersScreen()));
-  }
-
-  void _openOutbox() {
-    if (!_isRailLayout) Navigator.of(context).pop();
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const OutboxScreen()));
-  }
-
-  void _openCustomFolders() {
-    if (!_isRailLayout) Navigator.of(context).pop();
-    Navigator.of(context)
-        .push(MaterialPageRoute(builder: (_) => const CustomFoldersScreen()));
+    if (destination == DrawerDestination.accounts) _selection.exit();
+    final screen = switch (destination) {
+      DrawerDestination.accounts => const AccountsScreen(),
+      DrawerDestination.scheduled => const ScheduledSendsScreen(),
+      DrawerDestination.reminders => const ReplyRemindersScreen(),
+      DrawerDestination.outbox => const OutboxScreen(),
+      DrawerDestination.customFolders => const CustomFoldersScreen(),
+      DrawerDestination.settings => const SettingsScreen(),
+    };
+    Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
   }
 
   void _showMailboxSelector() {
@@ -605,12 +582,7 @@ class _HomeScreenState extends State<HomeScreen> {
           selectedFolder: _folder,
           onSelectFolder: _selectFolder,
           onLogout: _logout,
-          onOpenSettings: _openSettings,
-          onOpenAccounts: _openAccounts,
-          onOpenScheduledSends: _openScheduledSends,
-          onOpenReplyReminders: _openReplyReminders,
-          onOpenOutbox: _openOutbox,
-          onOpenCustomFolders: _openCustomFolders,
+          onOpenDestination: _openDestination,
         );
         return Scaffold(
           appBar: _selection.isActive

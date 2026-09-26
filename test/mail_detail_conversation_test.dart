@@ -179,6 +179,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const Key('message-reply-m1')), findsOneWidget);
       expect(find.text('Tümünü kapat'), findsOneWidget);
+      // Açık kartta gönderen/alıcı yalnızca kart başlığında görünür; ileti
+      // gövdesi aynı başlığı ikinci kez basmaz.
+      expect(find.text('Mehmet'), findsOneWidget);
+      expect(find.text('mehmet@example.com'), findsNothing);
 
       await tester.ensureVisible(find.byKey(const Key('toggle-quoted-m2')));
       await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
@@ -243,6 +247,10 @@ void main() {
 
       PendingSendQueue.instance.cancelAll();
       await tester.pump(const Duration(seconds: 6));
+      await tester.pumpAndSettle();
+      // Aksiyonlu SnackBar varsayılan olarak kalıcı; geri alma süresi
+      // bitince kapanmalı.
+      expect(find.text('Yanıt gönderiliyor'), findsNothing);
     });
   });
 }

@@ -7,33 +7,70 @@ import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import 'mail_avatar.dart';
 
-/// Navigation drawer: folders, then Hesaplar, Settings and Logout.
+/// Drawer'dan açılabilen uygulama hedefleri. Klasörler ayrı seçilir
+/// ([onSelectFolder]); bu liste menüdeki alt bölümü tek tablodan üretir.
+enum DrawerDestination {
+  accounts,
+  scheduled,
+  reminders,
+  outbox,
+  customFolders,
+  settings,
+}
+
+/// Hedefin menüdeki karşılığı: ikon + Türkçe etiket tek tabloda.
+extension DrawerDestinationMeta on DrawerDestination {
+  IconData get icon => switch (this) {
+    DrawerDestination.accounts => LucideIcons.users,
+    DrawerDestination.scheduled => LucideIcons.calendarClock,
+    DrawerDestination.reminders => LucideIcons.bellRing,
+    DrawerDestination.outbox => LucideIcons.send,
+    DrawerDestination.customFolders => LucideIcons.folder,
+    DrawerDestination.settings => LucideIcons.settings,
+  };
+
+  String get label => switch (this) {
+    DrawerDestination.accounts => 'Hesaplar',
+    DrawerDestination.scheduled => 'Zamanlanmış Gönderimler',
+    DrawerDestination.reminders => 'Yanıt Takibi',
+    DrawerDestination.outbox => 'Giden Kutusu',
+    DrawerDestination.customFolders => 'Diğer Klasörler',
+    DrawerDestination.settings => 'Ayarlar',
+  };
+}
+
+/// Navigation drawer: klasörler üstte, uygulama hedefleri altta.
 ///
-/// Mailbox switching happens from the inbox title (one clear mechanism) — the
-/// drawer only manages folders and app-level destinations.
+/// Sık kullanılan klasörler doğrudan listelenir; Çöp/Spam/Arşiv
+/// "Diğer" başlığı altında toplanır ki menü ilk bakışta kısa kalsın.
 class AppDrawer extends StatelessWidget {
   const AppDrawer({
     super.key,
     required this.selectedFolder,
     required this.onSelectFolder,
     required this.onLogout,
-    required this.onOpenSettings,
-    required this.onOpenAccounts,
-    required this.onOpenScheduledSends,
-    required this.onOpenReplyReminders,
-    required this.onOpenOutbox,
-    required this.onOpenCustomFolders,
+    required this.onOpenDestination,
   });
 
   final MailFolder selectedFolder;
   final ValueChanged<MailFolder> onSelectFolder;
   final VoidCallback onLogout;
-  final VoidCallback onOpenSettings;
-  final VoidCallback onOpenAccounts;
-  final VoidCallback onOpenScheduledSends;
-  final VoidCallback onOpenReplyReminders;
-  final VoidCallback onOpenOutbox;
-  final VoidCallback onOpenCustomFolders;
+  final ValueChanged<DrawerDestination> onOpenDestination;
+
+  /// İlk bakışta görünen klasörler; kalanı "Diğer" altında.
+  static const _primaryFolders = [
+    MailFolder.inbox,
+    MailFolder.starred,
+    MailFolder.snoozed,
+    MailFolder.sent,
+    MailFolder.drafts,
+  ];
+
+  static const _secondaryFolders = [
+    MailFolder.trash,
+    MailFolder.spam,
+    MailFolder.archive,
+  ];
 
   @override
   Widget build(BuildContext context) {
@@ -89,12 +126,46 @@ class AppDrawer extends StatelessWidget {
                   return ListView(
                     padding: const EdgeInsets.symmetric(vertical: 4),
                     children: [
-                      for (final folder in MailFolder.values)
+                      const _MenuHeading('Klasörler'),
+                      for (final folder in _primaryFolders)
                         _FolderTile(
                           folder: folder,
                           selected: folder == selectedFolder,
                           onTap: () => onSelectFolder(folder),
                           badgeCount: _badgeCount(repo, folder),
+                        ),
+                      ExpansionTile(
+                        shape: const Border(),
+                        tilePadding: const EdgeInsets.symmetric(horizontal: 24),
+                        childrenPadding: EdgeInsets.zero,
+                        leading: Icon(
+                          LucideIcons.archive,
+                          size: 20,
+                          color: AppTheme.colors(context).secondaryText,
+                        ),
+                        title: Text(
+                          'Diğer',
+                          style: TextStyle(
+                            fontSize: 14.5,
+                            color: AppTheme.colors(context).secondaryText,
+                          ),
+                        ),
+                        children: [
+                          for (final folder in _secondaryFolders)
+                            _FolderTile(
+                              folder: folder,
+                              selected: folder == selectedFolder,
+                              onTap: () => onSelectFolder(folder),
+                              badgeCount: _badgeCount(repo, folder),
+                            ),
+                        ],
+                      ),
+                      const _MenuHeading('Uygulama'),
+                      for (final destination in DrawerDestination.values)
+                        _SectionTile(
+                          icon: destination.icon,
+                          label: destination.label,
+                          onTap: () => onOpenDestination(destination),
                         ),
                     ],
                   );
@@ -104,44 +175,10 @@ class AppDrawer extends StatelessWidget {
             const Divider(),
             Padding(
               padding: const EdgeInsets.only(bottom: 8),
-              child: Column(
-                children: [
-                  _SectionTile(
-                    icon: LucideIcons.users,
-                    label: 'Hesaplar',
-                    onTap: onOpenAccounts,
-                  ),
-                  _SectionTile(
-                    icon: LucideIcons.calendarClock,
-                    label: 'Zamanlanmış Gönderimler',
-                    onTap: onOpenScheduledSends,
-                  ),
-                  _SectionTile(
-                    icon: LucideIcons.bellRing,
-                    label: 'Yanıt Takibi',
-                    onTap: onOpenReplyReminders,
-                  ),
-                  _SectionTile(
-                    icon: LucideIcons.send,
-                    label: 'Giden Kutusu',
-                    onTap: onOpenOutbox,
-                  ),
-                  _SectionTile(
-                    icon: LucideIcons.folder,
-                    label: 'Diğer Klasörler',
-                    onTap: onOpenCustomFolders,
-                  ),
-                  _SectionTile(
-                    icon: LucideIcons.settings,
-                    label: 'Ayarlar',
-                    onTap: onOpenSettings,
-                  ),
-                  _SectionTile(
-                    icon: LucideIcons.logOut,
-                    label: 'Çıkış Yap',
-                    onTap: onLogout,
-                  ),
-                ],
+              child: _SectionTile(
+                icon: LucideIcons.logOut,
+                label: 'Çıkış Yap',
+                onTap: onLogout,
               ),
             ),
           ],
@@ -164,6 +201,27 @@ class AppDrawer extends StatelessWidget {
       case MailFolder.snoozed:
         return repo.getEmailsInFolder(MailFolder.snoozed).length;
     }
+  }
+}
+
+class _MenuHeading extends StatelessWidget {
+  const _MenuHeading(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 4),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w600,
+          color: AppTheme.colors(context).secondaryText,
+        ),
+      ),
+    );
   }
 }
 

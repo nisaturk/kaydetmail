@@ -9,8 +9,6 @@ import '../models/compose_prefill.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
-import '../models/mail_signature.dart';
-import '../models/trusted_sender.dart';
 import '../repositories/mail_repository.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_auto_download_policy.dart';
@@ -976,11 +974,15 @@ class _SingleMessage extends StatelessWidget {
     required this.email,
     required this.labels,
     this.collapseQuoted = false,
+    this.compactHeader = false,
   });
 
   final Email email;
   final List<MailLabel> labels;
   final bool collapseQuoted;
+
+  /// Thread kartı zaten avatar + isim + tarih basıyorsa iç başlığı kısaltır.
+  final bool compactHeader;
 
   @override
   Widget build(BuildContext context) {
@@ -990,56 +992,69 @@ class _SingleMessage extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 8),
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            MailAvatar(
-              identity: email.senderEmail,
-              displayName: email.senderName,
-              size: 44,
+        if (compactHeader) ...[
+          if (email.cc.isNotEmpty)
+            _RecipientLine(
+              label: 'Cc: ',
+              addresses: recipientText(email.cc),
             ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    email.senderName,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w700,
-                      color: onSurface,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    email.senderEmail,
-                    style: TextStyle(fontSize: 13, color: colors.secondaryText),
-                  ),
-                  if (email.recipients.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    _RecipientLine(
-                      label: 'Alıcı: ',
-                      addresses: recipientText(email.recipients),
-                    ),
-                  ],
-                  if (email.cc.isNotEmpty) ...[
-                    const SizedBox(height: 2),
-                    _RecipientLine(
-                      label: 'Cc: ',
-                      addresses: recipientText(email.cc),
-                    ),
-                  ],
-                  const SizedBox(height: 6),
-                  Text(
-                    formatMailDateFull(email.timestamp),
-                    style: TextStyle(fontSize: 13, color: colors.secondaryText),
-                  ),
-                ],
+        ] else
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              MailAvatar(
+                identity: email.senderEmail,
+                displayName: email.senderName,
+                size: 44,
               ),
-            ),
-          ],
-        ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      email.senderName,
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w700,
+                        color: onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      email.senderEmail,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                    if (email.recipients.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      _RecipientLine(
+                        label: 'Alıcı: ',
+                        addresses: recipientText(email.recipients),
+                      ),
+                    ],
+                    if (email.cc.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      _RecipientLine(
+                        label: 'Cc: ',
+                        addresses: recipientText(email.cc),
+                      ),
+                    ],
+                    const SizedBox(height: 6),
+                    Text(
+                      formatMailDateFull(email.timestamp),
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
         if (labels.isNotEmpty) ...[
           const SizedBox(height: 12),
           _LabelChips(labels: labels),
@@ -1049,7 +1064,6 @@ class _SingleMessage extends StatelessWidget {
           MailAuthenticationRow(authentication: authentication),
         ],
         if (email.security case final security?) ...[
-          const SizedBox(height: 8),
           ListTile(
             contentPadding: EdgeInsets.zero,
             dense: true,
@@ -1219,13 +1233,15 @@ class _QuickReplyState extends State<_QuickReply> {
     final messenger = ScaffoldMessenger.of(context);
     setState(() => _sending = true);
     try {
-      final prefill = await repo.getComposePrefill(email.id, 'reply');
-      MailIdentity? identity;
-      try {
-        identity = (await repo.listIdentities(email.accountId))
-            .where((item) => item.isDefault)
-            .firstOrNull;
-      } catch (_) {}
+      // Prefill ve kimlik paralel çekilir; kimlik alınamazsa varsayılanla
+      // devam edilir.
+      final prefillFuture = repo.getComposePrefill(email.id, 'reply');
+      final identityFuture = repo
+          .listIdentities(email.accountId)
+          .then((items) => items.where((item) => item.isDefault).firstOrNull)
+          .catchError((_) => null);
+      final prefill = await prefillFuture;
+      final identity = await identityFuture;
       final signature = await resolveComposeSignature(
         repo,
         accountId: email.accountId,
@@ -1246,18 +1262,23 @@ class _QuickReplyState extends State<_QuickReply> {
         identityId: identity?.id,
       );
       await queue.enqueue(pending, messenger: messenger);
-      await repo.markAsReplied([email.id]);
+      final queued = queue.isPending(pending.id);
+      // Yanıtlandı işareti ağ çağrısı yapar; toast'ı bekletmesin.
+      unawaited(repo.markAsReplied([email.id]).catchError((Object _) {}));
       if (!mounted) return;
-      _controller.clear();
+      if (queued) _controller.clear();
       setState(() => _sending = false);
       final undoWindow = PendingSendQueue.undoWindow;
       messenger.showSnackBar(
         SnackBar(
-          content: const Text('Yanıt gönderiliyor'),
-          duration: undoWindow > Duration.zero
+          content: Text(queued ? 'Yanıt gönderiliyor' : 'Yanıt gönderildi'),
+          // Aksiyonlu SnackBar varsayılan olarak kalıcıdır; süre dolunca
+          // kapanması için açıkça kapatılır.
+          persist: false,
+          duration: queued && undoWindow > Duration.zero
               ? undoWindow
               : const Duration(seconds: 3),
-          action: undoWindow > Duration.zero
+          action: queued && undoWindow > Duration.zero
               ? SnackBarAction(
                   label: 'Geri Al',
                   onPressed: () {
@@ -1344,19 +1365,14 @@ class _RemoteContentBannerState extends State<_RemoteContentBanner> {
   bool _loading = false;
   Object? _error;
 
-  Future<void> _load([TrustedSenderKind? trust]) async {
+  Future<void> _load() async {
     if (_loading) return;
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final repo = AppConfig.mailRepository;
-      if (trust == null) {
-        await repo.loadRemoteImages(widget.email.id);
-      } else {
-        await repo.trustSenderForRemoteImages(widget.email.id, trust);
-      }
+      await AppConfig.mailRepository.loadRemoteImages(widget.email.id);
     } catch (error) {
       if (mounted) setState(() => _error = error);
     } finally {
@@ -1379,7 +1395,7 @@ class _RemoteContentBannerState extends State<_RemoteContentBanner> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Bu mesaj uzaktaki görselleri içeriyor.'),
+          const Text('Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.'),
           if (_error != null) ...[
             const SizedBox(height: 4),
             Text(
@@ -1404,20 +1420,6 @@ class _RemoteContentBannerState extends State<_RemoteContentBanner> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
                     : Text(_error == null ? 'Görselleri yükle' : 'Tekrar dene'),
-              ),
-              TextButton(
-                key: Key('trust-sender-${widget.email.id}'),
-                onPressed: _loading
-                    ? null
-                    : () => _load(TrustedSenderKind.sender),
-                child: const Text('Bu göndericiden her zaman'),
-              ),
-              TextButton(
-                key: Key('trust-domain-${widget.email.id}'),
-                onPressed: _loading
-                    ? null
-                    : () => _load(TrustedSenderKind.domain),
-                child: const Text('Bu alan adından her zaman'),
               ),
             ],
           ),
@@ -1766,6 +1768,17 @@ class _ThreadStackState extends State<_ThreadStack> {
                                     fontWeight: FontWeight.w600,
                                   ),
                                 ),
+                                if (_expanded(m) &&
+                                    m.recipients.isNotEmpty)
+                                  Text(
+                                    'Alıcı: ${m.recipients.join(', ')}',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      color: colors.secondaryText,
+                                    ),
+                                  ),
                                 if (!_expanded(m))
                                   Text(
                                     stripQuotedReply(m.bodyText)
@@ -1799,6 +1812,7 @@ class _ThreadStackState extends State<_ThreadStack> {
                       email: m,
                       labels: widget.labelsFor(m),
                       collapseQuoted: true,
+                      compactHeader: true,
                     ),
                   ),
                 if (_expanded(m))
