@@ -9,12 +9,14 @@ import '../services/session_store.dart';
 import '../services/share_intake.dart';
 import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
+import '../utils/bulk_pin.dart';
 import '../utils/mail_threads.dart';
 import '../utils/error_messages.dart';
 import '../widgets/app_drawer.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/move_folder_sheet.dart';
 import '../widgets/permanent_delete_dialog.dart';
+import '../widgets/snooze_picker.dart';
 import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'custom_folders_screen.dart';
@@ -476,6 +478,57 @@ class _HomeScreenState extends State<HomeScreen> {
     return ids.every((id) => byId[id]?.isStarred ?? false);
   }
 
+  bool get _selectionAllPinned {
+    final selected = _selection.selectedIds.toSet();
+    final emails = _repo.getAllEmails().where((e) => selected.contains(e.id));
+    return emails.isNotEmpty && emails.every((e) => e.isPinned);
+  }
+
+  Future<void> _actionPin() async {
+    final ids = _selection.selectedIds.toList();
+    if (ids.isEmpty) return;
+    final unpin = _selectionAllPinned;
+    if (!unpin) {
+      final error = bulkPinLimitError(_repo.getAllEmails(), ids);
+      if (error != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(error)));
+        return;
+      }
+    }
+    try {
+      await _repo.setPinned(ids, !unpin);
+      _selection.exit();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+        ),
+      );
+    }
+  }
+
+  Future<void> _actionSnooze() async {
+    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    if (ids.isEmpty) return;
+    if (_folder == MailFolder.snoozed) {
+      await _repo.setSnoozed(ids, null);
+      _selection.exit();
+      return;
+    }
+    final until = await showSnoozePicker(context);
+    if (until == null || !mounted) return;
+    await _repo.setSnoozed(ids, until);
+    _selection.exit();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('${ids.length} e-posta ertelendi.')),
+      );
+    }
+  }
+
   Future<void> _actionLabel() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
@@ -757,6 +810,18 @@ class _HomeScreenState extends State<HomeScreen> {
         value: 'star',
         child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
       ),
+      if (_folder != MailFolder.drafts)
+        PopupMenuItem(
+          value: 'pin',
+          child: Text(_selectionAllPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'),
+        ),
+      if (_folder != MailFolder.drafts)
+        PopupMenuItem(
+          value: 'snooze',
+          child: Text(
+            _folder == MailFolder.snoozed ? 'Ertelemeyi kaldır' : 'Ertele',
+          ),
+        ),
       if (_showMarkAsSpamAction)
         const PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
       if (_showMarkNotSpamAction)
@@ -794,6 +859,10 @@ class _HomeScreenState extends State<HomeScreen> {
             switch (v) {
               case 'star':
                 _actionStar();
+              case 'pin':
+                _actionPin();
+              case 'snooze':
+                _actionSnooze();
               case 'spam':
                 _actionSpam();
               case 'not_spam':
