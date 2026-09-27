@@ -7,6 +7,8 @@ import '../config/app_config.dart';
 import '../models/mail_folder.dart';
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
+import '../services/api_exception.dart';
+import '../services/home_widget_service.dart';
 import '../services/session_store.dart';
 import '../services/share_intake.dart';
 import '../state/mail_selection_controller.dart';
@@ -19,7 +21,6 @@ import '../widgets/label_picker_sheet.dart';
 import '../widgets/move_folder_sheet.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
-import 'accounts_screen.dart';
 import 'compose_screen.dart';
 import 'custom_folders_screen.dart';
 import 'inbox_screen.dart';
@@ -136,9 +137,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _openDestination(DrawerDestination destination) {
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
-    if (destination == DrawerDestination.accounts) _selection.exit();
     final screen = switch (destination) {
-      DrawerDestination.accounts => const AccountsScreen(),
       DrawerDestination.scheduled => const ScheduledSendsScreen(),
       DrawerDestination.reminders => const ReplyRemindersScreen(),
       DrawerDestination.outbox => const OutboxScreen(),
@@ -146,6 +145,41 @@ class _HomeScreenState extends State<HomeScreen> {
       DrawerDestination.settings => const SettingsScreen(),
     };
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  bool _syncingAccounts = false;
+
+  /// Drawer "Hesapları eşitle": the same server sync + re-fetch that
+  /// pull-to-refresh runs on "Tüm mailler" (every source folder of every
+  /// account in scope), reported through snackbars because the drawer has
+  /// no refresh indicator of its own.
+  Future<void> _syncAccounts() async {
+    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
+    if (_syncingAccounts) return;
+    _syncingAccounts = true;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(
+      const SnackBar(content: Text('Hesaplar eşitleniyor…')),
+    );
+    try {
+      await _repo.syncFolder(MailFolder.all);
+      await _repo.refreshEmails(MailFolder.all);
+      unawaited(HomeWidgetService.refreshFromInbox(_repo));
+      if (!messenger.mounted) return;
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(const SnackBar(content: Text('Hesaplar eşitlendi.')));
+    } catch (error) {
+      if (!messenger.mounted) return;
+      final message = error is ApiException && error.status == 404
+          ? 'Eşitleme durumu bulunamadı. Tekrar deneyin.'
+          : friendlyErrorMessage(error);
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(message)));
+    } finally {
+      _syncingAccounts = false;
+    }
   }
 
   void _showMailboxSelector() {
@@ -617,6 +651,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onSelectFolder: _selectFolder,
           onLogout: _logout,
           onOpenDestination: _openDestination,
+          onSyncAccounts: _syncAccounts,
         );
         return Scaffold(
           appBar: _selection.isActive
@@ -713,7 +748,13 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text('Gelen Kutusu'),
+              const Flexible(
+                child: Text(
+                  'Gelen Kutusu',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
               if (selectingInbox) ...[
                 const SizedBox(width: 6),
                 Icon(
@@ -786,15 +827,16 @@ class _HomeScreenState extends State<HomeScreen> {
           tooltip: 'Kalıcı olarak sil',
           icon: const Icon(LucideIcons.trash2),
         ),
-      IconButton(
-        onPressed: _actionToggleRead,
-        tooltip: _selectionAnyUnread
-            ? 'Okundu olarak işaretle'
-            : 'Okunmadı olarak işaretle',
-        icon: Icon(
-          _selectionAnyUnread ? LucideIcons.mailOpen : LucideIcons.mail,
+      if (_folder != MailFolder.drafts)
+        IconButton(
+          onPressed: _actionToggleRead,
+          tooltip: _selectionAnyUnread
+              ? 'Okundu olarak işaretle'
+              : 'Okunmadı olarak işaretle',
+          icon: Icon(
+            _selectionAnyUnread ? LucideIcons.mailOpen : LucideIcons.mail,
+          ),
         ),
-      ),
       if (_showArchiveAction)
         IconButton(
           onPressed: _actionArchive,

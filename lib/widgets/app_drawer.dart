@@ -10,7 +10,6 @@ import 'mail_avatar.dart';
 /// Drawer'dan açılabilen uygulama hedefleri. Klasörler ayrı seçilir
 /// ([onSelectFolder]); bu liste menüdeki alt bölümü tek tablodan üretir.
 enum DrawerDestination {
-  accounts,
   scheduled,
   reminders,
   outbox,
@@ -21,7 +20,6 @@ enum DrawerDestination {
 /// Hedefin menüdeki karşılığı: ikon + Türkçe etiket tek tabloda.
 extension DrawerDestinationMeta on DrawerDestination {
   IconData get icon => switch (this) {
-    DrawerDestination.accounts => LucideIcons.users,
     DrawerDestination.scheduled => LucideIcons.calendarClock,
     DrawerDestination.reminders => LucideIcons.bellRing,
     DrawerDestination.outbox => LucideIcons.send,
@@ -30,7 +28,6 @@ extension DrawerDestinationMeta on DrawerDestination {
   };
 
   String get label => switch (this) {
-    DrawerDestination.accounts => 'Hesaplar',
     DrawerDestination.scheduled => 'Zamanlanmış Gönderimler',
     DrawerDestination.reminders => 'Yanıt Takibi',
     DrawerDestination.outbox => 'Giden Kutusu',
@@ -39,9 +36,13 @@ extension DrawerDestinationMeta on DrawerDestination {
   };
 }
 
-/// Navigation drawer: klasörler üstte, uygulama hedefleri altta.
+/// Navigation drawer: folders top-aligned, the "Hesap ve uygulama" section
+/// (sync, folder management, settings, logout) pinned to the bottom. When
+/// the content is taller than the viewport (landscape phones, large text)
+/// the whole drawer scrolls as one list instead of overflowing.
 ///
-/// Navigation drawer: core folders first, account/folder management and settings below.
+/// Accounts are managed from Ayarlar → Hesaplar; the drawer's sync entry
+/// only triggers [onSyncAccounts].
 class AppDrawer extends StatelessWidget {
   const AppDrawer({
     super.key,
@@ -49,12 +50,17 @@ class AppDrawer extends StatelessWidget {
     required this.onSelectFolder,
     required this.onLogout,
     required this.onOpenDestination,
+    required this.onSyncAccounts,
   });
 
   final MailFolder selectedFolder;
   final ValueChanged<MailFolder> onSelectFolder;
   final VoidCallback onLogout;
   final ValueChanged<DrawerDestination> onOpenDestination;
+
+  /// "Hesapları eşitle": runs the mailbox-wide sync for every account in
+  /// scope. The host closes the drawer and reports progress/failure.
+  final VoidCallback onSyncAccounts;
 
   static const _primaryFolders = [
     MailFolder.inbox,
@@ -71,94 +77,77 @@ class AppDrawer extends StatelessWidget {
     return Drawer(
       backgroundColor: Theme.of(context).colorScheme.surface,
       child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
-              child: Row(
-                children: [
-                  MailAvatar(
-                    identity: AppConfig.mailRepository.currentUser,
-                    displayName: 'KAYDET',
-                    size: 40,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'KAYDET',
-                          style: TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
-                            color: Theme.of(context).colorScheme.onSurface,
-                          ),
-                        ),
-                        Text(
-                          AppConfig.mailRepository.currentUser,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 13,
-                            color: AppTheme.colors(context).secondaryText,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const Divider(),
-            Expanded(
-              child: ListenableBuilder(
-                listenable: AppConfig.mailRepository,
-                builder: (context, _) {
-                  final repo = AppConfig.mailRepository;
-                  return ListView(
-                    padding: const EdgeInsets.symmetric(vertical: 4),
+        child: ListenableBuilder(
+          listenable: AppConfig.mailRepository,
+          builder: (context, _) {
+            final repo = AppConfig.mailRepository;
+            // minHeight = viewport + spaceBetween pins the lower section to
+            // the drawer bottom on tall screens; on short ones the column
+            // takes its natural height and everything scrolls together.
+            // (SliverFillRemaining/IntrinsicHeight measure these tiles via
+            // intrinsics, which came out short and overflowed.)
+            return LayoutBuilder(
+              builder: (context, constraints) => SingleChildScrollView(
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      for (final folder in _primaryFolders)
-                        _FolderTile(
-                          folder: folder,
-                          selected: folder == selectedFolder,
-                          onTap: () => onSelectFolder(folder),
-                          badgeCount: _badgeCount(repo, folder),
-                        ),
-                      const Divider(height: 12),
-                      _MenuHeading('Hesap ve uygulama'),
-                      for (final destination in [
-                        DrawerDestination.accounts,
-                        DrawerDestination.customFolders,
-                        DrawerDestination.settings,
-                      ])
-                        _SectionTile(
-                          icon: destination.icon,
-                          label: switch (destination) {
-                            DrawerDestination.accounts => 'Hesapları eşitle',
-                            DrawerDestination.customFolders =>
-                              'Klasörleri yönet',
-                            _ => destination.label,
-                          },
-                          onTap: () => onOpenDestination(destination),
-                        ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          _DrawerHeader(repo.currentUser),
+                          const Divider(),
+                          const SizedBox(height: 4),
+                          for (final folder in _primaryFolders)
+                            _FolderTile(
+                              folder: folder,
+                              selected: folder == selectedFolder,
+                              onTap: () => onSelectFolder(folder),
+                              badgeCount: _badgeCount(repo, folder),
+                            ),
+                        ],
+                      ),
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          const Divider(height: 12),
+                          const _MenuHeading('Hesap ve uygulama'),
+                          _SectionTile(
+                            icon: LucideIcons.refreshCw,
+                            label: 'Hesapları eşitle',
+                            onTap: onSyncAccounts,
+                          ),
+                          for (final destination in [
+                            DrawerDestination.customFolders,
+                            DrawerDestination.settings,
+                          ])
+                            _SectionTile(
+                              icon: destination.icon,
+                              label:
+                                  destination == DrawerDestination.customFolders
+                                  ? 'Klasörleri yönet'
+                                  : destination.label,
+                              onTap: () => onOpenDestination(destination),
+                            ),
+                          const Divider(),
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: _SectionTile(
+                              icon: LucideIcons.logOut,
+                              label: 'Çıkış Yap',
+                              onTap: onLogout,
+                            ),
+                          ),
+                        ],
+                      ),
                     ],
-                  );
-                },
+                  ),
+                ),
               ),
-            ),
-            const Divider(),
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: _SectionTile(
-                icon: LucideIcons.logOut,
-                label: 'Çıkış Yap',
-                onTap: onLogout,
-              ),
-            ),
-          ],
+            );
+          },
         ),
       ),
     );
@@ -167,18 +156,64 @@ class AppDrawer extends StatelessWidget {
   int _badgeCount(MailRepository repo, MailFolder folder) {
     switch (folder) {
       case MailFolder.inbox:
-      case MailFolder.drafts:
       case MailFolder.spam:
         return repo.unreadCount(folder);
+      // Drafts carry no read state; the badge is how many are pending.
+      case MailFolder.drafts:
+      case MailFolder.snoozed:
+        return repo.getEmailsInFolder(folder).length;
       case MailFolder.all:
       case MailFolder.sent:
       case MailFolder.starred:
       case MailFolder.trash:
       case MailFolder.archive:
         return 0;
-      case MailFolder.snoozed:
-        return repo.getEmailsInFolder(MailFolder.snoozed).length;
     }
+  }
+}
+
+class _DrawerHeader extends StatelessWidget {
+  const _DrawerHeader(this.currentUser);
+
+  final String currentUser;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 20, 16, 16),
+      child: Row(
+        children: [
+          MailAvatar(identity: currentUser, displayName: 'KAYDET', size: 40),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'KAYDET',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: Theme.of(context).colorScheme.onSurface,
+                  ),
+                ),
+                Text(
+                  currentUser,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: AppTheme.colors(context).secondaryText,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

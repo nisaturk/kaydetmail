@@ -37,7 +37,6 @@ SendEmail _send(Future<Email> Function(String? key) action) =>
       String? inReplyToId,
       String? identityId,
       bool requestReadReceipt = false,
-      bool requestDeliveryReceipt = false,
       String? idempotencyKey,
       void Function(int sent, int total)? onProgress,
       Future<void>? abortTrigger,
@@ -48,9 +47,8 @@ SendEmail _send(Future<Email> Function(String? key) action) =>
 /// `AppConfig.mailRepository`.
 class _FakeMailRepository extends MailRepository {
   int sendCalls = 0;
-  bool succeedNextSend = true;
   bool? readReceiptRequested;
-  bool? deliveryReceiptRequested;
+  bool succeedNextSend = true;
 
   @override
   Future<Email> sendEmail({
@@ -67,14 +65,12 @@ class _FakeMailRepository extends MailRepository {
     String? inReplyToId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
   }) async {
     sendCalls++;
     readReceiptRequested = requestReadReceipt;
-    deliveryReceiptRequested = requestDeliveryReceipt;
     if (!succeedNextSend) {
       throw const ApiException(status: 0, code: 'network_unavailable');
     }
@@ -399,7 +395,6 @@ void main() {
           subject: 'S',
           body: 'B',
           requestReadReceipt: true,
-          requestDeliveryReceipt: true,
         ),
         sendEmail: _send(
           (_) async =>
@@ -409,12 +404,10 @@ void main() {
       await queue.flushPending();
       expect(store.load().single.status, OutboxStatus.waitingForNetwork);
       expect(store.load().single.send.requestReadReceipt, isTrue);
-      expect(store.load().single.send.requestDeliveryReceipt, isTrue);
 
       await queue.retry('send-retry');
       expect(fake.sendCalls, 1);
       expect(fake.readReceiptRequested, isTrue);
-      expect(fake.deliveryReceiptRequested, isTrue);
       expect(store.load(), isEmpty);
       queue.cancelAll();
     },

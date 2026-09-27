@@ -171,6 +171,7 @@ void main() {
             onSelectFolder: (_) {},
             onLogout: () {},
             onOpenDestination: (_) {},
+            onSyncAccounts: () {},
           ),
           body: const SizedBox.shrink(),
         ),
@@ -205,7 +206,7 @@ void main() {
     for (var index = 1; index < folderPositions.length; index++) {
       expect(folderPositions[index - 1], lessThan(folderPositions[index]));
     }
-    await tester.drag(find.byType(ListView), const Offset(0, -500));
+    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -500));
     await tester.pumpAndSettle();
     for (final label in ['Hesapları eşitle', 'Klasörleri yönet', 'Ayarlar']) {
       expect(find.text(label), findsOneWidget);

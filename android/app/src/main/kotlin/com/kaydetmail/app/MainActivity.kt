@@ -1,4 +1,4 @@
-package com.example.kaydetmail
+package com.kaydetmail.app
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

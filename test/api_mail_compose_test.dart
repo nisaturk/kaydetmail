@@ -128,15 +128,11 @@ void main() {
             ),
           ],
           idempotencyKey: 'key-123',
-          requestReadReceipt: true,
-          requestDeliveryReceipt: true,
         );
 
         expect(sent.url.path, '/api/mails/send');
         expect(sent.headers['Idempotency-Key'], 'key-123');
         expect(await _partValues(sent, 'To'), ['a@example.com']);
-        expect(sent.fields['requestReadReceipt'], 'true');
-        expect(sent.fields['requestDeliveryReceipt'], 'true');
         final attachmentPart = sent.files.singleWhere(
           (f) => f.filename != null,
         );
@@ -190,6 +186,36 @@ void main() {
       );
 
       expect(sent.fields.containsKey('bodyHtml'), isFalse);
+    });
+
+    test('sendMail sends the read receipt opt-in, off by default', () async {
+      final sent = <WireMultipart>[];
+      final service = ApiMailService(
+        _multipartClient((request) async {
+          sent.add(request);
+          return http.Response(
+            jsonEncode({'sent': true, 'sentCopySaved': true, 'warning': null}),
+            200,
+          );
+        }),
+      );
+
+      await service.sendMail(
+        to: ['a@example.com'],
+        subject: 'Konu',
+        bodyText: 'Gövde',
+        idempotencyKey: 'key-1',
+      );
+      await service.sendMail(
+        to: ['a@example.com'],
+        subject: 'Konu',
+        bodyText: 'Gövde',
+        requestReadReceipt: true,
+        idempotencyKey: 'key-2',
+      );
+
+      expect(sent[0].fields['requestReadReceipt'], 'false');
+      expect(sent[1].fields['requestReadReceipt'], 'true');
     });
   });
 
@@ -376,7 +402,6 @@ class _RecordingMailService extends ApiMailService {
     String? replySourceMailId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     required String idempotencyKey,
     void Function(int, int)? onProgress,
     Future<void>? abortTrigger,

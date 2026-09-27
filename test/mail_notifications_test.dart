@@ -1,9 +1,11 @@
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/mail_notifications.dart';
+import 'package:kaydetmail/services/push_service.dart';
 import 'package:kaydetmail/services/token_store.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -211,5 +213,70 @@ void main() {
       expect(requests, isEmpty);
       expect(display.cancelled, isEmpty);
     });
+  });
+
+  group('backgroundPushPlan', () {
+    const newMail = {
+      'type': 'new_mail',
+      'accountId': 'acc-1',
+      'mailId': 'm-1',
+      'privacy': 'limited',
+      'sender': 'Ayşe',
+      'subject': 'Toplantı',
+    };
+
+    test('data-only mail push is rendered locally with its account', () {
+      final plan = backgroundPushPlan(newMail, systemRendered: false);
+      expect((plan.show?.accountId, plan.show?.mailId), ('acc-1', 'm-1'));
+      expect(plan.cancelMailId, isNull);
+    });
+
+    test('iOS alert push is left to the system, never duplicated', () {
+      final plan = backgroundPushPlan(newMail, systemRendered: true);
+      expect(plan.show, isNull);
+      expect(plan.cancelMailId, isNull);
+    });
+
+    test('read elsewhere clears the notification; unrelated state does not', () {
+      Map<String, String> changed(String operation) => {
+        'type': 'mail_state_changed',
+        'accountId': 'acc-1',
+        'mailId': 'm-1',
+        'operation': operation,
+      };
+      expect(
+        backgroundPushPlan(changed('read'), systemRendered: true).cancelMailId,
+        'm-1',
+      );
+      expect(
+        backgroundPushPlan(changed('star'), systemRendered: false).cancelMailId,
+        isNull,
+      );
+    });
+  });
+
+  test('iOS category exposes every action; reply opens the app', () {
+    final details = MailNotifications.details('b');
+    expect(details.iOS?.categoryIdentifier, MailNotifications.category.identifier);
+    final actions = {
+      for (final action in MailNotifications.category.actions)
+        action.identifier: action.options,
+    };
+    expect(
+      actions.keys,
+      unorderedEquals(MailNotificationAction.values.map((a) => a.id)),
+    );
+    expect(
+      actions[MailNotificationAction.reply.id],
+      contains(DarwinNotificationActionOption.foreground),
+    );
+    for (final action in MailNotificationAction.values) {
+      if (action == MailNotificationAction.reply) continue;
+      expect(
+        actions[action.id],
+        isNot(contains(DarwinNotificationActionOption.foreground)),
+        reason: '${action.id} must run without opening the app',
+      );
+    }
   });
 }

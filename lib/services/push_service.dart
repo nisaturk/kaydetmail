@@ -296,25 +296,44 @@ String? _dismissedMailId(Map<String, String> data) {
 ///
 /// Runs in its own isolate — re-initializing Firebase here is required per
 /// the `firebase_messaging` contract, even though the app's own [Firebase]
-/// instance already did it. On Android `new_mail`/`snooze_expired` arrive
-/// data-only and are rendered here with quick actions, and a
-/// `mail_state_changed` for a read/moved/deleted mail clears its
-/// notification. `account_reauthentication_required`/`sync_error` and every
-/// iOS mail push carry a system-rendered alert (see backend
-/// `FirebasePushNotificationService`).
+/// instance already did it. Android data-only pushes are rendered locally.
+/// iOS data-only pushes follow the same path when APNs grants background
+/// execution; alert pushes stay system-rendered to avoid duplicate banners.
+/// State-change pushes clear any matching locally-rendered notification.
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   if (Firebase.apps.isEmpty) await Firebase.initializeApp();
-  if (defaultTargetPlatform != TargetPlatform.android) return;
-  final data = message.data.map((key, value) => MapEntry(key, '$value'));
-  final mail = MailNotification.fromPushData(data);
-  final dismissed = _dismissedMailId(data);
-  if (mail == null && dismissed == null) return;
+  if (defaultTargetPlatform != TargetPlatform.android &&
+      defaultTargetPlatform != TargetPlatform.iOS) {
+    return;
+  }
+  final plan = backgroundPushPlan(
+    message.data.map((key, value) => MapEntry(key, '$value')),
+    systemRendered:
+        defaultTargetPlatform == TargetPlatform.iOS &&
+        message.notification != null,
+  );
+  if (plan.show == null && plan.cancelMailId == null) return;
   final plugin = FlutterLocalNotificationsPlugin();
   await MailNotifications.initialize(plugin);
-  if (mail != null) {
+  if (plan.show case final mail?) {
     await LocalMailNotificationDisplay(plugin).show(mail);
-  } else {
-    await plugin.cancel(id: notificationIdFor(dismissed!));
+  } else if (plan.cancelMailId case final mailId?) {
+    await plugin.cancel(id: notificationIdFor(mailId));
   }
+}
+
+/// What a background push should do locally: render [show], or clear the
+/// notification of [cancelMailId]. A [systemRendered] push (iOS alert) is
+/// never re-rendered, so the user never gets a duplicate banner.
+@visibleForTesting
+({MailNotification? show, String? cancelMailId}) backgroundPushPlan(
+  Map<String, String> data, {
+  required bool systemRendered,
+}) {
+  final mail = MailNotification.fromPushData(data);
+  if (mail != null) {
+    return (show: systemRendered ? null : mail, cancelMailId: null);
+  }
+  return (show: null, cancelMailId: _dismissedMailId(data));
 }

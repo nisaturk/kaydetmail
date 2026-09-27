@@ -29,42 +29,46 @@ class _SnoozePickerSheet extends StatelessWidget {
       ),
       (label: 'Gelecek hafta (Pazartesi 09:00)', value: _nextMonday9am(now)),
     ];
+    // Short landscape + large text can exceed the sheet height — scroll
+    // instead of overflowing (probe: 640x320 @ 1.3x).
     return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Ertele',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Ertele',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
               ),
             ),
-          ),
-          for (final preset in presets)
-            if (preset.value.isAfter(now))
-              ListTile(
-                leading: Icon(LucideIcons.clock, color: colors.secondaryText),
-                title: Text(preset.label),
-                onTap: () => Navigator.of(context).pop(preset.value),
+            for (final preset in presets)
+              if (preset.value.isAfter(now))
+                ListTile(
+                  leading: Icon(LucideIcons.clock, color: colors.secondaryText),
+                  title: Text(preset.label),
+                  onTap: () => Navigator.of(context).pop(preset.value),
+                ),
+            ListTile(
+              leading: Icon(
+                LucideIcons.calendarClock,
+                color: colors.secondaryText,
               ),
-          ListTile(
-            leading: Icon(
-              LucideIcons.calendarClock,
-              color: colors.secondaryText,
+              title: const Text('Tarih ve saat seç'),
+              onTap: () async {
+                final picked = await _pickCustom(context, now);
+                if (picked != null && context.mounted) {
+                  Navigator.of(context).pop(picked);
+                }
+              },
             ),
-            title: const Text('Tarih ve saat seç'),
-            onTap: () async {
-              final picked = await _pickCustom(context, now);
-              if (picked != null && context.mounted) {
-                Navigator.of(context).pop(picked);
-              }
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

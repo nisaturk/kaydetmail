@@ -150,7 +150,6 @@ class _StubMailRepository extends MailRepository {
     String? inReplyToId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -303,6 +302,7 @@ class _StubMailRepository extends MailRepository {
     String? fromAccountId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
     required DateTime sendAt,
   }) async => throw UnimplementedError();
 

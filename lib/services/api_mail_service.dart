@@ -954,7 +954,6 @@ class ApiMailService {
     String? replySourceMailId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     required String idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -970,7 +969,6 @@ class ApiMailService {
           identityId: identityId,
         ),
         'requestReadReceipt': '$requestReadReceipt',
-        'requestDeliveryReceipt': '$requestDeliveryReceipt',
       },
       files: () =>
           _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),
@@ -1003,6 +1001,7 @@ class ApiMailService {
     List<Attachment> attachments = const [],
     String? replySourceMailId,
     String? identityId,
+    bool requestReadReceipt = false,
     required DateTime sendAtUtc,
     required String idempotencyKey,
   }) async {
@@ -1017,6 +1016,7 @@ class ApiMailService {
           identityId: identityId,
         ),
         'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+        'requestReadReceipt': '$requestReadReceipt',
       },
       files: () =>
           _composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),

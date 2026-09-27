@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
@@ -464,22 +465,41 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     setState(() => _composeActionBusy = false);
 
     final isForward = mode == 'forward';
+    final sender = prefill.originalFrom ?? email.senderEmail;
+    final subject = prefill.originalSubject ?? email.subject;
+    final formattedDate = prefill.originalDate == null
+        ? null
+        : formatMailDateFull(prefill.originalDate!);
+    final originalHtml = email.bodyHtml?.trim().isNotEmpty == true
+        ? email.bodyHtml!
+        : htmlEscape.convert(email.bodyText).replaceAll('\n', '<br>');
     var initialBody = '';
+    String? initialBodyHtml;
     var initialAttachments = const <Attachment>[];
     if (isForward) {
-      final dateLine = prefill.originalDate == null
-          ? ''
-          : 'Tarih: ${formatMailDateFull(prefill.originalDate!)}\n';
+      final dateLine = formattedDate == null ? '' : 'Tarih: $formattedDate\n';
       initialBody =
           '\n\n--- İletilen mesaj ---\n'
-          'Kimden: ${prefill.originalFrom ?? email.senderEmail}\n'
+          'Kimden: $sender\n'
           '$dateLine'
-          'Konu: ${prefill.originalSubject ?? email.subject}\n\n'
+          'Konu: $subject\n\n'
           '${email.bodyText}';
-      // Metadata only (no bytes yet) — ComposeScreen downloads each one
-      // itself and blocks Send until every attachment is ready, so a
-      // forwarded attachment is never silently dropped (spec §5/§6).
+      initialBodyHtml =
+          '<p><br></p><p>--- İletilen mesaj ---<br>'
+          '<strong>Kimden:</strong> ${htmlEscape.convert(sender)}<br>'
+          '${formattedDate == null ? '' : '<strong>Tarih:</strong> ${htmlEscape.convert(formattedDate)}<br>'}'
+          '<strong>Konu:</strong> ${htmlEscape.convert(subject)}</p>'
+          '$originalHtml';
       initialAttachments = prefill.attachments;
+    } else {
+      final attribution =
+          '${formattedDate == null ? '' : '$formattedDate tarihinde '}'
+          '$sender yazdı:';
+      initialBody =
+          '\n\n$attribution\n> ${email.bodyText.replaceAll('\n', '\n> ')}';
+      initialBodyHtml =
+          '<p><br></p><p>${htmlEscape.convert(attribution)}</p>'
+          '<blockquote>$originalHtml</blockquote>';
     }
 
     final sent = await Navigator.of(context).push<bool>(
@@ -491,6 +511,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
           initialCc: prefill.cc.join(', '),
           initialSubject: prefill.suggestedSubject,
           initialBody: initialBody,
+          initialBodyHtml: initialBodyHtml,
           initialAttachments: initialAttachments,
           attachmentSourceMailId: isForward ? email.id : null,
           initialThreadId: isForward ? null : email.threadId,
@@ -1625,10 +1646,12 @@ class _ThreadStackState extends State<_ThreadStack> {
                 style: TextStyle(fontSize: 13, color: colors.secondaryText),
               ),
             ),
-            TextButton(
-              key: const Key('thread-toggle-all'),
-              onPressed: () => _setAll(!_allExpanded),
-              child: Text(_allExpanded ? 'Tümünü kapat' : 'Tümünü aç'),
+            Flexible(
+              child: TextButton(
+                key: const Key('thread-toggle-all'),
+                onPressed: () => _setAll(!_allExpanded),
+                child: Text(_allExpanded ? 'Tümünü kapat' : 'Tümünü aç'),
+              ),
             ),
           ],
         ),
@@ -1656,58 +1679,69 @@ class _ThreadStackState extends State<_ThreadStack> {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.all(12),
-                      child: Row(
-                        children: [
-                          MailAvatar(
-                            identity: m.senderEmail,
-                            displayName: m.senderName,
-                            size: 32,
-                          ),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  m.senderName,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    fontWeight: FontWeight.w600,
+                      // The full date keeps its natural width but may take
+                      // at most half the row, so large text scales wrap it
+                      // instead of overflowing the sender column.
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => Row(
+                          children: [
+                            MailAvatar(
+                              identity: m.senderEmail,
+                              displayName: m.senderName,
+                              size: 32,
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    m.senderName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w600,
+                                    ),
                                   ),
+                                  if (_expanded(m) && m.recipients.isNotEmpty)
+                                    Text(
+                                      'Alıcı: ${m.recipients.join(', ')}',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: colors.secondaryText,
+                                      ),
+                                    ),
+                                  if (!_expanded(m))
+                                    Text(
+                                      stripQuotedReply(m.bodyText)
+                                          .replaceAll('\n', ' '),
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        fontSize: 13,
+                                        color: colors.secondaryText,
+                                      ),
+                                    ),
+                                ],
+                              ),
+                            ),
+                            ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxWidth: constraints.maxWidth / 2,
+                              ),
+                              child: Text(
+                                formatMailDateFull(m.timestamp),
+                                textAlign: TextAlign.end,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: colors.secondaryText,
                                 ),
-                                if (_expanded(m) && m.recipients.isNotEmpty)
-                                  Text(
-                                    'Alıcı: ${m.recipients.join(', ')}',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 12,
-                                      color: colors.secondaryText,
-                                    ),
-                                  ),
-                                if (!_expanded(m))
-                                  Text(
-                                    stripQuotedReply(m.bodyText)
-                                        .replaceAll('\n', ' '),
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: TextStyle(
-                                      fontSize: 13,
-                                      color: colors.secondaryText,
-                                    ),
-                                  ),
-                              ],
+                              ),
                             ),
-                          ),
-                          Text(
-                            formatMailDateFull(m.timestamp),
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: colors.secondaryText,
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -1725,7 +1759,7 @@ class _ThreadStackState extends State<_ThreadStack> {
                 if (_expanded(m))
                   Padding(
                     padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-                    child: Row(
+                    child: Wrap(
                       children: [
                         TextButton.icon(
                           key: Key('message-reply-${m.id}'),

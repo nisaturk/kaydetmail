@@ -211,6 +211,63 @@ void main() {
       mailService.deleteStarted.complete();
       await deletion;
     });
+
+    test('a created draft still reconciling is deleted under its server id '
+        'once the Drafts list names it', () async {
+      final mailService = _PendingCreateMailService();
+      final repo = await _loggedInRepository(mailService);
+
+      final created = await repo.saveDraft(to: ['a@x.com'], subject: 'Yeni');
+      expect(created.id, startsWith('draft-'));
+
+      mailService.listed = [
+        _draftRow('server-other', 'Başka', DateTime.now()),
+        _draftRow('server-42', 'Yeni', DateTime.now()),
+      ];
+      await repo.deleteDraft(created.id);
+
+      expect(mailService.deletedDraftIds, ['server-42']);
+      expect(
+        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+        ['server-other'],
+      );
+    });
+
+    test('a blank-subject draft matches the server "(no subject)" copy', () async {
+      final mailService = _PendingCreateMailService();
+      final repo = await _loggedInRepository(mailService);
+      final created = await repo.saveDraft(to: ['a@x.com']);
+
+      mailService.listed = [
+        _draftRow('server-7', '(no subject)', DateTime.now()),
+      ];
+      await repo.deleteDraft(created.id);
+
+      expect(mailService.deletedDraftIds, ['server-7']);
+    });
+
+    test('deleting a draft the server has not named yet fails clearly and '
+        'keeps it', () async {
+      final mailService = _PendingCreateMailService();
+      final repo = await _loggedInRepository(mailService);
+      final created = await repo.saveDraft(to: ['a@x.com'], subject: 'Yeni');
+
+      await expectLater(
+        repo.deleteDraft(created.id),
+        throwsA(
+          isA<ApiException>().having(
+            (e) => e.code,
+            'code',
+            'draft_not_reconciled',
+          ),
+        ),
+      );
+      expect(mailService.deletedDraftIds, isEmpty);
+      expect(
+        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+        [created.id],
+      );
+    });
   });
 
   group('ApiMailService draft send + compose prefill', () {
@@ -448,6 +505,53 @@ class _VersioningMailService extends _RecordingMailService {
     return DraftResult(created: false, mailId: 'draft-v${updatedIds.length}');
   }
 }
+
+/// `POST /drafts` answering `reconciliationPending`; the Drafts list returns
+/// whatever the test put in [listed].
+class _PendingCreateMailService extends _RecordingMailService {
+  List<Email> listed = const [];
+
+  @override
+  Future<DraftResult> createDraft({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) async => const DraftResult(created: true, mailId: null);
+
+  @override
+  Future<MailListPage> getMails({
+    required String folderId,
+    required MailFolder Function(String folderId) resolveFolder,
+    int page = 1,
+    int pageSize = 20,
+    bool? isRead,
+    bool? hasAttachments,
+    String? search,
+  }) async => MailListPage(
+    items: listed,
+    page: 1,
+    pageSize: pageSize,
+    total: listed.length,
+  );
+}
+
+Email _draftRow(String id, String subject, DateTime timestamp) => Email(
+  id: id,
+  senderName: 'person@example.com',
+  senderEmail: 'person@example.com',
+  recipients: const ['a@x.com'],
+  subject: subject,
+  bodyText: '',
+  timestamp: timestamp,
+  folder: MailFolder.drafts,
+  accountId: 'account-1',
+);
 
 /// `PUT /drafts/{id}` answering `reconciliationPending` with no `mailId`.
 class _PendingUpdateMailService extends _RecordingMailService {

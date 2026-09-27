@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/compose_prefill.dart';
@@ -143,7 +144,6 @@ class _FakeRepo extends MailRepository {
     String? inReplyToId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -162,6 +162,7 @@ Email _mail() => Email(
   recipients: const ['ben@example.com'],
   subject: 'Konu',
   bodyText: 'Gövde metni',
+  bodyHtml: '<p><strong>Gövde</strong> metni</p>',
   timestamp: DateTime(2026, 1, 1),
   accountId: 'acc-1',
   threadId: 't1',
@@ -174,6 +175,16 @@ Future<void> _pumpDetail(WidgetTester tester, _FakeRepo repo) async {
   );
   await tester.pumpAndSettle();
 }
+
+quill.Document _composeBody(WidgetTester tester) => tester
+    .widget<quill.QuillEditor>(find.byKey(const Key('body-field')))
+    .controller
+    .document;
+
+bool _hasAttribute(quill.Document document, String attribute) => document
+    .toDelta()
+    .toList()
+    .any((op) => op.attributes?.containsKey(attribute) ?? false);
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -199,6 +210,10 @@ void main() {
             .text,
         'Re: Konu',
       );
+      final body = _composeBody(tester);
+      expect(body.toPlainText(), contains('Gövde metni'));
+      expect(_hasAttribute(body, 'blockquote'), isTrue);
+      expect(_hasAttribute(body, 'bold'), isTrue);
     },
   );
 
@@ -238,12 +253,12 @@ void main() {
             .text,
         'Fwd: Konu',
       );
-      final body = tester
-          .widget<TextField>(find.byKey(const Key('body-field')))
-          .controller!
-          .text;
-      expect(body, contains('gonderen@example.com'));
-      expect(body, contains('Konu'));
+      final body = _composeBody(tester);
+      final bodyText = body.toPlainText();
+      expect(bodyText, contains('gonderen@example.com'));
+      expect(bodyText, contains('Konu'));
+      expect(bodyText, contains('Gövde metni'));
+      expect(_hasAttribute(body, 'bold'), isTrue);
       // Attachment metadata came with no bytes — ComposeScreen must download it
       // itself rather than dropping it (spec §4/§5).
       expect(repo.downloadedAttachmentIds, ['att-1']);

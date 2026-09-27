@@ -98,10 +98,8 @@ class ApiException implements Exception {
     'reply_reminder_already_replied' => 'Bu e-posta zaten yanıtlanmış.',
     'reply_reminder_requires_sent_mail' =>
       'Hatırlatma yalnızca gönderilen e-postalar için kurulabilir.',
-    'delivery_receipt_not_supported' =>
-      'Bu posta sunucusu teslim bilgisi isteğini desteklemiyor. '
-          'Seçeneği kapatıp yeniden gönderin.',
-    'invalid_receipt_option' => 'Alındı bilgisi seçeneği geçersiz.',
+    'draft_not_reconciled' =>
+      'Taslak sunucuda henüz eşleşmedi. Birkaç saniye sonra tekrar deneyin.',
     'delivery_unknown' =>
       'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',
     'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',

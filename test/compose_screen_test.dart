@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
@@ -16,7 +17,6 @@ import 'package:kaydetmail/screens/compose_screen.dart';
 import 'package:kaydetmail/screens/outbox_screen.dart';
 import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
-import 'package:kaydetmail/utils/markdown_lite_to_html.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal in-memory [MailRepository] double. Every method not exercised by
@@ -40,6 +40,7 @@ class _FakeMailRepository extends MailRepository {
   final List<ScheduledSend> scheduled = [];
   final List<String> deletedDrafts = [];
   final List<Email> savedDrafts = [];
+  final List<bool> readReceiptRequests = [];
 
   @override
   bool get isLoggedIn => true;
@@ -163,7 +164,6 @@ class _FakeMailRepository extends MailRepository {
     String? inReplyToId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -184,6 +184,7 @@ class _FakeMailRepository extends MailRepository {
       attachments: attachments,
     );
     sent.add(email);
+    readReceiptRequests.add(requestReadReceipt);
     return email;
   }
 
@@ -343,6 +344,7 @@ class _FakeMailRepository extends MailRepository {
     String? fromAccountId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
     required DateTime sendAt,
   }) async {
     final result = ScheduledSend(
@@ -373,6 +375,7 @@ Future<void> _pumpCompose(
   String? initialTo,
   String? editingDraftId,
   String? initialBody,
+  String? initialBodyHtml,
   List<Attachment> initialAttachments = const [],
   String? attachmentSourceMailId,
   bool settle = true,
@@ -395,6 +398,7 @@ Future<void> _pumpCompose(
         initialTo: initialTo ?? '',
         editingDraftId: editingDraftId,
         initialBody: initialBody ?? '',
+        initialBodyHtml: initialBodyHtml,
         initialAttachments: initialAttachments,
         attachmentSourceMailId: attachmentSourceMailId,
       ),
@@ -413,6 +417,24 @@ Future<void> _pumpCompose(
   }
 }
 
+quill.QuillController _body(WidgetTester tester) =>
+    tester.widget<quill.QuillEditor>(find.byKey(const Key('body-field'))).controller;
+
+String _bodyText(WidgetTester tester) {
+  final text = _body(tester).document.toPlainText();
+  return text.substring(0, text.length - 1);
+}
+
+void _setBody(WidgetTester tester, String text) {
+  final body = _body(tester);
+  body.replaceText(
+    0,
+    body.document.length - 1,
+    text,
+    TextSelection.collapsed(offset: text.length),
+  );
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -426,14 +448,11 @@ void main() {
     testWidgets('new mail offers save as draft or discard', (tester) async {
       final repo = _FakeMailRepository(accounts: const [_accountA]);
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-      await tester.enterText(
-        find.byKey(const Key('body-field')),
-        'keep this draft',
-      );
+      _setBody(tester, 'keep this draft');
       await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Taslağı kaydedilsin mi?'), findsOneWidget);
+      expect(find.text('Bu taslak ne olsun?'), findsOneWidget);
       expect(find.text('Taslağı Sil'), findsOneWidget);
       expect(find.text('Taslağı Kaydet'), findsOneWidget);
       await tester.tap(find.text('Taslağı Kaydet'));
@@ -448,10 +467,7 @@ void main() {
     ) async {
       final repo = _FakeMailRepository(accounts: const [_accountA]);
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-      await tester.enterText(
-        find.byKey(const Key('body-field')),
-        'discard this draft',
-      );
+      _setBody(tester, 'discard this draft');
       await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Taslağı Sil'));
@@ -492,10 +508,7 @@ void main() {
         initialBody: 'existing draft',
         editingDraftId: 'draft-existing',
       );
-      await tester.enterText(
-        find.byKey(const Key('body-field')),
-        'updated draft',
-      );
+      _setBody(tester, 'updated draft');
 
       await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
@@ -517,7 +530,7 @@ void main() {
         initialBody: 'remove this',
         editingDraftId: 'draft-existing',
       );
-      await tester.enterText(find.byKey(const Key('body-field')), '');
+      _setBody(tester, '');
 
       await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
@@ -525,6 +538,271 @@ void main() {
       expect(find.byType(ComposeScreen), findsNothing);
       expect(repo.savedDrafts.single.id, 'draft-existing');
       expect(repo.savedDrafts.single.bodyText, isEmpty);
+    });
+
+    testWidgets('overflow menu deletes the edited draft after confirmation', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialBody: 'eski taslak',
+        editingDraftId: 'draft-existing',
+      );
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sil'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Vazgeç'));
+      await tester.pumpAndSettle();
+      expect(repo.deletedDrafts, isEmpty);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sil'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-discard')));
+      await tester.pumpAndSettle();
+
+      expect(repo.deletedDrafts, ['draft-existing']);
+      expect(repo.savedDrafts, isEmpty);
+      expect(find.byType(ComposeScreen), findsNothing);
+    });
+
+    testWidgets('Sil on an empty new mail closes without asking', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sil'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsNothing);
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts, isEmpty);
+    });
+
+    testWidgets('Sil on an unsaved mail with content confirms and saves '
+        'nothing', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      _setBody(tester, 'at gitsin');
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sil'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('confirm-discard')));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts, isEmpty);
+      expect(repo.deletedDrafts, isEmpty);
+    });
+
+    testWidgets('Taslağı kaydet is disabled until there is content', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      PopupMenuItem<Object?> saveItem() => tester.widget(
+        find.byKey(const Key('compose-menu-saveDraft')),
+      );
+      expect(saveItem().enabled, isFalse);
+      await tester.tap(find.text('Taslağı kaydet'), warnIfMissed: false);
+      await tester.pumpAndSettle();
+      expect(repo.savedDrafts, isEmpty);
+
+      await tester.tapAt(Offset.zero);
+      await tester.pumpAndSettle();
+      _setBody(tester, 'yarım kalan');
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      expect(saveItem().enabled, isTrue);
+    });
+
+    testWidgets('saving from the menu keeps compose open and exit does not '
+        'ask again or duplicate the draft', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      _setBody(tester, 'yarım kalan');
+
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Taslağı kaydet'));
+      await tester.pumpAndSettle();
+
+      expect(repo.savedDrafts, hasLength(1));
+      expect(find.text('Taslak kaydedildi.'), findsOneWidget);
+      expect(find.byType(ComposeScreen), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('save-draft-on-exit')), findsNothing);
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts, hasLength(1));
+    });
+
+    testWidgets('edits after a menu save are saved to the same draft on exit', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      _setBody(tester, 'ilk');
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Taslağı kaydet'));
+      await tester.pumpAndSettle();
+
+      _setBody(tester, 'ikinci');
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts, hasLength(2));
+      expect(repo.savedDrafts.last.id, repo.savedDrafts.first.id);
+      expect(repo.savedDrafts.last.bodyText, 'ikinci');
+    });
+  });
+
+  group('read receipt toggle', () {
+    testWidgets('toggles with feedback and reaches the send', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      Future<void> toggle() async {
+        await tester.tap(find.byKey(const Key('send-options-menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Okundu bilgisi iste'));
+        await tester.pumpAndSettle();
+      }
+
+      await toggle();
+      expect(
+        find.text('Alıcılardan okundu bilgisi istenecek.'),
+        findsOneWidget,
+      );
+      await tester.tap(find.byKey(const Key('send-options-menu')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('read-receipt-on')), findsOneWidget);
+      await tester.tapAt(Offset.zero);
+      await tester.pumpAndSettle();
+
+      await toggle();
+      expect(find.text('Okundu bilgisi istenmeyecek.'), findsOneWidget);
+      await toggle();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(
+        PendingSendQueue.undoWindow + const Duration(seconds: 1),
+      );
+
+      expect(repo.readReceiptRequests, [true]);
+    });
+
+    testWidgets('is off unless the user opts in', (tester) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(
+        PendingSendQueue.undoWindow + const Duration(seconds: 1),
+      );
+
+      expect(repo.readReceiptRequests, [false]);
+    });
+  });
+
+  group('add from contacts', () {
+    testWidgets('adds picked contacts to the chosen field, skipping '
+        'duplicates', (tester) async {
+      final repo = _FakeMailRepository(
+        accounts: const [_accountA],
+        emails: [
+          Email(
+            id: 'm1',
+            senderName: 'Ayşe Yılmaz',
+            senderEmail: 'ayse@example.com',
+            recipients: const ['a@example.com'],
+            subject: 'S',
+            bodyText: 'B',
+            timestamp: DateTime(2024, 1, 2),
+          ),
+          Email(
+            id: 'm2',
+            senderName: 'Mehmet Kaya',
+            senderEmail: 'mehmet@example.com',
+            recipients: const ['a@example.com'],
+            subject: 'S',
+            bodyText: 'B',
+            timestamp: DateTime(2024, 1, 1),
+          ),
+        ],
+      );
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+
+      Future<void> openPicker() async {
+        await tester.tap(find.byKey(const Key('send-options-menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Kişilerden ekle'));
+        await tester.pumpAndSettle();
+      }
+
+      await openPicker();
+      await tester.enterText(
+        find.byKey(const Key('contact-picker-search')),
+        'ayş',
+      );
+      await tester.pump();
+      expect(find.text('Mehmet Kaya'), findsNothing);
+      await tester.tap(find.text('Ayşe Yılmaz'));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('contact-picker-add')));
+      await tester.pumpAndSettle();
+      expect(find.text('ayse@example.com'), findsOneWidget);
+      await openPicker();
+      await tester.tap(find.text('Ayşe Yılmaz'));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('contact-picker-add')));
+      await tester.pumpAndSettle();
+      expect(find.text('ayse@example.com'), findsOneWidget);
+
+
+      await openPicker();
+      await tester.tap(find.text('Cc'));
+      await tester.pump();
+      await tester.tap(find.text('Mehmet Kaya'));
+      await tester.pump();
+      await tester.tap(find.byKey(const Key('contact-picker-add')));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byKey(const Key('subject-field')), 'Konu');
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(
+        PendingSendQueue.undoWindow + const Duration(seconds: 1),
+      );
+
+      expect(repo.sent.single.recipients, ['ayse@example.com']);
+      expect(repo.sent.single.cc, ['mehmet@example.com']);
     });
   });
 
@@ -544,10 +822,7 @@ void main() {
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
 
-      final bodyText = tester
-          .widget<TextField>(find.byKey(const Key('body-field')))
-          .controller!
-          .text;
+      final bodyText = _bodyText(tester);
       expect(bodyText, '\n\n--\nSaygılarımla,\nA');
     });
 
@@ -569,10 +844,7 @@ void main() {
         initialBody: 'orijinal taslak metni',
       );
 
-      final bodyText = tester
-          .widget<TextField>(find.byKey(const Key('body-field')))
-          .controller!
-          .text;
+      final bodyText = _bodyText(tester);
       expect(bodyText, 'orijinal taslak metni');
     });
 
@@ -593,10 +865,7 @@ void main() {
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
       expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!
-            .text,
+        _bodyText(tester),
         '\n\n--\nİmza A',
       );
 
@@ -606,10 +875,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!
-            .text,
+        _bodyText(tester),
         '\n\n--\nİmza B',
       );
     });
@@ -630,13 +896,10 @@ void main() {
       final repo = _FakeMailRepository(accounts: const [accountA, accountB]);
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-      final withSignature = tester
-          .widget<TextField>(find.byKey(const Key('body-field')))
-          .controller!
-          .text;
+      final withSignature = _bodyText(tester);
 
       final typed = '$withSignature merhaba, ek yazı';
-      await tester.enterText(find.byKey(const Key('body-field')), typed);
+      _setBody(tester, typed);
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('from-account-menu')));
@@ -645,132 +908,97 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!
-            .text,
+        _bodyText(tester),
         typed,
         reason: 'switching Kimden after real typing must never touch the body again',
       );
     });
   });
 
-  group('formatting toolbar', () {
-    testWidgets('bold/italic/underline wrap the cursor position', (
+  group('rich body', () {
+    testWidgets('restores draft HTML as rich text and saves it back as HTML', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        editingDraftId: 'draft-rich',
+        initialBody: 'Merhaba dünya',
+        initialBodyHtml: '<p><strong>Merhaba</strong> dünya</p>',
+      );
+
+      expect(_bodyText(tester), 'Merhaba dünya');
+      final body = _body(tester);
+      body.replaceText(
+        body.document.length - 1,
+        0,
+        '!',
+        TextSelection.collapsed(offset: body.document.length),
+      );
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+
+      final saved = repo.savedDrafts.single;
+      expect(saved.bodyText, 'Merhaba dünya!');
+      expect(saved.bodyHtml, contains('<strong>Merhaba</strong>'));
+    });
+
+    testWidgets('bullet list toolbar action is serialized to HTML list', (
       tester,
     ) async {
       final repo = _FakeMailRepository(accounts: const [_accountA]);
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-
-      await tester.enterText(find.byKey(const Key('body-field')), 'Hello');
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      await tester.tap(find.byKey(const Key('format-bold')));
+      _setBody(tester, 'Alınacaklar');
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.format_list_bulleted));
       await tester.pump();
 
-      expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!
-            .text,
-        'Hello****',
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(
+        PendingSendQueue.undoWindow + const Duration(seconds: 1),
       );
+
+      expect(repo.sent.single.bodyText, 'Alınacaklar');
+      expect(repo.sent.single.bodyHtml, contains('<ul><li>Alınacaklar</li></ul>'));
     });
 
-    testWidgets('list button bullet-prefixes the current line', (tester) async {
+    testWidgets('quoted images render as placeholders and survive in HTML', (
+      tester,
+    ) async {
       final repo = _FakeMailRepository(accounts: const [_accountA]);
-      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        editingDraftId: 'draft-img',
+        initialBody: 'Logo',
+        initialBodyHtml:
+            '<p>Logo</p><p><img src="https://cdn.example.com/logo.png"></p>',
+      );
 
-      await tester.enterText(
-        find.byKey(const Key('body-field')),
-        'Alınacaklar',
+      expect(tester.takeException(), isNull);
+      expect(find.text('Görsel'), findsOneWidget);
+      _body(tester).replaceText(
+        0,
+        0,
+        'Yeni ',
+        const TextSelection.collapsed(offset: 5),
       );
       await tester.pump();
-      await tester.tap(find.byKey(const Key('format-list')));
-      await tester.pump();
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
 
-      expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!
-            .text,
-        '- Alınacaklar',
-      );
+      final saved = repo.savedDrafts.single;
+      expect(saved.bodyText, isNot(contains('\uFFFC')));
+      expect(saved.bodyText, startsWith('Yeni Logo'));
+      expect(saved.bodyHtml, contains('https://cdn.example.com/logo.png'));
     });
-
-    testWidgets(
-      'number, quote, indent and clear actions work from scrollable toolbar',
-      (tester) async {
-        tester.view
-          ..physicalSize = const Size(320, 900)
-          ..devicePixelRatio = 1;
-        addTearDown(tester.view.reset);
-        final repo = _FakeMailRepository(accounts: const [_accountA]);
-        await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-        final body = tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!;
-
-        await tester.enterText(find.byKey(const Key('body-field')), 'ana\nalt');
-        body.selection = TextSelection(
-          baseOffset: 0,
-          extentOffset: body.text.length,
-        );
-        await tester.tap(find.byKey(const Key('format-numbered-list')));
-        await tester.pump();
-        expect(body.text, '1. ana\n2. alt');
-
-        body.selection = const TextSelection.collapsed(offset: 10);
-        await tester.tap(find.byKey(const Key('format-indent-increase')));
-        await tester.pump();
-        expect(body.text, '1. ana\n  1. alt');
-
-        body.selection = TextSelection(
-          baseOffset: 0,
-          extentOffset: body.text.length,
-        );
-        await tester.tap(find.byKey(const Key('format-quote')));
-        await tester.pump();
-        expect(body.text, '> 1. ana\n>   1. alt');
-
-        await tester.drag(
-          find.byKey(const Key('format-toolbar')),
-          const Offset(-300, 0),
-        );
-        await tester.pumpAndSettle();
-        body.selection = TextSelection(
-          baseOffset: 0,
-          extentOffset: body.text.length,
-        );
-        await tester.tap(find.byKey(const Key('format-clear')));
-        await tester.pump();
-        expect(body.text, 'ana\nalt');
-      },
-    );
-
-    testWidgets(
-      'link button inserts markdown-lite markup from the URL dialog',
-      (tester) async {
-        final repo = _FakeMailRepository(accounts: const [_accountA]);
-        await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-
-        await tester.tap(find.byKey(const Key('format-link')));
-        await tester.pumpAndSettle();
-        await tester.enterText(
-          find.byType(TextField).last,
-          'https://ornek.com',
-        );
-        await tester.tap(find.text('Ekle'));
-        await tester.pumpAndSettle();
-
-        expect(
-          tester
-              .widget<TextField>(find.byKey(const Key('body-field')))
-              .controller!
-              .text,
-          '[bağlantı](https://ornek.com)',
-        );
-      },
-    );
   });
 
   group('undo send', () {
@@ -807,7 +1035,7 @@ void main() {
     );
 
     testWidgets(
-      'formatted mail delivers bodyHtml matching the toolbar markup, plain mail sends none',
+      'formatted mail delivers bodyHtml matching the editor styles',
       (tester) async {
         final repo = _FakeMailRepository(accounts: const [_accountA]);
         await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
@@ -815,9 +1043,13 @@ void main() {
         await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
         await tester.testTextInput.receiveAction(TextInputAction.done);
         await tester.pump();
-        await tester.enterText(find.byKey(const Key('body-field')), 'Hello');
+        _setBody(tester, 'Hello');
+        _body(tester).updateSelection(
+          const TextSelection(baseOffset: 0, extentOffset: 5),
+          quill.ChangeSource.local,
+        );
         await tester.pump();
-        await tester.tap(find.byKey(const Key('format-bold')));
+        await tester.tap(find.byIcon(Icons.format_bold));
         await tester.pump();
 
         await tester.tap(find.byKey(const Key('send-button')));
@@ -827,9 +1059,8 @@ void main() {
         );
 
         expect(repo.sent, hasLength(1));
-        expect(repo.sent.single.bodyText, 'Hello****');
-        expect(repo.sent.single.bodyHtml, markdownLiteToHtml('Hello****'));
-        expect(repo.sent.single.bodyHtml, isNot(equals('Hello****')));
+        expect(repo.sent.single.bodyText, 'Hello');
+        expect(repo.sent.single.bodyHtml, contains('<strong>Hello</strong>'));
       },
     );
 
@@ -842,7 +1073,7 @@ void main() {
       await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pump();
-      await tester.enterText(find.byKey(const Key('body-field')), 'düz metin');
+      _setBody(tester, 'düz metin');
       await tester.pump();
 
       await tester.tap(find.byKey(const Key('send-button')));
@@ -946,10 +1177,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byType(ComposeScreen), findsOneWidget);
       expect(
-        tester
-            .widget<TextField>(find.byKey(const Key('body-field')))
-            .controller!
-            .text,
+        _bodyText(tester),
         'Saklanan gövde',
       );
     },
