@@ -487,12 +487,7 @@ class PendingSendQueue with WidgetsBindingObserver {
   }
 
   @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      unawaited(flushPending());
-    }
-  }
+  void didChangeAppLifecycleState(AppLifecycleState state) {}
 
   Future<List<OutboxItem>> items() async => (await _store).load();
 

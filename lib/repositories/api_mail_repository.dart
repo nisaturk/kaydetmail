@@ -39,6 +39,7 @@ import '../services/signature_store.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_download_manager.dart';
 import '../services/token_store.dart';
+import '../services/session_store.dart';
 import 'mail_repository.dart';
 
 const _allMailSourceFolders = [
@@ -336,15 +337,22 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<void> logout() async {
     for (final session in _sessions.values.toList()) {
-      await _unregisterDeviceFor(session);
-      await session.authService.logout();
-      session.persistTimer?.cancel();
-      _cancelReconnectRetry(session);
-      _cache?.clear(session.account.id);
-      _sessions.remove(session.account.id);
+      try {
+        await _unregisterDeviceFor(session);
+        await session.authService.logout();
+      } catch (_) {
+        // Logout is local-first: remote revocation may fail while offline.
+      } finally {
+        await session.authService.tokenStore.clear(session.account.id);
+        session.persistTimer?.cancel();
+        _cancelReconnectRetry(session);
+        _cache?.forgetAccount(session.account.id);
+        _sessions.remove(session.account.id);
+      }
     }
     _activeAccountId = null;
     _stopSnoozeExpiryTimer();
+    await SessionStore.clear();
     _touch();
     notifyListeners();
   }
@@ -462,27 +470,31 @@ class ApiMailRepository extends MailRepository {
   }
 
   /// Upserts this device's push registration for every connected account and
-  /// remembers each registration id for [logout]. Best-effort per account —
-  /// one account's registration failing never blocks the others.
+  /// remembers each successful registration id for [logout]. A failure for
+  /// one account never blocks the others, but remains visible to callers.
   @override
-  Future<void> registerCurrentDevice({
+  Future<Set<String>> registerCurrentDevice({
     required String fcmToken,
     required String appVersion,
     required String locale,
   }) async {
-    await Future.wait(
-      _sessions.values.map((session) async {
+    final registrations = await Future.wait(
+      _sessions.entries.map((entry) async {
         try {
-          final registration = await session.mailService.registerDevice(
+          final registration = await entry.value.mailService.registerDevice(
             token: fcmToken,
             platform: defaultTargetPlatform.name.toLowerCase(),
             appVersion: appVersion,
             locale: locale,
           );
-          session.deviceId = registration.id;
-        } catch (_) {}
+          entry.value.deviceId = registration.id;
+          return entry.key;
+        } catch (_) {
+          return null;
+        }
       }),
     );
+    return registrations.whereType<String>().toSet();
   }
 
   @override
@@ -695,6 +707,7 @@ class ApiMailRepository extends MailRepository {
           _refreshEmailsFor(session, MailFolder.inbox).catchError((_) {}),
         );
       }
+      await SessionStore.saveAccountId(account.email, account.id);
       notifyListeners();
       return session.account;
     } catch (_) {
@@ -973,7 +986,9 @@ class ApiMailRepository extends MailRepository {
     await _unregisterDeviceFor(session);
     session.persistTimer?.cancel();
     _cancelReconnectRetry(session);
+    _cache?.forgetAccount(accountId);
     _sessions.remove(accountId);
+    await SessionStore.removeEmail(session.account.email);
     if (_activeAccountId == accountId) _activeAccountId = null;
     _touch();
     notifyListeners();
@@ -986,10 +1001,15 @@ class ApiMailRepository extends MailRepository {
   Future<void> restoreSession(String email) async {
     final services = _nextServices();
     final accountIds = await services.authService.tokenStore.readAccountIds();
-    final candidateId = accountIds.firstWhere(
-      (id) => !_sessions.containsKey(id),
-      orElse: () => '',
-    );
+    final savedAccountId = await SessionStore.loadAccountId(email);
+    final candidateId = savedAccountId != null &&
+            accountIds.contains(savedAccountId) &&
+            !_sessions.containsKey(savedAccountId)
+        ? savedAccountId
+        : accountIds.firstWhere(
+            (id) => !_sessions.containsKey(id),
+            orElse: () => '',
+          );
     if (candidateId.isEmpty) {
       throw StateError('Secure API session is unavailable.');
     }
@@ -1119,12 +1139,18 @@ class ApiMailRepository extends MailRepository {
   /// Best-effort: failure just leaves stars to detail loads.
   Future<void> _seedStarred(_Session session) async {
     try {
-      final flagged = await session.mailService.search(
-        query: '',
-        flagged: true,
-        pageSize: 100,
-        resolveFolder: session.resolveFolder,
-      );
+      final flagged = <Email>[];
+      for (var page = 1;; page++) {
+        final result = await session.mailService.search(
+          query: '',
+          flagged: true,
+          page: page,
+          pageSize: 100,
+          resolveFolder: session.resolveFolder,
+        );
+        flagged.addAll(result);
+        if (result.length < 100) break;
+      }
       session.starredIds
         ..clear()
         ..addAll(flagged.map((e) => e.id));
@@ -1454,8 +1480,10 @@ class ApiMailRepository extends MailRepository {
       for (final m in all)
         if (_appStateOperations.contains(m.operation)) m,
     ];
-    if (appState.isNotEmpty) await _replayAppState(session, store, appState);
-    if (queued.isEmpty) return;
+    if (queued.isEmpty) {
+      if (appState.isNotEmpty) await _replayAppState(session, store, appState);
+      return;
+    }
     final byOp = <(String, String?), List<QueuedMutation>>{};
     for (final mutation in queued) {
       byOp
@@ -1498,6 +1526,7 @@ class ApiMailRepository extends MailRepository {
       if (restored.isNotEmpty) await _fileRestored(session, restored);
     }
     if (changed) notifyListeners();
+    if (appState.isNotEmpty) await _replayAppState(session, store, appState);
   }
 
   static const _appStateOperations = {
@@ -3915,9 +3944,9 @@ class ApiMailRepository extends MailRepository {
         }
       }),
     );
-    _removeMany(session, ids);
     for (final detail in details) {
       if (detail == null) continue;
+      _removeMany(session, [detail.id]);
       session.emails
           .putIfAbsent(detail.folder, () => <Email>[])
           .insert(0, session.stampLocalFlags(detail));

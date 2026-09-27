@@ -235,6 +235,7 @@ class _AuthGateState extends State<_AuthGate> {
     }
     _handlingLogout = true;
     _syncTimer?.cancel();
+    unawaited(HomeWidgetService.clear());
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _navigatorKey.currentState?.popUntil((route) => route.isFirst);

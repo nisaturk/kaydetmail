@@ -62,11 +62,11 @@ class _FakeMailRepository extends MailRepository {
   Future<void> reconnect({required String password}) async {}
 
   @override
-  Future<void> registerCurrentDevice({
+  Future<Set<String>> registerCurrentDevice({
     required String fcmToken,
     required String appVersion,
     required String locale,
-  }) async {}
+  }) async => {};
 
   @override
   Future<void> unregisterDevice() async {}

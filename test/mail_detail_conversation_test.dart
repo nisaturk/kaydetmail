@@ -46,16 +46,19 @@ class _ThreadRepo extends MailRepository {
   bool failPrefill = false;
   final List<String> replied = [];
   bool showDiagnostics = false;
+  bool failMarkRead = false;
+  bool openedUnread = false;
 
   List<Email> get _thread => [
     showDiagnostics
         ? newer.copyWith(
+            isRead: !openedUnread,
             trackingPixelHosts: const ['tracker.example'],
             remoteImageHosts: const ['tracker.example'],
             remoteImagesAllowed: true,
             security: const MailContentSecurity(signed: 'SMime'),
           )
-        : newer,
+        : newer.copyWith(isRead: !openedUnread),
     older,
   ];
 
@@ -95,7 +98,9 @@ class _ThreadRepo extends MailRepository {
   List<ReplyReminder> getReplyReminders() => const [];
 
   @override
-  Future<void> markAsRead(List<String> ids) async {}
+  Future<void> markAsRead(List<String> ids) async {
+    if (failMarkRead) throw StateError('read failed');
+  }
 
   @override
   Future<void> markAsReplied(List<String> ids) async => replied.addAll(ids);
@@ -173,6 +178,20 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: MailDetailScreen(emailId: id)));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('mark-read failure keeps detail visible and reports error', (
+      tester,
+    ) async {
+      repo
+        ..openedUnread = true
+        ..failMarkRead = true;
+
+      await open(tester, 'm2');
+
+      expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
+      expect(find.textContaining('İşlem başarısız:'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('expand/collapse all and hidden quotes by default', (
       tester,

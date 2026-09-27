@@ -204,6 +204,23 @@ void main() {
         expect(inbox.first.id, 'mail-old');
       },
     );
+
+    test('loads every starred page, not only first 100 mails', () async {
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-inbox')]),
+        },
+        starredMails: [
+          for (var index = 0; index < 101; index++)
+            _mapMailForTest(_mailJson('star-$index')),
+        ],
+      );
+
+      final repo = await _repositoryWithLoadedInbox(mailService);
+
+      expect(repo.getEmailsInFolder(MailFolder.starred).length, 101);
+    });
   });
 
   group('labels', () {
@@ -330,11 +347,15 @@ Email _mapMailForTest(Map<String, dynamic> item) => Email(
 );
 
 class _RecordingMailService extends ApiMailService {
-  _RecordingMailService({required this.folders, required this.pagesByFolderId})
-    : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
+  _RecordingMailService({
+    required this.folders,
+    required this.pagesByFolderId,
+    this.starredMails = const [],
+  }) : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
 
   final List<Map<String, dynamic>> folders;
   final Map<String, MailListPage> pagesByFolderId;
+  final List<Email> starredMails;
   final List<String> bulkActionCalls = [];
   final List<String> singleActionCalls = [];
   final Set<String> pinnedMailIds = {};
@@ -367,6 +388,29 @@ class _RecordingMailService extends ApiMailService {
   }) async =>
       pagesByFolderId[folderId] ??
       MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+
+  @override
+  Future<List<Email>> search({
+    required String query,
+    required MailFolder Function(String folderId) resolveFolder,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+    int page = 1,
+    int pageSize = 20,
+  }) async {
+    if (flagged != true) return const [];
+    final start = (page - 1) * pageSize;
+    if (start >= starredMails.length) return const [];
+    return starredMails.skip(start).take(pageSize).toList();
+  }
 
   @override
   Future<void> mailAction(String id, String action) async {

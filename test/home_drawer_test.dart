@@ -15,6 +15,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 class _FakeRepo extends MailRepository {
   final List<String> calls = [];
   Object? syncError;
+  final List<String> conflicts = [];
 
   @override
   List<MailAccount> get accounts => const [];
@@ -25,8 +26,13 @@ class _FakeRepo extends MailRepository {
   @override
   bool get isOffline => false;
   @override
-  List<String> get offlineMutationConflicts => const [];
+  List<String> get offlineMutationConflicts => List.unmodifiable(conflicts);
 
+  @override
+  void dismissMutationConflict(String id) {
+    conflicts.remove(id);
+    notifyListeners();
+  }
   @override
   List<Email> getEmailsInFolder(MailFolder folder) => const [];
   @override
@@ -123,6 +129,17 @@ void main() {
 
     expect(repo.calls, isNot(contains('refresh:all')));
     expect(find.text('Hesaplar eşitlendi.'), findsNothing);
+    expect(find.byType(SnackBar), findsOneWidget);
+  });
+
+  testWidgets('conflicts dismiss once without listener reentrancy', (tester) async {
+    final repo = await pumpHome(tester);
+    repo.conflicts.addAll(['first', 'second']);
+
+    repo.notifyListeners();
+    await tester.pumpAndSettle();
+
+    expect(repo.conflicts, isEmpty);
     expect(find.byType(SnackBar), findsOneWidget);
   });
 

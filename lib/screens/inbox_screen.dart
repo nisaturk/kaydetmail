@@ -343,6 +343,9 @@ class _InboxScreenState extends State<InboxScreen>
   Future<void> _swipeToggle(Email representative, _SwipeAction action) async {
     final ids = expandThreadIds(_repo, [representative.id]);
     if (ids.isEmpty) return;
+    final key = _dismissKey(representative);
+    if (_moving.contains(key)) return;
+    setState(() => _moving.add(key));
     try {
       switch (action) {
         case _SwipeAction.toggleRead:
@@ -359,9 +362,12 @@ class _InboxScreenState extends State<InboxScreen>
           return;
       }
     } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+      }
+    } finally {
+      if (mounted) setState(() => _moving.remove(key));
     }
   }
 

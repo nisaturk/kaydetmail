@@ -115,10 +115,10 @@ abstract class MailRepository extends ChangeNotifier {
   /// session and the loaded mailbox — only the credentials are replaced.
   Future<void> reconnect({required String password});
 
-  /// Registers this device for FCM pushes (upsert — safe on every launch).
-  /// The registration id is remembered so it can be removed again on
-  /// [logout] or [unregisterDevice].
-  Future<void> registerCurrentDevice({
+  /// Upserts this device's push registration for every connected account and
+  /// returns IDs whose registration succeeded. Failed accounts are omitted so
+  /// callers can retry them.
+  Future<Set<String>> registerCurrentDevice({
     required String fcmToken,
     required String appVersion,
     required String locale,

@@ -109,6 +109,25 @@ void main() {
     expect(sent, 0);
   });
 
+  testWidgets('backgrounding preserves active undo window', (tester) async {
+    await tester.pumpWidget(const SizedBox());
+    AppSettingsController.instance.undoSendDelay = UndoSendDelay.seconds20;
+    final queue = PendingSendQueue.forTest(OutboxStore.inMemory());
+    var sent = 0;
+    await queue.enqueue(
+      const PendingSend(id: 'send-bg', to: ['a@b.com'], subject: 'S', body: 'B'),
+      sendEmail: _send((_) async {
+        sent++;
+        return _sent();
+      }),
+    );
+
+    queue.didChangeAppLifecycleState(AppLifecycleState.paused);
+    await tester.pump(const Duration(seconds: 19));
+    expect(sent, 0);
+    expect(queue.cancel('send-bg'), isTrue);
+  });
+
   testWidgets('delay off dispatches without an undo window', (tester) async {
     await tester.pumpWidget(const SizedBox());
     AppSettingsController.instance.undoSendDelay = UndoSendDelay.off;

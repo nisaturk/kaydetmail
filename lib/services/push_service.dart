@@ -269,13 +269,11 @@ class PushService {
       final token = await messaging.getToken();
       if (token == null || token.isEmpty) return;
       final package = await PackageInfo.fromPlatform();
-      final accountIds = {for (final a in repository.accounts) a.id};
-      await repository.registerCurrentDevice(
+      _registeredAccountIds = await repository.registerCurrentDevice(
         fcmToken: token,
         appVersion: package.version,
         locale: PlatformDispatcher.instance.locale.toLanguageTag(),
       );
-      _registeredAccountIds = accountIds;
     } catch (_) {
       // Registration races (e.g. logged out mid-launch) retry next launch.
       debugPrint('PushService: device registration skipped.');

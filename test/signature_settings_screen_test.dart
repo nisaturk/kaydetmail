@@ -57,7 +57,7 @@ class _StubMailRepository extends MailRepository {
       throw UnimplementedError();
 
   @override
-  Future<void> registerCurrentDevice({
+  Future<Set<String>> registerCurrentDevice({
     required String fcmToken,
     required String appVersion,
     required String locale,

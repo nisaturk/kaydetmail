@@ -48,12 +48,16 @@ class MailDetailScreen extends StatefulWidget {
     required this.emailId,
     this.openReplyOnLoad = false,
     this.currentCustomFolderId,
+    this.showAppBar = true,
   });
 
   final String emailId;
   final bool openReplyOnLoad;
 
   final String? currentCustomFolderId;
+
+  /// Wide mailbox layouts provide their own app bar.
+  final bool showAppBar;
 
   @override
   State<MailDetailScreen> createState() => _MailDetailScreenState();
@@ -166,7 +170,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         _opened = true;
         if (widget.openReplyOnLoad) unawaited(_reply());
         if (!loaded.isRead) {
-          await _repo.markAsRead([loaded.id]);
+          _watchBackgroundMutation(_repo.markAsRead([loaded.id]));
         }
       }
       _maybeEnrichThread(loaded);
@@ -543,7 +547,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('E-posta'), actions: _appBarActions()),
+      appBar: widget.showAppBar
+          ? AppBar(title: const Text('E-posta'), actions: _appBarActions())
+          : null,
       body: SafeArea(child: _buildBody()),
     );
   }

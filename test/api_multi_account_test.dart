@@ -223,6 +223,54 @@ void main() {
       },
     );
   });
+
+  test('device registration reports only accounts registered successfully', () async {
+    final one = _fakeAccount(
+      accountId: 'account-1',
+      email: 'one@example.com',
+      folderId: 'folder-1',
+      mailIds: ['mail-1'],
+    );
+    await one.authService.tokenStore.save(
+      accountId: 'account-1',
+      accessToken: 'access-1',
+      refreshToken: 'refresh-1',
+    );
+    final two = _fakeAccount(
+      accountId: 'account-2',
+      email: 'two@example.com',
+      folderId: 'folder-2',
+      mailIds: ['mail-2'],
+    );
+    two.mailService.failDeviceRegistration = true;
+    final repo = ApiMailRepository(
+      authService: one.authService,
+      mailService: one.mailService,
+      sessionFactory: () =>
+          (authService: two.authService, mailService: two.mailService),
+    );
+    await repo.restoreSession('one@example.com');
+    await repo.connectAccount(email: 'two@example.com', password: 'pw');
+
+    expect(
+      await repo.registerCurrentDevice(
+        fcmToken: 'fcm-token',
+        appVersion: '1.0.0',
+        locale: 'tr-TR',
+      ),
+      {'account-1'},
+    );
+
+    two.mailService.failDeviceRegistration = false;
+    expect(
+      await repo.registerCurrentDevice(
+        fcmToken: 'fcm-token',
+        appVersion: '1.0.0',
+        locale: 'tr-TR',
+      ),
+      {'account-1', 'account-2'},
+    );
+  });
 }
 
 ({ApiAuthService authService, _RecordingMailService mailService}) _fakeAccount({
@@ -291,6 +339,8 @@ class _RecordingMailService extends ApiMailService {
   final String folderId;
   final List<String> mailIds;
   bool deleteAccountCalled = false;
+
+  bool failDeviceRegistration = false;
   final List<String> bulkActionCalls = [];
   final List<Map<String, dynamic>> labelDefs = [];
   final Map<String, List<String>> labelAssignments = {};
@@ -342,6 +392,22 @@ class _RecordingMailService extends ApiMailService {
       page: 1,
       pageSize: 20,
       total: mailIds.length,
+    );
+  }
+
+  @override
+  Future<DeviceRegistration> registerDevice({
+    required String token,
+    required String platform,
+    required String appVersion,
+    required String locale,
+  }) async {
+    if (failDeviceRegistration) throw StateError('device registration failed');
+    return DeviceRegistration(
+      id: 'device-$accountId',
+      platform: platform,
+      appVersion: appVersion,
+      locale: locale,
     );
   }
 

@@ -47,6 +47,7 @@ class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
   final Set<String> _mutatingMailIds = {};
+  bool _checkingMutationConflicts = false;
 
   /// Mail shown in the wide-layout detail pane (>=[_masterDetailBreakpoint]).
   /// Null shows [_DetailPanePlaceholder] instead — nothing selected yet, or
@@ -96,19 +97,27 @@ class _HomeScreenState extends State<HomeScreen> {
   /// [MailRepository.offlineMutationConflicts]) as a one-shot snackbar, then
   /// dismisses it — called on every repository change.
   void _checkMutationConflicts() {
+    if (_checkingMutationConflicts) return;
     final repo = AppConfig.mailRepository;
-    for (final id in repo.offlineMutationConflicts.toList()) {
-      repo.dismissMutationConflict(id);
-      if (!mounted) continue;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Çevrimdışıyken yapılan bir işlem uygulanamadı. '
-            'Son durum sunucudan yüklendi.',
-          ),
-        ),
-      );
+    final conflicts = repo.offlineMutationConflicts.toList();
+    if (conflicts.isEmpty) return;
+    _checkingMutationConflicts = true;
+    try {
+      for (final id in conflicts) {
+        repo.dismissMutationConflict(id);
+      }
+    } finally {
+      _checkingMutationConflicts = false;
     }
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Çevrimdışıyken yapılan bir işlem uygulanamadı. '
+          'Son durum sunucudan yüklendi.',
+        ),
+      ),
+    );
   }
 
   MailRepository get _repo => AppConfig.mailRepository;
@@ -713,6 +722,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     : MailDetailScreen(
                         key: ValueKey(_selectedMailId),
                         emailId: _selectedMailId!,
+                        showAppBar: false,
                       ),
               ),
             ],
