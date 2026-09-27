@@ -71,8 +71,16 @@ class _ThreadRepo extends MailRepository {
   Future<Email?> getEmail(String id) async =>
       _thread.where((m) => m.id == id).firstOrNull;
 
+  /// Local-only copies (e.g. a send echo) the cache holds on top of the
+  /// server conversation.
+  List<Email> cached = const [];
+  void replaceCached(List<Email> copies) {
+    cached = copies;
+    notifyListeners();
+  }
+
   @override
-  List<Email> getThreadEmails(String threadId) => _thread;
+  List<Email> getThreadEmails(String threadId) => [..._thread, ...cached];
 
   @override
   Future<List<Email>> fetchThreadEmails(String threadId) async => _thread;
@@ -208,6 +216,19 @@ void main() {
       await tester.pump();
 
       expect(repo.prefillSources, ['reply:m1']);
+    });
+
+    testWidgets('a send echo replaced by the real Sent copy is not duplicated', (
+      tester,
+    ) async {
+      await open(tester, 'm2');
+      repo.replaceCached([_message('sent-1', 'Ben', 'Yanıtım', 22)]);
+      await tester.pumpAndSettle();
+      expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
+
+      repo.replaceCached([_message('m3', 'Ben', 'Yanıtım', 22)]);
+      await tester.pumpAndSettle();
+      expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
     });
 
     testWidgets(
