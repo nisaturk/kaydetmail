@@ -8,6 +8,7 @@ import 'package:kaydetmail/models/attachment_download_state.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
+import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/screens/mail_detail_screen.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
 
@@ -20,6 +21,7 @@ class _Repository extends MailRepository {
   );
   int cancelled = 0;
   int retries = 0;
+  Object? ensureError;
 
   @override
   Future<Email?> getEmail(String id) async => email;
@@ -54,6 +56,7 @@ class _Repository extends MailRepository {
     Attachment attachment,
   ) async {
     retries++;
+    if (ensureError case final error?) throw error;
     return File('/tmp/unused');
   }
 
@@ -113,5 +116,27 @@ void main() {
     repository.state.value = AttachmentCompleted(File('/tmp/cached.pdf'));
     await tester.pumpAndSettle();
     expect(find.text('Hazır'), findsOneWidget);
+  });
+
+  testWidgets('retry keeps an API download message', (tester) async {
+    final repository = _Repository(_email())
+      ..ensureError = const ApiException(
+        status: 409,
+        code: 'mail_operation_conflict',
+      )
+      ..state.value = const AttachmentFailed('Eski hata', retryable: true);
+    AppConfig.mailRepositoryForTest = repository;
+    await tester.pumpWidget(
+      const MaterialApp(home: MailDetailScreen(emailId: 'mail-1')),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Tekrar dene'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Posta kutusu değişti. Yenileyip tekrar deneyin.'),
+      findsOneWidget,
+    );
   });
 }

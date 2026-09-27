@@ -6,6 +6,7 @@ import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
+import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/screens/inbox_screen.dart';
 import 'package:kaydetmail/widgets/app_drawer.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
@@ -24,6 +25,7 @@ class _FakeRepo extends MailRepository {
     isRead: false,
   );
   final List<String> calls = [];
+  Object? moveError;
 
   @override
   List<MailAccount> get accounts => const [];
@@ -70,6 +72,7 @@ class _FakeRepo extends MailRepository {
 
   @override
   Future<void> moveToTrash(List<String> ids) async {
+    if (moveError case final error?) throw error;
     calls.add('trash');
     notifyListeners();
   }
@@ -129,6 +132,22 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.calls, ['trash']);
+  });
+
+  testWidgets('a failed swipe keeps an API message', (tester) async {
+    final repo = await pumpInbox(tester);
+    repo.moveError = const ApiException(
+      status: 409,
+      code: 'mail_operation_conflict',
+    );
+
+    await tester.drag(find.text('Kaydırılacak'), const Offset(-500, 0));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('Posta kutusu değişti. Yenileyip tekrar deneyin.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('a swipe set to off does nothing in that direction', (
