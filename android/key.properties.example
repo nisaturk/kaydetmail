@@ -1,0 +1,4 @@
+storeFile=/absolute/path/to/kaydetmail-release.jks
+storePassword=replace-with-secret
+keyAlias=kaydetmail
+keyPassword=replace-with-secret

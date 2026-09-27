@@ -54,9 +54,10 @@ String mutationCategoryFor(String operation, [String? argument]) =>
 /// Pin/snooze/labels are synced through the backend now (see
 /// [ApiMailRepository]); this store is their offline-read fallback and
 /// write-behind mirror, re-seeded from the server on every successful
-/// fetch. "Replied"/"forwarded" mark the moment the user opened the
-/// reply/forward compose screen and have no backend equivalent, so they
-/// stay purely local. Everything is scoped per account so switching
+/// fetch. "Replied"/"forwarded" record a reply/forward successfully sent
+/// from KaydetMail. The backend only exposes IMAP `\Answered`
+/// (`Email.imapAnswered`), with no forwarded or sent-from-this-app marker,
+/// so these stay local. Everything is scoped per account so switching
 /// accounts never leaks one inbox's state into another's.
 class LocalMailFlagsStore {
   LocalMailFlagsStore(this._accountId, MailCache cache) : _db = cache.db;

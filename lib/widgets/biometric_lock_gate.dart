@@ -205,7 +205,7 @@ class _LockScreen extends StatelessWidget {
     return Scaffold(
       body: SafeArea(
         child: Center(
-          child: Padding(
+          child: SingleChildScrollView(
             padding: const EdgeInsets.symmetric(horizontal: AppTheme.space8),
             child: Column(
               mainAxisSize: MainAxisSize.min,

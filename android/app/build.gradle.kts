@@ -1,3 +1,7 @@
+import java.io.FileInputStream
+import java.util.Properties
+
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -6,9 +10,26 @@ plugins {
     id("com.google.firebase.crashlytics")
     id("com.google.firebase.firebase-perf")
 }
+val releaseSigningProperties = Properties()
+val releaseSigningFile = rootProject.file("key.properties")
+if (releaseSigningFile.exists()) {
+    FileInputStream(releaseSigningFile).use(releaseSigningProperties::load)
+}
+
+fun releaseSigningValue(property: String, environment: String): String? =
+    releaseSigningProperties.getProperty(property)?.takeIf { it.isNotBlank() }
+        ?: System.getenv(environment)?.takeIf { it.isNotBlank() }
+
+val releaseStoreFile = releaseSigningValue("storeFile", "KAYDETMAIL_KEYSTORE_PATH")
+val releaseStorePassword = releaseSigningValue("storePassword", "KAYDETMAIL_KEYSTORE_PASSWORD")
+val releaseKeyAlias = releaseSigningValue("keyAlias", "KAYDETMAIL_KEY_ALIAS")
+val releaseKeyPassword = releaseSigningValue("keyPassword", "KAYDETMAIL_KEY_PASSWORD")
+val hasReleaseSigning =
+    listOf(releaseStoreFile, releaseStorePassword, releaseKeyAlias, releaseKeyPassword)
+        .all { it != null }
 
 android {
-    namespace = "com.example.kaydetmail"
+    namespace = "com.kaydetmail.app"
     // receive_sharing_intent requires 37; flutter's default is 36.
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
@@ -21,10 +42,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.kaydetmail"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
+        applicationId = "com.kaydetmail.app"
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         // Uses the version code from pubspec.yaml. When using split APKs, 1000 * ABI_VERSION
@@ -35,12 +53,34 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(releaseStoreFile!!)
+                storePassword = releaseStorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            signingConfig = signingConfigs.findByName("release")
         }
+    }
+}
+
+gradle.taskGraph.whenReady {
+    val buildsRelease = allTasks.any {
+        it.project == project &&
+            it.name.contains("Release", ignoreCase = true) &&
+            (it.name.startsWith("assemble") ||
+                it.name.startsWith("bundle") ||
+                it.name.startsWith("package"))
+    }
+    check(!buildsRelease || hasReleaseSigning) {
+        "Release signing is not configured. Add android/key.properties or the KAYDETMAIL_KEYSTORE_* environment variables."
     }
 }
 

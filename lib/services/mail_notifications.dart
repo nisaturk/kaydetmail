@@ -158,6 +158,26 @@ typedef MailActionExecutor = Future<void> Function(
 
 class MailNotifications {
   const MailNotifications._();
+  static const categoryId = 'mail_actions';
+
+  static final DarwinNotificationCategory category =
+      DarwinNotificationCategory(
+        categoryId,
+        actions: [
+          for (final action in MailNotificationAction.values)
+            DarwinNotificationAction.plain(
+              action.id,
+              action.label,
+              options: {
+                if (action == MailNotificationAction.reply)
+                  DarwinNotificationActionOption.foreground,
+                if (action == MailNotificationAction.trash)
+                  DarwinNotificationActionOption.destructive,
+              },
+            ),
+        ],
+      );
+
 
   static const AndroidNotificationChannel channel = AndroidNotificationChannel(
     'mail',
@@ -198,7 +218,7 @@ class MailNotifications {
             ]
           : null,
     ),
-    iOS: const DarwinNotificationDetails(),
+    iOS: const DarwinNotificationDetails(categoryIdentifier: categoryId),
   );
 
   static Future<void> initialize(
@@ -206,12 +226,13 @@ class MailNotifications {
     DidReceiveNotificationResponseCallback? onResponse,
   }) async {
     await plugin.initialize(
-      settings: const InitializationSettings(
+      settings: InitializationSettings(
         android: AndroidInitializationSettings('@mipmap/ic_launcher'),
         iOS: DarwinInitializationSettings(
           requestAlertPermission: false,
           requestBadgePermission: false,
           requestSoundPermission: false,
+          notificationCategories: [category],
         ),
       ),
       onDidReceiveNotificationResponse: onResponse,

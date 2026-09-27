@@ -19,29 +19,23 @@ Email _mail(String id, int day, {MailFolder folder = MailFolder.inbox}) =>
     );
 
 void main() {
-  test('round-trips mails, scopes by account and caps per folder', () {
+  test('round-trips every cached mail and scopes by account', () {
     final cache = MailCache.inMemory();
     cache.apply('acc', [
-      for (var i = 1; i <= 5; i++) _mail('m$i', i),
+      for (var i = 1; i <= 150; i++) _mail('m$i', 1 + i % 28),
       _mail('s1', 1, folder: MailFolder.sent),
     ], const []);
     cache.apply('other', [_mail('o1', 1)], const []);
 
     final all = cache.load('acc');
-    expect(all.length, 6);
+    expect(all.length, 151);
     final first = all.firstWhere((e) => e.id == 'm5');
     expect(first.isStarred, isTrue);
     expect(first.folder, MailFolder.inbox);
     expect(first.attachments.single.id, 'att');
 
-    final capped = cache.load('acc', perFolder: 2);
-    expect(
-      capped.where((e) => e.folder == MailFolder.inbox).map((e) => e.id),
-      unorderedEquals(['m5', 'm4']),
-    );
-
     cache.apply('acc', const [], ['m1', 'm2']);
-    expect(cache.load('acc').length, 4);
+    expect(cache.load('acc').length, 149);
 
     cache.clear('acc');
     expect(cache.load('acc'), isEmpty);

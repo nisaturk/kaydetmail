@@ -378,8 +378,9 @@ abstract class MailRepository extends ChangeNotifier {
     required String subject,
     required String body,
     // HTML alternative to [body], sent alongside it (multipart/alternative)
-    // when the user actually used compose's formatting toolbar. Null sends
-    // plain text only — see `_ComposeScreenState._bodyHtmlFor`.
+    // whenever the rich editor document carries any style (including a
+    // quoted reply/forward original). Null sends plain text only — see
+    // `_ComposeScreenState._bodyHtmlFor`.
     String? bodyHtml,
     List<Attachment> attachments = const [],
     String? from,
@@ -387,8 +388,9 @@ abstract class MailRepository extends ChangeNotifier {
     String? threadId,
     String? inReplyToId,
     String? identityId,
+    // Asks recipients for a read receipt (MDN); off unless the user opts in
+    // from compose. Delivery status (DSN) is always requested by the backend.
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -707,6 +709,7 @@ abstract class MailRepository extends ChangeNotifier {
     String? fromAccountId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
     required DateTime sendAt,
   });
 

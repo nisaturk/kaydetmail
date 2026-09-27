@@ -5,12 +5,13 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 
-/// Pushes inbox data to the native Android home-screen widget
-/// (`MailWidgetProvider`, `android/app/src/main/kotlin/.../MailWidgetProvider.kt`).
+/// Pushes inbox data to the native home-screen widgets: Android's
+/// `MailWidgetProvider` (`android/app/src/main/kotlin/.../MailWidgetProvider.kt`)
+/// and the iOS WidgetKit extension (`ios/MailWidget/MailWidget.swift`),
+/// which reads the same keys from the shared App Group defaults.
 ///
-/// Only Android ships a widget provider today, so calls elsewhere
-/// (iOS/web/desktop, and the plugin-less test environment) are a no-op —
-/// mirrors the swallow-everything pattern `PushService` uses for
+/// Other platforms (web/desktop, and the plugin-less test environment) are
+/// a no-op — mirrors the swallow-everything pattern `PushService` uses for
 /// platform-optional plugins.
 class HomeWidgetService {
   HomeWidgetService._();
@@ -19,8 +20,14 @@ class HomeWidgetService {
   /// `HomeWidget.updateWidget(androidName: ...)` can resolve the receiver.
   static const _androidProviderName = 'MailWidgetProvider';
 
-  /// Storage keys read by `MailWidgetProvider.onUpdate` — keep in sync with
-  /// the Kotlin-side `companion object` constants.
+  /// WidgetKit `kind` of the iOS widget.
+  static const _iOSWidgetKind = 'MailWidget';
+
+  /// App Group shared by the app, Share Extension and MailWidget extension.
+  static const _appGroupId = 'group.com.kaydetmail.app';
+
+  /// Storage keys read by `MailWidgetProvider.onUpdate` and the iOS
+  /// `MailWidget` timeline provider — keep all three in sync.
   static const _unreadCountKey = 'kaydet_widget_unread_count';
   static const _mailLineKeys = [
     'kaydet_widget_mail_1',
@@ -36,7 +43,11 @@ class HomeWidgetService {
   static const composeUriHost = 'compose';
 
   static bool get _isSupportedPlatform =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS);
+
+  static bool _appGroupConfigured = false;
 
   static HomeWidgetLaunchSource _launchSource =
       const _PluginHomeWidgetLaunchSource();
@@ -76,11 +87,15 @@ class HomeWidgetService {
   /// Reads the currently loaded Inbox off [repository], writes the widget's
   /// display data (unread count + up to [_maxLines] recent subject/sender
   /// lines) and triggers a repaint. Never throws — a missing platform
-  /// implementation (iOS, web, desktop, tests) is swallowed just like every
+  /// implementation (web, desktop, tests) is swallowed just like every
   /// other optional-plugin call in this app.
   static Future<void> refreshFromInbox(MailRepository repository) async {
     if (!_isSupportedPlatform) return;
     try {
+      if (defaultTargetPlatform == TargetPlatform.iOS && !_appGroupConfigured) {
+        await HomeWidget.setAppGroupId(_appGroupId);
+        _appGroupConfigured = true;
+      }
       final inbox = repository.getEmailsInFolder(MailFolder.inbox);
       final unreadCount = repository.unreadCount(MailFolder.inbox);
 
@@ -89,7 +104,10 @@ class HomeWidgetService {
         final line = i < inbox.length ? _summarize(inbox[i]) : null;
         await HomeWidget.saveWidgetData<String>(_mailLineKeys[i], line);
       }
-      await HomeWidget.updateWidget(androidName: _androidProviderName);
+      await HomeWidget.updateWidget(
+        androidName: _androidProviderName,
+        iOSName: _iOSWidgetKind,
+      );
     } catch (_) {
       // Widget storage unavailable (unsupported platform, plugin not
       // registered in tests, no widget instance placed yet) — never crash

@@ -88,12 +88,12 @@ class _OutboxScreenState extends State<OutboxScreen> {
           initialBcc: send.bcc.join(', '),
           initialSubject: send.subject,
           initialBody: send.body,
+          initialBodyHtml: send.bodyHtml,
           initialAttachments: send.attachments,
           initialThreadId: send.threadId,
           inReplyToId: send.inReplyToId,
           editingDraftId: send.draftId,
           initialRequestReadReceipt: send.requestReadReceipt,
-          initialRequestDeliveryReceipt: send.requestDeliveryReceipt,
         ),
       ),
     );

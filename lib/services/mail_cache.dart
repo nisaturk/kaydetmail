@@ -15,11 +15,12 @@ import '../models/mail_folder.dart';
 ///
 /// Attachment bytes are never stored, only their metadata.
 ///
-/// Backed by a real SQLite file via `dart:ffi` on native platforms, and by
-/// sqlite3 compiled to WebAssembly (persisted through IndexedDB) on the web
-/// — see `mail_cache_io.dart` / `mail_cache_web.dart` for the platform
-/// split. Everything below this point is platform-agnostic: it only talks
-/// to the shared `CommonDatabase` interface.
+/// Backed by an encrypted SQLite3MultipleCiphers file via `dart:ffi` on
+/// native platforms (the outbox journal shares it), and by sqlite3 compiled
+/// to WebAssembly (persisted through IndexedDB) on the web — see
+/// `mail_cache_io.dart` / `mail_cache_web.dart` for the platform split.
+/// Everything below this point is platform-agnostic: it only talks to the
+/// shared `CommonDatabase` interface.
 class MailCache {
   MailCache._(this._db) {
     _db.execute('''
@@ -102,14 +103,12 @@ class MailCache {
 
   factory MailCache.inMemory() => MailCache._(platform.openInMemory());
 
-  /// Newest [perFolder] mails of every folder for [accountId].
-  List<Email> load(String accountId, {int perFolder = 100}) {
+  /// Every cached mail for [accountId]; offline history is bounded only by
+  /// what the user has loaded, not by a fixed per-folder count.
+  List<Email> load(String accountId) {
     final rows = _db.select(
-      '''SELECT json FROM (
-           SELECT json, ROW_NUMBER() OVER (PARTITION BY folder ORDER BY ts DESC) AS n
-           FROM mails WHERE account_id = ?
-         ) WHERE n <= ?''',
-      [accountId, perFolder],
+      'SELECT json FROM mails WHERE account_id = ? ORDER BY ts DESC',
+      [accountId],
     );
     return [
       for (final row in rows)
@@ -214,6 +213,9 @@ class MailCache {
     'bodyText': e.bodyText,
     'bodyHtml': e.bodyHtml,
     'hasRemoteContent': e.hasRemoteContent,
+    'remoteImageHosts': e.remoteImageHosts,
+    'trackingPixelHosts': e.trackingPixelHosts,
+    'remoteImagesAllowed': e.remoteImagesAllowed,
     'ts': e.timestamp.millisecondsSinceEpoch,
     'isRead': e.isRead,
     'isStarred': e.isStarred,
@@ -241,6 +243,10 @@ class MailCache {
     bodyText: j['bodyText'] as String,
     bodyHtml: j['bodyHtml'] as String?,
     hasRemoteContent: j['hasRemoteContent'] as bool,
+    remoteImageHosts: (j['remoteImageHosts'] as List? ?? const []).cast<String>(),
+    trackingPixelHosts:
+        (j['trackingPixelHosts'] as List? ?? const []).cast<String>(),
+    remoteImagesAllowed: j['remoteImagesAllowed'] as bool? ?? false,
     timestamp: DateTime.fromMillisecondsSinceEpoch(j['ts'] as int),
     isRead: j['isRead'] as bool,
     isStarred: j['isStarred'] as bool,

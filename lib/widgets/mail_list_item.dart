@@ -81,12 +81,17 @@ class MailListItem extends StatelessWidget {
     };
   }
 
+  /// Drafts are the user's own unsent mail: read/unread means nothing for
+  /// them, so they always render in the calm "read" style with no state.
+  bool get _isDraft => email.folder == MailFolder.drafts;
+  bool get _looksRead => _isDraft || email.isRead;
+
   String _semanticSummary() {
     final parts = <String>[
       email.senderName,
       email.subject.isEmpty ? '(konu yok)' : email.subject,
-      email.isRead ? 'okundu' : 'okunmadı',
     ];
+    if (!_isDraft) parts.add(_looksRead ? 'okundu' : 'okunmadı');
     if (email.isStarred) parts.add('yıldızlı');
     if (email.isPinned) parts.add('sabitlenmiş');
     if (email.isReplied) parts.add('yanıtlandı');
@@ -120,7 +125,7 @@ class MailListItem extends StatelessWidget {
       child: Container(
         color: selected
             ? colors.surfaceAlt
-            : (email.isRead ? null : colors.unreadBackground),
+            : (_looksRead ? null : colors.unreadBackground),
         child: InkWell(
           onTap: onTap,
           onLongPress: onLongPress,
@@ -148,7 +153,7 @@ class MailListItem extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 15,
-                                fontWeight: email.isRead
+                                fontWeight: _looksRead
                                     ? FontWeight.w400
                                     : FontWeight.w700,
                                 color: onSurface,
@@ -182,10 +187,10 @@ class MailListItem extends StatelessWidget {
                             time,
                             style: TextStyle(
                               fontSize: 12,
-                              fontWeight: email.isRead
+                              fontWeight: _looksRead
                                   ? FontWeight.w400
                                   : FontWeight.w700,
-                              color: email.isRead
+                              color: _looksRead
                                   ? colors.secondaryText
                                   : onSurface,
                             ),
@@ -215,10 +220,10 @@ class MailListItem extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 fontSize: 14,
-                                fontWeight: email.isRead
+                                fontWeight: _looksRead
                                     ? FontWeight.w400
                                     : FontWeight.w600,
-                                color: email.isRead
+                                color: _looksRead
                                     ? colors.secondaryText
                                     : onSurface,
                               ),
@@ -327,11 +332,12 @@ class _StatusIcons extends StatelessWidget {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(
-          email.isRead ? LucideIcons.mailOpen : LucideIcons.mail,
-          size: 13,
-          color: email.isRead ? colors.tertiaryText : onSurface,
-        ),
+        if (email.folder != MailFolder.drafts)
+          Icon(
+            email.isRead ? LucideIcons.mailOpen : LucideIcons.mail,
+            size: 13,
+            color: email.isRead ? colors.tertiaryText : onSurface,
+          ),
         if (email.isReplied) ...[
           const SizedBox(width: 5),
           Icon(LucideIcons.reply, size: 13, color: colors.tertiaryText),

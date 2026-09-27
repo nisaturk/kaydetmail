@@ -1,10 +1,14 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
+import 'package:flutter_quill/flutter_quill.dart' as quill;
+import 'package:flutter_quill_delta_from_html/flutter_quill_delta_from_html.dart';
+import 'package:vsc_quill_delta_to_html/vsc_quill_delta_to_html.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
@@ -22,16 +26,21 @@ import '../utils/compose_signature.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/html_to_text.dart';
-import '../utils/markdown_lite_to_html.dart';
-import '../utils/markdown_lite_editing.dart';
 import '../utils/attachment_mime.dart';
 import '../utils/image_resize.dart';
+import '../widgets/mail_avatar.dart';
 
 /// Non-ready states for a remote attachment awaiting/needing its content —
 /// see `_ComposeScreenState._attachmentIssues`.
 enum _AttachmentIssue { downloading, failed }
 
 enum _AttachmentSource { file, gallery, camera }
+
+enum _ComposeMenuAction { schedule, contacts, saveDraft, discard, readReceipt }
+
+enum _RecipientField { to, cc, bcc }
+
+typedef _ContactPick = ({_RecipientField field, List<Contact> contacts});
 
 /// Borderless field decoration shared by every compose input.
 ///
@@ -49,20 +58,6 @@ const _flatFieldDecoration = InputDecoration(
   filled: false,
   isDense: true,
   contentPadding: EdgeInsets.symmetric(vertical: 12),
-);
-
-// Hint color is intentionally left unset here: it falls back to the
-// brightness-aware `InputDecorationTheme.hintStyle` (see AppTheme) instead
-// of a hardcoded light-only color.
-const _flatBodyDecoration = InputDecoration(
-  hintText: 'E-postanızı yazın…',
-  border: InputBorder.none,
-  enabledBorder: InputBorder.none,
-  focusedBorder: InputBorder.none,
-  errorBorder: InputBorder.none,
-  focusedErrorBorder: InputBorder.none,
-  disabledBorder: InputBorder.none,
-  filled: false,
 );
 
 /// Light shape check for a recipient chip: `name@domain.tld`. Not a full
@@ -110,6 +105,7 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
         initialBcc: full.bcc.join(', '),
         initialSubject: full.subject,
         initialBody: full.bodyText,
+        initialBodyHtml: full.bodyHtml,
         initialAttachments: full.attachments,
         attachmentSourceMailId: full.id,
         initialThreadId: full.threadId.isEmpty ? null : full.threadId,
@@ -144,9 +140,10 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
 ///   the route changes this app does mid-countdown) — closing that specific
 ///   controller rather than "whatever's current" so a same-instant
 ///   `PendingSendQueue` failure SnackBar is never wrongly dismissed with it.
-/// - **Zamanla**: the small chevron next to "Gönder" offers scheduling
-///   through `MailRepository.scheduleSend` with a date/time picker instead.
-///   See `_scheduleSend`.
+/// - **Overflow menu** (⋮ next to "Gönder"): Zamanla (`_scheduleSend`),
+///   Kişilerden ekle (`_pickFromContacts`), Taslağı kaydet (disabled while
+///   there is no content), Sil (`_discard`), and the opt-in read receipt
+///   toggle (`_toggleReadReceipt`).
 class ComposeScreen extends StatefulWidget {
   const ComposeScreen({
     super.key,
@@ -158,6 +155,7 @@ class ComposeScreen extends StatefulWidget {
     this.initialBcc = '',
     this.initialSubject = '',
     this.initialBody = '',
+    this.initialBodyHtml,
     this.initialAttachments = const [],
     this.attachmentSourceMailId,
     this.editingDraftId,
@@ -167,7 +165,6 @@ class ComposeScreen extends StatefulWidget {
     this.inReplyToId,
     this.initialIdentityId,
     this.initialRequestReadReceipt = false,
-    this.initialRequestDeliveryReceipt = false,
   });
 
   /// Lets tests substitute the real OS file picker.
@@ -180,6 +177,7 @@ class ComposeScreen extends StatefulWidget {
   final String initialBcc;
   final String initialSubject;
   final String initialBody;
+  final String? initialBodyHtml;
   final List<Attachment> initialAttachments;
 
   /// The mail [initialAttachments] with a null `bytes` belong to (the
@@ -199,8 +197,10 @@ class ComposeScreen extends StatefulWidget {
   final String? initialThreadId;
   final String? inReplyToId;
   final String? initialIdentityId;
+
+  /// Restores the read receipt opt-in when reopening an unsent message
+  /// (Giden Kutusu, undo send).
   final bool initialRequestReadReceipt;
-  final bool initialRequestDeliveryReceipt;
 
   @override
   State<ComposeScreen> createState() => _ComposeScreenState();
@@ -218,7 +218,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   final _ccInputController = TextEditingController();
   final _bccInputController = TextEditingController();
   final _subjectController = TextEditingController();
-  final _bodyController = TextEditingController();
+  late final quill.QuillController _bodyController;
 
   final _toFocus = FocusNode();
   final _ccFocus = FocusNode();
@@ -228,8 +228,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _ccExpanded = false;
   bool _bccExpanded = false;
   bool _sending = false;
-  bool _requestReadReceipt = false;
-  bool _requestDeliveryReceipt = false;
+  late bool _requestReadReceipt = widget.initialRequestReadReceipt;
   String? _fromAccount;
   MailIdentity? _fromIdentity;
   List<MailIdentity> _identities = const [];
@@ -266,6 +265,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// whether the user has typed anything else since.
   String _bodyBeforeSignature = '';
   String _insertedSignature = '';
+  late final String _initialBodyDelta;
 
   /// Only a genuinely new send auto-gets a signature — restoring a stored
   /// draft must never inject one that was never part of it.
@@ -276,14 +276,17 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   void initState() {
     super.initState();
-    _requestReadReceipt = widget.initialRequestReadReceipt;
-    _requestDeliveryReceipt = widget.initialRequestDeliveryReceipt;
     _toRecipients.addAll(_parseRecipients(widget.initialTo));
     _ccRecipients.addAll(_parseRecipients(widget.initialCc));
     _bccRecipients.addAll(_parseRecipients(widget.initialBcc));
     _subjectController.text = widget.initialSubject;
-    _bodyController.text = widget.initialBody;
-    _bodyBeforeSignature = widget.initialBody;
+    final initialDocument = _initialBodyDocument();
+    _bodyController = quill.QuillController(
+      document: initialDocument,
+      selection: const TextSelection.collapsed(offset: 0),
+    );
+    _initialBodyDelta = jsonEncode(initialDocument.toDelta().toJson());
+    _bodyBeforeSignature = _bodyText;
     // Fields that already carry content start visible so nothing is lost;
     // empty ones stay hidden behind the Cc/Bcc menu.
     _ccExpanded = _ccRecipients.isNotEmpty;
@@ -329,6 +332,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
     _bccFocus.addListener(() => _handleFieldFocusChange(_bccFocus));
     if (_signatureEligible) _syncSignature();
   }
+
+  quill.Document _initialBodyDocument() {
+    final html = widget.initialBodyHtml;
+    if (html != null && html.trim().isNotEmpty) {
+      try {
+        return quill.Document.fromDelta(HtmlToDelta().convert(html));
+      } catch (_) {}
+    }
+    final document = quill.Document();
+    if (widget.initialBody.isNotEmpty) {
+      document.insert(0, widget.initialBody);
+    }
+    return document;
+  }
+
+  String get _bodyText {
+    final text = _bodyController.document.toPlainText();
+    return text.endsWith('\n') ? text.substring(0, text.length - 1) : text;
+  }
+
+  /// The plain-text alternative: embeds (quoted images) have no text form.
+  String get _outgoingBodyText =>
+      _bodyText.replaceAll(quill.Embed.kObjectReplacementCharacter, '');
+
+  TextSelection get _bodySelection => _bodyController.selection;
 
   static List<_Recipient> _parseRecipients(String raw) => raw
       .split(',')
@@ -396,7 +424,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _ccInputController.text.trim().isNotEmpty ||
       _bccInputController.text.trim().isNotEmpty ||
       _subjectController.text.trim().isNotEmpty ||
-      _bodyController.text.trim().isNotEmpty ||
+      _bodyText.trim().isNotEmpty ||
       _attachments.isNotEmpty;
 
   String _recipientDraftValue(
@@ -417,9 +445,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
         _recipientDraftValue(_bccRecipients, _bccInputController) !=
             _initialRecipientDraftValue(widget.initialBcc) ||
         _subjectController.text != widget.initialSubject ||
-        _bodyController.text != widget.initialBody ||
-        _requestReadReceipt != widget.initialRequestReadReceipt ||
-        _requestDeliveryReceipt != widget.initialRequestDeliveryReceipt) {
+        jsonEncode(_bodyController.document.toDelta().toJson()) !=
+            _initialBodyDelta) {
       return true;
     }
     if (_attachments.length != widget.initialAttachments.length) return true;
@@ -440,9 +467,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
     return false;
   }
 
+  /// Everything a draft save persists, for telling whether the editor
+  /// changed since the last save from this screen.
+  String get _draftFingerprint => jsonEncode([
+    _recipientDraftValue(_toRecipients, _toInputController),
+    _recipientDraftValue(_ccRecipients, _ccInputController),
+    _recipientDraftValue(_bccRecipients, _bccInputController),
+    _subjectController.text,
+    _bodyController.document.toDelta().toJson(),
+    [for (final a in _attachments) '${a.id}|${a.name}|${a.sizeBytes}'],
+    _fromIdentity?.emailAddress ?? _fromAccount,
+  ]);
+
+  /// [_draftFingerprint] at the last successful save; null until this
+  /// screen saves once (then [_editingDraftChanged] no longer applies).
+  String? _savedDraftFingerprint;
+
+  bool get _draftChanged => _savedDraftFingerprint == null
+      ? _editingDraftChanged
+      : _draftFingerprint != _savedDraftFingerprint;
+
   Future<bool> _onWillPop() async {
-    if (widget.editingDraftId != null) {
-      if (!_editingDraftChanged) return true;
+    // A draft already on the server (opened for editing, or saved from the
+    // overflow menu) is kept in sync on exit instead of asking again.
+    if (_draftId != null) {
+      if (!_draftChanged) return true;
       final saved = await _saveDraft();
       if (!mounted) return false;
       if (saved) return true;
@@ -452,45 +501,142 @@ class _ComposeScreenState extends State<ComposeScreen> {
       return false;
     }
     if (!_hasContent) return true;
-    return await showDialog<bool>(
+    var saving = false;
+    return await showModalBottomSheet<bool>(
           context: context,
-          builder: (ctx) => AlertDialog(
-            title: const Text('Taslağı kaydedilsin mi?'),
-            content: const Text('Taslağı kaydedebilir veya silebilirsiniz.'),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(false),
-                child: const Text('Vazgeç'),
-              ),
-              TextButton(
-                onPressed: () => Navigator.of(ctx).pop(true),
-                child: Text(
-                  'Taslağı Sil',
-                  style: TextStyle(color: AppTheme.colors(ctx).destructive),
+          isScrollControlled: true,
+          useSafeArea: true,
+          builder: (sheetContext) => StatefulBuilder(
+            builder: (sheetContext, setSheetState) {
+              return Padding(
+                padding: EdgeInsets.fromLTRB(
+                  AppTheme.space5,
+                  AppTheme.space3,
+                  AppTheme.space5,
+                  AppTheme.space5 +
+                      MediaQuery.viewInsetsOf(sheetContext).bottom,
                 ),
-              ),
-              FilledButton(
-                onPressed: () async {
-                  final saved = await _saveDraft();
-                  if (!mounted || !ctx.mounted) return;
-                  if (!saved) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text(
-                          'Taslak kaydedilemedi. İçeriğiniz ekranda tutuluyor.',
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Center(
+                      child: Container(
+                        width: 36,
+                        height: 4,
+                        decoration: BoxDecoration(
+                          color: AppTheme.colors(sheetContext).border,
+                          borderRadius: BorderRadius.circular(
+                            AppTheme.radiusPill,
+                          ),
                         ),
                       ),
-                    );
-                    return;
-                  }
-                  Navigator.of(ctx).pop(true);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Taslak kaydedildi.')),
-                  );
-                },
-                child: const Text('Taslağı Kaydet'),
-              ),
-            ],
+                    ),
+                    const SizedBox(height: AppTheme.space5),
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Theme.of(
+                          sheetContext,
+                        ).colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(
+                          AppTheme.radiusMedium,
+                        ),
+                      ),
+                      child: const Icon(LucideIcons.filePenLine, size: 22),
+                    ),
+                    const SizedBox(height: AppTheme.space4),
+                    Text(
+                      'Bu taslak ne olsun?',
+                      style: AppTheme.titleText.copyWith(
+                        color: Theme.of(sheetContext).colorScheme.onSurface,
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.space2),
+                    Text(
+                      'Yazdıklarınızı daha sonra tamamlamak için kaydedebilir '
+                      'veya taslağı kalıcı olarak silebilirsiniz.',
+                      style: AppTheme.bodyText2.copyWith(
+                        color: AppTheme.colors(sheetContext).secondaryText,
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.space6),
+                    FilledButton.icon(
+                      key: const Key('save-draft-on-exit'),
+                      onPressed: saving
+                          ? null
+                          : () async {
+                              setSheetState(() => saving = true);
+                              final saved = await _saveDraft();
+                              if (!mounted || !sheetContext.mounted) return;
+                              if (!saved) {
+                                setSheetState(() => saving = false);
+                                ScaffoldMessenger.of(context).showSnackBar(
+                                  const SnackBar(
+                                    content: Text(
+                                      'Taslak kaydedilemedi. İçeriğiniz '
+                                      'ekranda tutuluyor.',
+                                    ),
+                                  ),
+                                );
+                                return;
+                              }
+                              Navigator.of(sheetContext).pop(true);
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('Taslak kaydedildi.'),
+                                ),
+                              );
+                            },
+                      icon: saving
+                          ? const SizedBox.square(
+                              dimension: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(LucideIcons.save, size: 19),
+                      label: Text(saving ? 'Kaydediliyor…' : 'Taslağı Kaydet'),
+                    ),
+                    const SizedBox(height: AppTheme.space2),
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        key: const Key('discard-draft-on-exit'),
+                        onPressed: saving
+                            ? null
+                            : () => Navigator.of(sheetContext).pop(true),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: AppTheme.colors(
+                            sheetContext,
+                          ).destructive,
+                          side: BorderSide(
+                            color: AppTheme.colors(sheetContext).destructive,
+                          ),
+                          minimumSize: const Size.fromHeight(50),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(
+                              AppTheme.radiusLarge,
+                            ),
+                          ),
+                        ),
+                        icon: const Icon(LucideIcons.trash2, size: 19),
+                        label: const Text('Taslağı Sil'),
+                      ),
+                    ),
+                    const SizedBox(height: AppTheme.space1),
+                    Center(
+                      child: TextButton(
+                        key: const Key('continue-editing-draft'),
+                        onPressed: saving
+                            ? null
+                            : () => Navigator.of(sheetContext).pop(false),
+                        child: const Text('Düzenlemeye devam et'),
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            },
           ),
         ) ??
         false;
@@ -680,7 +826,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (!_signatureEligible) return;
     final expected =
         _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
-    if (_bodyController.text != expected) return;
+    if (_bodyText != expected) return;
     final account = _fromAccount;
     final accountId = _resolvedFromAccountId;
     if (account == null || accountId == null) return;
@@ -699,72 +845,18 @@ class _ComposeScreenState extends State<ComposeScreen> {
       identity: _fromIdentity,
       legacySignature: legacy,
     );
-    if (!mounted || _fromAccount != account) return;
-    if (_bodyController.text != expected) return;
+    if (!mounted || _fromAccount != account || _bodyText != expected) return;
     setState(() {
+      _bodyController.replaceText(
+        _bodyBeforeSignature.length,
+        _signatureSuffix(_insertedSignature).length,
+        _signatureSuffix(signature),
+        const TextSelection.collapsed(offset: 0),
+      );
       _insertedSignature = signature;
-      _bodyController.text = _bodyBeforeSignature + _signatureSuffix(signature);
-      _bodyController.selection = const TextSelection.collapsed(offset: 0);
     });
   }
 
-  // --- Formatting toolbar ----------------------------------------------
-
-  /// Wraps the current body selection in [prefix]/[suffix] (bold/italic/
-  /// underline). With no selection, wraps an empty span at the cursor (or
-  /// at the end of the text when the field was never focused) so typing
-  /// continues right inside the markers.
-  void _wrapSelection(String prefix, String suffix) {
-    final text = _bodyController.text;
-    final selection = _bodyController.selection;
-    final start = selection.isValid ? selection.start : text.length;
-    final end = selection.isValid ? selection.end : text.length;
-    final selected = text.substring(start, end);
-    final replacement = '$prefix$selected$suffix';
-    final newText = text.replaceRange(start, end, replacement);
-    final cursorOffset = selected.isEmpty
-        ? start + prefix.length
-        : start + replacement.length;
-    setState(() {
-      _bodyController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: cursorOffset),
-      );
-    });
-  }
-
-  void _applyBodyEdit(TextEditingValue Function(TextEditingValue value) edit) {
-    setState(() => _bodyController.value = edit(_bodyController.value));
-  }
-
-  /// Prompts for a URL, then inserts `[selected text](url)` — the selected
-  /// text becomes the link label, or a generic placeholder when nothing was
-  /// selected.
-  Future<void> _insertLink() async {
-    final text = _bodyController.text;
-    final selection = _bodyController.selection;
-    final hasSelection = selection.isValid && selection.start != selection.end;
-    final insertStart = selection.isValid ? selection.start : text.length;
-    final insertEnd = selection.isValid ? selection.end : text.length;
-    final label = hasSelection
-        ? text.substring(insertStart, insertEnd)
-        : 'bağlantı';
-
-    final url = await showDialog<String>(
-      context: context,
-      builder: (ctx) => const _LinkUrlDialog(),
-    );
-    if (url == null || url.isEmpty || !mounted) return;
-
-    final markup = '[$label]($url)';
-    final newText = text.replaceRange(insertStart, insertEnd, markup);
-    setState(() {
-      _bodyController.value = TextEditingValue(
-        text: newText,
-        selection: TextSelection.collapsed(offset: insertStart + markup.length),
-      );
-    });
-  }
 
   Future<void> _pickTemplate() async {
     final accountId = _resolvedFromAccountId;
@@ -812,12 +904,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (inserted.isEmpty) return;
     final signature = _signatureSuffix(_insertedSignature);
     final managedSignature =
-        _signatureEligible &&
-        _bodyController.text == _bodyBeforeSignature + signature;
-    final source = managedSignature
-        ? _bodyBeforeSignature
-        : _bodyController.text;
-    final selection = _bodyController.selection;
+        _signatureEligible && _bodyText == _bodyBeforeSignature + signature;
+    final source = managedSignature ? _bodyBeforeSignature : _bodyText;
+    final selection = _bodySelection;
     final selectionStart = selection.isValid
         ? selection.start.clamp(0, source.length)
         : source.length;
@@ -830,18 +919,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final updated = source.replaceRange(start, end, inserted);
     final cursor = start + inserted.length;
     setState(() {
-      if (managedSignature) {
-        _bodyBeforeSignature = updated;
-        _bodyController.value = TextEditingValue(
-          text: updated + signature,
-          selection: TextSelection.collapsed(offset: cursor),
-        );
-      } else {
-        _bodyController.value = TextEditingValue(
-          text: updated,
-          selection: TextSelection.collapsed(offset: cursor),
-        );
-      }
+      if (managedSignature) _bodyBeforeSignature = updated;
+      _bodyController.replaceText(
+        start,
+        end - start,
+        inserted,
+        TextSelection.collapsed(offset: cursor),
+      );
     });
     _bodyFocus.requestFocus();
   }
@@ -875,15 +959,25 @@ class _ComposeScreenState extends State<ComposeScreen> {
   String? _attachmentLimitError(List<Attachment> attachments) =>
       _limits?.violationFor(attachments);
 
-  /// The HTML alternative to send/save alongside the plain-text [body], or
-  /// null when [body] uses none of the formatting-toolbar markup — so a
-  /// plain unformatted mail never carries a redundant html alternative.
-  /// Reply/forward flows through this the same as any other compose: the
-  /// final typed body (toolbar-added markup, or markup already present in
-  /// a quoted/forwarded/draft body) is detected here, at send/save time —
-  /// not tracked separately per compose-open kind.
-  String? _bodyHtmlFor(String body) =>
-      hasMarkdownLiteMarkup(body) ? markdownLiteToHtml(body) : null;
+  /// Serializes the editor delta to the HTML alternative sent alongside the
+  /// plain-text body, or null when nothing is styled or embedded so an
+  /// unformatted mail never carries a redundant HTML part.
+  String? get _bodyHtml {
+    if (_bodyText.trim().isEmpty) return null;
+    final operations = _bodyController.document
+        .toDelta()
+        .toJson()
+        .cast<Map<String, dynamic>>();
+    if (!operations.any(
+      (op) => op['attributes'] != null || op['insert'] is! String,
+    )) {
+      return null;
+    }
+    return QuillDeltaToHtmlConverter(
+      operations,
+      ConverterOptions.forEmail(),
+    ).convert();
+  }
 
   Future<void> _pickSnippet() async {
     final accountId = _resolvedFromAccountId;
@@ -896,8 +990,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (snippet == null || !mounted || accountId != _resolvedFromAccountId) {
       return;
     }
-    final text = _bodyController.text;
-    final selection = _bodyController.selection;
+    final text = _bodyText;
+    final selection = _bodySelection;
     final start = selection.isValid
         ? selection.start.clamp(0, text.length)
         : text.length;
@@ -908,12 +1002,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final needsGap = head.isNotEmpty && !head.endsWith('\n');
     final insert = '${needsGap ? '\n' : ''}${snippet.text}';
     setState(() {
-      _bodyController.value = TextEditingValue(
-        text: text.replaceRange(start, end, insert),
-        selection: TextSelection.collapsed(offset: start + insert.length),
+      _bodyController.replaceText(
+        start,
+        end - start,
+        insert,
+        TextSelection.collapsed(offset: start + insert.length),
       );
     });
   }
+
 
   /// Commits pending recipient text into chips, then validates there is at
   /// least one To recipient and every chip looks like a real address.
@@ -988,8 +1085,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final cc = _addressStrings(_ccRecipients);
     final bcc = _addressStrings(_bccRecipients);
     final subject = _subjectController.text.trim();
-    final body = _bodyController.text;
-    final bodyHtml = _bodyHtmlFor(body);
+    final body = _outgoingBodyText;
+    final bodyHtml = _bodyHtml;
     final attachments = List<Attachment>.unmodifiable(_attachments);
     final from = _fromAccount;
     final identityId = _fromIdentity?.id;
@@ -997,6 +1094,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final threadId = widget.initialThreadId;
     final inReplyToId = widget.inReplyToId;
     final draftId = _draftId;
+    final requestReadReceipt = _requestReadReceipt;
     final composeTitle = widget.composeTitle;
 
     final pending = PendingSend(
@@ -1013,8 +1111,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       threadId: threadId,
       inReplyToId: inReplyToId,
       identityId: identityId,
-      requestReadReceipt: _requestReadReceipt,
-      requestDeliveryReceipt: _requestDeliveryReceipt,
+      requestReadReceipt: requestReadReceipt,
       draftId: draftId,
     );
 
@@ -1064,10 +1161,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
                     initialBcc: bcc.join(', '),
                     initialSubject: subject,
                     initialBody: body,
+                    initialBodyHtml: bodyHtml,
                     initialAttachments: attachments,
                     initialThreadId: threadId,
                     inReplyToId: inReplyToId,
                     initialIdentityId: identityId,
+                    initialRequestReadReceipt: requestReadReceipt,
                   ),
                 ),
               );
@@ -1089,21 +1188,139 @@ class _ComposeScreenState extends State<ComposeScreen> {
     navigator.pop(true);
   }
 
-  /// Offered from the chevron next to "Gönder": picks a future date/time
-  /// through the standard pickers, then queues the mail with
-  /// `MailRepository.scheduleSend` instead of sending it now.
-  Future<void> _scheduleSend() async {
-    if (_requestReadReceipt || _requestDeliveryReceipt) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+  /// "Sil" from the overflow menu: throws the message away. A draft that
+  /// already exists on the server is deleted there too; a message with
+  /// content asks first, an empty one just closes.
+  Future<void> _discard() async {
+    if (_sending) return;
+    final draftId = _draftId;
+    final navigator = Navigator.of(context);
+    if (draftId == null && !_hasContent) {
+      navigator.pop();
+      return;
+    }
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text(
+          draftId == null ? 'E-posta silinsin mi?' : 'Taslak silinsin mi?',
+        ),
+        content: const Text('Bu işlem geri alınamaz.'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Vazgeç'),
+          ),
+          TextButton(
+            key: const Key('confirm-discard'),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(
+              'Sil',
+              style: TextStyle(
+                color: AppTheme.colors(dialogContext).destructive,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    if (draftId == null) {
+      navigator.pop();
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _sending = true);
+    try {
+      await _repo.deleteDraft(draftId);
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _sending = false);
+      messenger.showSnackBar(
+        SnackBar(
           content: Text(
-            'Alındı bilgisi istekleri zamanlanan gönderide desteklenmiyor. '
-            'Seçenekleri kapatın veya şimdi gönderin.',
+            'Taslak silinemedi: ${friendlyErrorMessage(error)}',
           ),
         ),
       );
       return;
     }
+    messenger.showSnackBar(const SnackBar(content: Text('Taslak silindi.')));
+    navigator.pop();
+  }
+
+  Future<void> _saveDraftFromMenu() async {
+    if (_sending || !_hasContent) return;
+    final messenger = ScaffoldMessenger.of(context);
+    final saved = await _saveDraft();
+    if (!mounted) return;
+    messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          saved
+              ? 'Taslak kaydedildi.'
+              : 'Taslak kaydedilemedi. Tekrar deneyin.',
+        ),
+      ),
+    );
+  }
+
+  void _toggleReadReceipt() {
+    setState(() => _requestReadReceipt = !_requestReadReceipt);
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(
+            _requestReadReceipt
+                ? 'Alıcılardan okundu bilgisi istenecek.'
+                : 'Okundu bilgisi istenmeyecek.',
+          ),
+        ),
+      );
+  }
+
+  /// Opens the address book (device, saved and recently seen contacts —
+  /// the same set the recipient autocomplete searches) and adds the picked
+  /// addresses as chips to the chosen field, skipping ones already there.
+  Future<void> _pickFromContacts() async {
+    if (_sending) return;
+    _removeSuggestionOverlay();
+    _refreshContacts();
+    final picked = await showModalBottomSheet<_ContactPick>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      builder: (_) => _ContactPickerSheet(contacts: _contacts),
+    );
+    if (picked == null || picked.contacts.isEmpty || !mounted) return;
+    final recipients = switch (picked.field) {
+      _RecipientField.to => _toRecipients,
+      _RecipientField.cc => _ccRecipients,
+      _RecipientField.bcc => _bccRecipients,
+    };
+    setState(() {
+      final existing = {
+        for (final r in recipients) r.address.toLowerCase(),
+      };
+      for (final contact in picked.contacts) {
+        if (!existing.add(contact.email.toLowerCase())) continue;
+        recipients.add(
+          _Recipient(
+            contact.email,
+            valid: _emailShapePattern.hasMatch(contact.email),
+          ),
+        );
+      }
+      if (picked.field == _RecipientField.cc) _ccExpanded = true;
+      if (picked.field == _RecipientField.bcc) _bccExpanded = true;
+    });
+  }
+
+  /// Offered from the compose overflow menu: picks a future date/time
+  /// through the standard pickers, then queues the mail with
+  /// `MailRepository.scheduleSend` instead of sending it now.
+  Future<void> _scheduleSend() async {
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
     if (!_validateAttachmentLimits()) return;
@@ -1141,13 +1358,14 @@ class _ComposeScreenState extends State<ComposeScreen> {
         cc: _addressStrings(_ccRecipients),
         bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
-        body: _bodyController.text,
-        bodyHtml: _bodyHtmlFor(_bodyController.text),
+        body: _outgoingBodyText,
+        bodyHtml: _bodyHtml,
         attachments: List.unmodifiable(_attachments),
         from: _fromAccount,
         fromAccountId: _resolvedFromAccountId,
         inReplyToId: widget.inReplyToId,
         identityId: _fromIdentity?.id,
+        requestReadReceipt: _requestReadReceipt,
         sendAt: sendAt,
       );
       final draftId = _draftId;
@@ -1197,6 +1415,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _commitPendingRecipient(_ccRecipients, _ccInputController);
       _commitPendingRecipient(_bccRecipients, _bccInputController);
     });
+    final fingerprint = _draftFingerprint;
     try {
       final saved = await _repo.saveDraft(
         from: _fromAccount,
@@ -1206,8 +1425,8 @@ class _ComposeScreenState extends State<ComposeScreen> {
         cc: _addressStrings(_ccRecipients),
         bcc: _addressStrings(_bccRecipients),
         subject: _subjectController.text.trim(),
-        body: _bodyController.text,
-        bodyHtml: _bodyHtmlFor(_bodyController.text),
+        body: _outgoingBodyText,
+        bodyHtml: _bodyHtml,
         attachments: List.unmodifiable(_attachments),
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,
@@ -1215,6 +1434,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         draftId: _draftId,
       );
       _draftId = saved.id;
+      _savedDraftFingerprint = fingerprint;
       return true;
     } catch (_) {
       return false;
@@ -1480,6 +1700,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
+    _bodyController.readOnly = _sending;
     return PopScope(
       // Always intercept: content typed after the last build must still be
       // caught, or back silently discards it.
@@ -1530,49 +1751,86 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 tooltip: 'Şimdi Gönder',
                 onPressed: _send,
               ),
-              PopupMenuButton<String>(
+              PopupMenuButton<_ComposeMenuAction>(
                 key: const Key('send-options-menu'),
-                tooltip: 'Gönderme seçenekleri',
-                padding: EdgeInsets.zero,
+                tooltip: 'Diğer seçenekler',
                 position: PopupMenuPosition.under,
-                icon: Icon(
-                  LucideIcons.chevronDown,
-                  size: 18,
-                  color: colors.secondaryText,
-                ),
-                onSelected: (value) {
-                  if (value == 'schedule') {
-                    _scheduleSend();
-                  } else if (value == 'read_receipt') {
-                    setState(() => _requestReadReceipt = !_requestReadReceipt);
-                  } else if (value == 'delivery_receipt') {
-                    setState(
-                      () => _requestDeliveryReceipt = !_requestDeliveryReceipt,
-                    );
+                icon: const Icon(LucideIcons.ellipsisVertical),
+                onSelected: (action) {
+                  switch (action) {
+                    case _ComposeMenuAction.schedule:
+                      _scheduleSend();
+                    case _ComposeMenuAction.contacts:
+                      _pickFromContacts();
+                    case _ComposeMenuAction.saveDraft:
+                      _saveDraftFromMenu();
+                    case _ComposeMenuAction.discard:
+                      _discard();
+                    case _ComposeMenuAction.readReceipt:
+                      _toggleReadReceipt();
                   }
                 },
-                itemBuilder: (context) => [
-                  const PopupMenuItem(
-                    value: 'schedule',
+                itemBuilder: (context) {
+                  final hasContent = _hasContent;
+                  PopupMenuItem<_ComposeMenuAction> item(
+                    _ComposeMenuAction action,
+                    IconData icon,
+                    String label, {
+                    bool enabled = true,
+                    Color? color,
+                    Widget? trailing,
+                  }) => PopupMenuItem(
+                    key: Key('compose-menu-${action.name}'),
+                    value: action,
+                    enabled: enabled,
                     child: ListTile(
                       contentPadding: EdgeInsets.zero,
                       dense: true,
-                      leading: Icon(LucideIcons.calendarClock, size: 20),
-                      title: Text('Zamanla'),
+                      enabled: enabled,
+                      iconColor: color,
+                      textColor: color,
+                      leading: Icon(icon, size: 20),
+                      title: Text(label),
+                      trailing: trailing,
                     ),
-                  ),
-                  const PopupMenuDivider(),
-                  CheckedPopupMenuItem(
-                    value: 'read_receipt',
-                    checked: _requestReadReceipt,
-                    child: const Text('Okundu bilgisi iste'),
-                  ),
-                  CheckedPopupMenuItem(
-                    value: 'delivery_receipt',
-                    checked: _requestDeliveryReceipt,
-                    child: const Text('Teslim bilgisi iste'),
-                  ),
-                ],
+                  );
+                  return [
+                    item(
+                      _ComposeMenuAction.schedule,
+                      LucideIcons.calendarClock,
+                      'Zamanla',
+                    ),
+                    item(
+                      _ComposeMenuAction.contacts,
+                      LucideIcons.bookUser,
+                      'Kişilerden ekle',
+                    ),
+                    item(
+                      _ComposeMenuAction.saveDraft,
+                      LucideIcons.save,
+                      'Taslağı kaydet',
+                      enabled: hasContent,
+                    ),
+                    item(
+                      _ComposeMenuAction.discard,
+                      LucideIcons.trash2,
+                      'Sil',
+                      color: colors.destructive,
+                    ),
+                    item(
+                      _ComposeMenuAction.readReceipt,
+                      LucideIcons.mailCheck,
+                      'Okundu bilgisi iste',
+                      trailing: _requestReadReceipt
+                          ? const Icon(
+                              LucideIcons.check,
+                              key: Key('read-receipt-on'),
+                              size: 18,
+                            )
+                          : null,
+                    ),
+                  ];
+                },
               ),
             ],
           ],
@@ -1757,20 +2015,29 @@ class _ComposeScreenState extends State<ComposeScreen> {
                           ),
                       ],
                       const SizedBox(height: 8),
-                      _formattingToolbar(colors),
-                      TextField(
-                        key: const Key('body-field'),
-                        controller: _bodyController,
-                        focusNode: _bodyFocus,
-                        enabled: !_sending,
-                        inputFormatters: [MarkdownLitePasteFormatter()],
-                        maxLines: null,
-                        textAlignVertical: TextAlignVertical.top,
-                        decoration: _flatBodyDecoration,
-                        style: TextStyle(
-                          fontSize: 15,
-                          color: colors.bodyText,
-                          height: 1.55,
+                      Localizations.override(
+                        context: context,
+                        delegates: const [
+                          quill.FlutterQuillLocalizations.delegate,
+                        ],
+                        child: Column(
+                          children: [
+                            _formattingToolbar(colors),
+                            quill.QuillEditor.basic(
+                              key: const Key('body-field'),
+                              controller: _bodyController,
+                              focusNode: _bodyFocus,
+                              config: const quill.QuillEditorConfig(
+                                unknownEmbedBuilder: _EmbedPlaceholder(),
+                                scrollable: false,
+                                minHeight: 180,
+                                padding: EdgeInsets.symmetric(vertical: 10),
+                                placeholder: 'Mesajınızı yazın',
+                                textCapitalization:
+                                    TextCapitalization.sentences,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -1786,95 +2053,46 @@ class _ComposeScreenState extends State<ComposeScreen> {
     );
   }
 
-  /// Small toolbar of markdown-lite formatting shortcuts above the body:
-  /// inline buttons wrap the selection, block buttons edit current lines,
-  /// and the link button prompts for a URL.
   Widget _formattingToolbar(AppColors colors) {
-    Widget button(
-      Key key,
-      IconData icon,
-      String tooltip,
-      VoidCallback onPressed,
-    ) {
-      return IconButton(
-        key: key,
-        icon: Icon(icon, size: AppTheme.iconSizeMedium),
-        tooltip: tooltip,
-        color: colors.secondaryText,
-        visualDensity: VisualDensity.compact,
-        padding: EdgeInsets.zero,
-        constraints: const BoxConstraints(minWidth: 36, minHeight: 36),
-        onPressed: _sending ? null : onPressed,
-      );
-    }
-
-    return SingleChildScrollView(
+    final scheme = Theme.of(context).colorScheme;
+    return DecoratedBox(
       key: const Key('format-toolbar'),
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        mainAxisAlignment: MainAxisAlignment.start,
-        children: [
-          button(
-            const Key('format-bold'),
-            LucideIcons.bold,
-            'Kalın',
-            () => _wrapSelection('**', '**'),
+      decoration: BoxDecoration(
+        color: colors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+      ),
+      child: quill.QuillSimpleToolbar(
+        controller: _bodyController,
+        config: quill.QuillSimpleToolbarConfig(
+          // The default selected state fills with primary but keeps the
+          // app-wide onSurface icon color, invisible on this black theme.
+          buttonOptions: quill.QuillSimpleToolbarButtonOptions(
+            base: quill.QuillToolbarBaseButtonOptions(
+              iconTheme: quill.QuillIconTheme(
+                iconButtonSelectedData: quill.IconButtonData(
+                  style: IconButton.styleFrom(
+                    backgroundColor: scheme.primary,
+                    foregroundColor: scheme.onPrimary,
+                  ),
+                ),
+              ),
+            ),
           ),
-          button(
-            const Key('format-italic'),
-            LucideIcons.italic,
-            'İtalik',
-            () => _wrapSelection('*', '*'),
-          ),
-          button(
-            const Key('format-underline'),
-            LucideIcons.underline,
-            'Altı çizili',
-            () => _wrapSelection('__', '__'),
-          ),
-          button(
-            const Key('format-list'),
-            LucideIcons.list,
-            'Madde işaretli liste',
-            () => _applyBodyEdit(toggleBulletList),
-          ),
-          button(
-            const Key('format-numbered-list'),
-            LucideIcons.listOrdered,
-            'Numaralı liste',
-            () => _applyBodyEdit(toggleNumberedList),
-          ),
-          button(
-            const Key('format-quote'),
-            LucideIcons.quote,
-            'Alıntı',
-            () => _applyBodyEdit(toggleQuote),
-          ),
-          button(
-            const Key('format-indent-increase'),
-            LucideIcons.indentIncrease,
-            'Girintiyi artır',
-            () => _applyBodyEdit(increaseIndent),
-          ),
-          button(
-            const Key('format-indent-decrease'),
-            LucideIcons.indentDecrease,
-            'Girintiyi azalt',
-            () => _applyBodyEdit(decreaseIndent),
-          ),
-          button(
-            const Key('format-link'),
-            LucideIcons.link,
-            'Bağlantı ekle',
-            _insertLink,
-          ),
-          button(
-            const Key('format-clear'),
-            LucideIcons.removeFormatting,
-            'Biçimlendirmeyi temizle',
-            () => _applyBodyEdit(clearFormatting),
-          ),
-        ],
+          multiRowsDisplay: false,
+          showDividers: false,
+          showFontFamily: false,
+          showFontSize: false,
+          showStrikeThrough: false,
+          showInlineCode: false,
+          showColorButton: false,
+          showBackgroundColorButton: false,
+          showHeaderStyle: false,
+          showCodeBlock: false,
+          showListCheck: false,
+          showSearchButton: false,
+          showSubscript: false,
+          showSuperscript: false,
+        ),
       ),
     );
   }
@@ -2674,6 +2892,220 @@ class _LinkUrlDialogState extends State<_LinkUrlDialog> {
           child: const Text('Ekle'),
         ),
       ],
+    );
+  }
+}
+
+/// Quoted images stay in the document (and in the sent HTML) but are shown
+/// as a chip: rendering them would fetch remote content the reader blocks
+/// by default, and the editor has no image editing anyway.
+class _EmbedPlaceholder extends quill.EmbedBuilder {
+  const _EmbedPlaceholder();
+
+  @override
+  String get key => 'unknown';
+
+  @override
+  bool get expanded => false;
+
+  @override
+  Widget build(BuildContext context, quill.EmbedContext embedContext) {
+    final colors = AppTheme.colors(context);
+    final isImage = embedContext.node.value.type == quill.BlockEmbed.imageType;
+    return Container(
+      margin: const EdgeInsets.symmetric(vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: colors.surfaceAlt,
+        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isImage ? LucideIcons.image : LucideIcons.package,
+            size: 16,
+            color: colors.secondaryText,
+          ),
+          const SizedBox(width: 6),
+          Text(
+            isImage ? 'Görsel' : 'Gömülü içerik',
+            style: TextStyle(fontSize: 13, color: colors.secondaryText),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Address book picker behind "Kişilerden ekle": searchable multi-select
+/// over [contacts] with the target field (Kime/Cc/Bcc) chosen up top.
+class _ContactPickerSheet extends StatefulWidget {
+  const _ContactPickerSheet({required this.contacts});
+
+  final List<Contact> contacts;
+
+  @override
+  State<_ContactPickerSheet> createState() => _ContactPickerSheetState();
+}
+
+class _ContactPickerSheetState extends State<_ContactPickerSheet> {
+  final _query = TextEditingController();
+  var _field = _RecipientField.to;
+
+  /// Picked contacts keyed by lowercased address, in pick order.
+  final _picked = <String, Contact>{};
+
+  @override
+  void dispose() {
+    _query.dispose();
+    super.dispose();
+  }
+
+  List<Contact> get _visible => _query.text.trim().isEmpty
+      ? widget.contacts
+      : ContactsStore.search(widget.contacts, _query.text);
+
+  void _toggle(Contact contact) {
+    final key = contact.email.toLowerCase();
+    setState(() {
+      if (_picked.remove(key) == null) _picked[key] = contact;
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    final media = MediaQuery.of(context);
+    final visible = _visible;
+    return Padding(
+      padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(maxHeight: media.size.height * 0.85),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppTheme.space5,
+                AppTheme.space4,
+                AppTheme.space5,
+                AppTheme.space2,
+              ),
+              child: Text('Kişilerden ekle', style: AppTheme.titleText),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: AppTheme.space5),
+              child: SegmentedButton<_RecipientField>(
+                key: const Key('contact-picker-field'),
+                showSelectedIcon: false,
+                segments: const [
+                  ButtonSegment(value: _RecipientField.to, label: Text('Kime')),
+                  ButtonSegment(value: _RecipientField.cc, label: Text('Cc')),
+                  ButtonSegment(value: _RecipientField.bcc, label: Text('Bcc')),
+                ],
+                selected: {_field},
+                onSelectionChanged: (value) =>
+                    setState(() => _field = value.single),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                AppTheme.space5,
+                AppTheme.space3,
+                AppTheme.space5,
+                AppTheme.space2,
+              ),
+              child: TextField(
+                key: const Key('contact-picker-search'),
+                controller: _query,
+                textInputAction: TextInputAction.search,
+                decoration: const InputDecoration(
+                  hintText: 'Ad veya e-posta ara',
+                  prefixIcon: Icon(LucideIcons.search, size: 18),
+                  isDense: true,
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            Flexible(
+              child: visible.isEmpty
+                  ? Padding(
+                      padding: const EdgeInsets.all(AppTheme.space6),
+                      child: Text(
+                        widget.contacts.isEmpty
+                            ? 'Henüz kayıtlı kişi yok.'
+                            : 'Eşleşen kişi bulunamadı.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(color: colors.secondaryText),
+                      ),
+                    )
+                  : ListView.builder(
+                      shrinkWrap: true,
+                      itemCount: visible.length,
+                      itemBuilder: (context, index) {
+                        final contact = visible[index];
+                        final selected = _picked.containsKey(
+                          contact.email.toLowerCase(),
+                        );
+                        final hasName = contact.displayName != contact.email;
+                        return ListTile(
+                          key: ValueKey('contact-pick-${contact.email}'),
+                          leading: MailAvatar(
+                            identity: contact.email,
+                            displayName: contact.displayName,
+                            size: 36,
+                            selected: selected,
+                          ),
+                          title: Text(
+                            contact.displayName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          subtitle: hasName
+                              ? Text(
+                                  contact.email,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: colors.secondaryText),
+                                )
+                              : null,
+                          trailing: Checkbox(
+                            value: selected,
+                            onChanged: (_) => _toggle(contact),
+                          ),
+                          onTap: () => _toggle(contact),
+                        );
+                      },
+                    ),
+            ),
+            SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppTheme.space5,
+                  AppTheme.space2,
+                  AppTheme.space5,
+                  AppTheme.space4,
+                ),
+                child: FilledButton(
+                  key: const Key('contact-picker-add'),
+                  onPressed: _picked.isEmpty
+                      ? null
+                      : () => Navigator.of(context).pop<_ContactPick>((
+                          field: _field,
+                          contacts: _picked.values.toList(),
+                        )),
+                  child: Text(
+                    _picked.isEmpty ? 'Ekle' : 'Ekle (${_picked.length})',
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

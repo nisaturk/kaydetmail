@@ -697,9 +697,13 @@ class _SwipeBackground extends StatelessWidget {
       size: AppTheme.iconSizeLarge,
       color: Colors.white,
     );
-    final label = Text(
-      meta.label,
-      style: const TextStyle(color: Colors.white, fontSize: 14),
+    final label = Flexible(
+      child: Text(
+        meta.label,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(color: Colors.white, fontSize: 14),
+      ),
     );
     return Container(
       color: fill,
@@ -807,7 +811,14 @@ class _EmptyScrollable extends StatelessWidget {
         children: [
           SizedBox(
             height: constraints.maxHeight,
-            child: _EmptyState(folder: folder, onRefresh: onRefresh),
+            // Short landscape + large text can exceed the viewport — scroll
+            // the centered content instead of overflowing.
+            child: SingleChildScrollView(
+              child: ConstrainedBox(
+                constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                child: _EmptyState(folder: folder, onRefresh: onRefresh),
+              ),
+            ),
           ),
         ],
       ),
@@ -902,50 +913,60 @@ class _ErrorState extends StatelessWidget {
     final onSurface = Theme.of(context).colorScheme.onSurface;
     final offline = AppConfig.mailRepository.isOffline;
     final lastSynced = AppConfig.mailRepository.lastSyncedAt(folder);
-    return Center(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            offline ? LucideIcons.cloudOff : LucideIcons.alertOctagon,
-            size: 40,
-            color: offline ? colors.warning : colors.secondaryText,
-          ),
-          const SizedBox(height: 12),
-          Text(
-            offline ? 'Çevrimdışısınız' : 'E-postalarınız yüklenemedi',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: onSurface,
+    // Same short-viewport treatment as [_EmptyState]: center when it fits,
+    // scroll when it doesn't.
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        child: ConstrainedBox(
+          constraints: BoxConstraints(minHeight: constraints.maxHeight),
+          child: Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  offline ? LucideIcons.cloudOff : LucideIcons.alertOctagon,
+                  size: 40,
+                  color: offline ? colors.warning : colors.secondaryText,
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  offline ? 'Çevrimdışısınız' : 'E-postalarınız yüklenemedi',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                    color: onSurface,
+                  ),
+                ),
+                if (offline) ...[
+                  const SizedBox(height: 4),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 32),
+                    child: Text(
+                      'İnternet bağlantısı yok. Bağlantı sağlanınca otomatik güncellenir.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(fontSize: 14, color: colors.secondaryText),
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 12),
+                TextButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(LucideIcons.refreshCw, size: 18),
+                  label: const Text('Tekrar dene'),
+                ),
+                if (lastSynced != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    'Son senkronizasyon: ${_relativeSyncLabel(lastSynced)}',
+                    style: TextStyle(fontSize: 12, color: colors.tertiaryText),
+                  ),
+                ],
+              ],
             ),
           ),
-          if (offline) ...[
-            const SizedBox(height: 4),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: Text(
-                'İnternet bağlantısı yok. Bağlantı sağlanınca otomatik güncellenir.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 14, color: colors.secondaryText),
-              ),
-            ),
-          ],
-          const SizedBox(height: 12),
-          TextButton.icon(
-            onPressed: onRetry,
-            icon: const Icon(LucideIcons.refreshCw, size: 18),
-            label: const Text('Tekrar dene'),
-          ),
-          if (lastSynced != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              'Son senkronizasyon: ${_relativeSyncLabel(lastSynced)}',
-              style: TextStyle(fontSize: 12, color: colors.tertiaryText),
-            ),
-          ],
-        ],
+        ),
       ),
     );
   }
 }
+

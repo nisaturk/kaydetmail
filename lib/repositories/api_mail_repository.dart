@@ -927,8 +927,8 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  // ponytail: whole-mailbox rewrite (<= ~100 rows/folder) debounced on every
-  // change; switch to per-row upserts if mailboxes or write rates grow.
+  // ponytail: diffs the whole loaded mailbox by identity on every debounced
+  // change; switch to per-row dirty tracking if mailboxes grow very large.
   @override
   void notifyListeners() {
     _touch();
@@ -943,7 +943,7 @@ class ApiMailRepository extends MailRepository {
           final current = <String, Email>{
             for (final e in session.emails.entries)
               if (e.key != MailFolder.starred)
-                for (final m in e.value.take(100)) m.id: m,
+                for (final m in e.value) m.id: m,
           };
           final changed = [
             for (final m in current.values)
@@ -2005,6 +2005,7 @@ class ApiMailRepository extends MailRepository {
               e.timestamp.isBefore(oldestFetched),
         )
         .map(session.stampLocalFlags);
+    if (folder == MailFolder.drafts) _resolveDraftsFrom(refreshed);
     session.emails[folder] = [...refreshed, ...stale]
       ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     session.pages[folder] = max(session.pages[folder] ?? 1, result.page);
@@ -2387,7 +2388,7 @@ class ApiMailRepository extends MailRepository {
           'conversationId': threadId,
         }, session.resolveFolder);
         if (raw['hasAttachments'] != true &&
-            summary.remoteImageHosts.isEmpty &&
+            !summary.hasRemoteContent &&
             !_remoteImageMailIds.contains(id)) {
           return summary;
         }
@@ -2429,7 +2430,6 @@ class ApiMailRepository extends MailRepository {
     String? inReplyToId,
     String? identityId,
     bool requestReadReceipt = false,
-    bool requestDeliveryReceipt = false,
     String? idempotencyKey,
     void Function(int sent, int total)? onProgress,
     Future<void>? abortTrigger,
@@ -2451,7 +2451,6 @@ class ApiMailRepository extends MailRepository {
         replySourceMailId: inReplyToId,
         identityId: identityId,
         requestReadReceipt: requestReadReceipt,
-        requestDeliveryReceipt: requestDeliveryReceipt,
         idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
         onProgress: onProgress,
         abortTrigger: abortTrigger,
@@ -2522,6 +2521,7 @@ class ApiMailRepository extends MailRepository {
     String? fromAccountId,
     String? inReplyToId,
     String? identityId,
+    bool requestReadReceipt = false,
     required DateTime sendAt,
   }) async {
     final session = _sessionForCompose(
@@ -2538,6 +2538,7 @@ class ApiMailRepository extends MailRepository {
       attachments: attachments,
       replySourceMailId: inReplyToId,
       identityId: identityId,
+      requestReadReceipt: requestReadReceipt,
       sendAtUtc: sendAt,
       idempotencyKey: _newIdempotencyKey(),
     );
@@ -3089,6 +3090,80 @@ class ApiMailRepository extends MailRepository {
   /// Old draft id -> the id `PUT /drafts/{id}` replaced it with.
   final Map<String, String> _draftIdSuccessor = {};
 
+  /// Drafts the server stored but couldn't name yet (`reconciliationPending`),
+  /// keyed by the id the caller holds — a local placeholder after a create,
+  /// or the retired id after an update. Resolved into [_draftIdSuccessor]
+  /// when a Drafts refresh shows the matching server copy.
+  final Map<String, ({Email written, Set<String> baseline})> _unresolvedDrafts =
+      {};
+
+  /// [baseline] is every draft id listed before the write, so only a copy
+  /// that appeared afterwards can be matched to it.
+  void _trackUnresolvedDraft(
+    _Session session,
+    Email written,
+    Set<String> baseline,
+  ) {
+    _unresolvedDrafts[written.id] = (written: written, baseline: baseline);
+    unawaited(
+      Future<void>.delayed(
+        const Duration(seconds: 3),
+        () => _refreshEmailsFor(session, MailFolder.drafts),
+      ).catchError((_) {}),
+    );
+  }
+
+  /// Maps each unresolved draft to the server draft that appeared after it
+  /// was written, with the same subject and recipients (newest first).
+  void _resolveDraftsFrom(List<Email> listed) {
+    if (_unresolvedDrafts.isEmpty) return;
+    final claimed = _draftIdSuccessor.values.toSet();
+    final candidates =
+        listed.where((e) => !claimed.contains(e.id)).toList()
+          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    for (final MapEntry(key: id, value: pending)
+        in _unresolvedDrafts.entries.toList()) {
+      final written = pending.written;
+      final notBefore = written.timestamp.subtract(const Duration(minutes: 2));
+      final match = candidates
+          .where(
+            (e) =>
+                !pending.baseline.contains(e.id) &&
+                e.accountId == written.accountId &&
+                _draftSubjectKey(e.subject) ==
+                    _draftSubjectKey(written.subject) &&
+                e.recipients.toSet().containsAll(written.recipients) &&
+                written.recipients.toSet().containsAll(e.recipients) &&
+                !e.timestamp.isBefore(notBefore),
+          )
+          .firstOrNull;
+      if (match == null) continue;
+      candidates.remove(match);
+      _draftIdSuccessor[id] = match.id;
+      _unresolvedDrafts.remove(id);
+    }
+  }
+
+  /// The backend stores a blank subject as "(no subject)".
+  static String _draftSubjectKey(String subject) =>
+      subject.trim().isEmpty ? '(no subject)' : subject.trim();
+
+  /// The server id to write to for [id]. A draft still awaiting
+  /// reconciliation triggers one Drafts refresh; if the server copy is
+  /// still unnamed after it, writing now would 404, so this fails clearly.
+  Future<String> _serverDraftId(String id) async {
+    var latest = _latestDraftId(id);
+    final pending = _unresolvedDrafts[latest];
+    if (pending == null) return latest;
+    final session = _sessions[pending.written.accountId] ?? _primarySession;
+    await _refreshEmailsFor(session, MailFolder.drafts);
+    latest = _latestDraftId(id);
+    if (_unresolvedDrafts.containsKey(latest)) {
+      throw const ApiException(status: 409, code: 'draft_not_reconciled');
+    }
+    return latest;
+  }
+
   /// Runs draft writes one at a time. Two overlapping saves of the same
   /// draft (a double-tapped "Taslağı Kaydet") would otherwise both `PUT`
   /// the same id: each re-APPENDs a copy and only one can retire the
@@ -3126,7 +3201,7 @@ class ApiMailRepository extends MailRepository {
     String? identityId,
     String? draftId,
   }) => _serializeDraftWrite(
-    () => _writeDraft(
+    () async => _writeDraft(
       to: to,
       cc: cc,
       bcc: bcc,
@@ -3139,7 +3214,7 @@ class ApiMailRepository extends MailRepository {
       threadId: threadId,
       inReplyToId: inReplyToId,
       identityId: identityId,
-      draftId: draftId == null ? null : _latestDraftId(draftId),
+      draftId: draftId == null ? null : await _serverDraftId(draftId),
     ),
   );
 
@@ -3215,15 +3290,11 @@ class ApiMailRepository extends MailRepository {
         // Reconciliation pending: the server stored the new copy and already
         // retired the old one, but can't name the new id yet. Drop the stale
         // row and pick the real one up once the Drafts sync lands.
+        final baseline = drafts.map((e) => e.id).toSet();
         if (oldIndex >= 0) drafts.removeAt(oldIndex);
         _touch();
         notifyListeners();
-        unawaited(
-          Future<void>.delayed(
-            const Duration(seconds: 3),
-            () => _refreshEmailsFor(session, MailFolder.drafts),
-          ).catchError((_) {}),
-        );
+        _trackUnresolvedDraft(session, updated, baseline);
         return updated;
       }
       _touch();
@@ -3247,8 +3318,8 @@ class ApiMailRepository extends MailRepository {
       identityId: identityId,
     );
     // Reconciliation can still be pending right after APPEND — fall back to
-    // a local id so the draft is still usable; refreshEmails(drafts) will
-    // reconcile it with the server's real id on the next sync.
+    // a local id so the draft is still usable; the next Drafts refresh maps
+    // it to the server's real id (see [_resolveDraftsFrom]).
     final id =
         result.mailId ?? 'draft-${DateTime.now().microsecondsSinceEpoch}';
     final email = Email(
@@ -3270,9 +3341,14 @@ class ApiMailRepository extends MailRepository {
       inReplyToId: inReplyToId,
     );
     _touch();
-    session.emails
-        .putIfAbsent(MailFolder.drafts, () => <Email>[])
-        .insert(0, email);
+    final drafts = session.emails.putIfAbsent(
+      MailFolder.drafts,
+      () => <Email>[],
+    );
+    if (result.mailId == null) {
+      _trackUnresolvedDraft(session, email, drafts.map((e) => e.id).toSet());
+    }
+    drafts.insert(0, email);
     notifyListeners();
     return email;
   }
@@ -3284,7 +3360,14 @@ class ApiMailRepository extends MailRepository {
     _removeMany(initialSession, [draftId]);
     notifyListeners();
     return _serializeDraftWrite(() async {
-      final id = _latestDraftId(draftId);
+      final String id;
+      try {
+        id = await _serverDraftId(draftId);
+      } catch (_) {
+        _restoreMailLocations(initialSession, initialSnapshot);
+        notifyListeners();
+        rethrow;
+      }
       final session = _sessionOwning(id) ?? initialSession;
       final snapshot = id == draftId
           ? initialSnapshot
@@ -4006,10 +4089,10 @@ class ApiMailRepository extends MailRepository {
     _throwForFailedBulkResults(results);
   }
 
-  /// Marks that the user opened the reply screen. The "replied" flag itself
-  /// is local-only (see [LocalMailFlagsStore]), but opening a reply also
-  /// reads the mail, which the API *does* track — so that half goes through
-  /// the real `read` action instead of being faked locally.
+  /// Records a reply successfully sent from KaydetMail. The "replied" flag
+  /// itself is local-only (see [LocalMailFlagsStore]); the resulting read
+  /// state goes through the real `read` action instead of being faked
+  /// locally.
   @override
   Future<void> markAsReplied(List<String> ids) async {
     if (ids.isEmpty) return;
@@ -4120,7 +4203,7 @@ class ApiMailRepository extends MailRepository {
     return null;
   }
 
-  /// Marks that the user opened the forward screen — same split as
+  /// Records a forward successfully sent from KaydetMail — same split as
   /// [markAsReplied]: "forwarded" is local-only, the resulting read state
   /// goes through the real `read` action.
   @override

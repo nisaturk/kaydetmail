@@ -8,6 +8,8 @@ Future<bool> confirmPermanentDelete(BuildContext context, int count) async {
   return await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
+          // Large text on a short viewport can exceed the dialog height.
+          scrollable: true,
           title: Text(
             count == 1
                 ? 'E-posta kalıcı olarak silinsin mi?'

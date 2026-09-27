@@ -22,41 +22,45 @@ class _ReplyReminderPickerSheet extends StatelessWidget {
       (label: '3 gün sonra', value: now.add(const Duration(days: 3))),
       (label: '1 hafta sonra', value: now.add(const Duration(days: 7))),
     ];
+    // Short landscape + large text can exceed the sheet height — scroll
+    // instead of overflowing (probe: 640x320 @ 1.3x).
     return SafeArea(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Text(
-                'Yanıt gelmezse hatırlat',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Padding(
+              padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Yanıt gelmezse hatırlat',
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                ),
               ),
             ),
-          ),
-          for (final preset in presets)
+            for (final preset in presets)
+              ListTile(
+                leading: Icon(LucideIcons.bellRing, color: colors.secondaryText),
+                title: Text(preset.label),
+                onTap: () => Navigator.of(context).pop(preset.value),
+              ),
             ListTile(
-              leading: Icon(LucideIcons.bellRing, color: colors.secondaryText),
-              title: Text(preset.label),
-              onTap: () => Navigator.of(context).pop(preset.value),
+              leading: Icon(
+                LucideIcons.calendarClock,
+                color: colors.secondaryText,
+              ),
+              title: const Text('Tarih ve saat seç'),
+              onTap: () async {
+                final picked = await _pickCustom(context, now);
+                if (picked != null && context.mounted) {
+                  Navigator.of(context).pop(picked);
+                }
+              },
             ),
-          ListTile(
-            leading: Icon(
-              LucideIcons.calendarClock,
-              color: colors.secondaryText,
-            ),
-            title: const Text('Tarih ve saat seç'),
-            onTap: () async {
-              final picked = await _pickCustom(context, now);
-              if (picked != null && context.mounted) {
-                Navigator.of(context).pop(picked);
-              }
-            },
-          ),
-          const SizedBox(height: 8),
-        ],
+            const SizedBox(height: 8),
+          ],
+        ),
       ),
     );
   }

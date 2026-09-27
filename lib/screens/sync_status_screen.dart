@@ -228,9 +228,11 @@ class _FolderRow extends StatelessWidget {
                     : colors.warning,
               ),
               const SizedBox(width: 8),
-              Text(
-                folder.displayName,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+              Expanded(
+                child: Text(
+                  folder.displayName,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),

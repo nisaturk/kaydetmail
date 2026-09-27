@@ -980,17 +980,34 @@ class _SessionsSectionState extends State<_SessionsSection> {
   Widget build(BuildContext context) {
     final sessions = _sessions;
     if (_error != null) {
-      return ListTile(
-        dense: true,
-        leading: Icon(
-          LucideIcons.triangleAlert,
-          size: 20,
-          color: AppTheme.colors(context).secondaryText,
-        ),
-        title: Text(_error!),
-        trailing: TextButton(
-          onPressed: _load,
-          child: const Text('Tekrar dene'),
+      // Narrow viewport + large text: a ListTile trailing leaves no room
+      // for the message, so stack the retry button below it instead.
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(
+                  LucideIcons.triangleAlert,
+                  size: 20,
+                  color: AppTheme.colors(context).secondaryText,
+                ),
+                const SizedBox(width: 12),
+                Expanded(child: Text(_error!)),
+              ],
+            ),
+            const SizedBox(height: 4),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: _load,
+                child: const Text('Tekrar dene'),
+              ),
+            ),
+          ],
         ),
       );
     }
@@ -1281,21 +1298,47 @@ class _SwipeGestureTile extends StatelessWidget {
   final ValueChanged<SwipeGesture> onChanged;
 
   @override
-  Widget build(BuildContext context) => ListTile(
-    dense: true,
-    title: Text(title),
-    trailing: DropdownButton<SwipeGesture>(
+  Widget build(BuildContext context) {
+    final dropdown = DropdownButton<SwipeGesture>(
       value: value,
+      isExpanded: true,
       underline: const SizedBox.shrink(),
       onChanged: (v) {
         if (v != null) onChanged(v);
       },
       items: [
         for (final gesture in SwipeGesture.values)
-          DropdownMenuItem(value: gesture, child: Text(gesture.label)),
+          DropdownMenuItem(
+            value: gesture,
+            child: Text(
+              gesture.label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
       ],
-    ),
-  );
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final stacked =
+            constraints.maxWidth < 380 ||
+            MediaQuery.textScalerOf(context).scale(1) > 1.3;
+        return ListTile(
+          dense: true,
+          title: stacked
+              ? Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(title),
+                    SizedBox(width: double.infinity, child: dropdown),
+                  ],
+                )
+              : Text(title),
+          trailing: stacked ? null : SizedBox(width: 180, child: dropdown),
+        );
+      },
+    );
+  }
 }
 
 class _UndoSendSection extends StatelessWidget {

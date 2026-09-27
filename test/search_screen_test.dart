@@ -35,6 +35,7 @@ class _FakeRepo extends MailRepository {
   List<FolderSyncStatus> syncStatusForFirstAccount = const [];
   int remoteCalls = 0;
   String? remoteAccountId;
+  List<RemoteSearchResult> remoteRounds = const [];
 
   @override
   Future<RemoteSearchResult> searchRemote({
@@ -66,6 +67,7 @@ class _FakeRepo extends MailRepository {
         accountId: accountId ?? _accounts.first.id,
       ),
     ];
+    if (remoteCalls <= remoteRounds.length) return remoteRounds[remoteCalls - 1];
     return const RemoteSearchResult(
       matched: 1,
       imported: 1,
@@ -261,6 +263,81 @@ void main() {
     expect(repo.calls, hasLength(2));
     expect(find.text('Sunucudan gelen'), findsOneWidget);
     expect(find.textContaining('1 yeni e-posta eklendi'), findsOneWidget);
+  });
+
+  testWidgets(
+    'partial remote scan continues automatically and stops when it stalls',
+    (tester) async {
+      final repo = _FakeRepo(const [
+        MailAccount(id: 'a1', email: 'a@example.com'),
+      ])
+        ..remoteRounds = const [
+          RemoteSearchResult(
+            matched: 30,
+            imported: 10,
+            remaining: 20,
+            complete: false,
+          ),
+          RemoteSearchResult(
+            matched: 30,
+            imported: 10,
+            remaining: 10,
+            complete: false,
+          ),
+          RemoteSearchResult(
+            matched: 30,
+            imported: 0,
+            remaining: 10,
+            complete: false,
+          ),
+        ];
+      await _pumpSearch(tester, repo);
+      await tester.enterText(find.byType(TextField).first, 'sunucu');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const Key('search-remote')));
+      await tester.pumpAndSettle();
+
+      expect(repo.remoteCalls, 3);
+      expect(
+        find.textContaining('20 yeni e-posta eklendi; 10 eşleşme alınamadı'),
+        findsOneWidget,
+      );
+    },
+  );
+
+  testWidgets('partial remote scan continues until complete', (tester) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+    ])
+      ..remoteRounds = const [
+        RemoteSearchResult(
+          matched: 15,
+          imported: 10,
+          remaining: 5,
+          complete: false,
+        ),
+        RemoteSearchResult(
+          matched: 15,
+          imported: 5,
+          remaining: 0,
+          complete: true,
+        ),
+      ];
+    await _pumpSearch(tester, repo);
+    await tester.enterText(find.byType(TextField).first, 'sunucu');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const Key('search-remote')));
+    await tester.pumpAndSettle();
+
+    expect(repo.remoteCalls, 2);
+    expect(
+      find.text('Sunucu taraması tamamlandı. 15 yeni e-posta eklendi.'),
+      findsOneWidget,
+    );
   });
 
   testWidgets('label-only search cannot trigger remote import', (tester) async {
