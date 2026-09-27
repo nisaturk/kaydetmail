@@ -33,8 +33,6 @@ one unified inbox.
   Definitive pre-delivery failures can be retried or edited from Giden Kutusu.
   If delivery is uncertain, the app does not resend automatically; check
   Gönderilenler before deleting the local copy or composing another message.
-- **Rules.** Account-scoped rules are evaluated server-side after mail sync,
-  including priority, conditions, actions and stop-processing.
 - **Search.** Server-backed account/folder/label filters and IMAP fallback for
   mail outside the local index.
 - **Offline cache.** An on-device SQLite mirror of loaded mail — including full message

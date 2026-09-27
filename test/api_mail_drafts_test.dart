@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -127,11 +129,13 @@ void main() {
         final mailService = _RecordingMailService();
         final repo = await _loggedInRepository(mailService);
 
+        expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
         final created = await repo.saveDraft(
           to: ['a@x.com'],
           subject: 'Taslak',
         );
         expect(created.id, 'draft-old');
+        expect(created.senderName, 'person@example.com');
 
         final updated = await repo.saveDraft(
           to: ['a@x.com'],
@@ -190,6 +194,22 @@ void main() {
 
       expect(mailService.deletedDraftIds, ['draft-old']);
       expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+    });
+
+    test('deleteDraft hides the row before the server responds', () async {
+      final mailService = _SlowDeleteMailService();
+      final repo = await _loggedInRepository(mailService);
+      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+      expect(repo.getEmailsInFolder(MailFolder.drafts), isNotEmpty);
+
+      final deletion = repo.deleteDraft('draft-old');
+
+      expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+      await Future<void>.delayed(Duration.zero);
+      expect(mailService.deletionRequested, isTrue);
+      expect(mailService.deleteStarted.isCompleted, isFalse);
+      mailService.deleteStarted.complete();
+      await deletion;
     });
   });
 
@@ -278,10 +298,14 @@ void main() {
         contains('draft-old'),
       );
 
+      expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
       await repo.sendDraft('draft-old');
 
       expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
-      expect(repo.getEmailsInFolder(MailFolder.sent), isNotEmpty);
+      expect(
+        repo.getEmailsInFolder(MailFolder.sent).single.senderName,
+        'person@example.com',
+      );
     });
   });
 
@@ -382,6 +406,18 @@ class _RecordingMailService extends ApiMailService {
     sentCopySaved: true,
     draftRemoved: true,
   );
+}
+
+class _SlowDeleteMailService extends _RecordingMailService {
+  final Completer<void> deleteStarted = Completer<void>();
+  bool deletionRequested = false;
+
+  @override
+  Future<void> deleteDraft(String id) async {
+    deletionRequested = true;
+    await deleteStarted.future;
+    await super.deleteDraft(id);
+  }
 }
 
 /// Like [_RecordingMailService], but every update re-creates the draft under

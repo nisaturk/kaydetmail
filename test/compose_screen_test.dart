@@ -461,7 +461,7 @@ void main() {
       expect(repo.savedDrafts, isEmpty);
     });
 
-    testWidgets('leaving an existing draft saves without asking', (
+    testWidgets('leaving an unchanged existing draft does not rewrite it', (
       tester,
     ) async {
       final repo = _FakeMailRepository(accounts: const [_accountA]);
@@ -469,8 +469,32 @@ void main() {
         tester,
         repo: repo,
         initialFrom: 'a@example.com',
-        initialBody: 'updated draft',
+        initialBody: 'existing draft',
         editingDraftId: 'draft-existing',
+      );
+
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Taslağı kaydedilsin mi?'), findsNothing);
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts, isEmpty);
+    });
+
+    testWidgets('leaving a changed existing draft saves without asking', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialBody: 'existing draft',
+        editingDraftId: 'draft-existing',
+      );
+      await tester.enterText(
+        find.byKey(const Key('body-field')),
+        'updated draft',
       );
 
       await tester.tap(find.byTooltip('Kapat'));
@@ -480,6 +504,27 @@ void main() {
       expect(find.byType(ComposeScreen), findsNothing);
       expect(repo.savedDrafts.single.id, 'draft-existing');
       expect(repo.savedDrafts.single.bodyText, 'updated draft');
+    });
+
+    testWidgets('clearing an existing draft persists the empty content', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialBody: 'remove this',
+        editingDraftId: 'draft-existing',
+      );
+      await tester.enterText(find.byKey(const Key('body-field')), '');
+
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(repo.savedDrafts.single.id, 'draft-existing');
+      expect(repo.savedDrafts.single.bodyText, isEmpty);
     });
   });
 
