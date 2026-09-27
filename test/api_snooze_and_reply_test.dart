@@ -4,6 +4,8 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:kaydetmail/state/app_settings_controller.dart';
+
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/api_mail_repository.dart';
@@ -205,8 +207,13 @@ void main() {
     final old = DateTime.now().subtract(const Duration(days: 5));
     final recent = DateTime.now().subtract(const Duration(hours: 1));
 
+    setUp(() {
+      SharedPreferences.setMockInitialValues({});
+      AppSettingsController.resetForTest();
+    });
+
     testWidgets(
-      'hides the badge for an old, unanswered Sent mail while the feature flag is off',
+      'hides the badge by default when the setting is off',
       (tester) async {
         await tester.pumpWidget(
           harness(sentEmail(answered: false, timestamp: old)),
@@ -215,9 +222,21 @@ void main() {
       },
     );
 
+    testWidgets(
+      'shows the badge for an old, unanswered Sent mail once enabled',
+      (tester) async {
+        AppSettingsController.instance.unansweredReminderEnabled = true;
+        await tester.pumpWidget(
+          harness(sentEmail(answered: false, timestamp: old)),
+        );
+        expect(find.text('Yanıt bekliyor'), findsOneWidget);
+      },
+    );
+
     testWidgets('hides the badge once the Sent mail is answered', (
       tester,
     ) async {
+      AppSettingsController.instance.unansweredReminderEnabled = true;
       await tester.pumpWidget(
         harness(sentEmail(answered: true, timestamp: old)),
       );
@@ -227,6 +246,7 @@ void main() {
     testWidgets('hides the badge for a recent, unanswered Sent mail', (
       tester,
     ) async {
+      AppSettingsController.instance.unansweredReminderEnabled = true;
       await tester.pumpWidget(
         harness(sentEmail(answered: false, timestamp: recent)),
       );
