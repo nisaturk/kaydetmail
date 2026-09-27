@@ -64,6 +64,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
   Email? _email;
   List<Email> _thread = const [];
+
+  /// Last server conversation fetch. Kept apart from [_thread] so a reload
+  /// rebuilds from server + current cache: a local send echo the cache has
+  /// since replaced with the real Sent copy must not linger as a duplicate.
+  List<Email> _fetchedThread = const [];
   final _scroll = ScrollController();
 
   /// Thread length last scrolled to, so the chat jumps to the newest message
@@ -146,7 +151,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       setState(() {
         _email = loaded;
         _thread = _mergeThread(loaded, [
-          ..._thread,
+          ..._fetchedThread.where((e) => e.threadId == loaded.threadId),
           ..._repo.getThreadEmails(loaded.threadId),
         ]);
         _loading = false;
@@ -217,6 +222,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       if (_email?.id != email.id) return;
       // The server conversation can lag behind replies sent from this app
       // (only a local copy exists until the next sync), so keep those too.
+      _fetchedThread = fetched;
       final merged = _mergeThread(email, [
         ...fetched,
         ..._repo.getThreadEmails(email.threadId),
