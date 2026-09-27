@@ -176,7 +176,6 @@ class MailLinkWidgetFactory extends WidgetFactory {
   }) {
     final element = tree.element;
     final href = element.attributes['href'];
-    debugPrint('gesture ${element.localName} $href ${element.text}');
     if (element.localName != 'a' || href == null || href.startsWith('#')) {
       return super.buildGestureRecognizer(tree, onTap: onTap);
     }

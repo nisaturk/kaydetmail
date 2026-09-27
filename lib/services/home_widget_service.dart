@@ -115,6 +115,28 @@ class HomeWidgetService {
     }
   }
 
+  /// Removes mail content from native widgets when no account remains signed
+  /// in. Never throws for same optional-platform reasons as refresh.
+  static Future<void> clear() async {
+    if (!_isSupportedPlatform) return;
+    try {
+      if (defaultTargetPlatform == TargetPlatform.iOS && !_appGroupConfigured) {
+        await HomeWidget.setAppGroupId(_appGroupId);
+        _appGroupConfigured = true;
+      }
+      await HomeWidget.saveWidgetData<int>(_unreadCountKey, 0);
+      for (final key in _mailLineKeys) {
+        await HomeWidget.saveWidgetData<String>(key, null);
+      }
+      await HomeWidget.updateWidget(
+        androidName: _androidProviderName,
+        iOSName: _iOSWidgetKind,
+      );
+    } catch (_) {
+      // Optional widget storage must not block logout.
+    }
+  }
+
   /// One "Sender — Subject" line, truncated to keep the widget's single-line
   /// `TextView` from needing to reflow.
   static String _summarize(Email email) {

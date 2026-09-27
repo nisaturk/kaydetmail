@@ -169,6 +169,7 @@ void main() {
     },
   );
 
+
   test('a non-read operation replay conflict drops the queued mutation and '
       'surfaces it, same as read/unread', () async {
     final mailService = _RecordingMailService();
@@ -316,6 +317,8 @@ class _RecordingMailService extends ApiMailService {
     : super(ApiClient(tokenStore: TokenStore(storage: _MemoryTokenStorage())));
 
   bool failBulkAction = false;
+
+  bool failGetMail = false;
   final List<String> bulkActionCalls = [];
   final Map<String, String> forcedResultCodes = {};
 
@@ -391,6 +394,10 @@ class _RecordingMailService extends ApiMailService {
     required MailFolder Function(String folderId) resolveFolder,
     bool allowRemoteImages = false,
   }) async {
+    if (failGetMail) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
+
     final folder = resolveFolder(
       restoreDestinationFolderId[id] ?? 'folder-inbox',
     );

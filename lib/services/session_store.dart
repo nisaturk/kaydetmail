@@ -1,18 +1,16 @@
+import 'dart:convert';
+
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Persists which accounts are logged in — just their emails, in connection
-/// order — so [restoreSession] knows what to restore at app launch, and the
-/// auth gate knows whether to show the login screen at all.
-///
-/// UI never touches SharedPreferences directly — it goes through here, and
-/// the repository itself never knows about this class.
+/// Persists accounts logged in, in connection order, so [restoreSession]
+/// knows what to restore at app launch and auth gate knows login state.
 class SessionStore {
   SessionStore._();
 
   static const String _key = 'kaydet.session.emails';
+  static const String _accountIdsKey = 'kaydet.session.accountIds';
 
-  // Pre-multi-account key, migrated into the list below the first time
-  // emails are read, then removed.
+  // Pre-multi-account key, migrated into list below first time emails read.
   static const String _legacyKey = 'kaydet.session.email';
 
   static Future<void> _migrateLegacy(SharedPreferences prefs) async {
@@ -25,9 +23,7 @@ class SessionStore {
     }
   }
 
-  /// Every account currently logged in, in the order they were connected —
-  /// also the order [MailRepository.restoreSession] should be called in at
-  /// app launch.
+  /// Every account email, in connection order.
   static Future<List<String>> loadEmails() async {
     try {
       final prefs = await SharedPreferences.getInstance();
@@ -38,8 +34,7 @@ class SessionStore {
     }
   }
 
-  /// Remembers one more logged-in account. Safe to call for an email that's
-  /// already recorded — it never duplicates.
+  /// Remembers one more logged-in account without duplicate.
   static Future<void> addEmail(String email) async {
     final prefs = await SharedPreferences.getInstance();
     final existing = prefs.getStringList(_key) ?? const <String>[];
@@ -48,34 +43,66 @@ class SessionStore {
     }
   }
 
-  /// Forgets one account (e.g. after [MailRepository.removeAccount]) without
-  /// touching the others.
+  /// Associates [email] with stable backend [accountId] for session restore.
+  static Future<void> saveAccountId(String email, String accountId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final accountIds = _loadAccountIds(prefs)..[email] = accountId;
+    await prefs.setString(_accountIdsKey, jsonEncode(accountIds));
+  }
+
+  static Future<String?> loadAccountId(String email) async {
+    try {
+      return _loadAccountIds(await SharedPreferences.getInstance())[email];
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Map<String, String> _loadAccountIds(SharedPreferences prefs) {
+    final raw = prefs.getString(_accountIdsKey);
+    if (raw == null) return {};
+    try {
+      return (jsonDecode(raw) as Map<String, dynamic>).map(
+        (email, accountId) => MapEntry(email, accountId as String),
+      );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  /// Forgets one account without touching others.
   static Future<void> removeEmail(String email) async {
     final prefs = await SharedPreferences.getInstance();
     final existing = (prefs.getStringList(_key) ?? const <String>[]).toList()
       ..remove(email);
-    await prefs.setStringList(_key, existing);
+    final accountIds = _loadAccountIds(prefs)..remove(email);
+    await Future.wait([
+      prefs.setStringList(_key, existing),
+      prefs.setString(_accountIdsKey, jsonEncode(accountIds)),
+    ]);
   }
 
-  /// Forgets every logged-in account (full sign-out).
+  /// Forgets every logged-in account.
   static Future<void> clear() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      await prefs.remove(_key);
-      await prefs.remove(_legacyKey);
+      await Future.wait([
+        prefs.remove(_key),
+        prefs.remove(_accountIdsKey),
+        prefs.remove(_legacyKey),
+      ]);
     } catch (_) {
       // No session to clear in tests / unsupported platforms.
     }
   }
 
-  /// Synchronous test helper: wipes the mock prefs so each widget test
-  /// boots to Login even after a previous test logged in.
+  /// Synchronous test helper: wipes mock prefs.
   static void resetForTest() {
     try {
       // ignore: invalid_use_of_visible_for_testing_member
       SharedPreferences.setMockInitialValues({});
     } catch (_) {
-      // Not in a test environment — nothing to reset.
+      // Not in test environment.
     }
   }
 }
