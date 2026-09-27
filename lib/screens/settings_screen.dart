@@ -17,7 +17,6 @@ import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
 import 'accounts_screen.dart';
 import 'notification_settings_screen.dart';
-import 'rules_settings_screen.dart';
 import 'signature_settings_screen.dart';
 import 'templates_screen.dart';
 import 'signatures_screen.dart';
@@ -118,20 +117,12 @@ class SettingsScreen extends StatelessWidget {
             page: (_) => [_DeviceContactsSection(), _ContactsSection()],
           ),
           _CategoryTile(
-            icon: LucideIcons.filter,
-            title: 'Kurallar',
-            subtitle: 'Gelen postayı otomatik taşı/etiketle',
-            onTap: (ctx) => Navigator.of(ctx).push(
-              MaterialPageRoute(builder: (_) => const RulesSettingsScreen()),
-            ),
-          ),
-          _CategoryTile(
             icon: LucideIcons.layoutTemplate,
             title: 'Şablonlar',
             subtitle: 'Tekrar kullanılan konu ve metinler',
-            onTap: (ctx) => Navigator.of(ctx).push(
-              MaterialPageRoute(builder: (_) => const TemplatesScreen()),
-            ),
+            onTap: (ctx) => Navigator.of(
+              ctx,
+            ).push(MaterialPageRoute(builder: (_) => const TemplatesScreen())),
           ),
           _CategoryTile(
             icon: LucideIcons.slidersHorizontal,

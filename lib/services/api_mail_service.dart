@@ -17,7 +17,6 @@ import '../models/mail_folder.dart';
 import '../models/mail_session.dart';
 import '../models/remote_search_result.dart';
 import '../models/mail_template.dart';
-import '../models/server_mail_rule.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
@@ -557,31 +556,6 @@ class ApiMailService {
   /// Deletes a label; also strips it from every mail it was assigned to.
   Future<void> deleteLabel(String id) =>
       _client.delete('/api/labels/${Uri.encodeComponent(id)}');
-
-  Future<List<ServerMailRule>> getRules() async {
-    final items = await _client.getList('/api/rules');
-    return items
-        .map((item) => ServerMailRule.fromJson(item as Map<String, dynamic>))
-        .toList();
-  }
-
-  Future<ServerMailRule> createRule(
-    ServerMailRule rule, {
-    String? legacyId,
-  }) async => ServerMailRule.fromJson(
-    await _client.postJson('/api/rules', rule.toJson(legacyId: legacyId)),
-  );
-
-  Future<ServerMailRule> updateRule(ServerMailRule rule) async =>
-      ServerMailRule.fromJson(
-        await _client.putJson(
-          '/api/rules/${Uri.encodeComponent(rule.id)}',
-          rule.toJson(),
-        ),
-      );
-
-  Future<void> deleteRule(String id) =>
-      _client.delete('/api/rules/${Uri.encodeComponent(id)}');
 
   Future<List<MailTemplate>> getTemplates() async {
     final items = await _client.getList('/api/templates');

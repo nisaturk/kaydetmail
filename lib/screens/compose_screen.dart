@@ -103,7 +103,8 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
       builder: (_) => ComposeScreen(
         composeTitle: 'Taslağı Düzenle',
         editingDraftId: full.id,
-        initialFrom: repo.getAccount(full.accountId)?.email,
+        initialFrom: full.senderEmail,
+        initialFromAccountId: full.accountId,
         initialTo: full.recipients.join(', '),
         initialCc: full.cc.join(', '),
         initialBcc: full.bcc.join(', '),
@@ -151,6 +152,7 @@ class ComposeScreen extends StatefulWidget {
     super.key,
     this.pickAttachments,
     this.initialFrom,
+    this.initialFromAccountId,
     this.initialTo = '',
     this.initialCc = '',
     this.initialBcc = '',
@@ -172,6 +174,7 @@ class ComposeScreen extends StatefulWidget {
   final Future<List<Attachment>?> Function()? pickAttachments;
 
   final String? initialFrom;
+  final String? initialFromAccountId;
   final String initialTo;
   final String initialCc;
   final String initialBcc;
@@ -230,6 +233,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   String? _fromAccount;
   MailIdentity? _fromIdentity;
   List<MailIdentity> _identities = const [];
+  bool _identitiesLoaded = false;
   ComposeLimits? _limits;
   bool _resizingImages = false;
 
@@ -295,7 +299,12 @@ class _ComposeScreenState extends State<ComposeScreen> {
       }
     }
     final accounts = _repo.accounts;
-    if (widget.initialFrom != null &&
+    final initialAccount = widget.initialFromAccountId == null
+        ? null
+        : _repo.getAccount(widget.initialFromAccountId!);
+    if (initialAccount != null) {
+      _fromAccount = initialAccount.email;
+    } else if (widget.initialFrom != null &&
         accounts.any((a) => a.email == widget.initialFrom)) {
       _fromAccount = widget.initialFrom;
     } else {
@@ -390,9 +399,50 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _bodyController.text.trim().isNotEmpty ||
       _attachments.isNotEmpty;
 
+  String _recipientDraftValue(
+    List<_Recipient> recipients,
+    TextEditingController input,
+  ) => [
+    ...recipients.map((recipient) => recipient.address.trim()),
+    if (input.text.trim().isNotEmpty) input.text.trim(),
+  ].join(',');
+  String _initialRecipientDraftValue(String value) =>
+      _parseRecipients(value).map((recipient) => recipient.address).join(',');
+  bool get _editingDraftChanged {
+    if (widget.editingDraftId == null) return false;
+    if (_recipientDraftValue(_toRecipients, _toInputController) !=
+            _initialRecipientDraftValue(widget.initialTo) ||
+        _recipientDraftValue(_ccRecipients, _ccInputController) !=
+            _initialRecipientDraftValue(widget.initialCc) ||
+        _recipientDraftValue(_bccRecipients, _bccInputController) !=
+            _initialRecipientDraftValue(widget.initialBcc) ||
+        _subjectController.text != widget.initialSubject ||
+        _bodyController.text != widget.initialBody ||
+        _requestReadReceipt != widget.initialRequestReadReceipt ||
+        _requestDeliveryReceipt != widget.initialRequestDeliveryReceipt) {
+      return true;
+    }
+    if (_attachments.length != widget.initialAttachments.length) return true;
+    for (var index = 0; index < _attachments.length; index++) {
+      final current = _attachments[index];
+      final initial = widget.initialAttachments[index];
+      if (current.id != initial.id ||
+          current.name != initial.name ||
+          current.sizeBytes != initial.sizeBytes ||
+          current.mimeType != initial.mimeType) {
+        return true;
+      }
+    }
+    if (_identitiesLoaded && widget.initialFrom != null) {
+      final currentFrom = _fromIdentity?.emailAddress ?? _fromAccount;
+      if (currentFrom != widget.initialFrom) return true;
+    }
+    return false;
+  }
+
   Future<bool> _onWillPop() async {
-    if (!_hasContent) return true;
     if (widget.editingDraftId != null) {
+      if (!_editingDraftChanged) return true;
       final saved = await _saveDraft();
       if (!mounted) return false;
       if (saved) return true;
@@ -401,6 +451,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       );
       return false;
     }
+    if (!_hasContent) return true;
     return await showDialog<bool>(
           context: context,
           builder: (ctx) => AlertDialog(
@@ -590,14 +641,26 @@ class _ComposeScreenState extends State<ComposeScreen> {
     try {
       final identities = await _repo.listIdentities(accountId);
       if (!mounted || accountId != _resolvedFromAccountId) return;
-      final wanted = widget.initialIdentityId;
+      final wantedId = widget.initialIdentityId;
+      final wantedAddress = widget.editingDraftId == null
+          ? null
+          : widget.initialFrom?.toLowerCase();
       setState(() {
         _identities = identities;
-        _fromIdentity = wanted == null
-            ? identities.where((i) => i.isDefault).firstOrNull
-            : identities.where((i) => i.id == wanted).firstOrNull;
+        _identitiesLoaded = true;
+        _fromIdentity = wantedId != null
+            ? identities
+                  .where((identity) => identity.id == wantedId)
+                  .firstOrNull
+            : wantedAddress != null
+            ? identities
+                  .where(
+                    (identity) =>
+                        identity.emailAddress.toLowerCase() == wantedAddress,
+                  )
+                  .firstOrNull
+            : identities.where((identity) => identity.isDefault).firstOrNull;
       });
-      unawaited(_syncSignature());
     } catch (_) {}
   }
 
@@ -1127,7 +1190,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _pendingSave ??= _writeDraft().whenComplete(() => _pendingSave = null);
 
   Future<bool> _writeDraft() async {
-    if (!_hasContent) return true;
+    if (!_hasContent && _draftId == null) return true;
     if (!_attachmentsReady) return false;
     setState(() {
       _commitPendingRecipient(_toRecipients, _toInputController);

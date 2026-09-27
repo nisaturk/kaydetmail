@@ -18,7 +18,6 @@ import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
-import '../models/mail_rule.dart';
 import '../models/mail_signature.dart';
 import '../models/mail_session.dart';
 import '../models/mail_template.dart';
@@ -29,7 +28,6 @@ import '../models/scheduled_send_detail.dart';
 import '../models/reply_reminder.dart';
 import '../models/mail_snippet.dart';
 import '../models/trusted_sender.dart';
-import '../models/server_mail_rule.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
@@ -37,7 +35,6 @@ import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
 import '../services/local_mail_flags_store.dart';
 import '../services/mail_cache.dart';
-import '../services/mail_rules_store.dart';
 import '../services/signature_store.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_download_manager.dart';
@@ -839,16 +836,7 @@ class ApiMailRepository extends MailRepository {
     try {
       final existing = await session.mailService.getLabels();
       final localDefs = await flags.readLabelDefs();
-      if (existing.isNotEmpty) {
-        await MailRulesStore.remapLabelIds(session.account.id, {
-          for (final local in localDefs)
-            for (final server in existing)
-              if ((local['name'] as String).toLowerCase() ==
-                  (server['name'] as String).toLowerCase())
-                (local['id'] as String): server['id'] as String,
-        });
-        return;
-      }
+      if (existing.isNotEmpty) return;
       final defs = localDefs.isNotEmpty
           ? localDefs
           : LocalMailFlagsStore.defaultLabels;
@@ -871,7 +859,6 @@ class ApiMailRepository extends MailRepository {
           }
         }
       }
-      await MailRulesStore.remapLabelIds(session.account.id, idRemap);
     } catch (_) {
       // Best-effort — a failure here must never affect login. Cached labels
       // remain available via [_loadLabels] until migration can run again.
@@ -2484,7 +2471,7 @@ class ApiMailRepository extends MailRepository {
     final id = result.mailId ?? 'sent-${DateTime.now().microsecondsSinceEpoch}';
     final email = Email(
       id: id,
-      senderName: session.account.displayName ?? '',
+      senderName: session.account.displayName ?? session.account.email,
       senderEmail: from ?? session.account.email,
       recipients: to,
       cc: cc,
@@ -2503,6 +2490,7 @@ class ApiMailRepository extends MailRepository {
       inReplyToId: inReplyToId,
     );
     if (result.sentCopySaved) {
+      _touch();
       session.emails
           .putIfAbsent(MailFolder.sent, () => <Email>[])
           .insert(0, email);
@@ -3200,7 +3188,10 @@ class ApiMailRepository extends MailRepository {
       final previous = oldIndex >= 0 ? drafts[oldIndex] : null;
       final updated = Email(
         id: newId,
-        senderName: session.account.displayName ?? previous?.senderName ?? '',
+        senderName:
+            session.account.displayName ??
+            previous?.senderName ??
+            session.account.email,
         senderEmail: from ?? session.account.email,
         recipients: to,
         cc: cc,
@@ -3235,6 +3226,7 @@ class ApiMailRepository extends MailRepository {
         );
         return updated;
       }
+      _touch();
       if (oldIndex >= 0) {
         drafts[oldIndex] = updated;
       } else {
@@ -3261,7 +3253,7 @@ class ApiMailRepository extends MailRepository {
         result.mailId ?? 'draft-${DateTime.now().microsecondsSinceEpoch}';
     final email = Email(
       id: id,
-      senderName: session.account.displayName ?? '',
+      senderName: session.account.displayName ?? session.account.email,
       senderEmail: from ?? session.account.email,
       recipients: to,
       cc: cc,
@@ -3277,6 +3269,7 @@ class ApiMailRepository extends MailRepository {
       threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
       inReplyToId: inReplyToId,
     );
+    _touch();
     session.emails
         .putIfAbsent(MailFolder.drafts, () => <Email>[])
         .insert(0, email);
@@ -3285,20 +3278,30 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<void> deleteDraft(String draftId) => _serializeDraftWrite(() async {
-    final id = _latestDraftId(draftId);
-    final session = _sessionOwning(id) ?? _primarySession;
-    final snapshot = _snapshotMailLocations(session, [id]);
-    _removeMany(session, [id]);
+  Future<void> deleteDraft(String draftId) {
+    final initialSession = _sessionOwning(draftId) ?? _primarySession;
+    final initialSnapshot = _snapshotMailLocations(initialSession, [draftId]);
+    _removeMany(initialSession, [draftId]);
     notifyListeners();
-    try {
-      await session.mailService.deleteDraft(id);
-    } catch (_) {
-      _restoreMailLocations(session, snapshot);
-      notifyListeners();
-      rethrow;
-    }
-  });
+    return _serializeDraftWrite(() async {
+      final id = _latestDraftId(draftId);
+      final session = _sessionOwning(id) ?? initialSession;
+      final snapshot = id == draftId
+          ? initialSnapshot
+          : _snapshotMailLocations(session, [id]);
+      if (id != draftId) {
+        _removeMany(session, [id]);
+        notifyListeners();
+      }
+      try {
+        await session.mailService.deleteDraft(id);
+      } catch (_) {
+        _restoreMailLocations(session, snapshot);
+        notifyListeners();
+        rethrow;
+      }
+    });
+  }
 
   /// Sends a draft via `POST /api/drafts/{id}/send`. A fresh
   /// `Idempotency-Key` per attempt makes a network-timeout retry safe. Never
@@ -3313,6 +3316,7 @@ class ApiMailRepository extends MailRepository {
       idempotencyKey: _newIdempotencyKey(),
     );
     if (!result.sent) return null;
+    _touch();
     if (result.draftRemoved) {
       session.emails[MailFolder.drafts]?.removeWhere((e) => e.id == draftId);
     }
@@ -3320,7 +3324,8 @@ class ApiMailRepository extends MailRepository {
         (draft ??
                 Email(
                   id: draftId,
-                  senderName: session.account.displayName ?? '',
+                  senderName:
+                      session.account.displayName ?? session.account.email,
                   senderEmail: session.account.email,
                   recipients: const [],
                   subject: '',
@@ -3455,62 +3460,6 @@ class ApiMailRepository extends MailRepository {
       complete: complete,
     );
   }
-
-  @override
-  Future<List<ServerMailRule>> listRules(String accountId) async {
-    final session = _sessionForAccountId(accountId);
-    final legacyRules = await MailRulesStore.readRules(accountId);
-    if (legacyRules.isNotEmpty) {
-      final existing = await session.mailService.getRules();
-      final firstPriority = existing.isEmpty
-          ? 0
-          : existing.map((rule) => rule.priority).reduce(max) + 1;
-      for (var index = 0; index < legacyRules.length; index++) {
-        final legacy = legacyRules[index];
-        final RuleAction action;
-        if (legacy.action.type == MailRuleActionType.addLabel) {
-          final labelId = legacy.action.labelId!;
-          if (!session.labels.any((label) => label.id == labelId)) {
-            throw StateError(
-              'Eski kuralın etiketi bulunamadı. Kural cihazda korundu.',
-            );
-          }
-          action = RuleAction('addLabel', labelId: labelId);
-        } else {
-          action = RuleAction(switch (legacy.action.folder!) {
-            MailFolder.trash => 'trash',
-            MailFolder.spam => 'spam',
-            _ => 'archive',
-          });
-        }
-        final name = 'Gönderen: ${legacy.condition.value.trim()}';
-        final draft = ServerMailRule(
-          id: '',
-          name: name.length > 100 ? name.substring(0, 100) : name,
-          enabled: true,
-          priority: firstPriority + index,
-          logic: 'And',
-          conditions: [RuleCondition('senderContains', legacy.condition.value)],
-          actions: [action],
-        );
-        await session.mailService.createRule(draft, legacyId: legacy.id);
-        await MailRulesStore.deleteRule(accountId, legacy.id);
-      }
-    }
-    return session.mailService.getRules();
-  }
-
-  @override
-  Future<ServerMailRule> createRule(String accountId, ServerMailRule rule) =>
-      _sessionForAccountId(accountId).mailService.createRule(rule);
-
-  @override
-  Future<ServerMailRule> updateRule(String accountId, ServerMailRule rule) =>
-      _sessionForAccountId(accountId).mailService.updateRule(rule);
-
-  @override
-  Future<void> deleteRule(String accountId, String ruleId) =>
-      _sessionForAccountId(accountId).mailService.deleteRule(ruleId);
 
   @override
   Future<List<MailTemplate>> listTemplates(
