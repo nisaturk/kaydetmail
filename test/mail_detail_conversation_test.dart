@@ -48,6 +48,7 @@ class _ThreadRepo extends MailRepository {
   bool showDiagnostics = false;
   bool failMarkRead = false;
   bool openedUnread = false;
+  bool starred = false;
 
   List<Email> get _thread => [
     showDiagnostics
@@ -58,7 +59,7 @@ class _ThreadRepo extends MailRepository {
             remoteImagesAllowed: true,
             security: const MailContentSecurity(signed: 'SMime'),
           )
-        : newer.copyWith(isRead: !openedUnread),
+        : newer.copyWith(isRead: !openedUnread, isStarred: starred),
     older,
   ];
 
@@ -100,6 +101,12 @@ class _ThreadRepo extends MailRepository {
   @override
   Future<void> markAsRead(List<String> ids) async {
     if (failMarkRead) throw StateError('read failed');
+  }
+
+  @override
+  Future<void> setStarred(List<String> ids, bool value) async {
+    starred = value;
+    notifyListeners();
   }
 
   @override
@@ -191,6 +198,19 @@ void main() {
       expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
       expect(find.textContaining('İşlem başarısız:'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('star action uses a filled amber icon when starred', (
+      tester,
+    ) async {
+      await open(tester, 'm2');
+
+      expect(find.byIcon(Icons.star_outline), findsOneWidget);
+      await tester.tap(find.byTooltip('Yıldızla'));
+      await tester.pumpAndSettle();
+
+      final icon = tester.widget<Icon>(find.byIcon(Icons.star));
+      expect(icon.color, Colors.amber);
     });
 
     testWidgets('expand/collapse all and hidden quotes by default', (

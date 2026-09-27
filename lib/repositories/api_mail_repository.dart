@@ -2164,7 +2164,7 @@ class ApiMailRepository extends MailRepository {
             allowRemoteImages: _remoteImageMailIds.contains(id),
           ),
         );
-        _upsertDetail(session, email);
+        if (_upsertDetail(session, email)) notifyListeners();
         return email;
       } on ApiException catch (error) {
         if (error.code == 'mail_not_found' || error.status == 404) {
@@ -2329,21 +2329,21 @@ class ApiMailRepository extends MailRepository {
   Future<void> clearAttachmentCache() =>
       _attachmentDownloadManager.clearCache();
 
-  /// Stores a full detail object in [session]'s in-memory cache without
-  /// notifying: replaces the cached copy in whichever bucket holds it, or
-  /// files it under its own folder when unknown. Never creates duplicates,
-  /// so a detail fetch never corrupts the folder lists.
-  void _upsertDetail(_Session session, Email email) {
+  /// Stores a full detail object in [session]'s in-memory cache. Returns true
+  /// when the detail response confirms a cached unread mail became read.
+  bool _upsertDetail(_Session session, Email email) {
     _touch();
     for (final folder in session.emails.keys.toList()) {
       final list = session.emails[folder]!;
       final index = list.indexWhere((e) => e.id == email.id);
       if (index >= 0) {
+        final wasUnread = !list[index].isRead && email.isRead;
         session.emails[folder] = [...list]..[index] = email;
-        return;
+        return wasUnread;
       }
     }
     session.emails.putIfAbsent(email.folder, () => <Email>[]).insert(0, email);
+    return false;
   }
 
   /// Synchronously available snapshot of the cache — whatever detail fetches
