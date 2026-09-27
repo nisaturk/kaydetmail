@@ -4,26 +4,11 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../models/mail_custom_folder.dart';
 import '../repositories/mail_repository.dart';
-import '../services/api_exception.dart';
-import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
+import '../theme/app_theme.dart';
 import 'custom_folder_mail_screen.dart';
 
-String customFolderErrorMessage(Object error) {
-  if (error is ApiException) {
-    return switch (error.code) {
-      'mail_folder_exists' => 'Bu adda bir klasör zaten var.',
-      'mail_folder_not_empty' =>
-        'Klasör boş değil. Önce içindeki postaları taşıyın veya silin.',
-      'mail_folder_has_children' => 'Önce alt klasörleri silin.',
-      'mail_folder_protected' => 'Bu klasör değiştirilemez.',
-      'invalid_folder_name' => 'Klasör adı geçersiz.',
-      'mail_folder_rejected' => 'Posta sunucusu bu klasör adını kabul etmedi.',
-      _ => friendlyErrorMessage(error),
-    };
-  }
-  return friendlyErrorMessage(error);
-}
+String customFolderErrorMessage(Object error) => friendlyErrorMessage(error);
 
 String? validateCustomFolderName(String name, {String? delimiter}) {
   final trimmed = name.trim();

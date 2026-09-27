@@ -960,11 +960,13 @@ class _SessionsSectionState extends State<_SessionsSection> {
         _sessions = _sessions?.where((s) => s.id != session.id).toList();
         _revokingId = null;
       });
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() => _revokingId = null);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Oturum kapatılamadı. Tekrar deneyin.')),
+        SnackBar(
+          content: Text('Oturum kapatılamadı: ${friendlyErrorMessage(error)}'),
+        ),
       );
     }
   }
@@ -1381,7 +1383,7 @@ class _AttachmentSettingsSection extends StatefulWidget {
 class _AttachmentSettingsSectionState
     extends State<_AttachmentSettingsSection> {
   int? _cacheBytes;
-  Object? _error;
+  String? _error;
   bool _busy = false;
 
   @override
@@ -1400,7 +1402,7 @@ class _AttachmentSettingsSectionState
         });
       }
     } catch (error) {
-      if (mounted) setState(() => _error = error);
+      if (mounted) setState(() => _error = friendlyErrorMessage(error));
     }
   }
 
@@ -1432,8 +1434,8 @@ class _AttachmentSettingsSectionState
           const SnackBar(content: Text('Ek önbelleği temizlendi.')),
         );
       }
-    } catch (_) {
-      if (mounted) setState(() => _error = 'Önbellek temizlenemedi.');
+    } catch (error) {
+      if (mounted) setState(() => _error = friendlyErrorMessage(error));
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -1485,7 +1487,7 @@ class _AttachmentSettingsSectionState
           subtitle: _error != null
               ? Row(
                   children: [
-                    const Expanded(child: Text('Boyut alınamadı.')),
+                    Expanded(child: Text(_error!)),
                     TextButton(
                       onPressed: _loadSize,
                       child: const Text('Tekrar dene'),

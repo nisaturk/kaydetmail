@@ -115,20 +115,6 @@ String _swipeActionDone(_SwipeAction action) => switch (action) {
   _SwipeAction.none => throw UnsupportedError('unreachable'),
 };
 
-/// Failure message shown when [action] can't be completed.
-String _swipeActionFailed(_SwipeAction action) => switch (action) {
-  _SwipeAction.trash => 'E-posta silinemedi. Tekrar deneyin.',
-  _SwipeAction.deleteForever =>
-    'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
-  _SwipeAction.archive => 'E-posta arşivlenemedi. Tekrar deneyin.',
-  _SwipeAction.restore => 'E-posta geri yüklenemedi. Tekrar deneyin.',
-  _SwipeAction.unspam => 'E-posta spam dışına alınamadı. Tekrar deneyin.',
-  _SwipeAction.unarchive => 'E-posta arşivden çıkarılamadı. Tekrar deneyin.',
-  _SwipeAction.toggleRead => 'Okundu durumu değiştirilemedi. Tekrar deneyin.',
-  _SwipeAction.star => 'Yıldız durumu değiştirilemedi. Tekrar deneyin.',
-  _SwipeAction.snooze => 'E-posta ertelenemedi. Tekrar deneyin.',
-  _SwipeAction.none => throw UnsupportedError('unreachable'),
-};
 
 /// Coarse Turkish relative time for the "Son senkronizasyon" hint on the
 /// empty/error states — deliberately coarser than the mail-row timestamp
@@ -361,10 +347,10 @@ class _InboxScreenState extends State<InboxScreen>
         default:
           return;
       }
-    } catch (_) {
+    } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     } finally {
       if (mounted) setState(() => _moving.remove(key));
@@ -449,14 +435,14 @@ class _InboxScreenState extends State<InboxScreen>
           ),
         ),
       );
-    } catch (_) {
+    } catch (error) {
       if (!mounted) return;
       setState(() {
         _moving.remove(undoKey);
         _dismissed.remove(undoKey);
       });
       ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text(_swipeActionFailed(action))));
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
     }
   }
 

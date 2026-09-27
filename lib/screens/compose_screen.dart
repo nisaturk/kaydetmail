@@ -338,11 +338,18 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (html != null && html.trim().isNotEmpty) {
       try {
         return quill.Document.fromDelta(HtmlToDelta().convert(html));
-      } catch (_) {}
+      } catch (_) {
+        // Keep backend plain text when rich conversion rejects malformed HTML.
+      }
     }
     final document = quill.Document();
-    if (widget.initialBody.isNotEmpty) {
-      document.insert(0, widget.initialBody);
+    final fallback = widget.initialBody.isNotEmpty
+        ? widget.initialBody
+        : html == null
+        ? ''
+        : htmlToPlainText(html);
+    if (fallback.isNotEmpty) {
+      document.insert(0, fallback);
     }
     return document;
   }
@@ -807,7 +814,16 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   .firstOrNull
             : identities.where((identity) => identity.isDefault).firstOrNull;
       });
-    } catch (_) {}
+    } catch (error) {
+      if (!mounted || widget.initialIdentityId == null) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            'Gönderen kimliği yüklenemedi: ${friendlyErrorMessage(error)}',
+          ),
+        ),
+      );
+    }
   }
 
   Future<void> _pickIdentity(MailIdentity identity) async {
@@ -1493,6 +1509,18 @@ class _ComposeScreenState extends State<ComposeScreen> {
               source == _AttachmentSource.camera
                   ? 'Kameraya erişilemedi. İzinleri kontrol edin veya dosya seçin.'
                   : 'Fotoğraflara erişilemedi. İzinleri kontrol edin veya dosya seçin.',
+            ),
+          ),
+        );
+      }
+      return null;
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              '${source == _AttachmentSource.camera ? 'Fotoğraf eklenemedi' : 'Fotoğraflar eklenemedi'}: '
+              '${friendlyErrorMessage(error)}',
             ),
           ),
         );

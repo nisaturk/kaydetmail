@@ -181,7 +181,7 @@ void main() {
       expect(exception.code, 'mail_authentication_failed');
       expect(exception.title, 'Bad credentials');
       expect(exception.correlationId, 'corr-1');
-      expect(exception.userMessage, 'E-posta şifresi reddedildi.');
+      expect(exception.userMessage, 'Şifre yanlış.');
     });
 
     test('Given empty response body When parsed Then it does not crash', () {
@@ -190,6 +190,40 @@ void main() {
       expect(exception.status, 429);
       expect(exception.code, isNull);
       expect(exception.correlationId, isNull);
+    });
+
+    test('Given documented folder errors When formatted Then Turkish guidance is shown', () {
+      expect(
+        const ApiException(status: 409, code: 'mail_folder_exists').userMessage,
+        'Bu adda bir klasör zaten var.',
+      );
+      expect(
+        const ApiException(status: 409, code: 'mail_folder_not_empty').userMessage,
+        'Klasör boş değil. Önce içindeki postaları taşıyın veya silin.',
+      );
+      expect(
+        const ApiException(status: 409, code: 'mail_folder_has_children').userMessage,
+        'Önce alt klasörleri silin.',
+      );
+      expect(
+        const ApiException(status: 403, code: 'mail_folder_protected').userMessage,
+        'Bu klasör değiştirilemez.',
+      );
+      expect(
+        const ApiException(status: 422, code: 'invalid_folder_name').userMessage,
+        'Klasör adı geçersiz.',
+      );
+      expect(
+        const ApiException(status: 422, code: 'mail_folder_rejected').userMessage,
+        'Posta sunucusu bu klasör adını kabul etmedi.',
+      );
+    });
+
+    test('Given idempotency conflict When formatted Then unsafe retry is not suggested', () {
+      expect(
+        const ApiException(status: 409, code: 'idempotency_conflict').userMessage,
+        'Gönderim isteği farklı içerikle daha önce kullanıldı. Yeni gönderim oluşturun.',
+      );
     });
   });
 

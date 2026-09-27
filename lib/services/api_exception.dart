@@ -66,7 +66,7 @@ class ApiException implements Exception {
   String get userMessage => switch (code) {
     'request_timeout' => 'Sunucu yanıt vermedi. Lütfen tekrar deneyin.',
     'network_unavailable' => 'İnternet bağlantınızı kontrol edin.',
-    'mail_authentication_failed' => 'E-posta şifresi reddedildi.',
+    'mail_authentication_failed' => 'Şifre yanlış.',
     'invalid_refresh_token' =>
       'Oturum süresi doldu. Lütfen yeniden giriş yapın.',
     'email_not_allowlisted' => 'Bu e-posta adresi için erişim henüz açılmadı.',
@@ -104,8 +104,9 @@ class ApiException implements Exception {
       'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',
     'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',
     'idempotency_key_required' ||
-    'idempotency_key_too_long' ||
-    'idempotency_conflict' => 'Gönderim tekrar denensin.',
+    'idempotency_key_too_long' => 'Gönderim isteği geçersiz. Yeniden deneyin.',
+    'idempotency_conflict' =>
+      'Gönderim isteği farklı içerikle daha önce kullanıldı. Yeni gönderim oluşturun.',
     'recipient_required' => 'En az bir alıcı yazmalısınız.',
     'invalid_recipient' => 'Alıcı adresi geçersiz.',
     'invalid_email' => 'Geçersiz e-posta adresi.',
@@ -140,6 +141,13 @@ class ApiException implements Exception {
     'body_too_large' => 'E-posta gövdesi çok büyük.',
     'attachment_too_large' ||
     'too_many_attachments' => 'Ek dosya sınırı aşıldı.',
+    'mail_folder_exists' => 'Bu adda bir klasör zaten var.',
+    'mail_folder_not_empty' =>
+      'Klasör boş değil. Önce içindeki postaları taşıyın veya silin.',
+    'mail_folder_has_children' => 'Önce alt klasörleri silin.',
+    'mail_folder_protected' => 'Bu klasör değiştirilemez.',
+    'invalid_folder_name' => 'Klasör adı geçersiz.',
+    'mail_folder_rejected' => 'Posta sunucusu bu klasör adını kabul etmedi.',
     'mail_folder_unavailable' => 'Klasör sunucudan kaldırılmış.',
     'sync_queue_full' => 'Eşitleme kuyruğu dolu. Birazdan tekrar deneyin.',
     'sync_retry_deferred' => 'Eşitleme ertelendi. Birazdan tekrar deneyin.',

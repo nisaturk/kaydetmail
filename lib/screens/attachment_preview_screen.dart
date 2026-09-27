@@ -11,9 +11,9 @@ import 'package:share_plus/share_plus.dart';
 import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/attachment_download_state.dart';
-import '../services/api_exception.dart';
 import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
+import '../utils/error_messages.dart';
 
 /// In-app preview of one attachment: images (pinch-zoom), PDFs, .docx text and
 /// plain text. Any other type shows a fallback with the share sheet, which is
@@ -83,11 +83,6 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
         if (bytes.isEmpty) return setState(() => _error = 'Ek indirilemedi.');
         setState(() => _bytes = bytes);
       }
-    } on ApiException catch (e) {
-      if (!mounted) return;
-      setState(
-        () => _error = e.status == 404 ? 'Ek bulunamadı.' : e.userMessage,
-      );
     } catch (error) {
       if (!mounted) return;
       setState(() {
@@ -96,7 +91,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
             ? state.message
             : state is AttachmentCancelled
             ? 'İndirme iptal edildi.'
-            : 'Ek indirilemedi.';
+            : friendlyErrorMessage(error);
       });
     }
   }

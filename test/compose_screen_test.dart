@@ -12,6 +12,7 @@ import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/models/mail_session.dart';
 import 'package:kaydetmail/models/manual_contact.dart';
 import 'package:kaydetmail/models/scheduled_send.dart';
+import 'package:kaydetmail/models/mail_signature.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/compose_screen.dart';
 import 'package:kaydetmail/screens/outbox_screen.dart';
@@ -142,6 +143,14 @@ class _FakeMailRepository extends MailRepository {
         mailId,
         attachment,
       );
+
+  Future<List<MailIdentity>> Function(String accountId)? listIdentitiesImpl;
+
+  @override
+  Future<List<MailIdentity>> listIdentities(
+    String accountId, {
+    bool refresh = false,
+  }) => (listIdentitiesImpl ?? (_) async => const [])(accountId);
 
   @override
   List<Email> getThreadEmails(String threadId) => const [];
@@ -376,6 +385,7 @@ Future<void> _pumpCompose(
   String? editingDraftId,
   String? initialBody,
   String? initialBodyHtml,
+  String? initialIdentityId,
   List<Attachment> initialAttachments = const [],
   String? attachmentSourceMailId,
   bool settle = true,
@@ -399,6 +409,7 @@ Future<void> _pumpCompose(
         editingDraftId: editingDraftId,
         initialBody: initialBody ?? '',
         initialBodyHtml: initialBodyHtml,
+        initialIdentityId: initialIdentityId,
         initialAttachments: initialAttachments,
         attachmentSourceMailId: attachmentSourceMailId,
       ),
@@ -803,6 +814,27 @@ void main() {
 
       expect(repo.sent.single.recipients, ['ayse@example.com']);
       expect(repo.sent.single.cc, ['mehmet@example.com']);
+    });
+  });
+
+  group('identity loading', () {
+    testWidgets('reports an unavailable requested identity without raw error', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA])
+        ..listIdentitiesImpl = (_) async => throw StateError('secret detail');
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        initialIdentityId: 'identity-a',
+      );
+
+      expect(
+        find.textContaining('Gönderen kimliği yüklenemedi'),
+        findsOneWidget,
+      );
+      expect(find.textContaining('secret detail'), findsNothing);
     });
   });
 

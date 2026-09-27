@@ -1478,10 +1478,10 @@ class _AttachmentTile extends StatelessWidget {
   Future<void> _download(BuildContext context) async {
     try {
       await AppConfig.mailRepository.ensureAttachmentFile(mailId, attachment);
-    } catch (_) {
+    } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ek indirilemedi. Tekrar deneyin.')),
+          SnackBar(content: Text(friendlyErrorMessage(error))),
         );
       }
     }

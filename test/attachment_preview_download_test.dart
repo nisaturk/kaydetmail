@@ -9,6 +9,7 @@ import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/attachment_download_state.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
+import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/screens/attachment_preview_screen.dart';
 
 class _Repository extends MailRepository {
@@ -17,6 +18,7 @@ class _Repository extends MailRepository {
   );
   final Completer<File> completion = Completer<File>();
   int cancels = 0;
+  Object? ensureError;
 
   @override
   ValueListenable<AttachmentDownloadState> attachmentDownloadState(
@@ -25,8 +27,10 @@ class _Repository extends MailRepository {
   ) => state;
 
   @override
-  Future<File> ensureAttachmentFile(String mailId, Attachment attachment) =>
-      completion.future;
+  Future<File> ensureAttachmentFile(String mailId, Attachment attachment) async {
+    if (ensureError case final error?) throw error;
+    return completion.future;
+  }
 
   @override
   Future<void> cancelAttachmentDownload(
@@ -70,4 +74,28 @@ void main() {
       AppConfig.resetForTest();
     },
   );
+
+  testWidgets('preview keeps an API download message', (tester) async {
+    final repository = _Repository()
+      ..ensureError = const ApiException(
+        status: 409,
+        code: 'mail_operation_conflict',
+      );
+    AppConfig.mailRepositoryForTest = repository;
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: AttachmentPreviewScreen(
+          mailId: 'mail',
+          attachment: Attachment(id: 'attachment', name: 'memo.txt', sizeBytes: 100),
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('Posta kutusu değişti. Yenileyip tekrar deneyin.'),
+      findsOneWidget,
+    );
+    AppConfig.resetForTest();
+  });
 }
