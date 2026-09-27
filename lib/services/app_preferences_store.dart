@@ -25,6 +25,9 @@ class AppPreferencesStore {
   static const _attachmentAutoDownloadLimitKey =
       'kaydet.attachments.autoDownloadLimit';
 
+  static const _unansweredReminderEnabledKey =
+      'kaydet.reminders.unansweredEnabled';
+
   static Future<bool> loadDeviceContactsEnabled() async {
     try {
       final preferences = await SharedPreferences.getInstance();
@@ -37,6 +40,20 @@ class AppPreferencesStore {
   static Future<void> saveDeviceContactsEnabled(bool value) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_deviceContactsKey, value);
+  }
+
+  static Future<bool> loadUnansweredReminderEnabled() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getBool(_unansweredReminderEnabledKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> saveUnansweredReminderEnabled(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_unansweredReminderEnabledKey, value);
   }
 
   static Future<String?> loadSwipeGesture({required bool right}) async {

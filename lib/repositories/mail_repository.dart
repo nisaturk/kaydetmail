@@ -26,6 +26,7 @@ import '../models/reply_reminder.dart';
 import '../models/mail_snippet.dart';
 import '../models/trusted_sender.dart';
 import '../models/attachment_download_state.dart';
+import '../state/app_settings_controller.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -85,10 +86,9 @@ abstract class MailRepository extends ChangeNotifier {
   static const int maxPinnedMails = 3;
 
   /// Master switch for the "Yanıt bekliyor"/"Yanıtlanmadı" nudge (badge +
-  /// Sent-folder stale sort) — off for now per product decision, without
-  /// deleting the feature: flip back to `true` to re-enable everywhere,
-  /// see `MailListItem._needsReply` and `ApiMailRepository._isStaleUnanswered`.
-  static const bool unansweredReminderEnabled = false;
+  /// Sent-folder stale sort).
+  static bool get unansweredReminderEnabled =>
+      AppSettingsController.instance.unansweredReminderEnabled;
 
   /// Age past which an Inbox mail with no reply, or a Sent mail with no
   /// reply received, earns the "Yanıt bekliyor"/"Yanıtlanmadı" nudge — see

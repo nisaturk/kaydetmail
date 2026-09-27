@@ -127,8 +127,12 @@ class SettingsScreen extends StatelessWidget {
           _CategoryTile(
             icon: LucideIcons.slidersHorizontal,
             title: 'Genel',
-            subtitle: 'Kaydırma hareketleri ve göndermeyi geri alma',
-            page: (_) => [_SwipeSection(), _UndoSendSection()],
+            subtitle: 'Kaydırma hareketleri, yanıt takibi ve göndermeyi geri alma',
+            page: (_) => [
+              _SwipeSection(),
+              _UnansweredReminderSection(),
+              _UndoSendSection(),
+            ],
           ),
           _CategoryTile(
             icon: LucideIcons.penLine,
@@ -1339,6 +1343,25 @@ class _SwipeGestureTile extends StatelessWidget {
           trailing: stacked ? null : SizedBox(width: 180, child: dropdown),
         );
       },
+    );
+  }
+}
+
+class _UnansweredReminderSection extends StatelessWidget {
+  const _UnansweredReminderSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return SwitchListTile(
+      key: const Key('unanswered-reminder-toggle'),
+      dense: true,
+      title: const Text('Yanıt bekliyor uyarısı'),
+      subtitle: const Text(
+        'Üç günden eski, yanıtsız e-postaları listede işaretler.',
+      ),
+      value: settings.unansweredReminderEnabled,
+      onChanged: (value) => settings.unansweredReminderEnabled = value,
     );
   }
 }
