@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
@@ -11,6 +13,7 @@ class _FakeLocalAuthPlatform extends LocalAuthPlatform {
   bool deviceSupported = true;
   bool authenticateResult = true;
   Object? authenticateError;
+  Completer<bool>? pendingAuthenticate;
   int authenticateCalls = 0;
 
   @override
@@ -27,7 +30,7 @@ class _FakeLocalAuthPlatform extends LocalAuthPlatform {
   }) async {
     authenticateCalls++;
     if (authenticateError != null) throw authenticateError!;
-    return authenticateResult;
+    return pendingAuthenticate?.future ?? authenticateResult;
   }
 }
 
@@ -144,4 +147,24 @@ void main() {
       expect(fake.authenticateCalls, 2);
     },
   );
+
+  testWidgets('ignores prompt lifecycle events while authenticating', (
+    tester,
+  ) async {
+    AppSettingsController.instance.biometricLockEnabled = true;
+    fake.pendingAuthenticate = Completer<bool>();
+
+    await tester.pumpWidget(harness());
+    await tester.pump();
+    expect(fake.authenticateCalls, 1);
+
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pump();
+
+    expect(fake.authenticateCalls, 1);
+    fake.pendingAuthenticate!.complete(true);
+    await tester.pumpAndSettle();
+    expect(find.text('Gizli Posta Kutusu'), findsOneWidget);
+  });
 }

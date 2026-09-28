@@ -17,9 +17,10 @@ import '../utils/biometric_lock_policy.dart';
 /// [WidgetsBindingObserver] is registered and [child] renders directly, so
 /// there's no lifecycle overhead for users who never turn the lock on.
 class BiometricLockGate extends StatefulWidget {
-  const BiometricLockGate({super.key, required this.child});
+  const BiometricLockGate({super.key, required this.child, this.onLockChanged});
 
   final Widget child;
+  final ValueChanged<bool>? onLockChanged;
 
   @override
   State<BiometricLockGate> createState() => _BiometricLockGateState();
@@ -48,6 +49,7 @@ class _BiometricLockGateState extends State<BiometricLockGate>
     super.initState();
     AppSettingsController.instance.addListener(_onSettingsChanged);
     _syncObserver();
+    _reportLockState(!_lockEnabled);
     if (_lockEnabled) unawaited(_authenticate());
   }
 
@@ -71,6 +73,10 @@ class _BiometricLockGateState extends State<BiometricLockGate>
     }
   }
 
+  void _reportLockState(bool unlocked) {
+    widget.onLockChanged?.call(unlocked);
+  }
+
   void _onSettingsChanged() {
     final wasObserving = _observing;
     _syncObserver();
@@ -82,15 +88,17 @@ class _BiometricLockGateState extends State<BiometricLockGate>
         _unlocked = false;
         _deviceUnsupported = false;
       });
+      _reportLockState(false);
       unawaited(_authenticate());
     } else if (!_lockEnabled) {
+      _reportLockState(true);
       setState(() {}); // build() short-circuits to `widget.child` below.
     }
   }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (!_lockEnabled) return;
+    if (!_lockEnabled || _authenticating) return;
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.inactive) {
       if (!_wasBackgrounded) {
@@ -98,7 +106,6 @@ class _BiometricLockGateState extends State<BiometricLockGate>
         _backgroundedAt = DateTime.now();
       }
       _wasBackgrounded = true;
-      return;
     }
     if (state == AppLifecycleState.resumed && _wasBackgrounded) {
       _wasBackgrounded = false;
@@ -117,6 +124,7 @@ class _BiometricLockGateState extends State<BiometricLockGate>
         _unlocked = false;
         _deviceUnsupported = false;
       });
+      _reportLockState(false);
       unawaited(_authenticate());
     }
   }
@@ -146,6 +154,7 @@ class _BiometricLockGateState extends State<BiometricLockGate>
         _authenticating = false;
         _unlocked = didAuthenticate;
       });
+      _reportLockState(didAuthenticate);
     } on LocalAuthException catch (e) {
       if (!mounted) return;
       final noCredentials =
@@ -172,6 +181,7 @@ class _BiometricLockGateState extends State<BiometricLockGate>
       _unlocked = true;
       _deviceUnsupported = false;
     });
+    _reportLockState(true);
   }
 
   @override
