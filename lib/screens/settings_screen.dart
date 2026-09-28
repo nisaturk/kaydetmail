@@ -15,21 +15,14 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../widgets/server_address_dialog.dart';
-import 'accounts_screen.dart';
+import 'add_account_screen.dart';
 import 'notification_settings_screen.dart';
-import 'signature_settings_screen.dart';
 import 'templates_screen.dart';
 import 'signatures_screen.dart';
 import 'trusted_senders_screen.dart';
 import 'sync_status_screen.dart';
 
-/// Settings screen: labels, server address, notifications, sync and gestures.
-///
-/// Labels are created, renamed, recolored and deleted through the repository
-/// so they appear everywhere immediately. The server address is the future
-/// HTTP API's base URL — validated, normalized and persisted. Notifications,
-/// sync and swipe-to-delete live in [AppSettingsController] — simulated, no
-/// backend involved.
+/// Settings index separates device-wide preferences from account-local ones.
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
@@ -46,9 +39,6 @@ class SettingsScreen extends StatelessWidget {
     Color(0xFF2D3142),
   ];
 
-  /// Accessible names for [labelColors], same order — read by
-  /// [_ColorPalette]'s swatch semantics so a screen reader announces which
-  /// color is selected instead of just "button".
   static const List<String> labelColorNames = [
     'Mavi',
     'Mor',
@@ -63,114 +53,144 @@ class SettingsScreen extends StatelessWidget {
   ];
 
   @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Ayarlar')),
+    body: ListView(
+      key: const Key('settings-list'),
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        _CategoryTile(
+          icon: LucideIcons.slidersHorizontal,
+          title: 'Genel ayarlar',
+          subtitle: 'Görüntü, etkileşim, bildirimler, ağ ve gizlilik',
+          onTap: (ctx) => Navigator.of(ctx).push(
+            MaterialPageRoute(builder: (_) => const GeneralSettingsScreen()),
+          ),
+        ),
+        for (final account in AppConfig.mailRepository.accounts)
+          _CategoryTile(
+            icon: LucideIcons.mail,
+            title: account.email,
+            subtitle: 'Hesaba özel ayarlar',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(
+                builder: (_) => AccountSettingsScreen(accountId: account.id),
+              ),
+            ),
+          ),
+        _CategoryTile(
+          icon: LucideIcons.plus,
+          title: 'Hesap ekle',
+          subtitle: 'Yeni posta hesabı bağla',
+          onTap: (ctx) => Navigator.of(
+            ctx,
+          ).push(MaterialPageRoute(builder: (_) => const AddAccountScreen())),
+        ),
+      ],
+    ),
+  );
+}
+
+class GeneralSettingsScreen extends StatelessWidget {
+  const GeneralSettingsScreen({super.key});
+
+  @override
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('Genel ayarlar')),
+    body: ListView(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      children: [
+        _CategoryTile(
+          icon: LucideIcons.palette,
+          title: 'Görüntü',
+          subtitle: 'Açık, koyu veya sistem teması',
+          page: (_) => [_AppearanceSection()],
+        ),
+        _CategoryTile(
+          icon: LucideIcons.slidersHorizontal,
+          title: 'Etkileşim',
+          subtitle: 'Kaydırma, yanıt takibi ve göndermeyi geri alma',
+          page: (_) => [
+            _SwipeSection(),
+            _UnansweredReminderSection(),
+            _UndoSendSection(),
+            _DeviceContactsSection(),
+            _ContactsSection(),
+          ],
+        ),
+        _CategoryTile(
+          icon: LucideIcons.bell,
+          title: 'Bildirimler',
+          subtitle: 'Yeni e-posta bildirimleri',
+          page: (_) => [_NotificationsSection()],
+        ),
+        _CategoryTile(
+          icon: LucideIcons.network,
+          title: 'Ağ',
+          subtitle: 'Yenileme, ekler ve sunucu',
+          page: (_) => [_NetworkSection()],
+        ),
+        _CategoryTile(
+          icon: LucideIcons.shieldCheck,
+          title: 'Gizlilik',
+          subtitle: 'Uygulama kilidi, cihazlar ve oturumlar',
+          page: (_) => [_BiometricLockSection(), _SessionsSection()],
+        ),
+      ],
+    ),
+  );
+}
+
+class AccountSettingsScreen extends StatelessWidget {
+  const AccountSettingsScreen({super.key, required this.accountId});
+
+  final String accountId;
+
+  @override
   Widget build(BuildContext context) {
-    // Index of categories (Gmail/Thunderbird style); each opens its own page.
+    final account = AppConfig.mailRepository.accounts
+        .where((item) => item.id == accountId)
+        .firstOrNull;
     return Scaffold(
-      appBar: AppBar(title: const Text('Ayarlar')),
+      appBar: AppBar(title: Text(account?.email ?? 'Hesap ayarları')),
       body: ListView(
-        key: const Key('settings-list'),
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
           _CategoryTile(
-            icon: LucideIcons.users,
-            title: 'Hesaplar',
-            subtitle: 'Bağlı posta hesapları',
-            onTap: (ctx) => Navigator.of(
-              ctx,
-            ).push(MaterialPageRoute(builder: (_) => const AccountsScreen())),
-          ),
-          _CategoryTile(
-            icon: LucideIcons.palette,
-            title: 'Görünüm',
-            subtitle: 'Açık, koyu veya sistem teması',
-            page: (_) => [_AppearanceSection()],
-          ),
-          _CategoryTile(
-            icon: LucideIcons.bell,
-            title: 'Bildirimler',
-            subtitle: 'Yeni e-posta bildirimleri',
-            page: (_) => [_NotificationsSection()],
-          ),
-          _CategoryTile(
-            icon: LucideIcons.refreshCw,
-            title: 'Otomatik Yenileme',
-            subtitle: 'Uygulama açıkken listeyi yenileme sıklığı',
-            page: (_) => [_SyncSection()],
-          ),
-          _CategoryTile(
-            icon: LucideIcons.paperclip,
-            title: 'Ekler',
-            subtitle: 'Otomatik indirme ve önbellek',
-            page: (_) => [_AttachmentSettingsSection()],
+            icon: LucideIcons.penLine,
+            title: 'İmzalar ve kimlikler',
+            subtitle: 'Gönderen kimlikleri ve e-posta imzaları',
+            onTap: (ctx) => Navigator.of(ctx).push(
+              MaterialPageRoute(
+                builder: (_) => SignaturesScreen(accountId: accountId),
+              ),
+            ),
           ),
           _CategoryTile(
             icon: LucideIcons.tag,
             title: 'Etiketler',
             subtitle: 'Etiket oluştur, düzenle, sil',
-            page: (_) => [_LabelsSection()],
-          ),
-          _CategoryTile(
-            icon: LucideIcons.contact,
-            title: 'Kişiler',
-            subtitle: 'Hiç mailleşmediğiniz kişileri önceden ekleyin',
-            page: (_) => [_DeviceContactsSection(), _ContactsSection()],
+            page: (_) => [_LabelsSection(accountId: accountId)],
           ),
           _CategoryTile(
             icon: LucideIcons.layoutTemplate,
-            title: 'Hazır Metinler ve Şablonlar',
+            title: 'Hazır metinler ve şablonlar',
             subtitle: 'Tekrar kullanılan konu ve metinler',
-            onTap: (ctx) => Navigator.of(
-              ctx,
-            ).push(MaterialPageRoute(builder: (_) => const TemplatesScreen())),
-          ),
-          _CategoryTile(
-            icon: LucideIcons.slidersHorizontal,
-            title: 'Genel',
-            subtitle:
-                'Kaydırma hareketleri, yanıt takibi ve göndermeyi geri alma',
-            page: (_) => [
-              _SwipeSection(),
-              _UnansweredReminderSection(),
-              _UndoSendSection(),
-            ],
-          ),
-          _CategoryTile(
-            icon: LucideIcons.penLine,
-            title: 'İmzalar ve Kimlikler',
-            subtitle: 'Gönderen kimlikleri ve e-posta imzaları',
-            onTap: (ctx) => Navigator.of(
-              ctx,
-            ).push(MaterialPageRoute(builder: (_) => const SignaturesScreen())),
-          ),
-          _CategoryTile(
-            icon: LucideIcons.signature,
-            title: 'İmza',
-            subtitle: 'Gönderdiğiniz e-postalara eklenir',
             onTap: (ctx) => Navigator.of(ctx).push(
               MaterialPageRoute(
-                builder: (_) => const SignatureSettingsScreen(),
+                builder: (_) => TemplatesScreen(accountId: accountId),
               ),
             ),
           ),
           _CategoryTile(
             icon: LucideIcons.image,
-            title: 'Kayıtlı Görsel Tercihleri',
-            subtitle: 'Önceden güvenilir işaretlenen gönderici ve alan adları',
+            title: 'Kayıtlı görsel tercihleri',
+            subtitle: 'Güvenilir gönderici ve alan adları',
             onTap: (ctx) => Navigator.of(ctx).push(
-              MaterialPageRoute(builder: (_) => const TrustedSendersScreen()),
+              MaterialPageRoute(
+                builder: (_) => TrustedSendersScreen(accountId: accountId),
+              ),
             ),
-          ),
-          _CategoryTile(
-            icon: LucideIcons.shieldCheck,
-            title: 'Güvenlik',
-            subtitle: 'Uygulama kilidi, bağlı cihazlar ve oturumlar',
-            page: (_) => [_BiometricLockSection(), _SessionsSection()],
-          ),
-          _CategoryTile(
-            icon: LucideIcons.server,
-            title: 'Sunucu',
-            subtitle: 'API sunucu adresi',
-            page: (_) => [_ServerSection()],
           ),
         ],
       ),
@@ -245,47 +265,21 @@ class _SettingsPage extends StatelessWidget {
 }
 
 class _LabelsSection extends StatefulWidget {
-  const _LabelsSection();
+  const _LabelsSection({required this.accountId});
+
+  final String accountId;
 
   @override
   State<_LabelsSection> createState() => _LabelsSectionState();
 }
 
 class _LabelsSectionState extends State<_LabelsSection> {
-  String? _accountId;
-
-  @override
-  void initState() {
-    super.initState();
-    final repo = AppConfig.mailRepository;
-    _accountId = repo.activeAccountId ?? repo.accounts.firstOrNull?.id;
-  }
-
   @override
   Widget build(BuildContext context) {
     final repo = AppConfig.mailRepository;
-    final accountId = _accountId;
-    if (accountId == null) return const SizedBox.shrink();
+    final accountId = widget.accountId;
     return Column(
       children: [
-        if (repo.accounts.length > 1)
-          ListTile(
-            dense: true,
-            title: const Text('Hesap'),
-            trailing: DropdownButton<String>(
-              value: accountId,
-              onChanged: (id) {
-                if (id != null) setState(() => _accountId = id);
-              },
-              items: [
-                for (final account in repo.accounts)
-                  DropdownMenuItem(
-                    value: account.id,
-                    child: Text(account.email),
-                  ),
-              ],
-            ),
-          ),
         for (final label in repo.getLabelsForAccount(accountId))
           ListTile(
             dense: true,
@@ -1175,6 +1169,68 @@ class _NotificationsSection extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _NetworkSection extends StatelessWidget {
+  const _NetworkSection();
+
+  @override
+  Widget build(BuildContext context) => Column(
+    children: [
+      const _NetworkGroup(
+        title: 'Senkronizasyon',
+        icon: LucideIcons.refreshCw,
+        child: _SyncSection(),
+      ),
+      _NetworkGroup(
+        title: 'Ekler',
+        icon: LucideIcons.paperclip,
+        child: _AttachmentSettingsSection(),
+      ),
+      const _NetworkGroup(
+        title: 'Sunucu bağlantısı',
+        icon: LucideIcons.server,
+        child: _ServerSection(),
+      ),
+    ],
+  );
+}
+
+class _NetworkGroup extends StatelessWidget {
+  const _NetworkGroup({
+    required this.title,
+    required this.icon,
+    required this.child,
+  });
+
+  final String title;
+  final IconData icon;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = AppTheme.colors(context);
+    return Card(
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Row(
+              children: [
+                Icon(icon, size: 18, color: colors.secondaryText),
+                const SizedBox(width: 8),
+                Text(title, style: AppTheme.titleText),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          child,
+        ],
+      ),
     );
   }
 }

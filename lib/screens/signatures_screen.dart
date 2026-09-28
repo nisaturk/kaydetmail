@@ -7,7 +7,9 @@ import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
 
 class SignaturesScreen extends StatefulWidget {
-  const SignaturesScreen({super.key});
+  const SignaturesScreen({super.key, required this.accountId});
+
+  final String accountId;
 
   @override
   State<SignaturesScreen> createState() => _SignaturesScreenState();
@@ -26,12 +28,8 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
   @override
   void initState() {
     super.initState();
-    if (_repo.accounts.isNotEmpty) {
-      _accountId = _repo.activeAccountId ?? _repo.accounts.first.id;
-      _load();
-    } else {
-      _loading = false;
-    }
+    _accountId = widget.accountId;
+    _load();
   }
 
   Future<void> _load() async {
@@ -100,9 +98,8 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
       if (mounted) await _load();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -149,9 +146,8 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
       if (mounted) await _load();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -167,9 +163,7 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
           children: [
             ListTile(
               title: const Text('Yok'),
-              trailing: current == null
-                  ? const Icon(LucideIcons.check)
-                  : null,
+              trailing: current == null ? const Icon(LucideIcons.check) : null,
               onTap: () => Navigator.pop(context, _clearDefault),
             ),
             for (final signature in _signatures)
@@ -210,9 +204,8 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
       if (mounted) setState(() => _defaults = updated);
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -224,69 +217,60 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
   Widget build(BuildContext context) => DefaultTabController(
     length: 2,
     child: Scaffold(
-    appBar: AppBar(
-      title: const Text('İmzalar ve Kimlikler'),
-      actions: [
-        if (_repo.accounts.length > 1)
-          PopupMenuButton<String>(
-            key: const Key('signatures-account-menu'),
-            tooltip: 'Hesap seç',
-            icon: const Icon(LucideIcons.chevronDown),
-            onSelected: (id) {
-              if (id == _accountId) return;
-              setState(() => _accountId = id);
-              _load();
-            },
-            itemBuilder: (_) => [
-              for (final account in _repo.accounts)
-                PopupMenuItem(value: account.id, child: Text(account.label)),
-            ],
-          ),
-      ],
-      bottom: TabBar(
-        onTap: (index) => setState(() => _tab = index),
-        tabs: const [Tab(text: 'İmzalar'), Tab(text: 'Kimlikler')],
+      appBar: AppBar(
+        title: const Text('İmzalar ve kimlikler'),
+        bottom: TabBar(
+          onTap: (index) => setState(() => _tab = index),
+          tabs: const [
+            Tab(text: 'İmzalar'),
+            Tab(text: 'Kimlikler'),
+          ],
+        ),
       ),
-    ),
-    body: _repo.accounts.isEmpty
-        ? const Center(child: Text('Bağlı hesap bulunamadı.'))
-        : _loading
-        ? const Center(child: CircularProgressIndicator())
-        : _error != null
-        ? Center(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Text(_error!, textAlign: TextAlign.center),
-                ),
-                TextButton(onPressed: _load, child: const Text('Tekrar dene')),
-              ],
+      body: _repo.accounts.isEmpty
+          ? const Center(child: Text('Bağlı hesap bulunamadı.'))
+          : _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+          ? Center(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Text(_error!, textAlign: TextAlign.center),
+                  ),
+                  TextButton(
+                    onPressed: _load,
+                    child: const Text('Tekrar dene'),
+                  ),
+                ],
+              ),
+            )
+          : _tab == 0
+          ? _SignatureList(
+              signatures: _signatures,
+              defaults: _defaults,
+              defaultName: _defaultName,
+              onDefaults: _pickDefault,
+              onEdit: _editSignature,
+              onDelete: _deleteSignature,
+            )
+          : _IdentityList(
+              identities: _identities,
+              onEdit: _editIdentity,
+              onDelete: _deleteIdentity,
             ),
-          )
-        : _tab == 0
-        ? _SignatureList(
-            signatures: _signatures,
-            defaults: _defaults,
-            defaultName: _defaultName,
-            onDefaults: _pickDefault,
-            onEdit: _editSignature,
-            onDelete: _deleteSignature,
-          )
-        : _IdentityList(
-            identities: _identities,
-            onEdit: _editIdentity,
-            onDelete: _deleteIdentity,
-          ),
-    floatingActionButton: _loading || _error != null || _accountId == null
-        ? null
-        : FloatingActionButton(
-            key: ValueKey(_tab == 0 ? 'add-signature-fab' : 'add-identity-fab'),
-            tooltip: _tab == 0 ? 'Yeni imza' : 'Yeni kimlik',
-            onPressed: () => _tab == 0 ? _editSignature() : _editIdentity(),
-            child: const Icon(LucideIcons.plus),
-          ),
+      floatingActionButton: _loading || _error != null || _accountId == null
+          ? null
+          : FloatingActionButton(
+              key: ValueKey(
+                _tab == 0 ? 'add-signature-fab' : 'add-identity-fab',
+              ),
+              tooltip: _tab == 0 ? 'Yeni imza' : 'Yeni kimlik',
+              onPressed: () => _tab == 0 ? _editSignature() : _editIdentity(),
+              child: const Icon(LucideIcons.plus),
+            ),
     ),
   );
 }
@@ -422,12 +406,8 @@ class _SignatureEditorState extends State<_SignatureEditor> {
   void initState() {
     super.initState();
     _name = TextEditingController(text: widget.signature?.name ?? '');
-    _bodyText = TextEditingController(
-      text: widget.signature?.bodyText ?? '',
-    );
-    _bodyHtml = TextEditingController(
-      text: widget.signature?.bodyHtml ?? '',
-    );
+    _bodyText = TextEditingController(text: widget.signature?.bodyText ?? '');
+    _bodyHtml = TextEditingController(text: widget.signature?.bodyHtml ?? '');
   }
 
   @override

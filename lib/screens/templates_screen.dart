@@ -7,7 +7,9 @@ import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
 
 class TemplatesScreen extends StatefulWidget {
-  const TemplatesScreen({super.key});
+  const TemplatesScreen({super.key, required this.accountId});
+
+  final String accountId;
 
   @override
   State<TemplatesScreen> createState() => _TemplatesScreenState();
@@ -23,12 +25,8 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
   @override
   void initState() {
     super.initState();
-    if (_repo.accounts.isNotEmpty) {
-      _accountId = _repo.activeAccountId ?? _repo.accounts.first.id;
-      _load();
-    } else {
-      _loading = false;
-    }
+    _accountId = widget.accountId;
+    _load();
   }
 
   Future<void> _load() async {
@@ -101,29 +99,8 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Hazır Metinler ve Şablonlar'),
-      actions: [
-        if (_repo.accounts.length > 1)
-          PopupMenuButton<String>(
-            key: const Key('templates-account-menu'),
-            tooltip: 'Hesap seç',
-            icon: const Icon(LucideIcons.chevronDown),
-            onSelected: (accountId) {
-              if (accountId == _accountId) return;
-              setState(() => _accountId = accountId);
-              _load();
-            },
-            itemBuilder: (_) => [
-              for (final account in _repo.accounts)
-                PopupMenuItem(value: account.id, child: Text(account.email)),
-            ],
-          ),
-      ],
-    ),
-    body: _repo.accounts.isEmpty
-        ? const Center(child: Text('Bağlı hesap bulunamadı.'))
-        : _loading
+    appBar: AppBar(title: const Text('Hazır Metinler ve Şablonlar')),
+    body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
         ? Center(
@@ -161,7 +138,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
               );
             },
           ),
-    floatingActionButton: _loading || _error != null || _accountId == null
+    floatingActionButton: _loading || _error != null
         ? null
         : FloatingActionButton(
             key: const Key('add-template-fab'),
