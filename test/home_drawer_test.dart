@@ -33,6 +33,7 @@ class _FakeRepo extends MailRepository {
     conflicts.remove(id);
     notifyListeners();
   }
+
   @override
   List<Email> getEmailsInFolder(MailFolder folder) => const [];
   @override
@@ -85,9 +86,8 @@ void main() {
     await tester.pumpWidget(
       MaterialApp(
         builder: (context, child) => MediaQuery(
-          data: MediaQuery.of(
-            context,
-          ).copyWith(textScaler: TextScaler.linear(textScale)),
+          data: MediaQuery.of(context)
+              .copyWith(textScaler: TextScaler.linear(textScale)),
           child: child!,
         ),
         home: const HomeScreen(),
@@ -132,7 +132,9 @@ void main() {
     expect(find.byType(SnackBar), findsOneWidget);
   });
 
-  testWidgets('conflicts dismiss once without listener reentrancy', (tester) async {
+  testWidgets('conflicts dismiss once without listener reentrancy', (
+    tester,
+  ) async {
     final repo = await pumpHome(tester);
     repo.conflicts.addAll(['first', 'second']);
 
@@ -148,11 +150,14 @@ void main() {
     await pumpHome(tester, size: const Size(412, 1400));
     await openDrawer(tester);
 
-    final lastFolderBottom = tester.getBottomLeft(find.text('Yıldızlılar')).dy;
+    final lastFolderBottom = tester.getBottomLeft(find.text('Arşiv')).dy;
+    final starredBottom = tester.getBottomLeft(find.text('Yıldızlılar')).dy;
+    final archiveTop = tester.getTopLeft(find.text('Arşiv')).dy;
     final headingTop = tester.getTopLeft(find.text('Hesap ve uygulama')).dy;
     final logoutBottom = tester.getBottomLeft(find.text('Çıkış Yap')).dy;
     final drawerBottom = tester.getBottomLeft(find.byType(AppDrawer)).dy;
 
+    expect(archiveTop, greaterThan(starredBottom));
     expect(headingTop, greaterThan(lastFolderBottom + 200));
     expect(drawerBottom - logoutBottom, lessThan(40));
   });
@@ -189,7 +194,9 @@ void main() {
         expect(logout, findsOneWidget);
         final error = tester.takeException();
         if (error is FlutterError) {
-          fail('overflow at $size, text scale $scale:\n${error.toStringDeep()}');
+          fail(
+            'overflow at $size, text scale $scale:\n${error.toStringDeep()}',
+          );
         }
         expect(error, isNull, reason: 'overflow at $size, text scale $scale');
         await tester.pumpWidget(const SizedBox.shrink());

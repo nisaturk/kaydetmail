@@ -115,7 +115,6 @@ String _swipeActionDone(_SwipeAction action) => switch (action) {
   _SwipeAction.none => throw UnsupportedError('unreachable'),
 };
 
-
 /// Coarse Turkish relative time for the "Son senkronizasyon" hint on the
 /// empty/error states — deliberately coarser than the mail-row timestamp
 /// since only a rough sense of staleness matters here.
@@ -220,9 +219,7 @@ class _InboxScreenState extends State<InboxScreen>
       _error = null;
     });
     try {
-      if (widget.folder == MailFolder.all) {
-        await _refresh();
-      } else if (_repo.getEmailsInFolder(widget.folder).isEmpty) {
+      if (_repo.getEmailsInFolder(widget.folder).isEmpty) {
         await _repo.loadMoreEmails(widget.folder);
       }
       _fillIfShort();
@@ -936,7 +933,10 @@ class _ErrorState extends StatelessWidget {
                     child: Text(
                       'İnternet bağlantısı yok. Bağlantı sağlanınca otomatik güncellenir.',
                       textAlign: TextAlign.center,
-                      style: TextStyle(fontSize: 14, color: colors.secondaryText),
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: colors.secondaryText,
+                      ),
                     ),
                   ),
                 ],
@@ -961,4 +961,3 @@ class _ErrorState extends StatelessWidget {
     );
   }
 }
-

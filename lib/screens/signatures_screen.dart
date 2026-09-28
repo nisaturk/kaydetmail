@@ -20,10 +20,8 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
   String? _accountId;
   List<MailSignature> _signatures = const [];
   SignatureDefaults _defaults = const SignatureDefaults();
-  List<MailIdentity> _identities = const [];
   bool _loading = true;
   String? _error;
-  int _tab = 0;
 
   @override
   void initState() {
@@ -42,12 +40,10 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
     try {
       final signatures = await _repo.listSignatures(accountId, refresh: true);
       final defaults = await _repo.getSignatureDefaults(accountId);
-      final identities = await _repo.listIdentities(accountId, refresh: true);
       if (!mounted || accountId != _accountId) return;
       setState(() {
         _signatures = signatures;
         _defaults = defaults;
-        _identities = identities;
         _loading = false;
       });
     } catch (error) {
@@ -95,54 +91,6 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
     if (confirmed != true || !mounted || _accountId == null) return;
     try {
       await _repo.deleteSignature(_accountId!, signature.id);
-      if (mounted) await _load();
-    } catch (error) {
-      if (mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
-      }
-    }
-  }
-
-  Future<void> _editIdentity([MailIdentity? identity]) async {
-    final accountId = _accountId;
-    if (accountId == null) return;
-    final saved = await showModalBottomSheet<bool>(
-      context: context,
-      isScrollControlled: true,
-      builder: (_) => _IdentityEditor(
-        accountId: accountId,
-        repository: _repo,
-        signatures: _signatures,
-        identity: identity,
-      ),
-    );
-    if (saved == true && mounted && accountId == _accountId) await _load();
-  }
-
-  Future<void> _deleteIdentity(MailIdentity identity) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Kimliği sil?'),
-        content: Text(
-          '“${identity.emailAddress}” kimliği kalıcı olarak silinecek.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sil'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted || _accountId == null) return;
-    try {
-      await _repo.deleteIdentity(_accountId!, identity.id);
       if (mounted) await _load();
     } catch (error) {
       if (mounted) {
@@ -214,64 +162,41 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
       _signatures.where((item) => item.id == id).firstOrNull?.name ?? 'Yok';
 
   @override
-  Widget build(BuildContext context) => DefaultTabController(
-    length: 2,
-    child: Scaffold(
-      appBar: AppBar(
-        title: const Text('İmzalar ve kimlikler'),
-        bottom: TabBar(
-          onTap: (index) => setState(() => _tab = index),
-          tabs: const [
-            Tab(text: 'İmzalar'),
-            Tab(text: 'Kimlikler'),
-          ],
-        ),
-      ),
-      body: _repo.accounts.isEmpty
-          ? const Center(child: Text('Bağlı hesap bulunamadı.'))
-          : _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _error != null
-          ? Center(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Text(_error!, textAlign: TextAlign.center),
-                  ),
-                  TextButton(
-                    onPressed: _load,
-                    child: const Text('Tekrar dene'),
-                  ),
-                ],
-              ),
-            )
-          : _tab == 0
-          ? _SignatureList(
-              signatures: _signatures,
-              defaults: _defaults,
-              defaultName: _defaultName,
-              onDefaults: _pickDefault,
-              onEdit: _editSignature,
-              onDelete: _deleteSignature,
-            )
-          : _IdentityList(
-              identities: _identities,
-              onEdit: _editIdentity,
-              onDelete: _deleteIdentity,
+  Widget build(BuildContext context) => Scaffold(
+    appBar: AppBar(title: const Text('İmzalar')),
+    body: _repo.accounts.isEmpty
+        ? const Center(child: Text('Bağlı hesap bulunamadı.'))
+        : _loading
+        ? const Center(child: CircularProgressIndicator())
+        : _error != null
+        ? Center(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(_error!, textAlign: TextAlign.center),
+                ),
+                TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+              ],
             ),
-      floatingActionButton: _loading || _error != null || _accountId == null
-          ? null
-          : FloatingActionButton(
-              key: ValueKey(
-                _tab == 0 ? 'add-signature-fab' : 'add-identity-fab',
-              ),
-              tooltip: _tab == 0 ? 'Yeni imza' : 'Yeni kimlik',
-              onPressed: () => _tab == 0 ? _editSignature() : _editIdentity(),
-              child: const Icon(LucideIcons.plus),
-            ),
-    ),
+          )
+        : _SignatureList(
+            signatures: _signatures,
+            defaults: _defaults,
+            defaultName: _defaultName,
+            onDefaults: _pickDefault,
+            onEdit: _editSignature,
+            onDelete: _deleteSignature,
+          ),
+    floatingActionButton: _loading || _error != null || _accountId == null
+        ? null
+        : FloatingActionButton(
+            key: const Key('add-signature-fab'),
+            tooltip: 'Yeni imza',
+            onPressed: _editSignature,
+            child: const Icon(LucideIcons.plus),
+          ),
   );
 }
 
@@ -337,47 +262,6 @@ class _SignatureList extends StatelessWidget {
         ),
     ],
   );
-}
-
-class _IdentityList extends StatelessWidget {
-  const _IdentityList({
-    required this.identities,
-    required this.onEdit,
-    required this.onDelete,
-  });
-
-  final List<MailIdentity> identities;
-  final Future<void> Function(MailIdentity?) onEdit;
-  final Future<void> Function(MailIdentity) onDelete;
-
-  @override
-  Widget build(BuildContext context) => identities.isEmpty
-      ? const Center(child: Text('Henüz kimlik yok'))
-      : ListView.separated(
-          itemCount: identities.length,
-          separatorBuilder: (_, _) => const Divider(height: 1),
-          itemBuilder: (context, index) {
-            final identity = identities[index];
-            return ListTile(
-              key: ValueKey('identity-${identity.id}'),
-              leading: const Icon(LucideIcons.atSign),
-              title: Text(identity.emailAddress),
-              subtitle: Text(
-                identity.isDefault
-                    ? 'Varsayılan'
-                    : (identity.displayName.isEmpty
-                          ? 'Varsayılan değil'
-                          : identity.displayName),
-              ),
-              onTap: () => onEdit(identity),
-              trailing: IconButton(
-                tooltip: 'Sil',
-                icon: const Icon(LucideIcons.trash2),
-                onPressed: () => onDelete(identity),
-              ),
-            );
-          },
-        );
 }
 
 class _SignatureEditor extends StatefulWidget {
@@ -513,170 +397,6 @@ class _SignatureEditorState extends State<_SignatureEditor> {
           const SizedBox(height: 20),
           FilledButton(
             key: const Key('save-signature'),
-            onPressed: _saving ? null : _save,
-            child: _saving
-                ? const SizedBox.square(
-                    dimension: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Text('Kaydet'),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-class _IdentityEditor extends StatefulWidget {
-  const _IdentityEditor({
-    required this.accountId,
-    required this.repository,
-    required this.signatures,
-    this.identity,
-  });
-
-  final String accountId;
-  final MailRepository repository;
-  final List<MailSignature> signatures;
-  final MailIdentity? identity;
-
-  @override
-  State<_IdentityEditor> createState() => _IdentityEditorState();
-}
-
-class _IdentityEditorState extends State<_IdentityEditor> {
-  late final TextEditingController _email;
-  late final TextEditingController _displayName;
-  late final TextEditingController _replyTo;
-  String? _signatureId;
-  bool _isDefault = false;
-  bool _saving = false;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _email = TextEditingController(text: widget.identity?.emailAddress ?? '');
-    _displayName = TextEditingController(
-      text: widget.identity?.displayName ?? '',
-    );
-    _replyTo = TextEditingController(text: widget.identity?.replyTo ?? '');
-    _signatureId = widget.identity?.signatureId;
-    _isDefault = widget.identity?.isDefault ?? false;
-  }
-
-  @override
-  void dispose() {
-    _email.dispose();
-    _displayName.dispose();
-    _replyTo.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (_saving) return;
-    final email = _email.text.trim();
-    if (email.isEmpty || !email.contains('@')) {
-      setState(() => _error = 'Geçerli bir e-posta adresi yazın.');
-      return;
-    }
-    setState(() {
-      _saving = true;
-      _error = null;
-    });
-    final identity = MailIdentity(
-      id: widget.identity?.id ?? '',
-      accountId: widget.accountId,
-      emailAddress: email,
-      displayName: _displayName.text.trim(),
-      replyTo: _replyTo.text.trim().isEmpty ? null : _replyTo.text.trim(),
-      signatureId: _signatureId,
-      isDefault: _isDefault,
-    );
-    try {
-      if (widget.identity == null) {
-        await widget.repository.createIdentity(widget.accountId, identity);
-      } else {
-        await widget.repository.updateIdentity(widget.accountId, identity);
-      }
-      if (mounted) Navigator.pop(context, true);
-    } catch (error) {
-      if (mounted) {
-        setState(() {
-          _saving = false;
-          _error = friendlyErrorMessage(error);
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: EdgeInsets.only(
-      left: 20,
-      right: 20,
-      top: 20,
-      bottom: MediaQuery.viewInsetsOf(context).bottom + 20,
-    ),
-    child: SingleChildScrollView(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Text(
-            widget.identity == null ? 'Yeni kimlik' : 'Kimliği düzenle',
-            style: Theme.of(context).textTheme.titleLarge,
-          ),
-          const SizedBox(height: 16),
-          TextField(
-            key: const Key('identity-email'),
-            controller: _email,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(labelText: 'E-posta adresi'),
-          ),
-          TextField(
-            key: const Key('identity-display-name'),
-            controller: _displayName,
-            maxLength: 250,
-            decoration: const InputDecoration(labelText: 'Görünen ad'),
-          ),
-          TextField(
-            key: const Key('identity-reply-to'),
-            controller: _replyTo,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-              labelText: 'Yanıt adresi (isteğe bağlı)',
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String?>(
-            initialValue: _signatureId,
-            decoration: const InputDecoration(labelText: 'İmza'),
-            items: [
-              const DropdownMenuItem(value: null, child: Text('Yok')),
-              for (final signature in widget.signatures)
-                DropdownMenuItem(
-                  value: signature.id,
-                  child: Text(signature.name),
-                ),
-            ],
-            onChanged: (value) => setState(() => _signatureId = value),
-          ),
-          SwitchListTile(
-            title: const Text('Varsayılan kimlik'),
-            value: _isDefault,
-            onChanged: (value) => setState(() => _isDefault = value),
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 12),
-            Text(
-              _error!,
-              style: TextStyle(color: Theme.of(context).colorScheme.error),
-            ),
-          ],
-          const SizedBox(height: 20),
-          FilledButton(
-            key: const Key('save-identity'),
             onPressed: _saving ? null : _save,
             child: _saving
                 ? const SizedBox.square(

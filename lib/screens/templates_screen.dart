@@ -71,8 +71,10 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Şablonu sil?'),
-        content: Text('“${template.name}” şablonu kalıcı olarak silinecek.'),
+        title: const Text('Hazır metni sil?'),
+        content: Text(
+          '“${template.name}” hazır metni kalıcı olarak silinecek.',
+        ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
@@ -99,7 +101,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Hazır Metinler ve Şablonlar')),
+    appBar: AppBar(title: const Text('Hazır metinler')),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
@@ -116,7 +118,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
             ),
           )
         : _templates.isEmpty
-        ? const Center(child: Text('Henüz şablon yok'))
+        ? const Center(child: Text('Henüz hazır metin yok'))
         : ListView.separated(
             itemCount: _templates.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
@@ -142,8 +144,8 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         ? null
         : FloatingActionButton(
             key: const Key('add-template-fab'),
-            tooltip: 'Yeni şablon',
-            onPressed: () => _edit(),
+            tooltip: 'Yeni hazır metin',
+            onPressed: _edit,
             child: const Icon(LucideIcons.plus),
           ),
   );
@@ -197,7 +199,7 @@ class _TemplateEditorState extends State<_TemplateEditor> {
     final bodyText = _bodyText.text.trim();
     final bodyHtml = _bodyHtml.text.trim();
     if (name.isEmpty || name.length > 100) {
-      setState(() => _error = 'Şablon adı 1-100 karakter olmalı.');
+      setState(() => _error = 'Hazır metin adı 1-100 karakter olmalı.');
       return;
     }
     if (subject.length > 500 || subject.contains('\n')) {
@@ -256,7 +258,9 @@ class _TemplateEditorState extends State<_TemplateEditor> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            widget.template == null ? 'Yeni şablon' : 'Şablonu düzenle',
+            widget.template == null
+                ? 'Yeni hazır metin'
+                : 'Hazır metni düzenle',
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
