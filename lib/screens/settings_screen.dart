@@ -20,7 +20,6 @@ import 'notification_settings_screen.dart';
 import 'signature_settings_screen.dart';
 import 'templates_screen.dart';
 import 'signatures_screen.dart';
-import 'snippets_screen.dart';
 import 'trusted_senders_screen.dart';
 import 'sync_status_screen.dart';
 
@@ -118,7 +117,7 @@ class SettingsScreen extends StatelessWidget {
           ),
           _CategoryTile(
             icon: LucideIcons.layoutTemplate,
-            title: 'Şablonlar',
+            title: 'Hazır Metinler ve Şablonlar',
             subtitle: 'Tekrar kullanılan konu ve metinler',
             onTap: (ctx) => Navigator.of(
               ctx,
@@ -127,7 +126,8 @@ class SettingsScreen extends StatelessWidget {
           _CategoryTile(
             icon: LucideIcons.slidersHorizontal,
             title: 'Genel',
-            subtitle: 'Kaydırma hareketleri, yanıt takibi ve göndermeyi geri alma',
+            subtitle:
+                'Kaydırma hareketleri, yanıt takibi ve göndermeyi geri alma',
             page: (_) => [
               _SwipeSection(),
               _UnansweredReminderSection(),
@@ -138,9 +138,9 @@ class SettingsScreen extends StatelessWidget {
             icon: LucideIcons.penLine,
             title: 'İmzalar ve Kimlikler',
             subtitle: 'Gönderen kimlikleri ve e-posta imzaları',
-            onTap: (ctx) => Navigator.of(ctx).push(
-              MaterialPageRoute(builder: (_) => const SignaturesScreen()),
-            ),
+            onTap: (ctx) => Navigator.of(
+              ctx,
+            ).push(MaterialPageRoute(builder: (_) => const SignaturesScreen())),
           ),
           _CategoryTile(
             icon: LucideIcons.signature,
@@ -151,14 +151,6 @@ class SettingsScreen extends StatelessWidget {
                 builder: (_) => const SignatureSettingsScreen(),
               ),
             ),
-          ),
-          _CategoryTile(
-            icon: LucideIcons.messageSquareText,
-            title: 'Hazır Metinler',
-            subtitle: 'E-postalara tek dokunuşla eklenen kısa metinler',
-            onTap: (ctx) => Navigator.of(
-              ctx,
-            ).push(MaterialPageRoute(builder: (_) => const SnippetsScreen())),
           ),
           _CategoryTile(
             icon: LucideIcons.image,
@@ -252,15 +244,49 @@ class _SettingsPage extends StatelessWidget {
   }
 }
 
-class _LabelsSection extends StatelessWidget {
+class _LabelsSection extends StatefulWidget {
   const _LabelsSection();
+
+  @override
+  State<_LabelsSection> createState() => _LabelsSectionState();
+}
+
+class _LabelsSectionState extends State<_LabelsSection> {
+  String? _accountId;
+
+  @override
+  void initState() {
+    super.initState();
+    final repo = AppConfig.mailRepository;
+    _accountId = repo.activeAccountId ?? repo.accounts.firstOrNull?.id;
+  }
 
   @override
   Widget build(BuildContext context) {
     final repo = AppConfig.mailRepository;
+    final accountId = _accountId;
+    if (accountId == null) return const SizedBox.shrink();
     return Column(
       children: [
-        for (final label in repo.getLabels())
+        if (repo.accounts.length > 1)
+          ListTile(
+            dense: true,
+            title: const Text('Hesap'),
+            trailing: DropdownButton<String>(
+              value: accountId,
+              onChanged: (id) {
+                if (id != null) setState(() => _accountId = id);
+              },
+              items: [
+                for (final account in repo.accounts)
+                  DropdownMenuItem(
+                    value: account.id,
+                    child: Text(account.email),
+                  ),
+              ],
+            ),
+          ),
+        for (final label in repo.getLabelsForAccount(accountId))
           ListTile(
             dense: true,
             leading: CircleAvatar(backgroundColor: label.color, radius: 8),
@@ -268,11 +294,12 @@ class _LabelsSection extends StatelessWidget {
             trailing: IconButton(
               tooltip: 'Düzenle',
               icon: const Icon(LucideIcons.pencil, size: 18),
-              onPressed: () => _showLabelEditor(context, label: label),
+              onPressed: () =>
+                  _showLabelEditor(context, accountId: accountId, label: label),
             ),
           ),
         TextButton.icon(
-          onPressed: () => _showLabelEditor(context),
+          onPressed: () => _showLabelEditor(context, accountId: accountId),
           icon: const Icon(LucideIcons.plus, size: 18),
           label: const Text('Yeni Etiket'),
         ),
@@ -280,10 +307,14 @@ class _LabelsSection extends StatelessWidget {
     );
   }
 
-  Future<void> _showLabelEditor(BuildContext context, {MailLabel? label}) {
+  Future<void> _showLabelEditor(
+    BuildContext context, {
+    required String accountId,
+    MailLabel? label,
+  }) {
     return showDialog<void>(
       context: context,
-      builder: (_) => _LabelEditorDialog(label: label),
+      builder: (_) => _LabelEditorDialog(accountId: accountId, label: label),
     );
   }
 }
@@ -348,8 +379,9 @@ class _ColorPalette extends StatelessWidget {
 /// Compact label editor. With [label] set it renames/recolors/deletes an
 /// existing label (id preserved); without it, it creates a new one.
 class _LabelEditorDialog extends StatefulWidget {
-  const _LabelEditorDialog({this.label});
+  const _LabelEditorDialog({required this.accountId, this.label});
 
+  final String accountId;
   final MailLabel? label;
 
   @override
@@ -393,7 +425,11 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
       if (_isEdit) {
         await repo.updateLabel(id: widget.label!.id, name: name, color: _color);
       } else {
-        await repo.createLabel(name: name, color: _color);
+        await repo.createLabel(
+          name: name,
+          color: _color,
+          accountId: widget.accountId,
+        );
       }
       if (mounted) Navigator.of(context).pop();
     } on ArgumentError catch (e) {
@@ -437,6 +473,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
+      scrollable: true,
       title: Text(_isEdit ? 'Etiketi Düzenle' : 'Yeni Etiket'),
       content: Column(
         mainAxisSize: MainAxisSize.min,

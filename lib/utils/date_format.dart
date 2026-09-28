@@ -8,11 +8,14 @@ String formatMailTime(DateTime time, {DateTime? now}) {
 
   if (diff.inMinutes < 1) return 'şimdi';
   if (diff.inMinutes < 60) return '${diff.inMinutes} dk önce';
-  if (diff.inHours < 24) {
+  final today = DateTime(n.year, n.month, n.day);
+  final date = DateTime(time.year, time.month, time.day);
+  if (date == today) {
     return '${time.hour.toString().padLeft(2, '0')}:'
         '${time.minute.toString().padLeft(2, '0')}';
   }
-  if (diff.inDays < 7) {
+  if (date == today.subtract(const Duration(days: 1))) return 'dün';
+  if (n.difference(date).inDays < 7) {
     const weekdays = ['Pzt', 'Sal', 'Çar', 'Per', 'Cum', 'Cmt', 'Paz'];
     return weekdays[time.weekday - 1];
   }

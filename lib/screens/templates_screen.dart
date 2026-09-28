@@ -93,9 +93,8 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
       if (mounted) await _load();
     } catch (error) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyErrorMessage(error))),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }
@@ -103,21 +102,21 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
   @override
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
-      title: const Text('Şablonlar'),
+      title: const Text('Hazır Metinler ve Şablonlar'),
       actions: [
         if (_repo.accounts.length > 1)
           PopupMenuButton<String>(
             key: const Key('templates-account-menu'),
             tooltip: 'Hesap seç',
             icon: const Icon(LucideIcons.chevronDown),
-            onSelected: (id) {
-              if (id == _accountId) return;
-              setState(() => _accountId = id);
+            onSelected: (accountId) {
+              if (accountId == _accountId) return;
+              setState(() => _accountId = accountId);
               _load();
             },
             itemBuilder: (_) => [
               for (final account in _repo.accounts)
-                PopupMenuItem(value: account.id, child: Text(account.label)),
+                PopupMenuItem(value: account.id, child: Text(account.email)),
             ],
           ),
       ],
@@ -225,7 +224,9 @@ class _TemplateEditorState extends State<_TemplateEditor> {
       return;
     }
     if (subject.length > 500 || subject.contains('\n')) {
-      setState(() => _error = 'Konu tek satır ve en fazla 500 karakter olmalı.');
+      setState(
+        () => _error = 'Konu tek satır ve en fazla 500 karakter olmalı.',
+      );
       return;
     }
     if (bodyText.isEmpty && bodyHtml.isEmpty) {
@@ -308,7 +309,9 @@ class _TemplateEditorState extends State<_TemplateEditor> {
             controller: _bodyHtml,
             minLines: 3,
             maxLines: 6,
-            decoration: const InputDecoration(labelText: 'HTML gövdesi (isteğe bağlı)'),
+            decoration: const InputDecoration(
+              labelText: 'HTML gövdesi (isteğe bağlı)',
+            ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),

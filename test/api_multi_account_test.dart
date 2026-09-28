@@ -222,55 +222,101 @@ void main() {
         expect(byId['mail-2a']!.labelIds, isNot(contains(label.id)));
       },
     );
+
+    test('same label name belongs separately to each account', () async {
+      final one = _fakeAccount(
+        accountId: 'account-1',
+        email: 'one@example.com',
+        folderId: 'folder-1',
+        mailIds: const [],
+      );
+      await one.authService.tokenStore.save(
+        accountId: 'account-1',
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+      );
+      final two = _fakeAccount(
+        accountId: 'account-2',
+        email: 'two@example.com',
+        folderId: 'folder-2',
+        mailIds: const [],
+      );
+      final repo = ApiMailRepository(
+        authService: one.authService,
+        mailService: one.mailService,
+        sessionFactory: () =>
+            (authService: two.authService, mailService: two.mailService),
+      );
+      await repo.restoreSession('one@example.com');
+      await repo.connectAccount(email: 'two@example.com', password: 'pw');
+
+      final first = await repo.createLabel(
+        accountId: 'account-1',
+        name: 'Proje',
+        color: const Color(0xFF3E7CB1),
+      );
+      final second = await repo.createLabel(
+        accountId: 'account-2',
+        name: 'Proje',
+        color: const Color(0xFF3E7CB1),
+      );
+
+      expect(first.id, isNot(second.id));
+      expect(repo.getLabelsForAccount('account-1'), contains(first));
+      expect(repo.getLabelsForAccount('account-2'), contains(second));
+    });
   });
 
-  test('device registration reports only accounts registered successfully', () async {
-    final one = _fakeAccount(
-      accountId: 'account-1',
-      email: 'one@example.com',
-      folderId: 'folder-1',
-      mailIds: ['mail-1'],
-    );
-    await one.authService.tokenStore.save(
-      accountId: 'account-1',
-      accessToken: 'access-1',
-      refreshToken: 'refresh-1',
-    );
-    final two = _fakeAccount(
-      accountId: 'account-2',
-      email: 'two@example.com',
-      folderId: 'folder-2',
-      mailIds: ['mail-2'],
-    );
-    two.mailService.failDeviceRegistration = true;
-    final repo = ApiMailRepository(
-      authService: one.authService,
-      mailService: one.mailService,
-      sessionFactory: () =>
-          (authService: two.authService, mailService: two.mailService),
-    );
-    await repo.restoreSession('one@example.com');
-    await repo.connectAccount(email: 'two@example.com', password: 'pw');
+  test(
+    'device registration reports only accounts registered successfully',
+    () async {
+      final one = _fakeAccount(
+        accountId: 'account-1',
+        email: 'one@example.com',
+        folderId: 'folder-1',
+        mailIds: ['mail-1'],
+      );
+      await one.authService.tokenStore.save(
+        accountId: 'account-1',
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+      );
+      final two = _fakeAccount(
+        accountId: 'account-2',
+        email: 'two@example.com',
+        folderId: 'folder-2',
+        mailIds: ['mail-2'],
+      );
+      two.mailService.failDeviceRegistration = true;
+      final repo = ApiMailRepository(
+        authService: one.authService,
+        mailService: one.mailService,
+        sessionFactory: () =>
+            (authService: two.authService, mailService: two.mailService),
+      );
+      await repo.restoreSession('one@example.com');
+      await repo.connectAccount(email: 'two@example.com', password: 'pw');
 
-    expect(
-      await repo.registerCurrentDevice(
-        fcmToken: 'fcm-token',
-        appVersion: '1.0.0',
-        locale: 'tr-TR',
-      ),
-      {'account-1'},
-    );
+      expect(
+        await repo.registerCurrentDevice(
+          fcmToken: 'fcm-token',
+          appVersion: '1.0.0',
+          locale: 'tr-TR',
+        ),
+        {'account-1'},
+      );
 
-    two.mailService.failDeviceRegistration = false;
-    expect(
-      await repo.registerCurrentDevice(
-        fcmToken: 'fcm-token',
-        appVersion: '1.0.0',
-        locale: 'tr-TR',
-      ),
-      {'account-1', 'account-2'},
-    );
-  });
+      two.mailService.failDeviceRegistration = false;
+      expect(
+        await repo.registerCurrentDevice(
+          fcmToken: 'fcm-token',
+          appVersion: '1.0.0',
+          locale: 'tr-TR',
+        ),
+        {'account-1', 'account-2'},
+      );
+    },
+  );
 }
 
 ({ApiAuthService authService, _RecordingMailService mailService}) _fakeAccount({

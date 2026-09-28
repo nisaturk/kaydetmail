@@ -24,6 +24,8 @@ class ApiClient {
   String? _accountId;
   Future<void>? _refreshing;
 
+  Future<void> Function()? onAuthenticationLost;
+
   /// The account this client's authenticated requests read/write tokens
   /// for. Null until a fresh connect/login response reveals it, or a
   /// restore/switch binds an already-known account up front.
@@ -405,7 +407,14 @@ class ApiClient {
     response = await _send(
       await createRequest(),
       accessToken: await tokenStore.readAccessToken(_boundAccountId),
+      throwErrors: false,
     );
+    if (response.statusCode == 401 || response.statusCode == 403) {
+      await onAuthenticationLost?.call();
+    }
+    if (response.statusCode >= 400) {
+      throw ApiException.fromResponse(response.statusCode, response.body);
+    }
     return response;
   }
 
@@ -557,8 +566,11 @@ class ApiClient {
         refreshToken: tokens['refreshToken'] as String,
       );
     } on ApiException catch (error) {
-      if (error.code == 'invalid_refresh_token') {
+      if (error.code == 'invalid_refresh_token' ||
+          error.status == 401 ||
+          error.status == 403) {
         await tokenStore.clear(accountId);
+        await onAuthenticationLost?.call();
       }
       rethrow;
     }

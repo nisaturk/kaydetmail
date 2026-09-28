@@ -220,6 +220,7 @@ class _StubMailRepository extends MailRepository {
   Future<MailLabel> createLabel({
     required String name,
     required Color color,
+    String? accountId,
   }) async => throw UnimplementedError();
 
   @override
@@ -382,6 +383,25 @@ void main() {
       expect(find.text('İmza kaydedildi.'), findsOneWidget);
     },
   );
+
+  testWidgets('deleting clears saved signature for its account', (
+    tester,
+  ) async {
+    final repo = _StubMailRepository(const [
+      MailAccount(id: 'a', email: 'a@example.com', signature: 'İmza'),
+    ]);
+    AppConfig.mailRepositoryForTest = repo;
+
+    await tester.pumpWidget(const MaterialApp(home: SignatureSettingsScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('signature-delete-a@example.com')),
+    );
+    await tester.pumpAndSettle();
+
+    expect(repo.accounts.single.signature, isNull);
+    expect(find.text('İmza silindi.'), findsOneWidget);
+  });
 
   testWidgets('shows an empty state when no account is connected', (
     tester,

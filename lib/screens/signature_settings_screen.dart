@@ -48,15 +48,20 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
     super.dispose();
   }
 
-  Future<void> _save(String accountId) async {
+  Future<void> _save(String accountId, {bool clear = false}) async {
     final controller = _controllers[accountId];
     if (controller == null || _saving.contains(accountId)) return;
     setState(() => _saving.add(accountId));
     try {
-      await AppConfig.mailRepository.setSignature(accountId, controller.text);
+      await AppConfig.mailRepository.setSignature(
+        accountId,
+        clear ? null : controller.text,
+      );
+      if (clear) controller.clear();
       if (!mounted) return;
-      ScaffoldMessenger.of(context)
-          .showSnackBar(const SnackBar(content: Text('İmza kaydedildi.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(clear ? 'İmza silindi.' : 'İmza kaydedildi.')),
+      );
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -87,6 +92,7 @@ class _SignatureSettingsScreenState extends State<SignatureSettingsScreen> {
                 controller: _controllers[_accounts[index].id]!,
                 saving: _saving.contains(_accounts[index].id),
                 onSave: () => _save(_accounts[index].id),
+                onDelete: () => _save(_accounts[index].id, clear: true),
               ),
             ),
     );
@@ -99,12 +105,14 @@ class _AccountSignatureEditor extends StatelessWidget {
     required this.controller,
     required this.saving,
     required this.onSave,
+    required this.onDelete,
   });
 
   final MailAccount account;
   final TextEditingController controller;
   final bool saving;
   final VoidCallback onSave;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -141,20 +149,31 @@ class _AccountSignatureEditor extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        Align(
-          alignment: Alignment.centerRight,
-          child: FilledButton.icon(
-            key: ValueKey('signature-save-${account.email}'),
-            onPressed: saving ? null : onSave,
-            icon: saving
-                ? const SizedBox(
-                    width: 16,
-                    height: 16,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(LucideIcons.check, size: 16),
-            label: const Text('Kaydet'),
-          ),
+        Row(
+          mainAxisAlignment: MainAxisAlignment.end,
+          children: [
+            TextButton.icon(
+              key: ValueKey('signature-delete-${account.email}'),
+              onPressed: saving || controller.text.trim().isEmpty
+                  ? null
+                  : onDelete,
+              icon: const Icon(LucideIcons.trash2, size: 16),
+              label: const Text('Sil'),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              key: ValueKey('signature-save-${account.email}'),
+              onPressed: saving ? null : onSave,
+              icon: saving
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    )
+                  : const Icon(LucideIcons.check, size: 16),
+              label: const Text('Kaydet'),
+            ),
+          ],
         ),
       ],
     );

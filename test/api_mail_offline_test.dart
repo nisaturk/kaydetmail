@@ -122,6 +122,7 @@ void main() {
         },
       );
       final repo = await _restoredRepository(service, cache: db);
+      await repo.refreshEmails(MailFolder.inbox);
       expect(repo.isOffline, isFalse);
       var notifications = 0;
       repo.addListener(() => notifications++);

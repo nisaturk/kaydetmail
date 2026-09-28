@@ -273,6 +273,7 @@ class _FakeMailRepository extends MailRepository {
   Future<MailLabel> createLabel({
     required String name,
     required Color color,
+    String? accountId,
   }) async => throw UnimplementedError();
 
   @override
@@ -428,8 +429,9 @@ Future<void> _pumpCompose(
   }
 }
 
-quill.QuillController _body(WidgetTester tester) =>
-    tester.widget<quill.QuillEditor>(find.byKey(const Key('body-field'))).controller;
+quill.QuillController _body(WidgetTester tester) => tester
+    .widget<quill.QuillEditor>(find.byKey(const Key('body-field')))
+    .controller;
 
 String _bodyText(WidgetTester tester) {
   final text = _body(tester).document.toPlainText();
@@ -626,9 +628,8 @@ void main() {
 
       await tester.tap(find.byKey(const Key('send-options-menu')));
       await tester.pumpAndSettle();
-      PopupMenuItem<Object?> saveItem() => tester.widget(
-        find.byKey(const Key('compose-menu-saveDraft')),
-      );
+      PopupMenuItem<Object?> saveItem() =>
+          tester.widget(find.byKey(const Key('compose-menu-saveDraft')));
       expect(saveItem().enabled, isFalse);
       await tester.tap(find.text('Taslağı kaydet'), warnIfMissed: false);
       await tester.pumpAndSettle();
@@ -796,7 +797,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('ayse@example.com'), findsOneWidget);
 
-
       await openPicker();
       await tester.tap(find.text('Cc'));
       await tester.pump();
@@ -896,20 +896,14 @@ void main() {
       final repo = _FakeMailRepository(accounts: const [accountA, accountB]);
 
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
-      expect(
-        _bodyText(tester),
-        '\n\n--\nİmza A',
-      );
+      expect(_bodyText(tester), '\n\n--\nİmza A');
 
       await tester.tap(find.byKey(const Key('from-account-menu')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('b@example.com').last);
       await tester.pumpAndSettle();
 
-      expect(
-        _bodyText(tester),
-        '\n\n--\nİmza B',
-      );
+      expect(_bodyText(tester), '\n\n--\nİmza B');
     });
 
     testWidgets('never clobbers body text the user already typed', (
@@ -997,7 +991,10 @@ void main() {
       );
 
       expect(repo.sent.single.bodyText, 'Alınacaklar');
-      expect(repo.sent.single.bodyHtml, contains('<ul><li>Alınacaklar</li></ul>'));
+      expect(
+        repo.sent.single.bodyHtml,
+        contains('<ul><li>Alınacaklar</li></ul>'),
+      );
     });
 
     testWidgets('quoted images render as placeholders and survive in HTML', (
@@ -1016,12 +1013,8 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Görsel'), findsOneWidget);
-      _body(tester).replaceText(
-        0,
-        0,
-        'Yeni ',
-        const TextSelection.collapsed(offset: 5),
-      );
+      _body(tester)
+          .replaceText(0, 0, 'Yeni ', const TextSelection.collapsed(offset: 5));
       await tester.pump();
       await tester.tap(find.byTooltip('Kapat'));
       await tester.pumpAndSettle();
@@ -1066,35 +1059,34 @@ void main() {
       },
     );
 
-    testWidgets(
-      'formatted mail delivers bodyHtml matching the editor styles',
-      (tester) async {
-        final repo = _FakeMailRepository(accounts: const [_accountA]);
-        await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+    testWidgets('formatted mail delivers bodyHtml matching the editor styles', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA]);
+      await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
 
-        await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
-        await tester.testTextInput.receiveAction(TextInputAction.done);
-        await tester.pump();
-        _setBody(tester, 'Hello');
-        _body(tester).updateSelection(
-          const TextSelection(baseOffset: 0, extentOffset: 5),
-          quill.ChangeSource.local,
-        );
-        await tester.pump();
-        await tester.tap(find.byIcon(Icons.format_bold));
-        await tester.pump();
+      await tester.enterText(find.byKey(const Key('to-field')), 'x@y.com');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pump();
+      _setBody(tester, 'Hello');
+      _body(tester).updateSelection(
+        const TextSelection(baseOffset: 0, extentOffset: 5),
+        quill.ChangeSource.local,
+      );
+      await tester.pump();
+      await tester.tap(find.byIcon(Icons.format_bold));
+      await tester.pump();
 
-        await tester.tap(find.byKey(const Key('send-button')));
-        await tester.pumpAndSettle();
-        await tester.pump(
-          PendingSendQueue.undoWindow + const Duration(seconds: 1),
-        );
+      await tester.tap(find.byKey(const Key('send-button')));
+      await tester.pumpAndSettle();
+      await tester.pump(
+        PendingSendQueue.undoWindow + const Duration(seconds: 1),
+      );
 
-        expect(repo.sent, hasLength(1));
-        expect(repo.sent.single.bodyText, 'Hello');
-        expect(repo.sent.single.bodyHtml, contains('<strong>Hello</strong>'));
-      },
-    );
+      expect(repo.sent, hasLength(1));
+      expect(repo.sent.single.bodyText, 'Hello');
+      expect(repo.sent.single.bodyHtml, contains('<strong>Hello</strong>'));
+    });
 
     testWidgets('plain unformatted mail sends no bodyHtml alternative', (
       tester,
@@ -1208,10 +1200,7 @@ void main() {
       await tester.tap(find.text('Düzenle'));
       await tester.pumpAndSettle();
       expect(find.byType(ComposeScreen), findsOneWidget);
-      expect(
-        _bodyText(tester),
-        'Saklanan gövde',
-      );
+      expect(_bodyText(tester), 'Saklanan gövde');
     },
   );
 
