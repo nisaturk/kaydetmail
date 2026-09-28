@@ -71,6 +71,8 @@ class _AuthGateState extends State<_AuthGate> {
   bool _handlingLogout = false;
   ({String mailId, bool reply})? _pendingMailTap;
 
+  bool _mailboxUnlocked = false;
+
   /// Routes the home-screen widget's "Yaz" compose shortcut, gated on
   /// [_loggedIn] — see `HomeWidgetComposeRouter`. Deferred to the next
   /// frame like [_pendingMailTap]'s consumption below, since this can fire
@@ -106,7 +108,9 @@ class _AuthGateState extends State<_AuthGate> {
   }
 
   void _openTappedMail(({String mailId, bool reply}) tap) {
-    if (_loggedIn != true) {
+    if (_loggedIn != true ||
+        (AppSettingsController.instance.biometricLockEnabled &&
+            !_mailboxUnlocked)) {
       _pendingMailTap = tap;
       return;
     }
@@ -120,6 +124,17 @@ class _AuthGateState extends State<_AuthGate> {
             MailDetailScreen(emailId: tap.mailId, openReplyOnLoad: tap.reply),
       ),
     );
+  }
+
+  void _onLockChanged(bool unlocked) {
+    _mailboxUnlocked = unlocked;
+    if (!unlocked || _loggedIn != true) return;
+    final pendingMailTap = _pendingMailTap;
+    if (pendingMailTap == null) return;
+    _pendingMailTap = null;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _pushMailDetail(pendingMailTap);
+    });
   }
 
   void _pushCompose() {
@@ -176,7 +191,9 @@ class _AuthGateState extends State<_AuthGate> {
     }
     unawaited(_recoverPendingSends());
     final pendingMailTap = _pendingMailTap;
-    if (pendingMailTap != null) {
+    if (pendingMailTap != null &&
+        (!AppSettingsController.instance.biometricLockEnabled ||
+            _mailboxUnlocked)) {
       _pendingMailTap = null;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) _pushMailDetail(pendingMailTap);
@@ -302,7 +319,10 @@ class _AuthGateState extends State<_AuthGate> {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
     return _loggedIn!
-        ? const BiometricLockGate(child: HomeScreen())
+        ? BiometricLockGate(
+            onLockChanged: _onLockChanged,
+            child: const HomeScreen(),
+          )
         : LoginScreen(onAuthenticated: _setAuthenticated);
   }
 }
