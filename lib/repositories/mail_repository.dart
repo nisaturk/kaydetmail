@@ -23,7 +23,6 @@ import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
 import '../models/reply_reminder.dart';
-import '../models/mail_snippet.dart';
 import '../models/trusted_sender.dart';
 import '../models/attachment_download_state.dart';
 import '../state/app_settings_controller.dart';
@@ -471,20 +470,6 @@ abstract class MailRepository extends ChangeNotifier {
   Future<void> deleteTemplate(String accountId, String templateId) =>
       throw UnimplementedError('deleteTemplate');
 
-  Future<List<MailSnippet>> listSnippets(
-    String accountId, {
-    bool refresh = false,
-  }) => throw UnimplementedError('listSnippets');
-
-  Future<MailSnippet> createSnippet(String accountId, MailSnippet snippet) =>
-      throw UnimplementedError('createSnippet');
-
-  Future<MailSnippet> updateSnippet(String accountId, MailSnippet snippet) =>
-      throw UnimplementedError('updateSnippet');
-
-  Future<void> deleteSnippet(String accountId, String snippetId) =>
-      throw UnimplementedError('deleteSnippet');
-
   // --- Labels -------------------------------------------------------
 
   List<MailLabel> getLabels();
@@ -493,9 +478,13 @@ abstract class MailRepository extends ChangeNotifier {
   /// be applied to mail belonging to another account.
   List<MailLabel> getLabelsForAccount(String accountId);
 
-  /// Creates a new label. Throws [ArgumentError] (Turkish message) when the
-  /// trimmed name is empty or duplicates an existing name case-insensitively.
-  Future<MailLabel> createLabel({required String name, required Color color});
+  /// Creates a label for [accountId], or active/primary account when omitted.
+  /// Duplicate names are rejected only within that account.
+  Future<MailLabel> createLabel({
+    required String name,
+    required Color color,
+    String? accountId,
+  });
 
   /// Renames and/or recolors an existing label.
   ///

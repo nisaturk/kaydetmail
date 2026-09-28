@@ -28,8 +28,9 @@ class MailSelectionController extends ChangeNotifier {
   /// Toggles one mail on/off, entering selection mode if needed.
   void toggle(String id) {
     if (!_active) enter();
-    if (!_selected.add(id)) {
-      _selected.remove(id);
+    if (!_selected.add(id)) _selected.remove(id);
+    if (_selected.isEmpty) {
+      _active = false;
     }
     notifyListeners();
   }

@@ -164,16 +164,18 @@ class _AuthGateState extends State<_AuthGate> {
     }
     // One stale/revoked account must never block restoring the others —
     // only fall back to the login screen when every restore failed.
-    var anyRestored = false;
-    for (final email in emails) {
-      try {
-        await AppConfig.mailRepository.restoreSession(email);
-        anyRestored = true;
-      } catch (_) {
-        // Fall through to the next stored account.
-      }
-      if (!mounted) return;
-    }
+    final results = await Future.wait(
+      emails.map((email) async {
+        try {
+          await AppConfig.mailRepository.restoreSession(email);
+          return true;
+        } catch (_) {
+          return false;
+        }
+      }),
+    );
+    if (!mounted) return;
+    final anyRestored = results.any((restored) => restored);
     if (anyRestored) {
       _setAuthenticated();
     } else {

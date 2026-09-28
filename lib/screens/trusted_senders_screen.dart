@@ -85,7 +85,7 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
             },
             itemBuilder: (_) => [
               for (final account in _repo.accounts)
-                PopupMenuItem(value: account.id, child: Text(account.label)),
+                PopupMenuItem(value: account.id, child: Text(account.email)),
             ],
           ),
       ],

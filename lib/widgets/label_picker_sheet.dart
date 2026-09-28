@@ -176,14 +176,22 @@ class _LabelRowState extends State<_LabelRow> {
   // suggest (false → true → null) — a mixed selection should resolve to
   // "apply to everyone", not "clear everyone", on the very next tap.
   void _toggle() async {
-    final next = _applied != true;
+    final before = _applied;
+    final next = before != true;
     setState(() => _applied = next);
-    if (next) {
-      await widget.repo.addLabelsToEmails(widget.emailIds, [widget.labelId]);
-    } else {
-      await widget.repo.removeLabelsFromEmails(widget.emailIds, [
-        widget.labelId,
-      ]);
+    try {
+      if (next) {
+        await widget.repo.addLabelsToEmails(widget.emailIds, [widget.labelId]);
+      } else {
+        await widget.repo.removeLabelsFromEmails(widget.emailIds, [
+          widget.labelId,
+        ]);
+      }
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _applied = before);
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text('Etiket uygulanamadı: $error')));
     }
   }
 

@@ -26,7 +26,6 @@ import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/reply_reminder.dart';
-import '../models/mail_snippet.dart';
 import '../models/trusted_sender.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -368,6 +367,20 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
+  Future<void> _expireSession(String accountId) async {
+    final session = _sessions.remove(accountId);
+    if (session == null) return;
+    await session.authService.tokenStore.clear(accountId);
+    session.persistTimer?.cancel();
+    _cancelReconnectRetry(session);
+    _cache?.forgetAccount(accountId);
+    await SessionStore.removeEmail(session.account.email);
+    if (_activeAccountId == accountId) _activeAccountId = null;
+    if (_sessions.isEmpty) _stopSnoozeExpiryTimer();
+    _touch();
+    notifyListeners();
+  }
+
   /// Removes every connected account's push registration (e.g. the user
   /// turned notifications off in Settings). Safe to call when nothing is
   /// registered — a no-op then.
@@ -656,57 +669,40 @@ class ApiMailRepository extends MailRepository {
       account: account,
     );
     _sessions[account.id] = session;
+    authService.client.onAuthenticationLost = () => _expireSession(account.id);
     try {
       _cache ??= await _openCacheOrMemory();
       final flags = LocalMailFlagsStore(account.id, _cache!);
       await flags.migrateLegacyPrefs();
-      session.pinnedIds = await _loadPinnedIds(session, flags);
-      session.repliedFromKaydetMailIds = await flags
-          .readRepliedFromKaydetMail();
-      session.forwardedFromKaydetMailIds = await flags
-          .readForwardedFromKaydetMail();
-      session.repliedFromKaydetMailThreadIds = await flags
-          .readRepliedFromKaydetMailThreads();
-      session.forwardedFromKaydetMailThreadIds = await flags
-          .readForwardedFromKaydetMailThreads();
-      session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
-      await _loadLabels(session, flags);
-      await _loadManualContacts(session, flags);
-      session.snoozedUntil = await _loadSnoozedUntil(session, flags);
       session.flagsStore = flags;
+      await _hydrateLocalSessionState(session, flags);
       _recomputeWatchedSnoozeDeadline();
       _startSnoozeExpiryTimerIfNeeded();
       _hydrateFolderMapFromCache(session);
       final hydrated = await _hydrateFromCache(session);
-      // Best-effort: enrich the token-derived account with the server view
-      // (displayName, provider, status). A failed read never fails the login
-      // itself — the token-derived account stays.
-      final accountFuture = mailService.getAccount().then<MailAccount?>(
-        (a) => a,
-        onError: (_) => null,
-      );
-      // A cached mailbox (mail and/or a previously-seen folder map) means
-      // there is something to show even if the backend is unreachable right
-      // now — that failure must not roll the whole login back.
       final hasCachedMailbox = hydrated || session.folderIds.isNotEmpty;
-      try {
-        await _loadMailbox(session);
-      } catch (_) {
-        if (!hasCachedMailbox) rethrow;
+      if (hasCachedMailbox) {
         session.offline = true;
-        _scheduleReconnectRetry(session);
+        await SessionStore.saveAccountId(account.email, account.id);
         notifyListeners();
+        unawaited(
+          Future<void>.delayed(
+            Duration.zero,
+            () => _refreshActivatedCachedSession(session, flags),
+          ),
+        );
+        return session.account;
       }
+      await _loadRemoteSessionState(session, flags);
+      await _loadMailbox(session);
       await _seedStarred(session);
       unawaited(_seedThreadSizes(session));
-      session.account = await accountFuture ?? session.account;
-      unawaited(_migrateLegacySignature(session));
-      // Cached mail is already on screen; quietly bring it up to date.
-      if (hydrated) {
-        unawaited(
-          _refreshEmailsFor(session, MailFolder.inbox).catchError((_) {}),
-        );
+      try {
+        session.account = await mailService.getAccount();
+      } catch (_) {
+        // Token-derived account remains usable until server details load.
       }
+      unawaited(_migrateLegacySignature(session));
       await SessionStore.saveAccountId(account.email, account.id);
       notifyListeners();
       return session.account;
@@ -715,6 +711,79 @@ class ApiMailRepository extends MailRepository {
       _sessions.remove(account.id);
       _touch();
       rethrow;
+    }
+  }
+
+  Future<void> _hydrateLocalSessionState(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    session.pinnedIds = await flags.readPinned();
+    session.repliedFromKaydetMailIds = await flags.readRepliedFromKaydetMail();
+    session.forwardedFromKaydetMailIds = await flags
+        .readForwardedFromKaydetMail();
+    session.repliedFromKaydetMailThreadIds = await flags
+        .readRepliedFromKaydetMailThreads();
+    session.forwardedFromKaydetMailThreadIds = await flags
+        .readForwardedFromKaydetMailThreads();
+    session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
+    session.labels = [
+      for (final label in await flags.readLabelDefs())
+        MailLabel(
+          id: label['id'] as String,
+          name: label['name'] as String,
+          color: Color(_unsignedArgb(label['color'] as int)),
+        ),
+    ];
+    session.labelMap = await flags.readLabelMap();
+    session.manualContacts = [
+      for (final contact in await flags.readContacts())
+        ManualContact(
+          id: contact['id'] as String,
+          accountId: session.account.id,
+          email: contact['email'] as String,
+          displayName: contact['displayName'] as String?,
+        ),
+    ];
+    session.snoozedUntil = await flags.readSnoozed();
+  }
+
+  Future<void> _loadRemoteSessionState(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    session.pinnedIds = await _loadPinnedIds(session, flags);
+    session.repliedFromKaydetMailIds = await flags.readRepliedFromKaydetMail();
+    session.forwardedFromKaydetMailIds = await flags
+        .readForwardedFromKaydetMail();
+    session.repliedFromKaydetMailThreadIds = await flags
+        .readRepliedFromKaydetMailThreads();
+    session.forwardedFromKaydetMailThreadIds = await flags
+        .readForwardedFromKaydetMailThreads();
+    session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
+    await _loadLabels(session, flags);
+    await _loadManualContacts(session, flags);
+    session.snoozedUntil = await _loadSnoozedUntil(session, flags);
+  }
+
+  Future<void> _refreshActivatedCachedSession(
+    _Session session,
+    LocalMailFlagsStore flags,
+  ) async {
+    try {
+      await _loadRemoteSessionState(session, flags);
+      await _loadMailbox(session);
+      await _seedStarred(session);
+      unawaited(_seedThreadSizes(session));
+      try {
+        session.account = await session.mailService.getAccount();
+      } catch (_) {}
+      unawaited(_migrateLegacySignature(session));
+      notifyListeners();
+    } catch (_) {
+      session.offline = true;
+      _scheduleReconnectRetry(session);
+      notifyListeners();
     }
   }
 
@@ -777,7 +846,7 @@ class ApiMailRepository extends MailRepository {
           MailLabel(
             id: d['id'] as String,
             name: d['name'] as String,
-            color: Color(d['color'] as int),
+            color: Color(_unsignedArgb(d['color'] as int)),
           ),
       ];
       session.labelMap = await session.mailService.getLabelAssignments();
@@ -792,7 +861,7 @@ class ApiMailRepository extends MailRepository {
           MailLabel(
             id: d['id'] as String,
             name: d['name'] as String,
-            color: Color(d['color'] as int),
+            color: Color(_unsignedArgb(d['color'] as int)),
           ),
       ];
       session.labelMap = await flags.readLabelMap();
@@ -840,36 +909,37 @@ class ApiMailRepository extends MailRepository {
   /// there are any, otherwise [LocalMailFlagsStore.defaultLabels] for a
   /// brand-new account — then replay the local mail-to-label assignments
   /// against the newly created backend ids. Best-effort; a failure here
-  /// must never affect login, and [_loadLabels] falls back to the local
-  /// cache regardless.
+  /// Cached labels remain available when migration fails.
+  /// Seeds required defaults, then migrates any pre-cutover labels and their
+  /// assignments. Server labels stay authoritative when names collide.
   Future<void> _migrateLegacyLabels(
     _Session session,
     LocalMailFlagsStore flags,
   ) async {
     try {
       final existing = await session.mailService.getLabels();
-      final localDefs = await flags.readLabelDefs();
-      if (existing.isNotEmpty) return;
-      final defs = localDefs.isNotEmpty
-          ? localDefs
-          : LocalMailFlagsStore.defaultLabels;
+      final names = {
+        for (final label in existing) (label['name'] as String).toLowerCase(),
+      };
       final idRemap = <String, String>{};
+      final localDefs = await flags.readLabelDefs();
+      final defs = [...LocalMailFlagsStore.defaultLabels, ...localDefs];
       for (final d in defs) {
+        final name = d['name'] as String;
+        if (!names.add(name.toLowerCase())) continue;
         final created = await session.mailService.createLabel(
-          d['name'] as String,
-          d['color'] as int,
+          name,
+          _signedArgb(d['color'] as int),
         );
         idRemap[d['id'] as String] = created['id'] as String;
       }
-      if (localDefs.isNotEmpty) {
-        for (final entry in (await flags.readLabelMap()).entries) {
-          final remapped = [
-            for (final oldId in entry.value)
-              if (idRemap[oldId] != null) idRemap[oldId]!,
-          ];
-          if (remapped.isNotEmpty) {
-            await session.mailService.assignLabels([entry.key], remapped);
-          }
+      for (final entry in (await flags.readLabelMap()).entries) {
+        final remapped = [
+          for (final oldId in entry.value)
+            if (idRemap[oldId] != null) idRemap[oldId]!,
+        ];
+        if (remapped.isNotEmpty) {
+          await session.mailService.assignLabels([entry.key], remapped);
         }
       }
     } catch (_) {
@@ -877,6 +947,11 @@ class ApiMailRepository extends MailRepository {
       // remain available via [_loadLabels] until migration can run again.
     }
   }
+
+  static int _signedArgb(int color) =>
+      color >= 0x80000000 ? color - 0x100000000 : color;
+
+  static int _unsignedArgb(int color) => color & 0xFFFFFFFF;
 
   /// One-time migration for pre-cutover installs: if the backend has no
   /// signature yet but the old per-device SharedPreferences store does,
@@ -1002,7 +1077,8 @@ class ApiMailRepository extends MailRepository {
     final services = _nextServices();
     final accountIds = await services.authService.tokenStore.readAccountIds();
     final savedAccountId = await SessionStore.loadAccountId(email);
-    final candidateId = savedAccountId != null &&
+    final candidateId =
+        savedAccountId != null &&
             accountIds.contains(savedAccountId) &&
             !_sessions.containsKey(savedAccountId)
         ? savedAccountId
@@ -1140,7 +1216,7 @@ class ApiMailRepository extends MailRepository {
   Future<void> _seedStarred(_Session session) async {
     try {
       final flagged = <Email>[];
-      for (var page = 1;; page++) {
+      for (var page = 1; ; page++) {
         final result = await session.mailService.search(
           query: '',
           flagged: true,
@@ -3147,9 +3223,8 @@ class ApiMailRepository extends MailRepository {
   void _resolveDraftsFrom(List<Email> listed) {
     if (_unresolvedDrafts.isEmpty) return;
     final claimed = _draftIdSuccessor.values.toSet();
-    final candidates =
-        listed.where((e) => !claimed.contains(e.id)).toList()
-          ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    final candidates = listed.where((e) => !claimed.contains(e.id)).toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
     for (final MapEntry(key: id, value: pending)
         in _unresolvedDrafts.entries.toList()) {
       final written = pending.written;
@@ -3624,24 +3699,6 @@ class ApiMailRepository extends MailRepository {
     await session.mailService.deleteTemplate(templateId);
     session.templates?.removeWhere((item) => item.id == templateId);
   }
-
-  @override
-  Future<List<MailSnippet>> listSnippets(
-    String accountId, {
-    bool refresh = false,
-  }) => _sessionForAccountId(accountId).mailService.getSnippets();
-
-  @override
-  Future<MailSnippet> createSnippet(String accountId, MailSnippet snippet) =>
-      _sessionForAccountId(accountId).mailService.createSnippet(snippet);
-
-  @override
-  Future<MailSnippet> updateSnippet(String accountId, MailSnippet snippet) =>
-      _sessionForAccountId(accountId).mailService.updateSnippet(snippet);
-
-  @override
-  Future<void> deleteSnippet(String accountId, String snippetId) =>
-      _sessionForAccountId(accountId).mailService.deleteSnippet(snippetId);
 
   @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {
@@ -4347,15 +4404,18 @@ class ApiMailRepository extends MailRepository {
   Future<MailLabel> createLabel({
     required String name,
     required Color color,
+    String? accountId,
   }) async {
-    final session = _primarySession;
+    final session = accountId == null
+        ? _primarySession
+        : _sessionForAccountId(accountId);
     _assertLabelNameIsFree(session, name);
     final trimmed = name.trim();
     Map<String, dynamic> created;
     try {
       created = await session.mailService.createLabel(
         trimmed,
-        color.toARGB32(),
+        _signedArgb(color.toARGB32()),
       );
     } on ApiException catch (e) {
       if (e.code == 'label_name_taken') {
@@ -4366,7 +4426,7 @@ class ApiMailRepository extends MailRepository {
     final label = MailLabel(
       id: created['id'] as String,
       name: created['name'] as String,
-      color: Color(created['color'] as int),
+      color: Color(_unsignedArgb(created['color'] as int)),
     );
     session.labels = [...session.labels, label];
     await _persistLabels(session);
@@ -4387,7 +4447,11 @@ class ApiMailRepository extends MailRepository {
     _assertLabelNameIsFree(session, name, selfId: id);
     final trimmed = name.trim();
     try {
-      await session.mailService.updateLabel(id, trimmed, color.toARGB32());
+      await session.mailService.updateLabel(
+        id,
+        trimmed,
+        _signedArgb(color.toARGB32()),
+      );
     } on ApiException catch (e) {
       if (e.code == 'label_name_taken') {
         throw ArgumentError('Bu isimde bir etiket zaten var.');
@@ -4444,7 +4508,7 @@ class ApiMailRepository extends MailRepository {
         );
         await _clearQueuedLabels(session, entry.value, ownedLabelIds);
       } catch (error) {
-        if (!_isOfflineFailure(error)) continue;
+        if (!_isOfflineFailure(error)) rethrow;
         await _queueLabels(session, entry.value, ownedLabelIds, 'label_add');
       }
       for (final id in entry.value) {
@@ -4471,7 +4535,7 @@ class ApiMailRepository extends MailRepository {
         await session.mailService.unassignLabels(entry.value, labelIds);
         await _clearQueuedLabels(session, entry.value, labelIds);
       } catch (error) {
-        if (!_isOfflineFailure(error)) continue;
+        if (!_isOfflineFailure(error)) rethrow;
         await _queueLabels(session, entry.value, labelIds, 'label_remove');
       }
       for (final id in entry.value) {
