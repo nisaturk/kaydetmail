@@ -7,7 +7,9 @@ import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
 
 class TrustedSendersScreen extends StatefulWidget {
-  const TrustedSendersScreen({super.key});
+  const TrustedSendersScreen({super.key, required this.accountId});
+
+  final String accountId;
 
   @override
   State<TrustedSendersScreen> createState() => _TrustedSendersScreenState();
@@ -23,12 +25,8 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
   @override
   void initState() {
     super.initState();
-    if (_repo.accounts.isNotEmpty) {
-      _accountId = _repo.activeAccountId ?? _repo.accounts.first.id;
-      _load();
-    } else {
-      _loading = false;
-    }
+    _accountId = widget.accountId;
+    _load();
   }
 
   Future<void> _load() async {
@@ -70,29 +68,8 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      title: const Text('Kayıtlı Görsel Tercihleri'),
-      actions: [
-        if (_repo.accounts.length > 1)
-          PopupMenuButton<String>(
-            key: const Key('trusted-senders-account-menu'),
-            tooltip: 'Hesap seç',
-            icon: const Icon(LucideIcons.chevronDown),
-            onSelected: (id) {
-              if (id == _accountId) return;
-              setState(() => _accountId = id);
-              _load();
-            },
-            itemBuilder: (_) => [
-              for (final account in _repo.accounts)
-                PopupMenuItem(value: account.id, child: Text(account.email)),
-            ],
-          ),
-      ],
-    ),
-    body: _repo.accounts.isEmpty
-        ? const Center(child: Text('Bağlı hesap bulunamadı.'))
-        : _loading
+    appBar: AppBar(title: const Text('Kayıtlı Görsel Tercihleri')),
+    body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
         ? Center(
