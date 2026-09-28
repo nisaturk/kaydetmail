@@ -283,8 +283,8 @@ class _AuthGateState extends State<_AuthGate> {
     _syncTimer = Timer.periodic(interval, (_) => _syncLoadedFolders());
   }
 
-  /// Refreshes every folder that already has mail loaded — matches what
-  /// pull-to-refresh does per folder, just on a timer instead of a gesture.
+  /// Syncs every folder that already has mail loaded, then refreshes its
+  /// cached first page.
   Future<void> _syncLoadedFolders() async {
     final settings = AppSettingsController.instance;
     final conditions = PlatformDeviceSyncConditions();
@@ -306,6 +306,7 @@ class _AuthGateState extends State<_AuthGate> {
       }
       if (repo.getEmailsInFolder(folder).isEmpty) continue;
       try {
+        await repo.syncFolder(folder);
         await repo.refreshEmails(folder);
       } catch (_) {
         // The next tick retries; a transient failure here is invisible to

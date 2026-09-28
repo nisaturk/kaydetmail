@@ -37,7 +37,10 @@ class _FakeRepo extends MailRepository {
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) =>
-      folder == MailFolder.inbox && !calls.contains('trash') ? [email] : [];
+      (folder == MailFolder.inbox || folder == MailFolder.all) &&
+          !calls.contains('trash')
+      ? [email]
+      : [];
 
   @override
   List<Email> getAllEmails() => [email];
@@ -109,6 +112,15 @@ void main() {
     expect(tester.takeException(), isNull);
     return repo;
   }
+
+  testWidgets('cached all mail opens without a sync or refresh', (
+    tester,
+  ) async {
+    final repo = await pumpInbox(tester, folder: MailFolder.all);
+
+    expect(repo.calls, isEmpty);
+    expect(find.text('Kaydırılacak'), findsOneWidget);
+  });
 
   testWidgets('a configured toggle-read swipe marks read and keeps the row', (
     tester,
@@ -207,6 +219,7 @@ void main() {
       'Spam',
       'Çöp Kutusu',
       'Yıldızlılar',
+      'Arşiv',
     ]) {
       expect(find.text(label), findsOneWidget);
     }
@@ -218,6 +231,7 @@ void main() {
       'Spam',
       'Çöp Kutusu',
       'Yıldızlılar',
+      'Arşiv',
     ];
     final folderPositions = [
       for (final label in folderLabels) tester.getTopLeft(find.text(label)).dy,
@@ -225,13 +239,15 @@ void main() {
     for (var index = 1; index < folderPositions.length; index++) {
       expect(folderPositions[index - 1], lessThan(folderPositions[index]));
     }
-    await tester.drag(find.byType(SingleChildScrollView), const Offset(0, -500));
+    await tester.drag(
+      find.byType(SingleChildScrollView),
+      const Offset(0, -500),
+    );
     await tester.pumpAndSettle();
     for (final label in ['Hesapları eşitle', 'Klasörleri yönet', 'Ayarlar']) {
       expect(find.text(label), findsOneWidget);
     }
     expect(find.text('Ertelenenler'), findsNothing);
-    expect(find.text('Arşiv'), findsNothing);
     expect(find.text('Yanıt Takibi'), findsNothing);
     expect(find.text('Zamanlanmış Gönderimler'), findsNothing);
   });

@@ -889,7 +889,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
         context: context,
         builder: (context) => AlertDialog(
           title: const Text('Konuyu değiştir?'),
-          content: const Text('Mevcut konu şablondaki konuyla değiştirilecek.'),
+          content: const Text(
+            'Mevcut konu hazır metindeki konuyla değiştirilecek.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),

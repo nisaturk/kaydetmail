@@ -918,20 +918,26 @@ class ApiMailRepository extends MailRepository {
   ) async {
     try {
       final existing = await session.mailService.getLabels();
-      final names = {
-        for (final label in existing) (label['name'] as String).toLowerCase(),
+      final idsByName = {
+        for (final label in existing)
+          (label['name'] as String).toLowerCase(): label['id'] as String,
       };
       final idRemap = <String, String>{};
       final localDefs = await flags.readLabelDefs();
       final defs = [...LocalMailFlagsStore.defaultLabels, ...localDefs];
       for (final d in defs) {
         final name = d['name'] as String;
-        if (!names.add(name.toLowerCase())) continue;
-        final created = await session.mailService.createLabel(
-          name,
-          _signedArgb(d['color'] as int),
-        );
-        idRemap[d['id'] as String] = created['id'] as String;
+        final normalizedName = name.toLowerCase();
+        var serverId = idsByName[normalizedName];
+        if (serverId == null) {
+          final created = await session.mailService.createLabel(
+            name,
+            _signedArgb(d['color'] as int),
+          );
+          serverId = created['id'] as String;
+          idsByName[normalizedName] = serverId;
+        }
+        idRemap[d['id'] as String] = serverId;
       }
       for (final entry in (await flags.readLabelMap()).entries) {
         final remapped = [

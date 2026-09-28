@@ -129,6 +129,7 @@ class GeneralSettingsScreen extends StatelessWidget {
           title: 'Ağ',
           subtitle: 'Yenileme, ekler ve sunucu',
           page: (_) => [_NetworkSection()],
+          grouped: false,
         ),
         _CategoryTile(
           icon: LucideIcons.shieldCheck,
@@ -158,8 +159,8 @@ class AccountSettingsScreen extends StatelessWidget {
         children: [
           _CategoryTile(
             icon: LucideIcons.penLine,
-            title: 'İmzalar ve kimlikler',
-            subtitle: 'Gönderen kimlikleri ve e-posta imzaları',
+            title: 'İmzalar',
+            subtitle: 'E-posta imzalarını oluştur ve varsayılanını seç',
             onTap: (ctx) => Navigator.of(ctx).push(
               MaterialPageRoute(
                 builder: (_) => SignaturesScreen(accountId: accountId),
@@ -173,8 +174,8 @@ class AccountSettingsScreen extends StatelessWidget {
             page: (_) => [_LabelsSection(accountId: accountId)],
           ),
           _CategoryTile(
-            icon: LucideIcons.layoutTemplate,
-            title: 'Hazır metinler ve şablonlar',
+            icon: LucideIcons.text,
+            title: 'Hazır metinler',
             subtitle: 'Tekrar kullanılan konu ve metinler',
             onTap: (ctx) => Navigator.of(ctx).push(
               MaterialPageRoute(
@@ -206,6 +207,7 @@ class _CategoryTile extends StatelessWidget {
     required this.title,
     required this.subtitle,
     this.page,
+    this.grouped = true,
     this.onTap,
   });
 
@@ -213,6 +215,7 @@ class _CategoryTile extends StatelessWidget {
   final String title;
   final String subtitle;
   final List<Widget> Function(BuildContext)? page;
+  final bool grouped;
   final void Function(BuildContext)? onTap;
 
   @override
@@ -230,7 +233,12 @@ class _CategoryTile extends StatelessWidget {
         if (onTap != null) return onTap!(context);
         Navigator.of(context).push(
           MaterialPageRoute(
-            builder: (_) => _SettingsPage(title: title, sections: page!),
+            builder: (_) => _SettingsPage(
+              title: title,
+              icon: icon,
+              sections: page!,
+              grouped: grouped,
+            ),
           ),
         );
       },
@@ -239,10 +247,17 @@ class _CategoryTile extends StatelessWidget {
 }
 
 class _SettingsPage extends StatelessWidget {
-  const _SettingsPage({required this.title, required this.sections});
+  const _SettingsPage({
+    required this.title,
+    required this.icon,
+    required this.sections,
+    required this.grouped,
+  });
 
   final String title;
+  final IconData icon;
   final List<Widget> Function(BuildContext) sections;
+  final bool grouped;
 
   @override
   Widget build(BuildContext context) {
@@ -255,10 +270,18 @@ class _SettingsPage extends StatelessWidget {
         ]),
         // Section widgets must NOT be const: fresh instances every build, or
         // the list keeps stale children (a changed toggle would not repaint).
-        builder: (context, _) => ListView(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          children: sections(context),
-        ),
+        builder: (context, _) {
+          final content = Column(children: sections(context));
+          return ListView(
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            children: [
+              if (grouped)
+                _NetworkGroup(title: title, icon: icon, child: content)
+              else
+                content,
+            ],
+          );
+        },
       ),
     );
   }

@@ -9,13 +9,7 @@ import 'mail_avatar.dart';
 
 /// Drawer'dan açılabilen uygulama hedefleri. Klasörler ayrı seçilir
 /// ([onSelectFolder]); bu liste menüdeki alt bölümü tek tablodan üretir.
-enum DrawerDestination {
-  scheduled,
-  reminders,
-  outbox,
-  customFolders,
-  settings,
-}
+enum DrawerDestination { scheduled, reminders, outbox, customFolders, settings }
 
 /// Hedefin menüdeki karşılığı: ikon + Türkçe etiket tek tabloda.
 extension DrawerDestinationMeta on DrawerDestination {
@@ -70,6 +64,7 @@ class AppDrawer extends StatelessWidget {
     MailFolder.spam,
     MailFolder.trash,
     MailFolder.starred,
+    MailFolder.archive,
   ];
 
   @override
