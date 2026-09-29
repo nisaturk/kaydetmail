@@ -49,6 +49,7 @@ import 'api/contact_module.dart';
 import 'api/draft_module.dart';
 import 'api/folder_module.dart';
 import 'api/label_module.dart';
+import 'api/mail_buckets.dart';
 import 'api/repository_context.dart';
 import 'api/search_module.dart';
 import 'api/session_registry.dart';
@@ -119,6 +120,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   /// order (a `Map` literal is insertion-ordered) — that order is also
   /// [accounts]' order and the order accounts restore in at app launch.
   final SessionRegistry _registry = SessionRegistry();
+  late final MailBuckets _buckets = MailBuckets(_touch);
   Map<String, AccountSession> get _sessions => _registry.sessions;
   final Map<String, ComposeLimits> _composeLimits = {};
   final Set<String> _remoteImageMailIds = {};
@@ -1113,110 +1115,12 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           list.add(session.stampLocalFlags(mail));
         }
       }
-      _replaceMany(
+      _buckets.replaceMany(
         session,
         session.starredIds,
         (e) => e.copyWith(isStarred: true),
       );
     } catch (_) {}
-  }
-
-  /// Applies [update] in place to every cached mail in [ids] within
-  /// [session], wherever its bucket, without changing which folder bucket it
-  /// lives in.
-  void _replaceMany(
-    AccountSession session,
-    Iterable<String> ids,
-    Email Function(Email) update,
-  ) {
-    final idSet = ids.toSet();
-    if (idSet.isEmpty) return;
-    _touch();
-    for (final folder in session.emails.keys.toList()) {
-      final list = session.emails[folder]!;
-      session.emails[folder] = [
-        for (final email in list)
-          idSet.contains(email.id) ? update(email) : email,
-      ];
-    }
-    for (final folderId in session.customFolderEmails.keys.toList()) {
-      session.customFolderEmails[folderId] = [
-        for (final email in session.customFolderEmails[folderId]!)
-          idSet.contains(email.id) ? update(email) : email,
-      ];
-    }
-  }
-
-  /// Re-derives every loaded mail's flags (backend-backed pin/labels,
-  /// IMAP-backed star and local replied/forwarded) from [session]'s sets.
-  /// Used instead of [_replaceMany] when a change can affect mail beyond
-  /// the ids the caller touched directly — e.g. marking one message replied
-  /// also marks every other loaded message in its thread.
-  void _restampFlags(AccountSession session) {
-    _touch();
-    for (final folder in session.emails.keys.toList()) {
-      session.emails[folder] = [
-        for (final email in session.emails[folder]!)
-          session.stampLocalFlags(email),
-      ];
-    }
-    for (final folderId in session.customFolderEmails.keys.toList()) {
-      session.customFolderEmails[folderId] = [
-        for (final email in session.customFolderEmails[folderId]!)
-          session.stampLocalFlags(email),
-      ];
-    }
-  }
-
-  /// Moves every cached mail in [ids] into [targetFolder]'s bucket within
-  /// [session], stamping the new folder on each and dropping it from
-  /// wherever it used to live. Mails not currently cached are ignored.
-  void _moveMany(
-    AccountSession session,
-    Iterable<String> ids,
-    MailFolder targetFolder,
-  ) {
-    final idSet = ids.toSet();
-    if (idSet.isEmpty) return;
-    _touch();
-    final moved = <Email>[
-      for (final list in session.customFolderEmails.values)
-        for (final email in list)
-          if (idSet.contains(email.id)) email.copyWith(folder: targetFolder),
-    ];
-    session.dropFromCustomFolderMails(idSet);
-    for (final folder in session.emails.keys.toList()) {
-      if (folder == targetFolder) continue;
-      final list = session.emails[folder]!;
-      final keep = <Email>[];
-      for (final email in list) {
-        if (idSet.contains(email.id)) {
-          moved.add(email.copyWith(folder: targetFolder));
-        } else {
-          keep.add(email);
-        }
-      }
-      session.emails[folder] = keep;
-    }
-    if (moved.isNotEmpty) {
-      session.emails
-          .putIfAbsent(targetFolder, () => <Email>[])
-          .insertAll(0, moved);
-    }
-  }
-
-  /// Ids from [ids] whose cached copy currently lives in Trash or Spam —
-  /// the only two folders `restore` is valid from.
-  List<String> _idsInTrashOrSpam(AccountSession session, Iterable<String> ids) {
-    final trashed = {
-      for (final e in session.emails[MailFolder.trash] ?? const []) e.id,
-    };
-    final spammed = {
-      for (final e in session.emails[MailFolder.spam] ?? const []) e.id,
-    };
-    return ids
-        .where((id) => trashed.contains(id) || spammed.contains(id))
-        .toList();
   }
 
   static bool _isOfflineFailure(Object error) =>
@@ -1227,114 +1131,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   void _markOffline(AccountSession session) {
     session.offline = true;
     _scheduleReconnectRetry(session);
-  }
-
-  /// Captures exact local bucket positions so rejected requests can be rolled
-  /// back without replacing unrelated cached mail.
-  Map<String, MailLocationSnapshot> _snapshotMailLocations(
-    AccountSession session,
-    Iterable<String> ids,
-  ) {
-    final snapshots = {
-      for (final id in ids)
-        id: (
-          folders: <MailFolder, (Email, int)>{},
-          customFolders: <String, (Email, int)>{},
-        ),
-    };
-    for (final entry in session.emails.entries) {
-      for (var index = 0; index < entry.value.length; index++) {
-        final email = entry.value[index];
-        final snapshot = snapshots[email.id];
-        if (snapshot != null) {
-          snapshot.folders[entry.key] = (email, index);
-        }
-      }
-    }
-    for (final entry in session.customFolderEmails.entries) {
-      for (var index = 0; index < entry.value.length; index++) {
-        final email = entry.value[index];
-        final snapshot = snapshots[email.id];
-        if (snapshot != null) {
-          snapshot.customFolders[entry.key] = (email, index);
-        }
-      }
-    }
-    return snapshots;
-  }
-
-  Map<String, MailLocationSnapshot> _selectMailLocations(
-    Map<String, MailLocationSnapshot> snapshots,
-    Iterable<String> ids,
-  ) {
-    final selected = <String, MailLocationSnapshot>{};
-    for (final id in ids) {
-      final snapshot = snapshots[id];
-      if (snapshot != null) selected[id] = snapshot;
-    }
-    return selected;
-  }
-
-  void _restoreMailLocations(
-    AccountSession session,
-    Map<String, MailLocationSnapshot> snapshots,
-  ) {
-    if (snapshots.isEmpty) return;
-    final ids = snapshots.keys.toSet();
-    _touch();
-    for (final folder in session.emails.keys.toList()) {
-      session.emails[folder] = [
-        for (final email in session.emails[folder]!)
-          if (!ids.contains(email.id)) email,
-      ];
-    }
-    for (final folderId in session.customFolderEmails.keys.toList()) {
-      session.customFolderEmails[folderId] = [
-        for (final email in session.customFolderEmails[folderId]!)
-          if (!ids.contains(email.id)) email,
-      ];
-    }
-    final folderLocations = <MailFolder, List<(Email, int)>>{};
-    final customFolderLocations = <String, List<(Email, int)>>{};
-    for (final entry in snapshots.entries) {
-      for (final location in entry.value.folders.entries) {
-        folderLocations
-            .putIfAbsent(location.key, () => <(Email, int)>[])
-            .add(location.value);
-      }
-      for (final location in entry.value.customFolders.entries) {
-        customFolderLocations
-            .putIfAbsent(location.key, () => <(Email, int)>[])
-            .add(location.value);
-      }
-      final originalEmail =
-          entry.value.folders.values.firstOrNull?.$1 ??
-          entry.value.customFolders.values.firstOrNull?.$1;
-      if (originalEmail != null) {
-        if (originalEmail.isStarred) {
-          session.starredIds.add(originalEmail.id);
-        } else {
-          session.starredIds.remove(originalEmail.id);
-        }
-      }
-    }
-    for (final entry in folderLocations.entries) {
-      entry.value.sort((a, b) => a.$2.compareTo(b.$2));
-      final list = session.emails.putIfAbsent(entry.key, () => <Email>[]);
-      for (final (email, index) in entry.value) {
-        list.insert(min(index, list.length), email);
-      }
-    }
-    for (final entry in customFolderLocations.entries) {
-      entry.value.sort((a, b) => a.$2.compareTo(b.$2));
-      final list = session.customFolderEmails.putIfAbsent(
-        entry.key,
-        () => <Email>[],
-      );
-      for (final (email, index) in entry.value) {
-        list.insert(min(index, list.length), email);
-      }
-    }
   }
 
   /// Applies a bulk action immediately in the local cache, then reconciles
@@ -1349,7 +1145,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     String? folderId,
   }) async {
     if (ids.isEmpty) return const [];
-    final snapshots = _snapshotMailLocations(session, ids);
+    final snapshots = _buckets.snapshotMailLocations(session, ids);
     apply(ids);
     notifyListeners();
     List<BulkActionResult> results;
@@ -1369,9 +1165,9 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
               await store.queueMutation(id, operation, folderId: folderId);
             }
           } catch (_) {
-            _restoreMailLocations(
+            _buckets.restoreMailLocations(
               session,
-              _selectMailLocations(snapshots, ids),
+              _buckets.selectMailLocations(snapshots, ids),
             );
             notifyListeners();
             rethrow;
@@ -1379,7 +1175,10 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
         }
         return const [];
       }
-      _restoreMailLocations(session, _selectMailLocations(snapshots, ids));
+      _buckets.restoreMailLocations(
+        session,
+        _buckets.selectMailLocations(snapshots, ids),
+      );
       notifyListeners();
       rethrow;
     }
@@ -1387,12 +1186,12 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
         .where((result) => result.success)
         .map((result) => result.mailId)
         .toSet();
-    final failedSnapshots = _selectMailLocations(
+    final failedSnapshots = _buckets.selectMailLocations(
       snapshots,
       ids.where((id) => !successfulIds.contains(id)),
     );
     if (failedSnapshots.isNotEmpty) {
-      _restoreMailLocations(session, failedSnapshots);
+      _buckets.restoreMailLocations(session, failedSnapshots);
       notifyListeners();
     }
     final store = session.flagsStore;
@@ -1591,7 +1390,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
       await store.writeLabelMap(session.labelMap);
     } catch (_) {}
     _recomputeWatchedSnoozeDeadline();
-    _restampFlags(session);
+    _buckets.restampFlags(session);
     _labels.restamp(session, [
       for (final list in session.emails.values)
         for (final e in list) e.id,
@@ -2597,7 +2396,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     AccountSession session,
     List<String> ids,
     Email Function(Email) update,
-  ) => _replaceMany(session, ids, update);
+  ) => _buckets.replaceMany(session, ids, update);
 
   late final FolderModule _folders = FolderModule(this);
 
@@ -2738,19 +2537,19 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
 
   @override
   void removeMany(AccountSession session, Iterable<String> ids) =>
-      _removeMany(session, ids);
+      _buckets.removeMany(session, ids);
 
   @override
   Map<String, MailLocationSnapshot> snapshotMailLocations(
     AccountSession session,
     Iterable<String> ids,
-  ) => _snapshotMailLocations(session, ids);
+  ) => _buckets.snapshotMailLocations(session, ids);
 
   @override
   void restoreMailLocations(
     AccountSession session,
     Map<String, MailLocationSnapshot> snapshots,
-  ) => _restoreMailLocations(session, snapshots);
+  ) => _buckets.restoreMailLocations(session, snapshots);
 
   // --- Account-owned data, delegated to focused modules --------------------
 
@@ -2989,7 +2788,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     final results = await _bulkAndApplyOrQueue(session, 'move', ids, (
       succeeded,
     ) {
-      _removeMany(session, succeeded);
+      _buckets.removeMany(session, succeeded);
       session.forgetCustomFolderMails(folderId);
     }, folderId: folderId);
     final failure = results.where((r) => !r.success).firstOrNull;
@@ -3089,7 +2888,8 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           entry.key,
           'trash',
           entry.value,
-          (succeeded) => _moveMany(entry.key, succeeded, MailFolder.trash),
+          (succeeded) =>
+              _buckets.moveMany(entry.key, succeeded, MailFolder.trash),
         ),
       ),
     );
@@ -3121,7 +2921,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
             .map((result) => result.mailId)
             .toList();
         if (successfulIds.isNotEmpty) {
-          _removeMany(session, successfulIds);
+          _buckets.removeMany(session, successfulIds);
           notifyListeners();
         }
         failures.addAll([
@@ -3133,20 +2933,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     );
     if (failures.isNotEmpty) {
       throw ApiException(status: 0, code: failures.first);
-    }
-  }
-
-  /// Drops every cached mail in [ids] from whichever bucket holds it.
-  void _removeMany(AccountSession session, Iterable<String> ids) {
-    final idSet = ids.toSet();
-    if (idSet.isEmpty) return;
-    _touch();
-    session.dropFromCustomFolderMails(idSet);
-    for (final folder in session.emails.keys.toList()) {
-      session.emails[folder] = [
-        for (final email in session.emails[folder]!)
-          if (!idSet.contains(email.id)) email,
-      ];
     }
   }
 
@@ -3172,17 +2958,17 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
         throw ArgumentError('Unknown target folder for this account: $folder');
       }
       final idsForSession = entry.value;
-      final restoring = _idsInTrashOrSpam(session, idsForSession);
+      final restoring = _buckets.idsInTrashOrSpam(session, idsForSession);
       if (restoring.isNotEmpty) {
-        final snapshots = _snapshotMailLocations(session, restoring);
-        _moveMany(session, restoring, MailFolder.inbox);
+        final snapshots = _buckets.snapshotMailLocations(session, restoring);
+        _buckets.moveMany(session, restoring, MailFolder.inbox);
         notifyListeners();
         List<BulkActionResult>? results;
         try {
           results = await session.mailService.bulkAction('restore', restoring);
         } catch (error) {
           if (!_isOfflineFailure(error)) {
-            _restoreMailLocations(session, snapshots);
+            _buckets.restoreMailLocations(session, snapshots);
             notifyListeners();
             rethrow;
           }
@@ -3194,7 +2980,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
                 await store.queueMutation(id, 'restore');
               }
             } catch (_) {
-              _restoreMailLocations(session, snapshots);
+              _buckets.restoreMailLocations(session, snapshots);
               notifyListeners();
               rethrow;
             }
@@ -3205,12 +2991,12 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
               .where((result) => result.success)
               .map((result) => result.mailId)
               .toList();
-          final failedSnapshots = _selectMailLocations(
+          final failedSnapshots = _buckets.selectMailLocations(
             snapshots,
             restoring.where((id) => !restored.contains(id)),
           );
           if (failedSnapshots.isNotEmpty) {
-            _restoreMailLocations(session, failedSnapshots);
+            _buckets.restoreMailLocations(session, failedSnapshots);
             notifyListeners();
           }
           final store = session.flagsStore;
@@ -3232,7 +3018,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           session,
           folder == MailFolder.archive ? 'archive' : 'move',
           rest,
-          (succeeded) => _moveMany(session, succeeded, folder),
+          (succeeded) => _buckets.moveMany(session, succeeded, folder),
           folderId: folder == MailFolder.archive ? null : folderId,
         );
         _throwForFailedBulkResults([results]);
@@ -3269,7 +3055,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     );
     for (final detail in details) {
       if (detail == null) continue;
-      _removeMany(session, [detail.id]);
+      _buckets.removeMany(session, [detail.id]);
       session.emails
           .putIfAbsent(detail.folder, () => <Email>[])
           .insert(0, session.stampLocalFlags(detail));
@@ -3285,7 +3071,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           entry.key,
           'read',
           entry.value,
-          (affected) => _replaceMany(
+          (affected) => _buckets.replaceMany(
             entry.key,
             affected,
             (mail) => mail.copyWith(isRead: true),
@@ -3304,7 +3090,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           entry.key,
           'unread',
           entry.value,
-          (affected) => _replaceMany(
+          (affected) => _buckets.replaceMany(
             entry.key,
             affected,
             (mail) => mail.copyWith(isRead: false),
@@ -3348,7 +3134,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
         } else {
           session.pinnedIds.removeAll(affected);
         }
-        _replaceMany(
+        _buckets.replaceMany(
           session,
           affected,
           (mail) => mail.copyWith(isPinned: pinned),
@@ -3409,7 +3195,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
         session.pinnedIds.remove(entry.key);
       }
     }
-    _replaceMany(
+    _buckets.replaceMany(
       session,
       previous.keys,
       (mail) => mail.copyWith(isPinned: previous[mail.id] ?? false),
@@ -3429,7 +3215,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
             starred
                 ? session.starredIds.addAll(affected)
                 : session.starredIds.removeAll(affected);
-            _replaceMany(
+            _buckets.replaceMany(
               session,
               affected,
               (mail) => mail.copyWith(isStarred: starred),
@@ -3466,7 +3252,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           session.repliedFromKaydetMailThreadIds,
         ),
       ]);
-      _restampFlags(session);
+      _buckets.restampFlags(session);
     }
     notifyListeners();
   }
@@ -3579,7 +3365,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           session.forwardedFromKaydetMailThreadIds,
         ),
       ]);
-      _restampFlags(session);
+      _buckets.restampFlags(session);
     }
     notifyListeners();
   }
