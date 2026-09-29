@@ -49,6 +49,7 @@ import 'api/contact_module.dart';
 import 'api/folder_module.dart';
 import 'api/label_module.dart';
 import 'api/repository_context.dart';
+import 'api/search_module.dart';
 import 'api/session_registry.dart';
 import 'api/signature_module.dart';
 import 'api/template_module.dart';
@@ -3443,10 +3444,8 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     return session.mailService.getComposePrefill(sourceMailId, mode);
   }
 
-  /// Server-side full-text + filtered search (`GET /api/search`) over cached
-  /// server mail, fanned out across every account in scope — reaches mail
-  /// not yet loaded into the local buckets. The sync in-screen search
-  /// ([MailRepository.searchEmails]) stays client-side over loaded mail.
+  late final SearchModule _search = SearchModule(this);
+
   @override
   Future<List<Email>> searchEmailsOnServer({
     required String query,
@@ -3464,39 +3463,23 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     String? labelId,
     int page = 1,
     int pageSize = 20,
-  }) async {
-    final sessions = accountId == null
-        ? _sessions.values
-        : [?_sessions[accountId]];
-    final all = <Email>[];
-    for (final session in sessions) {
-      final folderId =
-          customFolderId ?? (folder == null ? null : session.folderIds[folder]);
-      if (customFolderId != null &&
-          !session.customFolders.any((item) => item.id == customFolderId)) {
-        continue;
-      }
-      if (folder != null && folderId == null) continue;
-      final results = await session.mailService.search(
-        query: query,
-        resolveFolder: session.resolveFolder,
-        folderId: folderId,
-        conversationId: conversationId,
-        from: from,
-        to: to,
-        fromDate: fromDate,
-        toDate: toDate,
-        isRead: isRead,
-        flagged: flagged,
-        hasAttachment: hasAttachment,
-        labelId: labelId,
-        page: page,
-        pageSize: pageSize,
-      );
-      all.addAll(results.map(session.stampLocalFlags));
-    }
-    return all;
-  }
+  }) => _search.searchOnServer(
+    query: query,
+    accountId: accountId,
+    folder: folder,
+    customFolderId: customFolderId,
+    conversationId: conversationId,
+    from: from,
+    to: to,
+    fromDate: fromDate,
+    toDate: toDate,
+    isRead: isRead,
+    flagged: flagged,
+    hasAttachment: hasAttachment,
+    labelId: labelId,
+    page: page,
+    pageSize: pageSize,
+  );
 
   @override
   Future<RemoteSearchResult> searchRemote({
@@ -3513,47 +3496,21 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     bool? flagged,
     bool? hasAttachment,
     String? labelId,
-  }) async {
-    final sessions = accountId == null
-        ? _sessions.values
-        : [?_sessions[accountId]];
-    var matched = 0;
-    var imported = 0;
-    var remaining = 0;
-    var complete = true;
-    for (final session in sessions) {
-      final folderId =
-          customFolderId ?? (folder == null ? null : session.folderIds[folder]);
-      if (customFolderId != null &&
-          !session.customFolders.any((item) => item.id == customFolderId)) {
-        continue;
-      }
-      if (folder != null && folderId == null) continue;
-      final result = await session.mailService.searchRemote(
-        query: query,
-        folderId: folderId,
-        conversationId: conversationId,
-        from: from,
-        to: to,
-        fromDate: fromDate,
-        toDate: toDate,
-        isRead: isRead,
-        flagged: flagged,
-        hasAttachment: hasAttachment,
-        labelId: labelId,
-      );
-      matched += result.matched;
-      imported += result.imported;
-      remaining += result.remaining;
-      complete = complete && result.complete;
-    }
-    return RemoteSearchResult(
-      matched: matched,
-      imported: imported,
-      remaining: remaining,
-      complete: complete,
-    );
-  }
+  }) => _search.searchRemote(
+    query: query,
+    accountId: accountId,
+    folder: folder,
+    customFolderId: customFolderId,
+    conversationId: conversationId,
+    from: from,
+    to: to,
+    fromDate: fromDate,
+    toDate: toDate,
+    isRead: isRead,
+    flagged: flagged,
+    hasAttachment: hasAttachment,
+    labelId: labelId,
+  );
 
   @override
   Future<int> queuedOfflineMutationCount(String accountId) async {
