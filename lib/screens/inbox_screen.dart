@@ -233,6 +233,7 @@ class _InboxScreenState extends State<InboxScreen>
         await _repo.loadMoreEmails(widget.folder);
       }
       _fillIfShort();
+      unawaited(_syncOnOpen());
     } catch (e) {
       if (mounted) {
         setState(() {
@@ -245,6 +246,42 @@ class _InboxScreenState extends State<InboxScreen>
         setState(() => _initialLoading = false);
         _skeletonController.stop();
       }
+    }
+  }
+
+  /// Folders outside the backend's default background sync (custom folders,
+  /// Drafts, Trash, Junk, Archive) only hold what was fetched before, so a
+  /// freshly opened one would look empty or stale. After the cached list is
+  /// painted, ask the server to sync it and re-read. Best-effort and silent:
+  /// pull-to-refresh remains the place where failures are reported.
+  Future<void> _syncOnOpen() async {
+    final custom = widget.customFolder;
+    try {
+      if (custom != null) {
+        await _repo.syncCustomFolder(
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+        if (!mounted) return;
+        await _repo.getCustomFolderMails(
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+        return;
+      }
+      const synced = {
+        MailFolder.inbox,
+        MailFolder.sent,
+        MailFolder.all,
+        MailFolder.starred,
+        MailFolder.snoozed,
+      };
+      if (synced.contains(widget.folder)) return;
+      await _repo.syncFolder(widget.folder);
+      if (!mounted) return;
+      await _repo.refreshEmails(widget.folder);
+    } catch (_) {
+      // Offline or queue full: keep showing the cached list.
     }
   }
 

@@ -24,6 +24,7 @@ import '../models/mail_template.dart';
 import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
+import '../utils/idempotency_key.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/trusted_sender.dart';
 import '../utils/mail_ordering.dart';
@@ -42,6 +43,7 @@ import '../services/token_store.dart';
 import '../services/session_store.dart';
 import 'api/account_session.dart';
 import 'api/account_settings_module.dart';
+import 'api/scheduled_send_module.dart';
 import 'api/session_registry.dart';
 import 'api/signature_module.dart';
 import 'api/template_module.dart';
@@ -2410,7 +2412,7 @@ class ApiMailRepository extends MailRepository {
         replySourceMailId: inReplyToId,
         identityId: identityId,
         requestReadReceipt: requestReadReceipt,
-        idempotencyKey: idempotencyKey ?? _newIdempotencyKey(),
+        idempotencyKey: idempotencyKey ?? newIdempotencyKey(),
         onProgress: onProgress,
         abortTrigger: abortTrigger,
       );
@@ -2467,6 +2469,11 @@ class ApiMailRepository extends MailRepository {
     return limits;
   }
 
+  late final ScheduledSendModule _scheduled = ScheduledSendModule(
+    _registry,
+    notifyListeners,
+  );
+
   @override
   Future<ScheduledSend> scheduleSend({
     required List<String> to,
@@ -2482,44 +2489,25 @@ class ApiMailRepository extends MailRepository {
     String? identityId,
     bool requestReadReceipt = false,
     required DateTime sendAt,
-  }) async {
-    final session = _sessionForCompose(
-      from: from,
-      fromAccountId: fromAccountId,
-    );
-    final scheduled = await session.mailService.scheduleSend(
-      to: to,
-      cc: cc,
-      bcc: bcc,
-      subject: subject,
-      bodyText: body,
-      bodyHtml: bodyHtml,
-      attachments: attachments,
-      replySourceMailId: inReplyToId,
-      identityId: identityId,
-      requestReadReceipt: requestReadReceipt,
-      sendAtUtc: sendAt,
-      idempotencyKey: _newIdempotencyKey(),
-    );
-    final stamped = scheduled.copyWith(accountId: session.account.id);
-    session.scheduledSends = [...session.scheduledSends, stamped]
-      ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
-    notifyListeners();
-    return stamped;
-  }
-
-  AccountSession _sessionOwningScheduled(String id) {
-    for (final session in _sessions.values) {
-      if (session.scheduledSends.any((item) => item.id == id)) {
-        return session;
-      }
-    }
-    return _primarySession;
-  }
+  }) => _scheduled.scheduleSend(
+    to: to,
+    cc: cc,
+    bcc: bcc,
+    subject: subject,
+    body: body,
+    bodyHtml: bodyHtml,
+    attachments: attachments,
+    from: from,
+    fromAccountId: fromAccountId,
+    inReplyToId: inReplyToId,
+    identityId: identityId,
+    requestReadReceipt: requestReadReceipt,
+    sendAt: sendAt,
+  );
 
   @override
   Future<ScheduledSendDetail> getScheduledSend(String id) =>
-      _sessionOwningScheduled(id).mailService.getScheduledSend(id);
+      _scheduled.getScheduledSend(id);
 
   @override
   Future<void> updateScheduledSend({
@@ -2533,22 +2521,18 @@ class ApiMailRepository extends MailRepository {
     required DateTime sendAt,
     List<String> keepAttachmentIds = const [],
     List<Attachment> attachments = const [],
-  }) async {
-    final session = _sessionOwningScheduled(id);
-    await session.mailService.updateScheduledSend(
-      id: id,
-      to: to,
-      cc: cc,
-      bcc: bcc,
-      subject: subject,
-      bodyText: body,
-      bodyHtml: bodyHtml,
-      sendAtUtc: sendAt,
-      keepAttachmentIds: keepAttachmentIds,
-      attachments: attachments,
-    );
-    await refreshScheduledSends();
-  }
+  }) => _scheduled.updateScheduledSend(
+    id: id,
+    to: to,
+    cc: cc,
+    bcc: bcc,
+    subject: subject,
+    body: body,
+    bodyHtml: bodyHtml,
+    sendAt: sendAt,
+    keepAttachmentIds: keepAttachmentIds,
+    attachments: attachments,
+  );
 
   @override
   Future<void> rescheduleFailedSend({
@@ -2561,55 +2545,27 @@ class ApiMailRepository extends MailRepository {
     String? bodyHtml,
     List<String>? attachmentIds,
     required DateTime sendAt,
-  }) async {
-    final session = _sessionOwningScheduled(id);
-    await session.mailService.rescheduleFailedSend(
-      id: id,
-      to: to,
-      cc: cc,
-      bcc: bcc,
-      subject: subject,
-      bodyText: body,
-      bodyHtml: bodyHtml,
-      attachmentIds: attachmentIds,
-      sendAtUtc: sendAt,
-      idempotencyKey: _newIdempotencyKey(),
-    );
-    await refreshScheduledSends();
-  }
+  }) => _scheduled.rescheduleFailedSend(
+    id: id,
+    to: to,
+    cc: cc,
+    bcc: bcc,
+    subject: subject,
+    body: body,
+    bodyHtml: bodyHtml,
+    attachmentIds: attachmentIds,
+    sendAt: sendAt,
+  );
 
   @override
-  Future<void> cancelScheduledSend(String id) async {
-    final session = _sessions.values.firstWhere(
-      (s) => s.scheduledSends.any((sch) => sch.id == id),
-      orElse: () => _primarySession,
-    );
-    await session.mailService.cancelScheduledSend(id);
-    session.scheduledSends = session.scheduledSends
-        .where((s) => s.id != id)
-        .toList();
-    notifyListeners();
-  }
+  Future<void> cancelScheduledSend(String id) =>
+      _scheduled.cancelScheduledSend(id);
 
   @override
-  List<ScheduledSend> getScheduledSends() {
-    final result = [for (final s in _scopedSessions) ...s.scheduledSends]
-      ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
-    return List.unmodifiable(result);
-  }
+  List<ScheduledSend> getScheduledSends() => _scheduled.getScheduledSends();
 
   @override
-  Future<void> refreshScheduledSends() async {
-    await Future.wait(
-      _scopedSessions.map((session) async {
-        final items = await session.mailService.listScheduledSends();
-        session.scheduledSends = [
-          for (final s in items) s.copyWith(accountId: session.account.id),
-        ]..sort((a, b) => a.sendAt.compareTo(b.sendAt));
-      }),
-    );
-    notifyListeners();
-  }
+  Future<void> refreshScheduledSends() => _scheduled.refreshScheduledSends();
 
   // --- Account-owned data, delegated to focused modules --------------------
 
@@ -3516,7 +3472,7 @@ class ApiMailRepository extends MailRepository {
     final draft = _findCached(draftId);
     final result = await session.mailService.sendDraft(
       draftId,
-      idempotencyKey: _newIdempotencyKey(),
+      idempotencyKey: newIdempotencyKey(),
     );
     if (!result.sent) return null;
     _touch();
@@ -3681,20 +3637,6 @@ class ApiMailRepository extends MailRepository {
     final store = _sessions[accountId]?.flagsStore;
     if (store == null) return 0;
     return (await store.readQueuedMutations()).length;
-  }
-
-  /// A client-generated UUID v4 for the `Idempotency-Key` header — stable
-  /// per send attempt so a network-timeout retry never double-sends.
-  String _newIdempotencyKey() {
-    final random = Random.secure();
-    final bytes = List<int>.generate(16, (_) => random.nextInt(256));
-    bytes[6] = (bytes[6] & 0x0f) | 0x40;
-    bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    String hex(int start, int end) => bytes
-        .sublist(start, end)
-        .map((b) => b.toRadixString(16).padLeft(2, '0'))
-        .join();
-    return '${hex(0, 4)}-${hex(4, 6)}-${hex(6, 8)}-${hex(8, 10)}-${hex(10, 16)}';
   }
 
   @override
@@ -4528,7 +4470,7 @@ class ApiMailRepository extends MailRepository {
       if (!_isOfflineFailure(e)) rethrow;
       _markOffline(session);
       created = {
-        'id': '$_localContactIdPrefix${_newIdempotencyKey()}',
+        'id': '$_localContactIdPrefix${newIdempotencyKey()}',
         'email': trimmedEmail,
         'displayName': name,
       };
