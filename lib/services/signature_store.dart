@@ -33,4 +33,14 @@ class SignatureStore {
     }
     await preferences.setString(key, signature);
   }
+
+  /// Forgets the legacy signature of a removed account.
+  static Future<void> clear(String accountEmail) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      await preferences.remove(_keyFor(accountEmail));
+    } catch (_) {
+      // Nothing persisted on unsupported platforms / in tests.
+    }
+  }
 }

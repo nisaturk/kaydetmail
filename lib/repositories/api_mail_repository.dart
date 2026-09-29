@@ -26,6 +26,7 @@ import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/trusted_sender.dart';
+import '../services/account_data_purger.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
 import '../services/api_exception.dart';
@@ -202,12 +203,19 @@ class ApiMailRepository extends MailRepository {
     this._snoozeExpiryCheckInterval = const Duration(seconds: 30),
     AttachmentDownloadManager? attachmentDownloadManager,
     AttachmentAutoDownloader? attachmentAutoDownloader,
+    AccountDataPurger? accountDataPurger,
   }) : _initialAuthService = authService,
        _initialMailService = mailService,
        _attachmentDownloadManager =
            attachmentDownloadManager ?? AttachmentDownloadManager.instance,
        _attachmentAutoDownloader =
-           attachmentAutoDownloader ?? AttachmentAutoDownloader();
+           attachmentAutoDownloader ?? AttachmentAutoDownloader(),
+       _accountDataPurger =
+           accountDataPurger ??
+           AccountDataPurger(
+             attachments:
+                 attachmentDownloadManager ?? AttachmentDownloadManager.instance,
+           );
 
   // Test seams: the first session created (via login/connect/restore) uses
   // the injected auth+mail service pair when present; every session after
@@ -221,6 +229,7 @@ class ApiMailRepository extends MailRepository {
   final Future<MailCache> Function()? _openCache;
   final AttachmentDownloadManager _attachmentDownloadManager;
   final AttachmentAutoDownloader _attachmentAutoDownloader;
+  final AccountDataPurger _accountDataPurger;
   MailCache? _cache;
 
   /// Every connected account's session, keyed by account id, in connection
@@ -344,7 +353,7 @@ class ApiMailRepository extends MailRepository {
         await session.authService.tokenStore.clear(session.account.id);
         session.persistTimer?.cancel();
         _cancelReconnectRetry(session);
-        _cache?.forgetAccount(session.account.id);
+        await _purgeLocalData(session);
         _sessions.remove(session.account.id);
       }
     }
@@ -354,6 +363,14 @@ class ApiMailRepository extends MailRepository {
     _touch();
     notifyListeners();
   }
+
+  /// Wipes every on-device trace of [session]'s account (see
+  /// [AccountDataPurger]); credentials are cleared by the caller.
+  Future<void> _purgeLocalData(_Session session) => _accountDataPurger.purge(
+    accountId: session.account.id,
+    accountEmail: session.account.email,
+    cache: _cache,
+  );
 
   Future<void> _unregisterDeviceFor(_Session session) async {
     final deviceId = session.deviceId;
@@ -372,7 +389,7 @@ class ApiMailRepository extends MailRepository {
     await session.authService.tokenStore.clear(accountId);
     session.persistTimer?.cancel();
     _cancelReconnectRetry(session);
-    _cache?.forgetAccount(accountId);
+    await _purgeLocalData(session);
     await SessionStore.removeEmail(session.account.email);
     if (_activeAccountId == accountId) _activeAccountId = null;
     if (_sessions.isEmpty) _stopSnoozeExpiryTimer();
@@ -1086,13 +1103,12 @@ class ApiMailRepository extends MailRepository {
   Future<void> removeAccount(String accountId) async {
     final session = _sessions[accountId];
     if (session == null) return;
-    await _attachmentDownloadManager.removeAccount(accountId);
     await session.mailService.deleteAccount();
     await session.authService.tokenStore.clear(accountId);
     await _unregisterDeviceFor(session);
     session.persistTimer?.cancel();
     _cancelReconnectRetry(session);
-    _cache?.forgetAccount(accountId);
+    await _purgeLocalData(session);
     _sessions.remove(accountId);
     await SessionStore.removeEmail(session.account.email);
     if (_activeAccountId == accountId) _activeAccountId = null;

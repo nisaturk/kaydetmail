@@ -1263,8 +1263,10 @@ class _MessageBodyState extends State<_MessageBody> {
             if (element.localName != 'img') return null;
             final src = element.attributes['src'] ?? '';
             if (src.startsWith('data:')) return null;
-            if (email.remoteImagesAllowed &&
-                (src.startsWith('https://') || src.startsWith('http://'))) {
+            // Plain-http images would leak the read receipt (and the
+            // reader's network position) in clear text even after the user
+            // opted in to remote content, so only https is ever fetched.
+            if (email.remoteImagesAllowed && src.startsWith('https://')) {
               return null;
             }
             return const SizedBox.shrink();

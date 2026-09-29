@@ -228,6 +228,23 @@ class ContactsStore {
     await _persist();
   }
 
+  /// Forgets the persisted address book (memory and disk). Called when an
+  /// account is removed or the user logs out: the book is derived from every
+  /// connected account's mail and cannot be attributed to one account, so it
+  /// is dropped and rebuilt from the remaining accounts as their mail syncs
+  /// (the ingest bookkeeping is reset so already-seen mail is re-scanned).
+  static Future<void> clear() async {
+    _cache = [];
+    _pendingLoad = null;
+    _ingestedMailIds.clear();
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(_prefsKey);
+    } catch (_) {
+      // Unsupported platform / no prefs in tests: nothing persisted.
+    }
+  }
+
   static MailRepository? _listenedRepo;
   static VoidCallback? _repoListener;
   static final Set<String> _ingestedMailIds = {};

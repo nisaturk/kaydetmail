@@ -94,4 +94,50 @@ void main() {
     expect(cache.loadFolders('acc'), isEmpty);
     expect(cache.loadFolders('other'), isNotEmpty);
   });
+
+  test('forgetAccount clears every account-scoped table, snoozes and outbox', () {
+    final cache = MailCache.inMemory();
+    final db = cache.db;
+    // Every table with an account_id column must be in the purge list, so a
+    // future schema addition cannot silently survive account removal.
+    final scoped = db
+        .select("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .map((row) => row['name'] as String)
+        .where(
+          (table) => db
+              .select('PRAGMA table_info($table)')
+              .any((column) => column['name'] == 'account_id'),
+        )
+        .toSet();
+    expect(MailCache.accountScopedTables.toSet(), scoped);
+
+    db.execute("INSERT INTO snoozes VALUES ('acc', 'm1', 1)");
+    db.execute("INSERT INTO snoozes VALUES ('other', 'm2', 1)");
+    // The send journal is owned by OutboxStore; create its tables the way it
+    // does and check they are wiped too (attachments via their send id).
+    db.execute(
+      'CREATE TABLE outbox (id TEXT PRIMARY KEY, account_id TEXT NOT NULL, '
+      'status TEXT, undo_until_ms INTEGER, message TEXT, error TEXT)',
+    );
+    db.execute(
+      'CREATE TABLE outbox_attachments (send_id TEXT, position INTEGER, '
+      'data BLOB)',
+    );
+    db.execute("INSERT INTO outbox (id, account_id) VALUES ('s1', 'acc')");
+    db.execute("INSERT INTO outbox (id, account_id) VALUES ('s2', 'other')");
+    db.execute("INSERT INTO outbox_attachments VALUES ('s1', 0, x'01')");
+    db.execute("INSERT INTO outbox_attachments VALUES ('s2', 0, x'02')");
+
+    cache.forgetAccount('acc');
+
+    expect(db.select("SELECT * FROM snoozes WHERE account_id = 'acc'"), isEmpty);
+    expect(db.select('SELECT * FROM snoozes'), hasLength(1));
+    expect(db.select('SELECT id FROM outbox').single['id'], 's2');
+    expect(db.select('SELECT send_id FROM outbox_attachments').single['send_id'], 's2');
+  });
+
+  test('forgetAccount works before the outbox tables exist', () {
+    final cache = MailCache.inMemory();
+    expect(() => cache.forgetAccount('acc'), returnsNormally);
+  });
 }

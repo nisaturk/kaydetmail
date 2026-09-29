@@ -184,6 +184,28 @@ void main() {
       expect(exception.userMessage, 'Şifre yanlış.');
     });
 
+    test('Given a non-JSON error page When parsed Then the raw body is not kept', () {
+      final exception = ApiException.fromResponse(
+        502,
+        '<html>upstream connect error at 10.0.3.7:5071</html>',
+      );
+
+      expect(exception.status, 502);
+      expect(exception.title, isNull);
+      expect(exception.details, isEmpty);
+    });
+
+    test('Given wrongly typed Problem Details fields When parsed Then it does not throw', () {
+      final exception = ApiException.fromResponse(
+        400,
+        jsonEncode({'code': 42, 'title': ['x'], 'correlationId': {}}),
+      );
+
+      expect(exception.code, isNull);
+      expect(exception.title, isNull);
+      expect(exception.correlationId, isNull);
+    });
+
     test('Given empty response body When parsed Then it does not crash', () {
       final exception = ApiException.fromResponse(429, '');
 
