@@ -3257,6 +3257,9 @@ class ApiMailRepository extends MailRepository {
             continue;
           }
           final drafts = session.emails[MailFolder.drafts];
+          if (saved.id != local.id) {
+            drafts?.removeWhere((e) => e.id == saved.id);
+          }
           final index = drafts?.indexWhere((e) => e.id == local.id) ?? -1;
           if (index >= 0) drafts![index] = saved;
           if (saved.id != local.id) _draftIdSuccessor[local.id] = saved.id;

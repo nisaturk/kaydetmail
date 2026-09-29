@@ -200,8 +200,8 @@ void main() {
         expect(starred.map((e) => e.id), ['mail-archived']);
 
         final inbox = repo.getEmailsInFolder(MailFolder.inbox);
-        // Highlighted (pinned) mail floats above newer, non-highlighted mail.
-        expect(inbox.first.id, 'mail-old');
+        // Pinning changes flags, not chronological order.
+        expect(inbox.first.id, 'mail-new');
       },
     );
 
