@@ -96,31 +96,130 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
         _FolderNameDialog(title: title, initial: initial, delimiter: delimiter),
   );
 
-  Future<void> _create({String? parentFolderId}) async {
-    final accountId = await _chooseAccount();
-    if (accountId == null || !mounted) return;
+  Future<(String?,)?> _chooseParent(
+    String accountId, {
+    MailCustomFolder? moving,
+    String? selectedId,
+  }) {
     final folders = _repo.getCustomFolders(accountId: accountId);
-    final parent = parentFolderId == null
-        ? null
-        : folders
-              .where((folder) => folder.folderId == parentFolderId)
-              .firstOrNull;
-    final delimiter = parent?.delimiter ?? folders.firstOrNull?.delimiter;
+    final rows = flattenCustomFolderTree(folders);
+    final excluded = <String>{};
+    if (moving != null) {
+      var descendantDepth = -1;
+      for (final row in rows) {
+        if (row.folder.folderId == moving.folderId) {
+          descendantDepth = row.depth;
+          excluded.add(row.folder.folderId);
+        } else if (descendantDepth >= 0) {
+          if (row.depth <= descendantDepth) {
+            descendantDepth = -1;
+          } else {
+            excluded.add(row.folder.folderId);
+          }
+        }
+      }
+    }
+    final standard = _repo.standardFolderIds(accountId);
+    return showDialog<(String?,)>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: const Text('Üst klasör seçin'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(context, (null,)),
+            child: Row(children: [
+              if (selectedId == null) const Icon(LucideIcons.check, size: 18),
+              const SizedBox(width: 8),
+              const Text('Bağımsız klasör'),
+            ]),
+          ),
+          for (final role in [
+            MailFolder.inbox,
+            MailFolder.sent,
+            MailFolder.drafts,
+            MailFolder.archive,
+            MailFolder.spam,
+            MailFolder.trash,
+          ])
+            if (standard[role] case final id?)
+              SimpleDialogOption(
+                onPressed: () => Navigator.pop(context, (id,)),
+                child: Row(children: [
+                  if (selectedId == id) const Icon(LucideIcons.check, size: 18),
+                  const SizedBox(width: 8),
+                  Icon(role.icon, size: 18),
+                  const SizedBox(width: 8),
+                  Text(role.label),
+                ]),
+              ),
+          for (final row in rows)
+            if (!excluded.contains(row.folder.folderId))
+              SimpleDialogOption(
+                onPressed: () =>
+                    Navigator.pop(context, (row.folder.folderId,)),
+                child: Padding(
+                  padding: EdgeInsets.only(left: 16.0 * row.depth),
+                  child: Row(children: [
+                    if (selectedId == row.folder.folderId)
+                      const Icon(LucideIcons.check, size: 18),
+                    const SizedBox(width: 8),
+                    const Icon(LucideIcons.folder, size: 18),
+                    const SizedBox(width: 8),
+                    Flexible(child: Text(row.folder.name)),
+                  ]),
+                ),
+              ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _create({String? parentFolderId, String? accountId}) async {
+    accountId ??= await _chooseAccount();
+    if (accountId == null || !mounted) return;
+    final parentChoice = await _chooseParent(
+      accountId,
+      selectedId: parentFolderId,
+    );
+    if (parentChoice == null || !mounted) return;
+    final chosenParentId = parentChoice.$1;
+    final folders = _repo.getCustomFolders(accountId: accountId);
+    final parent = folders
+        .where((folder) => folder.folderId == chosenParentId)
+        .firstOrNull;
     final name = await _askName(
-      title: parent == null ? 'Yeni klasör' : 'Alt klasör oluştur',
+      title: chosenParentId == null ? 'Yeni klasör' : 'Alt klasör oluştur',
       initial: '',
-      delimiter: delimiter,
+      delimiter: parent?.delimiter ?? folders.firstOrNull?.delimiter,
     );
     if (name == null || !mounted) return;
     await _perform(
       () => _repo.createCustomFolder(
-        accountId: accountId,
+        accountId: accountId!,
         name: name,
-        parentFolderId: parentFolderId,
+        parentFolderId: chosenParentId,
       ),
       success: 'Klasör oluşturuldu.',
     );
   }
+
+  Future<void> _changeParent(MailCustomFolder folder) async {
+    final choice = await _chooseParent(
+      folder.accountId,
+      moving: folder,
+      selectedId: folder.parentFolderId,
+    );
+    if (choice == null || !mounted || choice.$1 == folder.parentFolderId) return;
+    await _perform(
+      () => _repo.changeCustomFolderParent(
+        accountId: folder.accountId,
+        folderId: folder.folderId,
+        parentFolderId: choice.$1,
+      ),
+      success: 'Üst klasör değiştirildi.',
+    );
+  }
+
 
   Future<void> _rename(MailCustomFolder folder) async {
     final name = await _askName(
@@ -281,8 +380,16 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
                 ),
               for (final assignment in roleGroups[accountId] ?? const [])
                 _roleRow(assignment),
-              for (final row in flattenCustomFolderTree(groups[accountId]!))
-                _folderRow(row.folder, row.depth),
+              for (final row in flattenCustomFolderTree(
+                groups[accountId]!,
+                standardParentIds:
+                    _repo.standardFolderIds(accountId).values.toSet(),
+              ))
+                _folderRow(
+                  row.folder,
+                  row.depth,
+                  standardParents: _repo.standardFolderIds(accountId),
+                ),
             ],
           ],
         ),
@@ -308,21 +415,32 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
     );
   }
 
-  Widget _folderRow(MailCustomFolder folder, int depth) {
+  Widget _folderRow(
+    MailCustomFolder folder,
+    int depth, {
+    required Map<MailFolder, String> standardParents,
+  }) {
     final colors = AppTheme.colors(context);
+    final standardParent = standardParents.entries
+        .where((entry) => entry.value == folder.parentFolderId)
+        .firstOrNull;
     return ListTile(
       contentPadding: EdgeInsets.only(left: 16.0 + 24.0 * depth, right: 8),
       leading: Icon(LucideIcons.folder, color: colors.secondaryText),
       title: Text(folder.name),
-      subtitle: folder.unreadCount != null && folder.unreadCount! > 0
-          ? Text('${folder.unreadCount} okunmamış')
-          : null,
+      subtitle: standardParent != null
+          ? Text('${standardParent.key.label} altında')
+          : folder.unreadCount != null && folder.unreadCount! > 0
+              ? Text('${folder.unreadCount} okunmamış')
+              : null,
       trailing: PopupMenuButton<String>(
         enabled: !_busy,
         onSelected: (action) {
           switch (action) {
             case 'child':
               _create(parentFolderId: folder.folderId);
+            case 'parent':
+              _changeParent(folder);
             case 'rename':
               _rename(folder);
             case 'delete':
@@ -333,6 +451,7 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
         },
         itemBuilder: (_) => const [
           PopupMenuItem(value: 'child', child: Text('Alt klasör oluştur')),
+          PopupMenuItem(value: 'parent', child: Text('Üst klasörü değiştir')),
           PopupMenuItem(value: 'rename', child: Text('Yeniden adlandır')),
           PopupMenuItem(value: 'role', child: Text('Klasör rolü ata')),
           PopupMenuItem(value: 'delete', child: Text('Sil')),

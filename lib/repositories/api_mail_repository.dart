@@ -2508,11 +2508,11 @@ class ApiMailRepository extends MailRepository {
     pageSize: pageSize,
   );
 
-  /// Loads the full server conversation in one `?include=body` request; only
-  /// messages with attachments get a detail fetch (recipients + attachment
-  /// list). An unreadable detail falls back to the summary. The
-  /// result is deduplicated and sorted oldest → newest. A conversation-level
-  /// failure propagates so the caller can keep its already-loaded mail.
+  /// Server conversation arrives through one `?include=body` request. Only
+  /// attachments need a detail fetch for their metadata; recipients and
+  /// remote-content flags already live in the conversation response.
+  /// Results are deduplicated and sorted oldest → newest. A conversation-level
+  /// failure propagates so the caller keeps its already-loaded mail.
   @override
   Future<List<Email>> fetchThreadEmails(String threadId) async {
     if (threadId.isEmpty) return const [];
@@ -2529,11 +2529,7 @@ class ApiMailRepository extends MailRepository {
           ...raw,
           'conversationId': threadId,
         }, session.resolveFolder);
-        if (raw['hasAttachments'] != true &&
-            !summary.hasRemoteContent &&
-            !_remoteImageMailIds.contains(id)) {
-          return summary;
-        }
+        if (raw['hasAttachments'] != true) return summary;
         try {
           return await session.mailService.getMail(
             id,
@@ -2553,7 +2549,6 @@ class ApiMailRepository extends MailRepository {
       thread.add(stamped);
       _upsertDetail(session, stamped);
     }
-    thread.sort((a, b) => a.timestamp.compareTo(b.timestamp));
     session.serverThreadSizes[threadId] = thread.length;
     // One notification persists every upsert to this account's SQLite bucket
     // and lets open detail panes consume enriched bodies immediately.
@@ -3001,6 +2996,7 @@ class ApiMailRepository extends MailRepository {
             fullName: f.fullName,
             isSyncEnabled: f.isSyncEnabled,
             parentFolderId: f.parentId,
+            parentIdKnown: f.parentIdKnown,
             delimiter: f.delimiter,
             unreadCount: f.unreadCount,
             totalCount: f.totalCount,
@@ -3008,6 +3004,16 @@ class ApiMailRepository extends MailRepository {
     ]..sort((a, b) => a.fullName.compareTo(b.fullName));
     return result;
   }
+  @override
+  Map<MailFolder, String> standardFolderIds(String accountId) =>
+      Map.unmodifiable(_sessionForAccountId(accountId).folderIds);
+
+  @override
+  List<Email> cachedCustomFolderMails(String accountId, String folderId) =>
+      List.unmodifiable(
+        _sessionForAccountId(accountId).customFolderEmails[folderId] ?? const [],
+      );
+
 
   @override
   Future<void> refreshCustomFolders({String? accountId}) async {
@@ -3177,6 +3183,21 @@ class ApiMailRepository extends MailRepository {
     _putCustomFolder(session, renamed);
     await _reloadCustomFoldersAfterChange(session);
   }
+  @override
+  Future<void> changeCustomFolderParent({
+    required String accountId,
+    required String folderId,
+    required String? parentFolderId,
+  }) async {
+    final session = _sessionForAccountId(accountId);
+    final moved = await session.mailService.setFolderParent(
+      folderId,
+      parentFolderId,
+    );
+    _putCustomFolder(session, moved);
+    await _reloadCustomFoldersAfterChange(session);
+  }
+
 
   @override
   Future<void> deleteCustomFolder({

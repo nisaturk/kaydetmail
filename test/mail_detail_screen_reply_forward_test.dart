@@ -197,7 +197,7 @@ void main() {
       final repo = _FakeRepo(_mail(), accounts: [_account]);
       await _pumpDetail(tester, repo);
 
-      await tester.tap(find.byTooltip('Yanıtla'));
+      await tester.tap(find.byKey(const Key('message-reply-m1')));
       await tester.pumpAndSettle();
 
       expect(repo.requestedPrefillModes, ['reply']);
@@ -241,7 +241,7 @@ void main() {
       final repo = _FakeRepo(_mail(), accounts: [_account]);
       await _pumpDetail(tester, repo);
 
-      await tester.tap(find.byTooltip('İlet'));
+      await tester.tap(find.byKey(const Key('message-forward-m1')));
       await tester.pumpAndSettle();
 
       expect(repo.requestedPrefillModes, ['forward']);
@@ -276,7 +276,7 @@ void main() {
       );
       await _pumpDetail(tester, repo);
 
-      await tester.tap(find.byTooltip('Yanıtla'));
+      await tester.tap(find.byKey(const Key('message-reply-m1')));
       await tester.pumpAndSettle();
 
       expect(find.byType(ComposeScreen), findsNothing);

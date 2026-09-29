@@ -15,7 +15,6 @@ import '../models/attachment_download_state.dart';
 import '../services/attachment_auto_download_policy.dart';
 import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
-import '../utils/attachment_preview.dart';
 import '../utils/compose_signature.dart';
 import '../utils/conversation_text.dart';
 import '../utils/date_format.dart';
@@ -34,13 +33,9 @@ import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 import 'mail_inspection_screen.dart';
 
-/// Full view of a mail — and, when it belongs to a conversation, the whole
-/// thread as stacked, collapsible cards (Gmail-style), newest first.
-///
-/// Opening a mail marks it as read. Pin and read/unread state change through
-/// the repository and are reflected immediately because the screen listens to
-/// it. A single-message thread renders the plain detail view; a multi-message
-/// conversation renders a card stack; tapping a card expands/collapses it.
+/// Full view of the opened mail followed by older messages in its conversation.
+/// Opening marks the selected mail as read; enrichment appends older history
+/// without moving the reader's scroll position.
 class MailDetailScreen extends StatefulWidget {
   const MailDetailScreen({
     super.key,
@@ -78,9 +73,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   List<Email> _fetchedThread = const [];
   final _scroll = ScrollController();
 
-  /// Thread length last scrolled to, so the chat jumps to the newest message
-  /// only when messages were added — not on every pin/read notification.
-  int _scrolledCount = 0;
+  /// Enrichment adds history below the opened mail; never reset scroll.
   bool _loading = true;
   bool _opened = false;
 
@@ -148,7 +141,8 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     if (!mounted || _email == null) return;
     for (final email in _repo.getAllEmails()) {
       if (email.id != widget.emailId) continue;
-      if (identical(email, _email)) return;
+      // Other messages may have changed star/read state even if opened mail
+      // itself is identical; rebuild history from the repository snapshot.
       setState(() {
         _email = email;
         _thread = _mergeThread(email, [
@@ -188,7 +182,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
         _loading = false;
         _loadError = null;
       });
-      _scrollToNewest();
 
       // A freshly opened mail becomes read — but only on the very first
       // load. Later reloads (pin, mark-as-unread) must not silently flip
@@ -214,15 +207,26 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
-  /// The opened mail plus the already-known thread messages, deduplicated
-  /// and sorted newest-first. The opened mail is always present, so a
-  /// thread fetch can never remove what the user opened.
-  static List<Email> _mergeThread(Email email, List<Email> others) {
-    final byId = {for (final message in others) message.id: message};
-    byId[email.id] = email;
-    final merged = byId.values.toList()
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return List.unmodifiable(merged);
+  /// Server conversation order breaks timestamp ties; until enrichment,
+  /// equal-time cache entries cannot safely be identified as older.
+  List<Email> _mergeThread(Email email, List<Email> others) {
+    final positions = <String, int>{
+      for (var i = 0; i < _fetchedThread.length; i++) _fetchedThread[i].id: i,
+    };
+    final openedIndex = positions[email.id];
+    final byId = {for (final message in others) message.id: message}
+      ..remove(email.id);
+    final older =
+        byId.values.where((message) {
+          final index = positions[message.id];
+          if (openedIndex != null && index != null) return index < openedIndex;
+          return message.timestamp.isBefore(email.timestamp);
+        }).toList()..sort((a, b) {
+          final byDate = b.timestamp.compareTo(a.timestamp);
+          if (byDate != 0) return byDate;
+          return (positions[b.id] ?? -1).compareTo(positions[a.id] ?? -1);
+        });
+    return List.unmodifiable([email, ...older]);
   }
 
   static bool _sameIds(List<Email> a, List<Email> b) {
@@ -261,7 +265,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       debugPrint('Thread ${email.threadId}: ${merged.length} messages');
       if (!_sameIds(merged, _thread)) {
         setState(() => _thread = merged);
-        _scrollToNewest();
       }
       _enrichedKey = key;
     } catch (e) {
@@ -269,18 +272,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     } finally {
       if (_enrichingKey == key) _enrichingKey = null;
     }
-  }
-
-  /// The conversation reads newest-first, so land on the newest message
-  /// (the top) whenever the thread grows.
-  void _scrollToNewest() {
-    if (_thread.length < 2 || _thread.length == _scrolledCount) return;
-    _scrolledCount = _thread.length;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scroll.hasClients) {
-        _scroll.jumpTo(_scroll.position.minScrollExtent);
-      }
-    });
   }
 
   Future<void> _retry() async {
@@ -530,9 +521,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: widget.showAppBar
-          ? AppBar(title: const Text('E-posta'), actions: _appBarActions())
-          : null,
+      appBar: widget.showAppBar ? AppBar(actions: _appBarActions()) : null,
       body: SafeArea(child: _buildBody()),
     );
   }
@@ -547,23 +536,38 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     final folderAction = _folderAction(email);
     return [
       ?folderAction,
-      IconButton(
-        onPressed: _toggleStar,
-        tooltip: email.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
-        icon: Icon(
-          email.isStarred ? Icons.star : Icons.star_outline,
-          color: email.isStarred ? Colors.amber : null,
+      if (email.folder != MailFolder.archive &&
+          email.folder != MailFolder.trash &&
+          email.folder != MailFolder.spam)
+        IconButton(
+          onPressed: () {
+            _watchBackgroundMutation(
+              _repo.moveToFolder([email.id], MailFolder.archive),
+            );
+            unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
+          },
+          tooltip: 'Arşivle',
+          icon: const Icon(LucideIcons.archive),
         ),
-      ),
+      if (email.folder != MailFolder.trash)
+        IconButton(
+          onPressed: () {
+            _watchBackgroundMutation(_repo.moveToTrash([email.id]));
+            unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
+          },
+          tooltip: 'Sil',
+          icon: const Icon(LucideIcons.trash2),
+        ),
       IconButton(
-        onPressed: _composeActionBusy ? null : _reply,
-        tooltip: 'Yanıtla',
-        icon: const Icon(LucideIcons.reply),
-      ),
-      IconButton(
-        onPressed: _composeActionBusy ? null : _forward,
-        tooltip: 'İlet',
-        icon: const Icon(LucideIcons.forward),
+        onPressed: () => _watchBackgroundMutation(
+          email.isRead
+              ? _repo.markAsUnread([email.id])
+              : _repo.markAsRead([email.id]),
+        ),
+        tooltip: email.isRead
+            ? 'Okunmadı olarak işaretle'
+            : 'Okundu olarak işaretle',
+        icon: Icon(email.isRead ? LucideIcons.mail : LucideIcons.mailOpen),
       ),
       PopupMenuButton<String>(
         icon: const Icon(LucideIcons.moreHorizontal),
@@ -574,6 +578,16 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
             value: 'reply_all',
             enabled: !_composeActionBusy,
             child: const Text('Tümünü Yanıtla'),
+          ),
+          PopupMenuItem(
+            value: 'reply',
+            enabled: !_composeActionBusy,
+            child: const Text('Yanıtla'),
+          ),
+          PopupMenuItem(
+            value: 'forward',
+            enabled: !_composeActionBusy,
+            child: const Text('İlet'),
           ),
           PopupMenuItem(
             value: 'pin',
@@ -644,7 +658,11 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   }
 
   Future<void> _handleMenu(String action) async {
-    if (action == 'reply_all') {
+    if (action == 'reply') {
+      await _reply();
+    } else if (action == 'forward') {
+      await _forward();
+    } else if (action == 'reply_all') {
       await _replyAll();
     } else if (action == 'read') {
       _watchBackgroundMutation(_repo.markAsRead([widget.emailId]));
@@ -702,7 +720,9 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     } catch (error) {
       if (messenger.mounted) {
         messenger.showSnackBar(
-          SnackBar(content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}')),
+          SnackBar(
+            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+          ),
         );
       }
     }
@@ -850,39 +870,56 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       );
     }
 
-    return SingleChildScrollView(
+    return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(20, 16, 20, 40),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            email.subject,
-            style: TextStyle(
-              fontSize: 22,
-              fontWeight: FontWeight.w700,
-              color: Theme.of(context).colorScheme.onSurface,
-              height: 1.25,
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      itemCount: _thread.length + 2,
+      itemBuilder: (context, index) {
+        if (index == 0) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 8),
+            child: Text(
+              email.subject,
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+                color: Theme.of(context).colorScheme.onSurface,
+                height: 1.2,
+              ),
             ),
-          ),
-          const SizedBox(height: 12),
-          const Divider(),
-          if (_thread.length > 1)
-            _ThreadStack(
-              messages: _thread,
-              openedId: email.id,
-              labelsFor: _labelsFor,
-              onCompose: (mode, title, target) =>
-                  _openComposePrefill(mode, title: title, target: target),
-            )
-          else
-            _SingleMessage(email: email, labels: _labelsFor(email)),
-          if (email.folder != MailFolder.drafts) ...[
-            const SizedBox(height: 16),
-            _QuickReply(email: email, from: _originatingFrom(email)),
+          );
+        }
+        if (index == 2) {
+          return email.folder == MailFolder.drafts
+              ? const SizedBox.shrink()
+              : Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: _QuickReply(
+                    email: email,
+                    from: _originatingFrom(email),
+                  ),
+                );
+        }
+        final message = index == 1 ? _thread.first : _thread[index - 2];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (index > 2)
+              Divider(height: 24, thickness: 0.5, color: colors.border),
+            _SingleMessage(
+              email: message,
+              ownAddress: _originatingFrom(message),
+              labels: _labelsFor(message),
+              collapseQuoted: _thread.length > 1,
+              onCompose: (mode, title) =>
+                  _openComposePrefill(mode, title: title, target: message),
+              onStar: () => _watchBackgroundMutation(
+                _repo.setStarred([message.id], !message.isStarred),
+              ),
+            ),
           ],
-        ],
-      ),
+        );
+      },
     );
   }
 
@@ -890,90 +927,158 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       _repo.getLabels().where((l) => email.labelIds.contains(l.id)).toList();
 }
 
-/// One mail in the classic detail layout (single-message conversations stay
-/// simple — no collapsible header).
-class _SingleMessage extends StatelessWidget {
+/// Full message, never a collapsible conversation card.
+class _SingleMessage extends StatefulWidget {
   const _SingleMessage({
     required this.email,
+    required this.ownAddress,
     required this.labels,
+    required this.onCompose,
+    required this.onStar,
     this.collapseQuoted = false,
-    this.compactHeader = false,
   });
 
   final Email email;
+  final String? ownAddress;
   final List<MailLabel> labels;
   final bool collapseQuoted;
+  final Future<void> Function(String mode, String title) onCompose;
+  final VoidCallback onStar;
 
-  /// Thread kartı zaten avatar + isim + tarih basıyorsa iç başlığı kısaltır.
-  final bool compactHeader;
+  @override
+  State<_SingleMessage> createState() => _SingleMessageState();
+}
+
+class _SingleMessageState extends State<_SingleMessage> {
+  bool _detailsVisible = false;
 
   @override
   Widget build(BuildContext context) {
+    final email = widget.email;
+    final labels = widget.labels;
+    final collapseQuoted = widget.collapseQuoted;
     final colors = AppTheme.colors(context);
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const SizedBox(height: 8),
-        if (compactHeader) ...[
-          if (email.cc.isNotEmpty)
-            _RecipientLine(label: 'Cc: ', addresses: recipientText(email.cc)),
-        ] else
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              MailAvatar(
-                identity: email.senderEmail,
-                displayName: email.senderName,
-                size: 44,
+        const SizedBox(height: 4),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            MailAvatar(
+              identity: email.senderEmail,
+              displayName: email.senderName,
+              size: 36,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    email.senderName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: onSurface,
+                    ),
+                  ),
+                  TextButton.icon(
+                    key: Key('message-recipients-${email.id}'),
+                    style: TextButton.styleFrom(
+                      padding: EdgeInsets.zero,
+                      minimumSize: const Size(0, 24),
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      foregroundColor: colors.secondaryText,
+                    ),
+                    onPressed: () =>
+                        setState(() => _detailsVisible = !_detailsVisible),
+                    iconAlignment: IconAlignment.end,
+                    icon: Icon(
+                      _detailsVisible
+                          ? LucideIcons.chevronUp
+                          : LucideIcons.chevronDown,
+                      size: 12,
+                    ),
+                    label: Text(
+                      _recipientSummary(email.recipients, widget.ownAddress),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
               ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      email.senderName,
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: onSurface,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      email.senderEmail,
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: colors.secondaryText,
-                      ),
-                    ),
-                    if (email.recipients.isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      _RecipientLine(
-                        label: 'Alıcı: ',
-                        addresses: recipientText(email.recipients),
-                      ),
-                    ],
-                    if (email.cc.isNotEmpty) ...[
-                      const SizedBox(height: 2),
-                      _RecipientLine(
-                        label: 'Cc: ',
-                        addresses: recipientText(email.cc),
-                      ),
-                    ],
-                    const SizedBox(height: 6),
-                    Text(
-                      formatMailDateFull(email.timestamp),
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: colors.secondaryText,
-                      ),
-                    ),
-                  ],
+            ),
+            Flexible(
+              child: Text(
+                formatMailTime(email.timestamp),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 12, color: colors.secondaryText),
+              ),
+            ),
+            IconButton(
+              onPressed: widget.onStar,
+              tooltip: email.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
+              visualDensity: VisualDensity.compact,
+              iconSize: 20,
+              icon: Icon(
+                email.isStarred ? Icons.star : Icons.star_outline,
+                color: email.isStarred ? Colors.amber : null,
+              ),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'İleti işlemleri',
+              iconSize: 20,
+              icon: const Icon(LucideIcons.moreVertical),
+              onSelected: (mode) => widget.onCompose(
+                mode,
+                mode == 'forward'
+                    ? 'İlet'
+                    : mode == 'reply-all'
+                    ? 'Tümünü Yanıtla'
+                    : 'Yanıtla',
+              ),
+              itemBuilder: (_) => const [
+                PopupMenuItem(value: 'reply', child: Text('Yanıtla')),
+                PopupMenuItem(
+                  value: 'reply-all',
+                  child: Text('Tümünü Yanıtla'),
                 ),
-              ),
-            ],
+                PopupMenuItem(value: 'forward', child: Text('İlet')),
+              ],
+            ),
+          ],
+        ),
+        if (_detailsVisible)
+          Padding(
+            padding: const EdgeInsets.only(left: 46, top: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _RecipientLine(label: 'Kimden: ', addresses: email.senderEmail),
+                if (email.recipients.isNotEmpty)
+                  _RecipientLine(
+                    label: 'Alıcı: ',
+                    addresses: email.recipients.join(', '),
+                  ),
+                if (email.cc.isNotEmpty)
+                  _RecipientLine(label: 'Cc: ', addresses: email.cc.join(', ')),
+                if (email.bcc.isNotEmpty)
+                  _RecipientLine(
+                    label: 'Bcc: ',
+                    addresses: email.bcc.join(', '),
+                  ),
+                _RecipientLine(
+                  label: 'Tarih: ',
+                  addresses: formatMailDateFull(email.timestamp),
+                ),
+              ],
+            ),
           ),
         if (labels.isNotEmpty) ...[
           const SizedBox(height: 12),
@@ -1009,21 +1114,7 @@ class _SingleMessage extends StatelessWidget {
                   ),
           ),
         ],
-        if (email.attachments.isNotEmpty) ...[
-          const SizedBox(height: 16),
-          Text(
-            'Ekler',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: colors.secondaryText,
-            ),
-          ),
-          const SizedBox(height: 8),
-          _AttachmentList(email: email),
-        ],
-        const Divider(height: 32),
-        const SizedBox(height: 4),
+        const SizedBox(height: 2),
         if (email.trackingPixelHosts.isNotEmpty) ...[
           Row(
             children: [
@@ -1040,11 +1131,78 @@ class _SingleMessage extends StatelessWidget {
           const SizedBox(height: 12),
         ],
         _MessageBody(email: email, collapseQuoted: collapseQuoted),
+        if (email.attachments.isNotEmpty) ...[
+          const SizedBox(height: 16),
+          Text(
+            'Ekler',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: colors.secondaryText,
+            ),
+          ),
+          const SizedBox(height: 8),
+          _AttachmentList(email: email),
+        ],
+        Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Wrap(
+            spacing: 2,
+            runSpacing: 0,
+            children: [
+              TextButton.icon(
+                key: Key('message-reply-${email.id}'),
+                style: _actionStyle(colors),
+                onPressed: () => widget.onCompose('reply', 'Yanıtla'),
+                icon: const Icon(LucideIcons.reply, size: 16),
+                label: const Text('Yanıtla'),
+              ),
+              TextButton.icon(
+                key: Key('message-reply-all-${email.id}'),
+                style: _actionStyle(colors),
+                onPressed: () =>
+                    widget.onCompose('reply-all', 'Tümünü Yanıtla'),
+                icon: const Icon(LucideIcons.replyAll, size: 16),
+                label: const Text('Tümünü yanıtla'),
+              ),
+              TextButton.icon(
+                key: Key('message-forward-${email.id}'),
+                style: _actionStyle(colors),
+                onPressed: () => widget.onCompose('forward', 'İlet'),
+                icon: const Icon(LucideIcons.forward, size: 16),
+                label: const Text('İlet'),
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
 
-  String recipientText(List<String> recipients) => recipients.join(', ');
+  ButtonStyle _actionStyle(AppColors colors) => TextButton.styleFrom(
+    foregroundColor: colors.secondaryText,
+    padding: const EdgeInsets.symmetric(horizontal: 6),
+    minimumSize: const Size(0, 40),
+    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+  );
+
+  String _recipientSummary(List<String> recipients, String? ownAddress) {
+    if (recipients.isEmpty) return 'alıcı yok';
+    if (ownAddress != null &&
+        recipients.any((recipient) {
+          final address = recipient.contains('<')
+              ? recipient.split('<').last.split('>').first.trim()
+              : recipient.trim();
+          return address.toLowerCase() == ownAddress.toLowerCase();
+        })) {
+      return 'bana';
+    }
+    final first = recipients.first;
+    final name = first.contains('<')
+        ? first.substring(0, first.indexOf('<')).trim().replaceAll('"', '')
+        : first.split('@').first;
+    return name.isEmpty ? first : "$name'ye";
+  }
 }
 
 class _MessageBody extends StatefulWidget {
@@ -1087,6 +1245,12 @@ class _MessageBodyState extends State<_MessageBody> {
               MailLinkOpener.open(context, href, displayText: text),
             ),
           ),
+          customStylesBuilder: (element) {
+            if (element.localName == 'img' || element.localName == 'table') {
+              return {'max-width': '100%'};
+            }
+            return null;
+          },
           customWidgetBuilder: (element) {
             if (hideQuoted &&
                 isQuotedHtmlElement(
@@ -1108,11 +1272,16 @@ class _MessageBodyState extends State<_MessageBody> {
         ),
       );
     }
-    if (!hasQuoted) return body;
+    final fullWidthBody = SizedBox(
+      key: Key('message-body-${email.id}'),
+      width: double.infinity,
+      child: body,
+    );
+    if (!hasQuoted) return fullWidthBody;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        body,
+        fullWidthBody,
         TextButton(
           key: Key('toggle-quoted-${email.id}'),
           onPressed: () => setState(() => _showQuoted = !_showQuoted),
@@ -1226,10 +1395,13 @@ class _QuickReplyState extends State<_QuickReply> {
     final colors = AppTheme.colors(context);
     return Container(
       key: const Key('quick-reply'),
-      padding: const EdgeInsets.only(left: 12, right: 4),
+      padding: const EdgeInsets.only(left: 12, right: 2),
       decoration: BoxDecoration(
-        border: Border.all(color: colors.border),
-        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: colors.border.withValues(alpha: 0.6),
+          width: 0.8,
+        ),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Row(
         children: [
@@ -1241,9 +1413,12 @@ class _QuickReplyState extends State<_QuickReply> {
               minLines: 1,
               maxLines: 5,
               textCapitalization: TextCapitalization.sentences,
+              style: const TextStyle(fontSize: 14),
               onChanged: (_) => setState(() {}),
               decoration: const InputDecoration(
                 hintText: 'Hızlı yanıt yaz…',
+                isDense: true,
+                contentPadding: EdgeInsets.symmetric(vertical: 10),
                 border: InputBorder.none,
                 enabledBorder: InputBorder.none,
                 focusedBorder: InputBorder.none,
@@ -1585,211 +1760,5 @@ class _AttachmentTile extends StatelessWidget {
     } on UnimplementedError {
       return tile(const AttachmentIdle());
     }
-  }
-}
-
-/// Conversation as stacked cards, newest first. The newest message and the
-/// one the user opened start expanded; the rest show a one-line preview.
-class _ThreadStack extends StatefulWidget {
-  const _ThreadStack({
-    required this.messages,
-    required this.openedId,
-    required this.labelsFor,
-    required this.onCompose,
-  });
-
-  final List<Email> messages;
-  final String openedId;
-  final List<MailLabel> Function(Email) labelsFor;
-  final Future<void> Function(String mode, String title, Email target)
-  onCompose;
-
-  @override
-  State<_ThreadStack> createState() => _ThreadStackState();
-}
-
-class _ThreadStackState extends State<_ThreadStack> {
-  /// Ids the user toggled away from their default state.
-  final _toggled = <String>{};
-
-  bool _defaultExpanded(Email m) =>
-      m.id == widget.openedId || m.id == widget.messages.first.id;
-
-  bool _expanded(Email m) => _defaultExpanded(m) != _toggled.contains(m.id);
-
-  bool get _allExpanded => widget.messages.every(_expanded);
-
-  void _setAll(bool expanded) => setState(() {
-    _toggled
-      ..clear()
-      ..addAll([
-        for (final m in widget.messages)
-          if (_defaultExpanded(m) != expanded) m.id,
-      ]);
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    return Column(
-      children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                threadParticipantSummary(widget.messages),
-                key: const Key('thread-participants'),
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 13, color: colors.secondaryText),
-              ),
-            ),
-            Flexible(
-              child: TextButton(
-                key: const Key('thread-toggle-all'),
-                onPressed: () => _setAll(!_allExpanded),
-                child: Text(_allExpanded ? 'Tümünü kapat' : 'Tümünü aç'),
-              ),
-            ),
-          ],
-        ),
-        for (final m in widget.messages)
-          Card(
-            elevation: 0,
-            margin: const EdgeInsets.only(top: 10),
-            shape: RoundedRectangleBorder(
-              side: BorderSide(color: colors.border),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            clipBehavior: Clip.antiAlias,
-            child: Column(
-              children: [
-                Semantics(
-                  // Announces the collapsed/expanded state change on tap —
-                  // without this a screen reader gives no indication that
-                  // the card hides or reveals the full message body.
-                  expanded: _expanded(m),
-                  child: InkWell(
-                    onTap: () => setState(
-                      () => _toggled.contains(m.id)
-                          ? _toggled.remove(m.id)
-                          : _toggled.add(m.id),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.all(12),
-                      // The full date keeps its natural width but may take
-                      // at most half the row, so large text scales wrap it
-                      // instead of overflowing the sender column.
-                      child: LayoutBuilder(
-                        builder: (context, constraints) => Row(
-                          children: [
-                            MailAvatar(
-                              identity: m.senderEmail,
-                              displayName: m.senderName,
-                              size: 32,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    m.senderName,
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                  if (_expanded(m) && m.recipients.isNotEmpty)
-                                    Text(
-                                      'Alıcı: ${m.recipients.join(', ')}',
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: colors.secondaryText,
-                                      ),
-                                    ),
-                                  if (!_expanded(m))
-                                    Text(
-                                      stripQuotedReply(m.bodyText)
-                                          .replaceAll('\n', ' '),
-                                      maxLines: 1,
-                                      overflow: TextOverflow.ellipsis,
-                                      style: TextStyle(
-                                        fontSize: 13,
-                                        color: colors.secondaryText,
-                                      ),
-                                    ),
-                                ],
-                              ),
-                            ),
-                            ConstrainedBox(
-                              constraints: BoxConstraints(
-                                maxWidth: constraints.maxWidth / 2,
-                              ),
-                              child: Text(
-                                formatMailDateFull(m.timestamp),
-                                textAlign: TextAlign.end,
-                                style: TextStyle(
-                                  fontSize: 12,
-                                  color: colors.secondaryText,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-                if (_expanded(m))
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-                    child: _SingleMessage(
-                      email: m,
-                      labels: widget.labelsFor(m),
-                      collapseQuoted: true,
-                      compactHeader: true,
-                    ),
-                  ),
-                if (_expanded(m))
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(4, 0, 4, 4),
-                    child: Wrap(
-                      children: [
-                        TextButton.icon(
-                          key: Key('message-reply-${m.id}'),
-                          onPressed: () =>
-                              widget.onCompose('reply', 'Yanıtla', m),
-                          icon: const Icon(LucideIcons.reply, size: 16),
-                          label: const Text('Yanıtla'),
-                        ),
-                        TextButton.icon(
-                          key: Key('message-reply-all-${m.id}'),
-                          onPressed: () => widget.onCompose(
-                            'reply-all',
-                            'Tümünü Yanıtla',
-                            m,
-                          ),
-                          icon: const Icon(LucideIcons.replyAll, size: 16),
-                          label: const Text('Tümünü yanıtla'),
-                        ),
-                        TextButton.icon(
-                          key: Key('message-forward-${m.id}'),
-                          onPressed: () =>
-                              widget.onCompose('forward', 'İlet', m),
-                          icon: const Icon(LucideIcons.forward, size: 16),
-                          label: const Text('İlet'),
-                        ),
-                      ],
-                    ),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
   }
 }

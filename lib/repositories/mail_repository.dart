@@ -756,6 +756,14 @@ abstract class MailRepository extends ChangeNotifier {
   /// distinct from [MailFolder]'s fixed set and from virtual groupings like
   /// starred/pinned. Populated by [refreshCustomFolders].
   List<MailCustomFolder> getCustomFolders({String? accountId}) => const [];
+  /// Physical server folder ids for available standard roles of an account.
+  /// Virtual folders have no remote parent and are not included.
+  Map<MailFolder, String> standardFolderIds(String accountId) => const {};
+
+  /// Already loaded custom mail; does not initiate a network request.
+  List<Email> cachedCustomFolderMails(String accountId, String folderId) =>
+      const [];
+
 
   /// Re-fetches the custom folder list for every account in scope, or only
   /// for [accountId] when given.
@@ -800,6 +808,14 @@ abstract class MailRepository extends ChangeNotifier {
     required String folderId,
     required String name,
   }) => throw UnimplementedError('renameCustomFolder');
+  /// Moves a custom folder under an available same-account server folder,
+  /// or to the personal namespace root when [parentFolderId] is null.
+  Future<void> changeCustomFolderParent({
+    required String accountId,
+    required String folderId,
+    required String? parentFolderId,
+  }) => throw UnimplementedError('changeCustomFolderParent');
+
 
   Future<void> deleteCustomFolder({
     required String accountId,

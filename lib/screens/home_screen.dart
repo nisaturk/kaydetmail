@@ -39,7 +39,10 @@ import 'settings_screen.dart';
 /// toolbar (Sil, Arşivle, Etiketle). A FAB opens the compose screen when
 /// selection mode is off.
 class HomeScreen extends StatefulWidget {
-  const HomeScreen({super.key});
+  const HomeScreen({super.key, this.customFolder});
+
+  /// When set, reuse this screen's bulk toolbar for a physical custom folder.
+  final MailCustomFolder? customFolder;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -465,7 +468,16 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       return;
     }
-    final previous = previousFoldersOf(_repo, ids);
+    final custom = widget.customFolder;
+    final customIds = custom == null
+        ? const <String>[]
+        : ids
+            .where((id) => _repo
+                .cachedCustomFolderMails(custom.accountId, custom.folderId)
+                .any((email) => email.id == id))
+            .toList();
+    final previous = previousFoldersOf(_repo, ids)
+      ..removeWhere((id, _) => customIds.contains(id));
     _mutatingMailIds.addAll(ids);
     final messenger = ScaffoldMessenger.of(context);
     _selection.exit();
@@ -480,7 +492,16 @@ class _HomeScreenState extends State<HomeScreen> {
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
               label: 'Geri al',
-              onPressed: () => restorePreviousFolders(_repo, previous),
+              onPressed: () {
+                if (custom != null && customIds.isNotEmpty) {
+                  unawaited(_repo.moveToCustomFolder(
+                    customIds,
+                    accountId: custom.accountId,
+                    folderId: custom.folderId,
+                  ));
+                }
+                restorePreviousFolders(_repo, previous);
+              },
             ),
           ),
         );
@@ -643,7 +664,10 @@ class _HomeScreenState extends State<HomeScreen> {
       context,
       repository: _repo,
       accountIds: emails.map((email) => email.accountId).toSet(),
-      currentFolders: emails.map((email) => email.folder).toSet(),
+      currentFolders: widget.customFolder == null
+          ? emails.map((email) => email.folder).toSet()
+          : const {},
+      currentCustomFolderId: widget.customFolder?.folderId,
     );
     if (targets == null || !mounted) return;
     final mailIds = emails.map((email) => email.id).toList();
@@ -689,8 +713,10 @@ class _HomeScreenState extends State<HomeScreen> {
         return Scaffold(
           appBar: _selection.isActive
               ? _buildSelectionAppBar()
-              : _buildNormalAppBar(),
-          drawer: showRail ? null : drawerContent,
+              : widget.customFolder != null
+                  ? AppBar(title: Text(widget.customFolder!.name))
+                  : _buildNormalAppBar(),
+          drawer: widget.customFolder != null || showRail ? null : drawerContent,
           floatingActionButton: _selection.isActive
               ? null
               : FloatingActionButton(
@@ -698,21 +724,23 @@ class _HomeScreenState extends State<HomeScreen> {
                   tooltip: 'Yeni E-posta',
                   child: const Icon(LucideIcons.mailPlus),
                 ),
-          body: showRail
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    drawerContent,
-                    VerticalDivider(
-                      width: 1,
-                      color: AppTheme.colors(context).border,
-                    ),
-                    Expanded(
-                      child: _buildMailArea(showDetailPane: showDetailPane),
-                    ),
-                  ],
-                )
-              : _buildMailArea(showDetailPane: false),
+          body: widget.customFolder != null
+              ? _buildMailArea(showDetailPane: false)
+              : showRail
+                  ? Row(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        drawerContent,
+                        VerticalDivider(
+                          width: 1,
+                          color: AppTheme.colors(context).border,
+                        ),
+                        Expanded(
+                          child: _buildMailArea(showDetailPane: showDetailPane),
+                        ),
+                      ],
+                    )
+                  : _buildMailArea(showDetailPane: false),
         );
       },
     );
@@ -725,9 +753,10 @@ class _HomeScreenState extends State<HomeScreen> {
   /// this is exactly the full-width list the phone layout has always had.
   Widget _buildMailArea({required bool showDetailPane}) {
     final list = KeyedSubtree(
-      key: ValueKey(_folder),
+      key: ValueKey(widget.customFolder?.folderId ?? _folder.name),
       child: InboxScreen(
         folder: _folder,
+        customFolder: widget.customFolder,
         selection: _selection,
         onOpenMail: showDetailPane
             ? (email) => setState(() => _selectedMail = email)
