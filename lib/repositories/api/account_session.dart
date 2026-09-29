@@ -141,4 +141,23 @@ class AccountSession {
             forwardedFromKaydetMailThreadIds.contains(email.threadId)),
     labelIds: labelMap[email.id] ?? const [],
   );
+
+  /// Drops the cached mail pages of custom folder [folderId].
+  void forgetCustomFolderMails(String folderId) {
+    customFolderEmails.remove(folderId);
+    customFolderPages.remove(folderId);
+    customFolderHasMore.remove(folderId);
+  }
+
+  /// Removes mails [ids] from every cached custom-folder bucket.
+  void dropFromCustomFolderMails(Set<String> ids) {
+    for (final entry in customFolderEmails.entries.toList()) {
+      if (entry.value.any((e) => ids.contains(e.id))) {
+        customFolderEmails[entry.key] = [
+          for (final email in entry.value)
+            if (!ids.contains(email.id)) email,
+        ];
+      }
+    }
+  }
 }
