@@ -20,7 +20,6 @@ import '../models/mail_template.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
-import '../models/reply_reminder.dart';
 import '../models/trusted_sender.dart';
 import '../utils/html_to_text.dart';
 import '../utils/attachment_mime.dart';
@@ -1136,35 +1135,6 @@ class ApiMailService {
 
   Future<void> deleteIdentity(String id) =>
       _client.delete('/api/identities/${Uri.encodeComponent(id)}');
-
-  Future<ReplyReminder> setReplyReminder(
-    String mailId,
-    DateTime dueAtUtc,
-  ) async => ReplyReminder.fromJson(
-    await _client.postJson(
-      '/api/mails/${Uri.encodeComponent(mailId)}/reply-reminder',
-      {'dueAtUtc': dueAtUtc.toUtc().toIso8601String()},
-    ),
-  );
-
-  Future<void> cancelReplyReminder(String mailId) => _client.delete(
-    '/api/mails/${Uri.encodeComponent(mailId)}/reply-reminder',
-  );
-
-  Future<List<ReplyReminder>> listReplyReminders() async {
-    final body = await _client.get('/api/reply-reminders');
-    final items = body['items'] as List? ?? const [];
-    return [
-      for (final item in items)
-        if (item is Map)
-          ...() {
-            final parsed = ReplyReminder.tryParse(
-              Map<String, dynamic>.from(item),
-            );
-            return parsed == null ? const <ReplyReminder>[] : [parsed];
-          }(),
-    ];
-  }
 
   /// Lists every scheduled send for the account via
   /// `GET /api/scheduled-sends`.

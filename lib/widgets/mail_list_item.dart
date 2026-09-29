@@ -4,7 +4,6 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
-import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import 'mail_avatar.dart';
@@ -62,18 +61,6 @@ class MailListItem extends StatelessWidget {
   /// labeled mail is obvious without opening it.
   final List<MailLabel> labels;
 
-  /// Sent mail older than this without a received reply gets a
-  /// "Yanıt bekliyor" nudge. Purely a display hint computed from fields
-  /// the row already has, no repository access needed.
-  static const Duration _nudgeThreshold =
-      MailRepository.unansweredReminderThreshold;
-
-  bool get _needsReply =>
-      MailRepository.unansweredReminderEnabled &&
-      email.folder == MailFolder.sent &&
-      DateTime.now().difference(email.timestamp) > _nudgeThreshold &&
-      !email.threadReceivedReply;
-
   /// Drafts are the user's own unsent mail: read/unread means nothing for
   /// them, so they always render in the calm "read" style with no state.
   bool get _isDraft => email.folder == MailFolder.drafts;
@@ -89,7 +76,6 @@ class MailListItem extends StatelessWidget {
     if (email.isPinned) parts.add('sabitlenmiş');
     if (email.isReplied) parts.add('yanıtlandı');
     if (email.forwardedFromKaydetMail) parts.add('iletildi');
-    if (_needsReply) parts.add('yanıt bekliyor');
     if (email.attachments.isNotEmpty || email.hasAttachments) {
       parts.add('ek içeriyor');
     }
@@ -250,27 +236,6 @@ class MailListItem extends StatelessWidget {
                           height: 1.3,
                         ),
                       ),
-                      if (_needsReply) ...[
-                        const SizedBox(height: 4),
-                        Row(
-                          children: [
-                            Icon(
-                              LucideIcons.clockAlert,
-                              size: 12,
-                              color: colors.destructive,
-                            ),
-                            const SizedBox(width: 4),
-                            Text(
-                              'Yanıt bekliyor',
-                              style: TextStyle(
-                                fontSize: 11,
-                                fontWeight: FontWeight.w600,
-                                color: colors.destructive,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
                       if (labels.isNotEmpty) ...[
                         const SizedBox(height: 6),
                         Wrap(

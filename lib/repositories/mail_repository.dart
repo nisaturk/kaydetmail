@@ -23,10 +23,8 @@ import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
-import '../models/reply_reminder.dart';
 import '../models/trusted_sender.dart';
 import '../models/attachment_download_state.dart';
-import '../state/app_settings_controller.dart';
 
 /// Server connection settings entered on the login screen.
 ///
@@ -84,16 +82,6 @@ abstract class MailRepository extends ChangeNotifier {
   /// Pinning beyond this is ignored (and the UI explains it in Turkish).
   /// Unpinning frees a slot again.
   static const int maxPinnedMails = 3;
-
-  /// Master switch for the "Yanıt bekliyor"/"Yanıtlanmadı" nudge (badge +
-  /// Sent-folder stale sort).
-  static bool get unansweredReminderEnabled =>
-      AppSettingsController.instance.unansweredReminderEnabled;
-
-  /// Age past which an Inbox mail with no reply, or a Sent mail with no
-  /// reply received, earns the "Yanıt bekliyor"/"Yanıtlanmadı" nudge — see
-  /// `MailListItem._needsReply` and `ApiMailRepository`'s Sent-folder sort.
-  static const Duration unansweredReminderThreshold = Duration(days: 3);
 
   // --- Auth ---------------------------------------------------------
 
@@ -752,16 +740,6 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Re-fetches the scheduled-send list from the backend.
   Future<void> refreshScheduledSends() async {}
-
-  Future<ReplyReminder> setReplyReminder(String mailId, DateTime dueAtUtc) =>
-      throw UnimplementedError('setReplyReminder');
-
-  Future<void> cancelReplyReminder(String mailId) =>
-      throw UnimplementedError('cancelReplyReminder');
-
-  List<ReplyReminder> getReplyReminders() => const [];
-
-  Future<void> refreshReplyReminders() async {}
 
   // --- Custom folders -------------------------------------------------
 

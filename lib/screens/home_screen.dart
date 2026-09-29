@@ -27,7 +27,6 @@ import 'inbox_screen.dart';
 import 'mail_detail_screen.dart';
 import 'outbox_screen.dart';
 import 'scheduled_sends_screen.dart';
-import 'reply_reminders_screen.dart';
 import 'search_screen.dart';
 import 'add_account_screen.dart';
 import 'settings_screen.dart';
@@ -147,16 +146,14 @@ class _HomeScreenState extends State<HomeScreen> {
 
   void _addAccount() {
     if (!_isRailLayout) Navigator.of(context).pop();
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const AddAccountScreen()),
-    );
+    Navigator.of(context)
+        .push(MaterialPageRoute(builder: (_) => const AddAccountScreen()));
   }
 
   void _openDestination(DrawerDestination destination) {
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
     final screen = switch (destination) {
       DrawerDestination.scheduled => const ScheduledSendsScreen(),
-      DrawerDestination.reminders => const ReplyRemindersScreen(),
       DrawerDestination.outbox => const OutboxScreen(),
       DrawerDestination.customFolders => const CustomFoldersScreen(),
       DrawerDestination.settings => const SettingsScreen(),
