@@ -27,53 +27,9 @@ import '../utils/error_messages.dart';
 import '../utils/html_to_text.dart';
 import '../utils/attachment_mime.dart';
 import '../utils/image_resize.dart';
-import '../widgets/mail_avatar.dart';
+import 'compose/compose_models.dart';
+import 'compose/compose_widgets.dart';
 
-/// Non-ready states for a remote attachment awaiting/needing its content —
-/// see `_ComposeScreenState._attachmentIssues`.
-enum _AttachmentIssue { downloading, failed }
-
-enum _AttachmentSource { file, gallery, camera }
-
-enum _ComposeMenuAction { schedule, contacts, saveDraft, discard, readReceipt }
-
-enum _RecipientField { to, cc, bcc }
-
-typedef _ContactPick = ({_RecipientField field, List<Contact> contacts});
-
-/// Borderless field decoration shared by every compose input.
-///
-/// Every border state is explicitly [InputBorder.none]: the global theme
-/// draws rounded boxes (including on focus) and compose must stay one flat
-/// writing surface with only a cursor for feedback.
-const _flatFieldDecoration = InputDecoration(
-  hintText: '',
-  border: InputBorder.none,
-  enabledBorder: InputBorder.none,
-  focusedBorder: InputBorder.none,
-  errorBorder: InputBorder.none,
-  focusedErrorBorder: InputBorder.none,
-  disabledBorder: InputBorder.none,
-  filled: false,
-  isDense: true,
-  contentPadding: EdgeInsets.symmetric(vertical: 12),
-);
-
-/// Light shape check for a recipient chip: `name@domain.tld`. Not a full
-/// RFC 5322 validator — just enough to flag an obviously broken address
-/// (missing `@`, missing domain) before it reaches the backend.
-final RegExp _emailShapePattern = RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$');
-
-/// One recipient chip. [valid] is false for anything that fails
-/// [_emailShapePattern] — the chip still renders (never silently dropped)
-/// but in the destructive palette so the user notices and fixes it.
-@immutable
-class _Recipient {
-  const _Recipient(this.address, {required this.valid});
-
-  final String address;
-  final bool valid;
-}
 
 /// Opens [draft] in the editor with its complete content. List rows only
 /// carry a ~120 character snippet, so the full draft (body + attachment
@@ -206,9 +162,9 @@ class ComposeScreen extends StatefulWidget {
 }
 
 class _ComposeScreenState extends State<ComposeScreen> {
-  final List<_Recipient> _toRecipients = [];
-  final List<_Recipient> _ccRecipients = [];
-  final List<_Recipient> _bccRecipients = [];
+  final List<Recipient> _toRecipients = [];
+  final List<Recipient> _ccRecipients = [];
+  final List<Recipient> _bccRecipients = [];
 
   // Holds whatever the user has typed but not yet turned into a chip
   // (no comma/space/Enter yet). Read alongside the chip lists so in-flight
@@ -246,7 +202,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// a still-downloading or failed remote attachment (forward, or a
   /// draft's remote attachment) must never be silently dropped from the
   /// request. See docs-dev spec §5/§6.
-  final Map<Attachment, ({_AttachmentIssue status, String? error})>
+  final Map<Attachment, ({AttachmentIssue status, String? error})>
   _attachmentIssues = {};
 
   bool get _attachmentsReady => _attachmentIssues.isEmpty && !_resizingImages;
@@ -294,7 +250,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _attachments.add(attachment);
       if (attachment.bytes == null && attachment.id != null) {
         _attachmentIssues[attachment] = (
-          status: _AttachmentIssue.downloading,
+          status: AttachmentIssue.downloading,
           error: null,
         );
         unawaited(_downloadRemoteAttachment(attachment));
@@ -364,11 +320,11 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   TextSelection get _bodySelection => _bodyController.selection;
 
-  static List<_Recipient> _parseRecipients(String raw) => raw
+  static List<Recipient> _parseRecipients(String raw) => raw
       .split(',')
       .map((e) => e.trim())
       .where((e) => e.isNotEmpty)
-      .map((e) => _Recipient(e, valid: _emailShapePattern.hasMatch(e)))
+      .map((e) => Recipient(e, valid: emailShapePattern.hasMatch(e)))
       .toList();
 
   /// Recomputes [_contacts] from the persisted address book, manually-added
@@ -437,7 +393,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _attachments.isNotEmpty;
 
   String _recipientDraftValue(
-    List<_Recipient> recipients,
+    List<Recipient> recipients,
     TextEditingController input,
   ) => [
     ...recipients.map((recipient) => recipient.address.trim()),
@@ -650,7 +606,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         false;
   }
 
-  List<String> _addressStrings(List<_Recipient> recipients) => [
+  List<String> _addressStrings(List<Recipient> recipients) => [
     for (final recipient in recipients) recipient.address,
   ];
 
@@ -659,13 +615,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// but never delimited isn't silently lost). Caller wraps this in
   /// `setState` when a rebuild is needed.
   void _commitPendingRecipient(
-    List<_Recipient> recipients,
+    List<Recipient> recipients,
     TextEditingController input,
   ) {
     final address = input.text.trim();
     if (address.isEmpty) return;
     recipients.add(
-      _Recipient(address, valid: _emailShapePattern.hasMatch(address)),
+      Recipient(address, valid: emailShapePattern.hasMatch(address)),
     );
     input.clear();
   }
@@ -674,7 +630,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// into a chip and leaving the trailing partial token as pending text —
   /// so a comma or space commits a chip without waiting for submit.
   void _onRecipientChanged(
-    List<_Recipient> recipients,
+    List<Recipient> recipients,
     TextEditingController input,
     String value,
   ) {
@@ -692,7 +648,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       for (final part in parts) {
         if (part.isEmpty) continue;
         recipients.add(
-          _Recipient(part, valid: _emailShapePattern.hasMatch(part)),
+          Recipient(part, valid: emailShapePattern.hasMatch(part)),
         );
       }
       input.value = TextEditingValue(
@@ -703,13 +659,13 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   void _onRecipientSubmitted(
-    List<_Recipient> recipients,
+    List<Recipient> recipients,
     TextEditingController input,
   ) {
     setState(() => _commitPendingRecipient(recipients, input));
   }
 
-  void _removeRecipient(List<_Recipient> recipients, _Recipient recipient) {
+  void _removeRecipient(List<Recipient> recipients, Recipient recipient) {
     setState(() => recipients.remove(recipient));
   }
 
@@ -735,7 +691,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   void _updateSuggestions(
     LayerLink link,
     String query,
-    List<_Recipient> currentRecipients,
+    List<Recipient> currentRecipients,
     void Function(Contact) onSelected,
   ) {
     _removeSuggestionOverlay();
@@ -756,7 +712,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
           link: link,
           showWhenUnlinked: false,
           offset: const Offset(0, 4),
-          child: _ContactSuggestionList(
+          child: ContactSuggestionList(
             contacts: matches,
             onSelected: onSelected,
           ),
@@ -768,15 +724,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   void _commitSuggestion(
-    List<_Recipient> recipients,
+    List<Recipient> recipients,
     TextEditingController input,
     Contact contact,
   ) {
     setState(() {
       recipients.add(
-        _Recipient(
+        Recipient(
           contact.email,
-          valid: _emailShapePattern.hasMatch(contact.email),
+          valid: emailShapePattern.hasMatch(contact.email),
         ),
       );
       input.clear();
@@ -880,7 +836,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
     final template = await showModalBottomSheet<MailTemplate>(
       context: context,
       isScrollControlled: true,
-      builder: (_) => _TemplatePicker(accountId: accountId, repository: _repo),
+      builder: (_) => TemplatePicker(accountId: accountId, repository: _repo),
     );
     if (template == null || !mounted || accountId != _resolvedFromAccountId) {
       return;
@@ -1035,7 +991,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   bool _validateAttachmentsReady() {
     if (_attachmentsReady) return true;
     final failed = _attachmentIssues.values.any(
-      (issue) => issue.status == _AttachmentIssue.failed,
+      (issue) => issue.status == AttachmentIssue.failed,
     );
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -1127,7 +1083,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         SnackBar(
           key: const Key('undo-send-snackbar'),
           duration: undoWindow,
-          content: _UndoSendSnackContent(duration: undoWindow),
+          content: UndoSendSnackContent(duration: undoWindow),
           action: SnackBarAction(
             label: 'Geri Al',
             onPressed: () {
@@ -1267,31 +1223,31 @@ class _ComposeScreenState extends State<ComposeScreen> {
     if (_sending) return;
     _removeSuggestionOverlay();
     _refreshContacts();
-    final picked = await showModalBottomSheet<_ContactPick>(
+    final picked = await showModalBottomSheet<ContactPick>(
       context: context,
       isScrollControlled: true,
       useSafeArea: true,
-      builder: (_) => _ContactPickerSheet(contacts: _contacts),
+      builder: (_) => ContactPickerSheet(contacts: _contacts),
     );
     if (picked == null || picked.contacts.isEmpty || !mounted) return;
     final recipients = switch (picked.field) {
-      _RecipientField.to => _toRecipients,
-      _RecipientField.cc => _ccRecipients,
-      _RecipientField.bcc => _bccRecipients,
+      RecipientField.to => _toRecipients,
+      RecipientField.cc => _ccRecipients,
+      RecipientField.bcc => _bccRecipients,
     };
     setState(() {
       final existing = {for (final r in recipients) r.address.toLowerCase()};
       for (final contact in picked.contacts) {
         if (!existing.add(contact.email.toLowerCase())) continue;
         recipients.add(
-          _Recipient(
+          Recipient(
             contact.email,
-            valid: _emailShapePattern.hasMatch(contact.email),
+            valid: emailShapePattern.hasMatch(contact.email),
           ),
         );
       }
-      if (picked.field == _RecipientField.cc) _ccExpanded = true;
-      if (picked.field == _RecipientField.bcc) _bccExpanded = true;
+      if (picked.field == RecipientField.cc) _ccExpanded = true;
+      if (picked.field == RecipientField.bcc) _bccExpanded = true;
     });
   }
 
@@ -1427,7 +1383,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   }
 
   Future<List<Attachment>?> _osPickAttachments() async {
-    final source = await showModalBottomSheet<_AttachmentSource>(
+    final source = await showModalBottomSheet<AttachmentSource>(
       context: context,
       builder: (ctx) => SafeArea(
         child: Column(
@@ -1437,29 +1393,29 @@ class _ComposeScreenState extends State<ComposeScreen> {
               key: const Key('attach-source-file'),
               leading: const Icon(LucideIcons.file),
               title: const Text('Dosya seç'),
-              onTap: () => Navigator.pop(ctx, _AttachmentSource.file),
+              onTap: () => Navigator.pop(ctx, AttachmentSource.file),
             ),
             ListTile(
               key: const Key('attach-source-gallery'),
               leading: const Icon(LucideIcons.image),
               title: const Text('Fotoğraf seç'),
-              onTap: () => Navigator.pop(ctx, _AttachmentSource.gallery),
+              onTap: () => Navigator.pop(ctx, AttachmentSource.gallery),
             ),
             ListTile(
               key: const Key('attach-source-camera'),
               leading: const Icon(LucideIcons.camera),
               title: const Text('Kamera'),
-              onTap: () => Navigator.pop(ctx, _AttachmentSource.camera),
+              onTap: () => Navigator.pop(ctx, AttachmentSource.camera),
             ),
           ],
         ),
       ),
     );
     if (source == null) return null;
-    if (source == _AttachmentSource.file) return _pickFiles();
+    if (source == AttachmentSource.file) return _pickFiles();
     try {
       final picker = ImagePicker();
-      final images = source == _AttachmentSource.camera
+      final images = source == AttachmentSource.camera
           ? [?await picker.pickImage(source: ImageSource.camera)]
           : await picker.pickMultiImage();
       if (images.isEmpty) return null;
@@ -1467,7 +1423,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         for (final image in images)
           await _attachmentFromXFile(
             image,
-            fromCamera: source == _AttachmentSource.camera,
+            fromCamera: source == AttachmentSource.camera,
           ),
       ];
     } on PlatformException {
@@ -1475,7 +1431,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              source == _AttachmentSource.camera
+              source == AttachmentSource.camera
                   ? 'Kameraya erişilemedi. İzinleri kontrol edin veya dosya seçin.'
                   : 'Fotoğraflara erişilemedi. İzinleri kontrol edin veya dosya seçin.',
             ),
@@ -1488,7 +1444,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${source == _AttachmentSource.camera ? 'Fotoğraf eklenemedi' : 'Fotoğraflar eklenemedi'}: '
+              '${source == AttachmentSource.camera ? 'Fotoğraf eklenemedi' : 'Fotoğraflar eklenemedi'}: '
               '${friendlyErrorMessage(error)}',
             ),
           ),
@@ -1650,7 +1606,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       if (mounted) {
         setState(() {
           _attachmentIssues[attachment] = (
-            status: _AttachmentIssue.failed,
+            status: AttachmentIssue.failed,
             error: 'Ek indirilemedi.',
           );
         });
@@ -1677,7 +1633,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       if (!_attachments.contains(attachment)) return;
       setState(() {
         _attachmentIssues[attachment] = (
-          status: _AttachmentIssue.failed,
+          status: AttachmentIssue.failed,
           error: friendlyErrorMessage(error),
         );
       });
@@ -1687,7 +1643,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
   void _retryAttachment(Attachment attachment) {
     setState(() {
       _attachmentIssues[attachment] = (
-        status: _AttachmentIssue.downloading,
+        status: AttachmentIssue.downloading,
         error: null,
       );
     });
@@ -1748,29 +1704,29 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 tooltip: 'Şimdi Gönder',
                 onPressed: _send,
               ),
-              PopupMenuButton<_ComposeMenuAction>(
+              PopupMenuButton<ComposeMenuAction>(
                 key: const Key('send-options-menu'),
                 tooltip: 'Diğer seçenekler',
                 position: PopupMenuPosition.under,
                 icon: const Icon(LucideIcons.ellipsisVertical),
                 onSelected: (action) {
                   switch (action) {
-                    case _ComposeMenuAction.schedule:
+                    case ComposeMenuAction.schedule:
                       _scheduleSend();
-                    case _ComposeMenuAction.contacts:
+                    case ComposeMenuAction.contacts:
                       _pickFromContacts();
-                    case _ComposeMenuAction.saveDraft:
+                    case ComposeMenuAction.saveDraft:
                       _saveDraftFromMenu();
-                    case _ComposeMenuAction.discard:
+                    case ComposeMenuAction.discard:
                       _discard();
-                    case _ComposeMenuAction.readReceipt:
+                    case ComposeMenuAction.readReceipt:
                       _toggleReadReceipt();
                   }
                 },
                 itemBuilder: (context) {
                   final hasContent = _hasContent;
-                  PopupMenuItem<_ComposeMenuAction> item(
-                    _ComposeMenuAction action,
+                  PopupMenuItem<ComposeMenuAction> item(
+                    ComposeMenuAction action,
                     IconData icon,
                     String label, {
                     bool enabled = true,
@@ -1793,29 +1749,29 @@ class _ComposeScreenState extends State<ComposeScreen> {
                   );
                   return [
                     item(
-                      _ComposeMenuAction.schedule,
+                      ComposeMenuAction.schedule,
                       LucideIcons.calendarClock,
                       'Zamanla',
                     ),
                     item(
-                      _ComposeMenuAction.contacts,
+                      ComposeMenuAction.contacts,
                       LucideIcons.bookUser,
                       'Kişilerden ekle',
                     ),
                     item(
-                      _ComposeMenuAction.saveDraft,
+                      ComposeMenuAction.saveDraft,
                       LucideIcons.save,
                       'Taslağı kaydet',
                       enabled: hasContent,
                     ),
                     item(
-                      _ComposeMenuAction.discard,
+                      ComposeMenuAction.discard,
                       LucideIcons.trash2,
                       'Sil',
                       color: colors.destructive,
                     ),
                     item(
-                      _ComposeMenuAction.readReceipt,
+                      ComposeMenuAction.readReceipt,
                       LucideIcons.mailCheck,
                       'Okundu bilgisi iste',
                       trailing: _requestReadReceipt
@@ -2002,7 +1958,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       if (_attachments.isNotEmpty) ...[
                         const SizedBox(height: 12),
                         for (final attachment in _attachments)
-                          _AttachmentRow(
+                          AttachmentRow(
                             attachment: attachment,
                             onRemove: () => _removeAttachment(attachment),
                             onRetry: () => _retryAttachment(attachment),
@@ -2025,7 +1981,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                               controller: _bodyController,
                               focusNode: _bodyFocus,
                               config: const quill.QuillEditorConfig(
-                                unknownEmbedBuilder: _EmbedPlaceholder(),
+                                unknownEmbedBuilder: EmbedPlaceholder(),
                                 scrollable: false,
                                 minHeight: 180,
                                 padding: EdgeInsets.symmetric(vertical: 10),
@@ -2132,7 +2088,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
             focusNode: focusNode,
             enabled: enabled,
             textInputAction: TextInputAction.next,
-            decoration: _flatFieldDecoration,
+            decoration: flatFieldDecoration,
             style: TextStyle(fontSize: 15, color: colors.bodyText),
           ),
         ),
@@ -2151,9 +2107,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
   /// under this field's value area.
   Widget _recipientFieldRow({
     required String label,
-    required List<_Recipient> recipients,
+    required List<Recipient> recipients,
     required TextEditingController inputController,
-    required void Function(_Recipient) onRemove,
+    required void Function(Recipient) onRemove,
     required void Function(String) onChanged,
     required VoidCallback onSubmitted,
     required LayerLink suggestionLink,
@@ -2189,7 +2145,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                 runSpacing: AppTheme.space1,
                 children: [
                   for (final recipient in recipients)
-                    _RecipientChip(
+                    RecipientChip(
                       key: ObjectKey(recipient),
                       recipient: recipient,
                       enabled: enabled,
@@ -2203,7 +2159,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
                       focusNode: focusNode,
                       enabled: enabled,
                       textInputAction: TextInputAction.done,
-                      decoration: _flatFieldDecoration,
+                      decoration: flatFieldDecoration,
                       style: TextStyle(fontSize: 15, color: colors.bodyText),
                       onChanged: onChanged,
                       onSubmitted: (_) => onSubmitted(),
@@ -2381,616 +2337,6 @@ class _ComposeScreenState extends State<ComposeScreen> {
             label: const Text('Hazır Metinler'),
           ),
         ],
-      ),
-    );
-  }
-}
-
-class _TemplatePicker extends StatefulWidget {
-  const _TemplatePicker({required this.accountId, required this.repository});
-
-  final String accountId;
-  final MailRepository repository;
-
-  @override
-  State<_TemplatePicker> createState() => _TemplatePickerState();
-}
-
-class _TemplatePickerState extends State<_TemplatePicker> {
-  List<MailTemplate>? _templates;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() {
-      _templates = null;
-      _error = null;
-    });
-    try {
-      final templates = await widget.repository.listTemplates(widget.accountId);
-      if (mounted) setState(() => _templates = templates);
-    } catch (error) {
-      if (mounted) setState(() => _error = friendlyErrorMessage(error));
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => SafeArea(
-    child: SizedBox(
-      height: MediaQuery.sizeOf(context).height * 0.55,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 18, 12, 10),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Hazır metin veya şablon seç',
-                    style: Theme.of(context).textTheme.titleLarge,
-                  ),
-                ),
-                IconButton(
-                  tooltip: 'Kapat',
-                  icon: const Icon(LucideIcons.x),
-                  onPressed: () => Navigator.pop(context),
-                ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: _error != null
-                ? Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Padding(
-                          padding: const EdgeInsets.all(16),
-                          child: Text(_error!, textAlign: TextAlign.center),
-                        ),
-                        TextButton(
-                          onPressed: _load,
-                          child: const Text('Tekrar dene'),
-                        ),
-                      ],
-                    ),
-                  )
-                : _templates == null
-                ? const Center(child: CircularProgressIndicator())
-                : _templates!.isEmpty
-                ? const Center(
-                    child: Text(
-                      'Bu hesapta kayıtlı metin yok.\nAyarlar > Hazır Metinler ve Şablonlar',
-                      textAlign: TextAlign.center,
-                    ),
-                  )
-                : ListView.separated(
-                    itemCount: _templates!.length,
-                    separatorBuilder: (_, _) => const Divider(height: 1),
-                    itemBuilder: (context, index) {
-                      final template = _templates![index];
-                      return ListTile(
-                        key: ValueKey('pick-template-${template.id}'),
-                        title: Text(template.name),
-                        subtitle: template.subject.isEmpty
-                            ? null
-                            : Text(template.subject, maxLines: 1),
-                        onTap: () => Navigator.pop(context, template),
-                      );
-                    },
-                  ),
-          ),
-        ],
-      ),
-    ),
-  );
-}
-
-/// A single recipient chip. [recipient.valid] false renders it in the
-/// destructive palette instead of silently dropping or silently sending a
-/// broken address — the user has to see and fix it.
-
-class _RecipientChip extends StatelessWidget {
-  const _RecipientChip({
-    super.key,
-    required this.recipient,
-    required this.onDeleted,
-    this.enabled = true,
-  });
-
-  final _Recipient recipient;
-  final VoidCallback onDeleted;
-  final bool enabled;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    final destructive = !recipient.valid;
-    return Chip(
-      label: Text(recipient.address, style: const TextStyle(fontSize: 13)),
-      backgroundColor: destructive
-          ? colors.destructive.withValues(alpha: 0.12)
-          : colors.surfaceAlt,
-      labelStyle: TextStyle(
-        color: destructive ? colors.destructive : colors.bodyText,
-      ),
-      deleteIcon: Icon(
-        LucideIcons.x,
-        size: 14,
-        color: destructive ? colors.destructive : colors.secondaryText,
-      ),
-      onDeleted: enabled ? onDeleted : null,
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-      padding: const EdgeInsets.symmetric(horizontal: 4),
-      side: BorderSide(color: destructive ? colors.destructive : colors.border),
-    );
-  }
-}
-
-class _AttachmentRow extends StatelessWidget {
-  const _AttachmentRow({
-    required this.attachment,
-    required this.onRemove,
-    this.onRetry,
-    this.enabled = true,
-    this.issue,
-    this.error,
-  });
-
-  final Attachment attachment;
-  final VoidCallback onRemove;
-  final VoidCallback? onRetry;
-  final bool enabled;
-
-  /// Null means ready (bytes in hand); non-null gates Send/save-draft/
-  /// schedule until it's resolved — see `_ComposeScreenState._attachmentIssues`.
-  final _AttachmentIssue? issue;
-  final String? error;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    final downloading = issue == _AttachmentIssue.downloading;
-    final failed = issue == _AttachmentIssue.failed;
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 4),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: colors.surfaceAlt,
-          borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        ),
-        child: Row(
-          children: [
-            Icon(
-              failed ? LucideIcons.fileWarning : LucideIcons.paperclip,
-              size: 16,
-              color: failed ? colors.destructive : colors.secondaryText,
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    attachment.name,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(fontSize: 13, color: colors.bodyText),
-                  ),
-                  if (failed)
-                    Text(
-                      error ?? 'Ek indirilemedi.',
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(fontSize: 11, color: colors.destructive),
-                    )
-                  else if (downloading)
-                    Text(
-                      'İndiriliyor…',
-                      style: TextStyle(
-                        fontSize: 11,
-                        color: colors.secondaryText,
-                      ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            if (downloading)
-              const SizedBox(
-                width: 16,
-                height: 16,
-                child: CircularProgressIndicator(strokeWidth: 2),
-              )
-            else if (!failed)
-              Text(
-                attachment.sizeLabel,
-                style: TextStyle(fontSize: 12, color: colors.secondaryText),
-              ),
-            if (failed)
-              IconButton(
-                onPressed: enabled ? onRetry : null,
-                icon: const Icon(LucideIcons.refreshCw, size: 16),
-                tooltip: 'Tekrar indir',
-                visualDensity: VisualDensity.compact,
-                padding: EdgeInsets.zero,
-                constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-              ),
-            IconButton(
-              onPressed: enabled ? onRemove : null,
-              icon: const Icon(LucideIcons.x, size: 16),
-              tooltip: 'Kaldır',
-              visualDensity: VisualDensity.compact,
-              padding: EdgeInsets.zero,
-              constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Live "N sn içinde gönderilecek" countdown shown inside the undo-send
-/// SnackBar. Purely cosmetic — the actual send fires from
-/// [PendingSendQueue]'s own timer, and the SnackBar itself is dismissed by
-/// the controller `_ComposeScreenState._send` captured from `showSnackBar`,
-/// both on [PendingSendQueue.undoWindow]; this only mirrors it visually.
-class _UndoSendSnackContent extends StatefulWidget {
-  const _UndoSendSnackContent({required this.duration});
-
-  final Duration duration;
-
-  @override
-  State<_UndoSendSnackContent> createState() => _UndoSendSnackContentState();
-}
-
-class _UndoSendSnackContentState extends State<_UndoSendSnackContent> {
-  late int _secondsLeft = widget.duration.inSeconds;
-  Timer? _ticker;
-
-  @override
-  void initState() {
-    super.initState();
-    _ticker = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (_secondsLeft <= 1) {
-        _ticker?.cancel();
-        setState(() => _secondsLeft = 0);
-        return;
-      }
-      setState(() => _secondsLeft -= 1);
-    });
-  }
-
-  @override
-  void dispose() {
-    _ticker?.cancel();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Text('E-posta $_secondsLeft sn içinde gönderilecek');
-  }
-}
-
-/// Tappable contact suggestion dropdown, anchored under a recipient field
-/// via [CompositedTransformFollower]/[CompositedTransformTarget] (see
-/// `_ComposeScreenState._updateSuggestions`).
-class _ContactSuggestionList extends StatelessWidget {
-  const _ContactSuggestionList({
-    required this.contacts,
-    required this.onSelected,
-  });
-
-  final List<Contact> contacts;
-  final void Function(Contact) onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    return Material(
-      elevation: 4,
-      borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-      color: Theme.of(context).colorScheme.surface,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(maxHeight: 220),
-        child: ListView(
-          padding: EdgeInsets.zero,
-          shrinkWrap: true,
-          children: [
-            for (final contact in contacts)
-              ListTile(
-                key: ValueKey('contact-suggestion-${contact.email}'),
-                dense: true,
-                title: Text(
-                  contact.displayName,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-                subtitle: contact.displayName == contact.email
-                    ? null
-                    : Text(
-                        contact.email,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: colors.secondaryText),
-                      ),
-                onTap: () => onSelected(contact),
-              ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Prompts for a URL to insert as a link. A [StatefulWidget] (not a bare
-/// controller disposed right after the dialog closes) so the framework
-/// disposes [_controller] only once the widget is truly unmounted — the
-/// dialog's own exit transition keeps it mounted for a few more frames
-/// after `Navigator.pop`, and disposing any earlier crashes that
-/// animation (same convention as `_LabelEditorDialogState`).
-class _LinkUrlDialog extends StatefulWidget {
-  const _LinkUrlDialog();
-
-  @override
-  State<_LinkUrlDialog> createState() => _LinkUrlDialogState();
-}
-
-class _LinkUrlDialogState extends State<_LinkUrlDialog> {
-  final _controller = TextEditingController();
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AlertDialog(
-      title: const Text('Bağlantı Ekle'),
-      content: TextField(
-        controller: _controller,
-        autofocus: true,
-        keyboardType: TextInputType.url,
-        textInputAction: TextInputAction.done,
-        decoration: const InputDecoration(hintText: 'https://ornek.com'),
-        onSubmitted: (v) => Navigator.of(context).pop(v.trim()),
-      ),
-      actions: [
-        TextButton(
-          onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
-        ),
-        FilledButton(
-          onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('Ekle'),
-        ),
-      ],
-    );
-  }
-}
-
-/// Quoted images stay in the document (and in the sent HTML) but are shown
-/// as a chip: rendering them would fetch remote content the reader blocks
-/// by default, and the editor has no image editing anyway.
-class _EmbedPlaceholder extends quill.EmbedBuilder {
-  const _EmbedPlaceholder();
-
-  @override
-  String get key => 'unknown';
-
-  @override
-  bool get expanded => false;
-
-  @override
-  Widget build(BuildContext context, quill.EmbedContext embedContext) {
-    final colors = AppTheme.colors(context);
-    final isImage = embedContext.node.value.type == quill.BlockEmbed.imageType;
-    return Container(
-      margin: const EdgeInsets.symmetric(vertical: 2),
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: colors.surfaceAlt,
-        borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(
-            isImage ? LucideIcons.image : LucideIcons.package,
-            size: 16,
-            color: colors.secondaryText,
-          ),
-          const SizedBox(width: 6),
-          Text(
-            isImage ? 'Görsel' : 'Gömülü içerik',
-            style: TextStyle(fontSize: 13, color: colors.secondaryText),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// Address book picker behind "Kişilerden ekle": searchable multi-select
-/// over [contacts] with the target field (Kime/Cc/Bcc) chosen up top.
-class _ContactPickerSheet extends StatefulWidget {
-  const _ContactPickerSheet({required this.contacts});
-
-  final List<Contact> contacts;
-
-  @override
-  State<_ContactPickerSheet> createState() => _ContactPickerSheetState();
-}
-
-class _ContactPickerSheetState extends State<_ContactPickerSheet> {
-  final _query = TextEditingController();
-  var _field = _RecipientField.to;
-
-  /// Picked contacts keyed by lowercased address, in pick order.
-  final _picked = <String, Contact>{};
-
-  @override
-  void dispose() {
-    _query.dispose();
-    super.dispose();
-  }
-
-  List<Contact> get _visible => _query.text.trim().isEmpty
-      ? widget.contacts
-      : ContactsStore.search(widget.contacts, _query.text);
-
-  void _toggle(Contact contact) {
-    final key = contact.email.toLowerCase();
-    setState(() {
-      if (_picked.remove(key) == null) _picked[key] = contact;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    final media = MediaQuery.of(context);
-    final visible = _visible;
-    return Padding(
-      padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxHeight: media.size.height * 0.85),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.space5,
-                AppTheme.space4,
-                AppTheme.space5,
-                AppTheme.space2,
-              ),
-              child: Text('Kişilerden ekle', style: AppTheme.titleText),
-            ),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppTheme.space5),
-              child: SegmentedButton<_RecipientField>(
-                key: const Key('contact-picker-field'),
-                showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: _RecipientField.to, label: Text('Kime')),
-                  ButtonSegment(value: _RecipientField.cc, label: Text('Cc')),
-                  ButtonSegment(value: _RecipientField.bcc, label: Text('Bcc')),
-                ],
-                selected: {_field},
-                onSelectionChanged: (value) =>
-                    setState(() => _field = value.single),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(
-                AppTheme.space5,
-                AppTheme.space3,
-                AppTheme.space5,
-                AppTheme.space2,
-              ),
-              child: TextField(
-                key: const Key('contact-picker-search'),
-                controller: _query,
-                textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  hintText: 'Ad veya e-posta ara',
-                  prefixIcon: Icon(LucideIcons.search, size: 18),
-                  isDense: true,
-                ),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            Flexible(
-              child: visible.isEmpty
-                  ? Padding(
-                      padding: const EdgeInsets.all(AppTheme.space6),
-                      child: Text(
-                        widget.contacts.isEmpty
-                            ? 'Henüz kayıtlı kişi yok.'
-                            : 'Eşleşen kişi bulunamadı.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: colors.secondaryText),
-                      ),
-                    )
-                  : ListView.builder(
-                      shrinkWrap: true,
-                      itemCount: visible.length,
-                      itemBuilder: (context, index) {
-                        final contact = visible[index];
-                        final selected = _picked.containsKey(
-                          contact.email.toLowerCase(),
-                        );
-                        final hasName = contact.displayName != contact.email;
-                        return ListTile(
-                          key: ValueKey('contact-pick-${contact.email}'),
-                          leading: MailAvatar(
-                            identity: contact.email,
-                            displayName: contact.displayName,
-                            size: 36,
-                            selected: selected,
-                          ),
-                          title: Text(
-                            contact.displayName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                          subtitle: hasName
-                              ? Text(
-                                  contact.email,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: TextStyle(color: colors.secondaryText),
-                                )
-                              : null,
-                          trailing: Checkbox(
-                            value: selected,
-                            onChanged: (_) => _toggle(contact),
-                          ),
-                          onTap: () => _toggle(contact),
-                        );
-                      },
-                    ),
-            ),
-            SafeArea(
-              top: false,
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  AppTheme.space5,
-                  AppTheme.space2,
-                  AppTheme.space5,
-                  AppTheme.space4,
-                ),
-                child: FilledButton(
-                  key: const Key('contact-picker-add'),
-                  onPressed: _picked.isEmpty
-                      ? null
-                      : () => Navigator.of(context).pop<_ContactPick>((
-                          field: _field,
-                          contacts: _picked.values.toList(),
-                        )),
-                  child: Text(
-                    _picked.isEmpty ? 'Ekle' : 'Ekle (${_picked.length})',
-                  ),
-                ),
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
