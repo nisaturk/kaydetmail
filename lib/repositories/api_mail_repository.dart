@@ -35,12 +35,16 @@ import '../services/api_mail_service.dart';
 import '../services/device_identifier_provider.dart';
 import '../services/local_mail_flags_store.dart';
 import '../services/mail_cache.dart';
-import '../services/signature_store.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_download_manager.dart';
 import '../services/attachment_auto_download_policy.dart';
 import '../services/token_store.dart';
 import '../services/session_store.dart';
+import 'api/account_session.dart';
+import 'api/account_settings_module.dart';
+import 'api/session_registry.dart';
+import 'api/signature_module.dart';
+import 'api/template_module.dart';
 import 'mail_repository.dart';
 
 const _allMailSourceFolders = [
@@ -52,133 +56,6 @@ const _allMailSourceFolders = [
   MailFolder.archive,
 ];
 
-/// Everything one connected mailbox needs to operate independently: its own
-/// authenticated HTTP session, its own folder/mail cache, and its own
-/// backend-backed pin/snooze/label/contact state plus local reply/forward flags.
-/// Multiple accounts hold multiple [_Session]s side by side — connecting a
-/// second account never touches the first one's tokens, mail, or flags.
-class _Session {
-  _Session({
-    required this.authService,
-    required this.mailService,
-    required this.account,
-  });
-
-  MailAccount account;
-  final ApiAuthService authService;
-  final ApiMailService mailService;
-
-  bool offline = false;
-  String? deviceId;
-  LocalMailFlagsStore? flagsStore;
-
-  /// See [ApiMailRepository.offlineMutationConflicts].
-  final Set<String> mutationConflicts = {};
-
-  final Map<MailFolder, String> folderIds = {};
-  final Map<String, MailFolder> folderTypeById = {};
-  final Map<MailFolder, List<Email>> emails = {};
-  final Map<MailFolder, int> pages = {};
-  final Map<MailFolder, int> serverUnread = {};
-  final Map<MailFolder, bool> hasMore = {};
-
-  /// Set on every successful `_loadMoreFor`/`_refreshEmailsFor` fetch for
-  /// the folder — the "son senkronizasyon" hint on empty/error states.
-  final Map<MailFolder, DateTime> lastSynced = {};
-  final Map<String, int> serverThreadSizes = {};
-
-  Set<String> pinnedIds = {};
-  final Set<String> starredIds = {};
-  Set<String> repliedFromKaydetMailIds = {};
-  Set<String> forwardedFromKaydetMailIds = {};
-  Set<String> repliedFromKaydetMailThreadIds = {};
-  Set<String> forwardedFromKaydetMailThreadIds = {};
-
-  List<MailLabel> labels = [];
-  Map<String, List<String>> labelMap = {};
-  List<ManualContact> manualContacts = [];
-  List<MailTemplate>? templates;
-
-  /// Cached snooze deadlines (mail id -> epoch millis), fetched from the
-  /// backend or read from [LocalMailFlagsStore] while offline. A mail past
-  /// its timestamp is treated as not-snoozed everywhere below.
-  Map<String, int> snoozedUntil = {};
-
-  /// Scheduled sends known for this account, soonest first. Populated by
-  /// [ApiMailRepository.refreshScheduledSends].
-  List<ScheduledSend> scheduledSends = [];
-
-  List<MailSignature>? signatures;
-  SignatureDefaults? signatureDefaults;
-  List<MailIdentity>? identities;
-
-  /// Non-standard IMAP folders reported for this account by the last
-  /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
-  /// every login, since most accounts never open the custom-folders screen.
-  List<ApiMailFolder> customFolders = [];
-
-  /// Folders whose role the user assigned (see
-  /// [ApiMailRepository.setFolderRole]); refreshed with [customFolders].
-  List<ApiMailFolder> roleOverrideFolders = [];
-  bool folderHierarchyRequested = false;
-  final Map<String, List<Email>> customFolderEmails = {};
-  final Map<String, int> customFolderPages = {};
-  final Map<String, bool> customFolderHasMore = {};
-
-  // Debounced whole-mailbox cache write-behind, mirrored per account so one
-  // account's writes never race another's.
-  Timer? persistTimer;
-  Map<String, Email> persisted = {};
-
-  // Polls the backend every 15s while [offline] until a probe succeeds —
-  // see [ApiMailRepository._scheduleReconnectRetry].
-  Timer? reconnectTimer;
-
-  /// Maps a raw API folder id back to our logical [MailFolder]. Custom
-  /// server folders we don't track locally fall back to inbox.
-  MailFolder resolveFolder(String folderId) =>
-      folderTypeById[folderId] ?? MailFolder.inbox;
-
-  /// Finds an already-loaded mail by id, regardless of which folder bucket
-  /// it currently sits in. Used to resolve a message's threadId when only
-  /// its id is known (e.g. [ApiMailRepository.markAsReplied]).
-  Email? findLoaded(String id) {
-    for (final list in emails.values) {
-      for (final email in list) {
-        if (email.id == id) return email;
-      }
-    }
-    return null;
-  }
-
-  /// Overlays the locally-persisted pin/reply/forward/label flags onto a
-  /// mail freshly mapped from the API — the server has no concept of any of
-  /// them, so every fetch would otherwise reset them. Also stamps the owning
-  /// account: list and conversation responses carry no `accountId`, and
-  /// account-local features (labels) resolve through it.
-  ///
-  /// Reply/forward also check the thread-level sets: the user marks these
-  /// by opening a specific message, but every message sharing its thread
-  /// should show the icon too, even when that specific message isn't
-  /// currently loaded into memory (e.g. it lives in a folder not yet
-  /// fetched this session) — see [ApiMailRepository.markAsReplied].
-  Email stampLocalFlags(Email email) => email.copyWith(
-    accountId: account.id,
-    isStarred: email.isStarred || starredIds.contains(email.id),
-    isPinned: pinnedIds.contains(email.id),
-    repliedFromKaydetMail:
-        email.repliedFromKaydetMail ||
-        repliedFromKaydetMailIds.contains(email.id) ||
-        (email.threadId.isNotEmpty &&
-            repliedFromKaydetMailThreadIds.contains(email.threadId)),
-    forwardedFromKaydetMail:
-        forwardedFromKaydetMailIds.contains(email.id) ||
-        (email.threadId.isNotEmpty &&
-            forwardedFromKaydetMailThreadIds.contains(email.threadId)),
-    labelIds: labelMap[email.id] ?? const [],
-  );
-}
-
 typedef _MailLocationSnapshot = ({
   Map<MailFolder, (Email, int)> folders,
   Map<String, (Email, int)> customFolders,
@@ -188,7 +65,7 @@ typedef _MailLocationSnapshot = ({
 /// manual contacts are backend-owned with an offline device cache and queue;
 /// replied/forwarded-from-app flags stay local per account.
 ///
-/// Every connected mailbox gets its own [_Session] — its own authenticated
+/// Every connected mailbox gets its own [AccountSession] — its own authenticated
 /// client, its own folder/mail state, its own local flags — so accounts stay
 /// fully independent: connecting or removing one never disturbs another.
 /// [activeAccountId] just narrows which session(s) the public read/write
@@ -215,7 +92,8 @@ class ApiMailRepository extends MailRepository {
            accountDataPurger ??
            AccountDataPurger(
              attachments:
-                 attachmentDownloadManager ?? AttachmentDownloadManager.instance,
+                 attachmentDownloadManager ??
+                 AttachmentDownloadManager.instance,
            );
 
   // Test seams: the first session created (via login/connect/restore) uses
@@ -236,13 +114,15 @@ class ApiMailRepository extends MailRepository {
   /// Every connected account's session, keyed by account id, in connection
   /// order (a `Map` literal is insertion-ordered) — that order is also
   /// [accounts]' order and the order accounts restore in at app launch.
-  final Map<String, _Session> _sessions = {};
+  final SessionRegistry _registry = SessionRegistry();
+  Map<String, AccountSession> get _sessions => _registry.sessions;
   final Map<String, ComposeLimits> _composeLimits = {};
   final Set<String> _remoteImageMailIds = {};
 
   /// `null` selects the unified mailbox (every session); non-null narrows
   /// every read/write below to that one session.
-  String? _activeAccountId;
+  String? get _activeAccountId => _registry.activeAccountId;
+  set _activeAccountId(String? id) => _registry.activeAccountId = id;
 
   /// Coarse periodic sweep so a snoozed-folder/inbox view open on screen
   /// re-invalidates itself the moment a snooze deadline passes, instead of
@@ -367,13 +247,14 @@ class ApiMailRepository extends MailRepository {
 
   /// Wipes every on-device trace of [session]'s account (see
   /// [AccountDataPurger]); credentials are cleared by the caller.
-  Future<void> _purgeLocalData(_Session session) => _accountDataPurger.purge(
-    accountId: session.account.id,
-    accountEmail: session.account.email,
-    cache: _cache,
-  );
+  Future<void> _purgeLocalData(AccountSession session) =>
+      _accountDataPurger.purge(
+        accountId: session.account.id,
+        accountEmail: session.account.email,
+        cache: _cache,
+      );
 
-  Future<void> _unregisterDeviceFor(_Session session) async {
+  Future<void> _unregisterDeviceFor(AccountSession session) async {
     final deviceId = session.deviceId;
     if (deviceId == null) return;
     session.deviceId = null;
@@ -412,14 +293,14 @@ class ApiMailRepository extends MailRepository {
   /// trigger a successful `refreshEmails`/`loadMoreEmails`/`_loadMailbox`
   /// call for that account — e.g. a manual pull-to-refresh or an app
   /// restart — even though the backend may already be reachable again.
-  void _scheduleReconnectRetry(_Session session) {
+  void _scheduleReconnectRetry(AccountSession session) {
     session.reconnectTimer?.cancel();
     session.reconnectTimer = Timer.periodic(const Duration(seconds: 15), (_) {
       _retryConnection(session);
     });
   }
 
-  void _cancelReconnectRetry(_Session session) {
+  void _cancelReconnectRetry(AccountSession session) {
     session.reconnectTimer?.cancel();
     session.reconnectTimer = null;
   }
@@ -468,7 +349,7 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  Future<void> _retryConnection(_Session session) async {
+  Future<void> _retryConnection(AccountSession session) async {
     if (!session.offline) {
       _cancelReconnectRetry(session);
       return;
@@ -495,7 +376,7 @@ class ApiMailRepository extends MailRepository {
     final session = _primarySession;
     final account = await session.mailService.reconnect(password: password);
     session.account = account.copyWith(quota: session.account.quota);
-    unawaited(_refreshQuota(session));
+    unawaited(_accountSettings.refreshSessionQuota(session));
     _touch();
     notifyListeners();
   }
@@ -681,7 +562,7 @@ class ApiMailRepository extends MailRepository {
     required ApiAuthService authService,
     required ApiMailService mailService,
   }) async {
-    final session = _Session(
+    final session = AccountSession(
       authService: authService,
       mailService: mailService,
       account: account,
@@ -726,8 +607,8 @@ class ApiMailRepository extends MailRepository {
       } catch (_) {
         // Token-derived account remains usable until server details load.
       }
-      unawaited(_refreshQuota(session));
-      unawaited(_migrateLegacySignature(session));
+      unawaited(_accountSettings.refreshSessionQuota(session));
+      unawaited(_signatures.migrateLegacy(session));
       await SessionStore.saveAccountId(account.email, account.id);
       notifyListeners();
       return session.account;
@@ -740,7 +621,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _hydrateLocalSessionState(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     session.pinnedIds = await flags.readPinned();
@@ -773,7 +654,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _loadRemoteSessionState(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     session.pinnedIds = await _loadPinnedIds(session, flags);
@@ -790,7 +671,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _refreshActivatedCachedSession(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     try {
@@ -802,8 +683,8 @@ class ApiMailRepository extends MailRepository {
         final refreshed = await session.mailService.getAccount();
         session.account = refreshed.copyWith(quota: session.account.quota);
       } catch (_) {}
-      unawaited(_refreshQuota(session));
-      unawaited(_migrateLegacySignature(session));
+      unawaited(_accountSettings.refreshSessionQuota(session));
+      unawaited(_signatures.migrateLegacy(session));
       notifyListeners();
     } catch (_) {
       session.offline = true;
@@ -826,7 +707,7 @@ class ApiMailRepository extends MailRepository {
   /// local cache (and re-seeds it on success) so pins still show while
   /// offline.
   Future<Set<String>> _loadPinnedIds(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     try {
@@ -841,7 +722,7 @@ class ApiMailRepository extends MailRepository {
   /// Same backend-first, cache-fallback shape as [_loadPinnedIds] for
   /// snooze deadlines (stored as UTC epoch millis locally).
   Future<Map<String, int>> _loadSnoozedUntil(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     try {
@@ -862,7 +743,10 @@ class ApiMailRepository extends MailRepository {
   /// migrate any pre-cutover local labels once, then fetch the backend's
   /// view and re-seed the local cache from it so labels still show while
   /// offline.
-  Future<void> _loadLabels(_Session session, LocalMailFlagsStore flags) async {
+  Future<void> _loadLabels(
+    AccountSession session,
+    LocalMailFlagsStore flags,
+  ) async {
     await _migrateLegacyLabels(session, flags);
     try {
       final defs = await session.mailService.getLabels();
@@ -897,7 +781,7 @@ class ApiMailRepository extends MailRepository {
   /// [_loadLabels] minus any migration — this is a new feature with no
   /// pre-cutover local data to carry forward.
   Future<void> _loadManualContacts(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     try {
@@ -938,7 +822,7 @@ class ApiMailRepository extends MailRepository {
   /// Seeds required defaults, then migrates any pre-cutover labels and their
   /// assignments. Server labels stay authoritative when names collide.
   Future<void> _migrateLegacyLabels(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore flags,
   ) async {
     try {
@@ -984,29 +868,10 @@ class ApiMailRepository extends MailRepository {
 
   static int _unsignedArgb(int color) => color & 0xFFFFFFFF;
 
-  /// One-time migration for pre-cutover installs: if the backend has no
-  /// signature yet but the old per-device SharedPreferences store does,
-  /// push it once so it starts syncing. Best-effort — a failure here must
-  /// never affect login.
-  Future<void> _migrateLegacySignature(_Session session) async {
-    if (session.account.signature != null) return;
-    try {
-      final legacy = await SignatureStore.load(session.account.email);
-      if (legacy.trim().isEmpty) return;
-      await session.mailService.updateSignature(legacy);
-      session.account = session.account.copyWith(signature: legacy);
-      await SignatureStore.save(session.account.email, '');
-      notifyListeners();
-    } catch (_) {
-      // Best-effort; the legacy value stays local and compose still finds
-      // it via SignatureStore until the next successful login.
-    }
-  }
-
   /// Restores the last-known server-folder-id -> [MailFolder] mapping so
   /// cached mail stays actionable (open, move, sync) even before — or
   /// without ever reaching — a successful [_loadMailbox] this session.
-  void _hydrateFolderMapFromCache(_Session session) {
+  void _hydrateFolderMapFromCache(AccountSession session) {
     final saved = _cache?.loadFolders(session.account.id) ?? const {};
     if (saved.isEmpty) return;
     session.folderIds.clear();
@@ -1026,7 +891,7 @@ class ApiMailRepository extends MailRepository {
 
   /// Paints the last known mailbox from SQLite before any network call.
   /// Best-effort: a missing or corrupt cache just means a normal cold load.
-  Future<bool> _hydrateFromCache(_Session session) async {
+  Future<bool> _hydrateFromCache(AccountSession session) async {
     try {
       session.persisted = {};
       final queued =
@@ -1182,7 +1047,7 @@ class ApiMailRepository extends MailRepository {
     await session.mailService.deleteSession(sessionId);
   }
 
-  Future<void> _loadMailbox(_Session session) async {
+  Future<void> _loadMailbox(AccountSession session) async {
     _applyFolderMap(session, await session.mailService.getFolders());
     _cancelReconnectRetry(session);
     session.offline = false;
@@ -1194,7 +1059,7 @@ class ApiMailRepository extends MailRepository {
   /// Rebuilds the logical-folder map from the server list. `folderType` is
   /// the effective role, so user overrides (e.g. `INBOX.Sent Items` as Sent)
   /// resolve here without extra handling.
-  void _applyFolderMap(_Session session, List<ApiMailFolder> folders) {
+  void _applyFolderMap(AccountSession session, List<ApiMailFolder> folders) {
     session.folderIds.clear();
     session.folderTypeById.clear();
     session.serverUnread.clear();
@@ -1211,7 +1076,10 @@ class ApiMailRepository extends MailRepository {
     _applyCustomFolderLists(session, folders);
   }
 
-  void _applyCustomFolderLists(_Session session, List<ApiMailFolder> folders) {
+  void _applyCustomFolderLists(
+    AccountSession session,
+    List<ApiMailFolder> folders,
+  ) {
     session.customFolders = folders
         .where((folder) => folder.type == 'Custom' && folder.isAvailable)
         .toList();
@@ -1235,7 +1103,7 @@ class ApiMailRepository extends MailRepository {
   /// Best-effort: remembers the current folder map so
   /// [_hydrateFolderMapFromCache] can restore it on a future offline cold
   /// start.
-  void _persistFolderMap(_Session session) {
+  void _persistFolderMap(AccountSession session) {
     final cache = _cache;
     if (cache == null) return;
     try {
@@ -1264,7 +1132,7 @@ class ApiMailRepository extends MailRepository {
         );
 
   /// Best-effort re-read of server counts after a mutation.
-  Future<void> _refreshCountsFor(_Session session) async {
+  Future<void> _refreshCountsFor(AccountSession session) async {
     try {
       final folders = await session.mailService.getFolders();
       for (final f in folders) {
@@ -1281,7 +1149,7 @@ class ApiMailRepository extends MailRepository {
   /// flagged mail once and remember the ids. Missing mails are added to their
   /// folder so "Yıldızlılar" is complete even before those folders paginate.
   /// Best-effort: failure just leaves stars to detail loads.
-  Future<void> _seedStarred(_Session session) async {
+  Future<void> _seedStarred(AccountSession session) async {
     try {
       final flagged = <Email>[];
       for (var page = 1; ; page++) {
@@ -1316,7 +1184,7 @@ class ApiMailRepository extends MailRepository {
   /// [session], wherever its bucket, without changing which folder bucket it
   /// lives in.
   void _replaceMany(
-    _Session session,
+    AccountSession session,
     Iterable<String> ids,
     Email Function(Email) update,
   ) {
@@ -1343,7 +1211,7 @@ class ApiMailRepository extends MailRepository {
   /// Used instead of [_replaceMany] when a change can affect mail beyond
   /// the ids the caller touched directly — e.g. marking one message replied
   /// also marks every other loaded message in its thread.
-  void _restampFlags(_Session session) {
+  void _restampFlags(AccountSession session) {
     _touch();
     for (final folder in session.emails.keys.toList()) {
       session.emails[folder] = [
@@ -1363,7 +1231,7 @@ class ApiMailRepository extends MailRepository {
   /// [session], stamping the new folder on each and dropping it from
   /// wherever it used to live. Mails not currently cached are ignored.
   void _moveMany(
-    _Session session,
+    AccountSession session,
     Iterable<String> ids,
     MailFolder targetFolder,
   ) {
@@ -1398,7 +1266,7 @@ class ApiMailRepository extends MailRepository {
 
   /// Ids from [ids] whose cached copy currently lives in Trash or Spam —
   /// the only two folders `restore` is valid from.
-  List<String> _idsInTrashOrSpam(_Session session, Iterable<String> ids) {
+  List<String> _idsInTrashOrSpam(AccountSession session, Iterable<String> ids) {
     final trashed = {
       for (final e in session.emails[MailFolder.trash] ?? const []) e.id,
     };
@@ -1415,7 +1283,7 @@ class ApiMailRepository extends MailRepository {
       (error.category == ApiErrorCategory.network ||
           error.category == ApiErrorCategory.timeout);
 
-  void _markOffline(_Session session) {
+  void _markOffline(AccountSession session) {
     session.offline = true;
     _scheduleReconnectRetry(session);
   }
@@ -1423,7 +1291,7 @@ class ApiMailRepository extends MailRepository {
   /// Captures exact local bucket positions so rejected requests can be rolled
   /// back without replacing unrelated cached mail.
   Map<String, _MailLocationSnapshot> _snapshotMailLocations(
-    _Session session,
+    AccountSession session,
     Iterable<String> ids,
   ) {
     final snapshots = {
@@ -1467,7 +1335,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   void _restoreMailLocations(
-    _Session session,
+    AccountSession session,
     Map<String, _MailLocationSnapshot> snapshots,
   ) {
     if (snapshots.isEmpty) return;
@@ -1533,7 +1401,7 @@ class ApiMailRepository extends MailRepository {
   /// state and persist a mutation for replay; rejected items restore their
   /// previous cache locations. Permanent `delete` is handled separately.
   Future<List<BulkActionResult>> _bulkAndApplyOrQueue(
-    _Session session,
+    AccountSession session,
     String operation,
     List<String> ids,
     void Function(List<String> succeededIds) apply, {
@@ -1618,7 +1486,7 @@ class ApiMailRepository extends MailRepository {
   /// backend-owned state is re-read to replace rejected optimistic changes.
   /// Mail changes in the same category and contact changes for the same id
   /// collapse at queue time (see `LocalMailFlagsStore.queueMutation`).
-  Future<void> _replayQueuedMutations(_Session session) async {
+  Future<void> _replayQueuedMutations(AccountSession session) async {
     final store = session.flagsStore;
     if (store == null) return;
     final all = await store.readQueuedMutations();
@@ -1705,7 +1573,7 @@ class ApiMailRepository extends MailRepository {
   /// assignments are re-read from the backend so the local cache matches the
   /// authoritative state.
   Future<void> _replayAppState(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore store,
     List<QueuedMutation> queued,
   ) async {
@@ -1799,7 +1667,7 @@ class ApiMailRepository extends MailRepository {
   static const _localContactIdPrefix = 'local-contact-';
 
   Future<void> _replayManualContacts(
-    _Session session,
+    AccountSession session,
     LocalMailFlagsStore store,
     List<QueuedMutation> queued,
   ) async {
@@ -1853,93 +1721,19 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  /// Sessions the public read/write methods operate on: just the active one
-  /// when scoped, every connected session when unified (`null`).
-  Iterable<_Session> get _scopedSessions {
-    final id = _activeAccountId;
-    if (id == null) return _sessions.values;
-    final s = _sessions[id];
-    return s == null ? const [] : [s];
-  }
-
-  /// The session bulk actions default to when nothing else identifies one:
-  /// the active account when scoped, otherwise the first connected account.
-  /// Throws if nothing is connected — callers only reach this while logged
-  /// in.
-  _Session get _primarySession {
-    final active = _activeAccountId;
-    if (active != null) {
-      final s = _sessions[active];
-      if (s != null) return s;
-    }
-    return _sessions.values.first;
-  }
-
-  /// The session that currently caches a mail with [id], if any.
-  _Session? _sessionOwning(String id) {
-    for (final s in _sessions.values) {
-      for (final list in s.emails.values) {
-        if (list.any((e) => e.id == id)) return s;
-      }
-      for (final list in s.customFolderEmails.values) {
-        if (list.any((e) => e.id == id)) return s;
-      }
-    }
-    return null;
-  }
-
-  /// The session that currently caches any message of [threadId], if any.
-  _Session? _sessionForThread(String threadId) {
-    for (final s in _sessions.values) {
-      if (s.emails.values.any(
-        (list) => list.any((e) => e.threadId == threadId),
-      )) {
-        return s;
-      }
-    }
-    return null;
-  }
-
-  /// The session that owns label [labelId], if any.
-  _Session? _sessionForLabel(String labelId) {
-    for (final s in _sessions.values) {
-      if (s.labels.any((l) => l.id == labelId)) return s;
-    }
-    return null;
-  }
-
-  /// Splits a mixed-account id list by which session actually caches each
-  /// id. Unknown ids (not cached anywhere) are dropped — bulk endpoints only
-  /// ever act on mail the UI already showed the user.
-  Map<_Session, List<String>> _groupBySession(List<String> ids) {
-    final grouped = <_Session, List<String>>{};
-    for (final id in ids) {
-      final session = _sessionOwning(id);
-      if (session == null) continue;
-      grouped.putIfAbsent(session, () => <String>[]).add(id);
-    }
-    return grouped;
-  }
-
-  /// The session a compose action should send/save from: an explicit
-  /// account id first, then the picked sender address, otherwise whatever
-  /// [_primarySession] resolves to.
-  _Session _sessionForCompose({String? from, String? fromAccountId}) {
-    if (fromAccountId != null) {
-      final s = _sessions[fromAccountId];
-      if (s != null) return s;
-    }
-    if (from != null) {
-      for (final s in _sessions.values) {
-        if (s.account.email == from) return s;
-      }
-    }
-    return _primarySession;
-  }
+  Iterable<AccountSession> get _scopedSessions => _registry.scoped;
+  AccountSession get _primarySession => _registry.primary;
+  AccountSession? _sessionOwning(String id) => _registry.owning(id);
+  AccountSession? _sessionForThread(String id) => _registry.forThread(id);
+  AccountSession? _sessionForLabel(String id) => _registry.forLabel(id);
+  Map<AccountSession, List<String>> _groupBySession(List<String> ids) =>
+      _registry.groupByOwner(ids);
+  AccountSession _sessionForCompose({String? from, String? fromAccountId}) =>
+      _registry.forCompose(from: from, fromAccountId: fromAccountId);
 
   final Map<String, List<Email>> _viewCache = {};
 
-  // Anything that mutates a session's [_Session.emails] map, or that
+  // Anything that mutates a session's [AccountSession.emails] map, or that
   // switches [_activeAccountId], must call [_touch] so the next read
   // rebuilds instead of serving a stale view.
   void _touch() => _viewCache.clear();
@@ -1991,14 +1785,14 @@ class ApiMailRepository extends MailRepository {
   /// The active snooze deadline for [mailId] in [session], or null when it
   /// isn't snoozed or the snooze already elapsed (elapsed entries are left
   /// in storage — they're simply inert — and pruned lazily on next write).
-  DateTime? _snoozedUntil(_Session session, String mailId) {
+  DateTime? _snoozedUntil(AccountSession session, String mailId) {
     final ms = session.snoozedUntil[mailId];
     if (ms == null) return null;
     final until = DateTime.fromMillisecondsSinceEpoch(ms);
     return until.isAfter(DateTime.now()) ? until : null;
   }
 
-  Iterable<Email> _allCachedEmails(_Session session) sync* {
+  Iterable<Email> _allCachedEmails(AccountSession session) sync* {
     final seen = <String>{};
     for (final list in session.emails.values) {
       for (final email in list) {
@@ -2082,7 +1876,10 @@ class ApiMailRepository extends MailRepository {
     return results.expand((items) => items).toList();
   }
 
-  Future<List<Email>> _loadMoreFor(_Session session, MailFolder folder) async {
+  Future<List<Email>> _loadMoreFor(
+    AccountSession session,
+    MailFolder folder,
+  ) async {
     if (session.hasMore[folder] == false) return const [];
     final folderId = session.folderIds[folder];
     if (folderId == null) return const [];
@@ -2127,7 +1924,10 @@ class ApiMailRepository extends MailRepository {
     );
   }
 
-  Future<void> _refreshEmailsFor(_Session session, MailFolder folder) async {
+  Future<void> _refreshEmailsFor(
+    AccountSession session,
+    MailFolder folder,
+  ) async {
     final folderId = session.folderIds[folder];
     if (folderId == null) return;
     // Fetch first, swap after: the current list stays on screen meanwhile.
@@ -2260,7 +2060,7 @@ class ApiMailRepository extends MailRepository {
     await Future.wait(jobs);
   }
 
-  Future<void> _syncFolderFor(_Session session, String folderId) async {
+  Future<void> _syncFolderFor(AccountSession session, String folderId) async {
     try {
       await session.mailService.syncFolderId(folderId);
     } catch (error) {
@@ -2453,7 +2253,7 @@ class ApiMailRepository extends MailRepository {
 
   /// Stores a full detail object in [session]'s in-memory cache. Returns true
   /// when the detail response confirms a cached unread mail became read.
-  bool _upsertDetail(_Session session, Email email) {
+  bool _upsertDetail(AccountSession session, Email email) {
     _touch();
     for (final folder in session.emails.keys.toList()) {
       final list = session.emails[folder]!;
@@ -2506,7 +2306,7 @@ class ApiMailRepository extends MailRepository {
 
   /// Best-effort: message counts per conversation, so an inbox row shows the
   /// whole thread even when the replies live in an unloaded folder.
-  Future<void> _seedThreadSizes(_Session session) async {
+  Future<void> _seedThreadSizes(AccountSession session) async {
     try {
       final page = await session.mailService.getConversations(pageSize: 100);
       for (final c in page.items) {
@@ -2708,7 +2508,7 @@ class ApiMailRepository extends MailRepository {
     return stamped;
   }
 
-  _Session _sessionOwningScheduled(String id) {
+  AccountSession _sessionOwningScheduled(String id) {
     for (final session in _sessions.values) {
       if (session.scheduledSends.any((item) => item.id == id)) {
         return session;
@@ -2811,193 +2611,136 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  // --- Account-owned data, delegated to focused modules --------------------
+
+  late final SignatureModule _signatures = SignatureModule(
+    _registry,
+    notifyListeners,
+  );
+  late final TemplateModule _templates = TemplateModule(
+    _registry,
+    notifyListeners,
+  );
+  late final AccountSettingsModule _accountSettings = AccountSettingsModule(
+    _registry,
+    notifyListeners,
+  );
+
   @override
   Future<List<MailSignature>> listSignatures(
     String accountId, {
     bool refresh = false,
-  }) async {
-    final session = _sessionForAccountId(accountId);
-    if (!refresh && session.signatures != null) return session.signatures!;
-    final result = await session.mailService.getSignatures();
-    session.signatures = [
-      for (final signature in result.items)
-        signature.copyWith(accountId: accountId),
-    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    session.signatureDefaults = result.defaults;
-    return session.signatures!;
-  }
+  }) => _signatures.listSignatures(accountId, refresh: refresh);
 
   @override
-  Future<SignatureDefaults> getSignatureDefaults(String accountId) async {
-    final session = _sessionForAccountId(accountId);
-    if (session.signatureDefaults != null) return session.signatureDefaults!;
-    await listSignatures(accountId, refresh: true);
-    return session.signatureDefaults ?? const SignatureDefaults();
-  }
+  Future<SignatureDefaults> getSignatureDefaults(String accountId) =>
+      _signatures.getSignatureDefaults(accountId);
 
   @override
   Future<MailSignature> createSignature(
     String accountId,
     MailSignature signature,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    final created = (await session.mailService.createSignature(signature))
-        .copyWith(accountId: accountId);
-    final items = session.signatures ?? <MailSignature>[];
-    session.signatures = [...items, created]
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    notifyListeners();
-    return created;
-  }
+  ) => _signatures.createSignature(accountId, signature);
 
   @override
   Future<MailSignature> updateSignature(
     String accountId,
     MailSignature signature,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    final updated = (await session.mailService.updateSignatureItem(signature))
-        .copyWith(accountId: accountId);
-    if (session.signatures != null) {
-      session.signatures = [
-        for (final item in session.signatures!)
-          if (item.id == updated.id) updated else item,
-      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    }
-    notifyListeners();
-    return updated;
-  }
+  ) => _signatures.updateSignature(accountId, signature);
 
   @override
-  Future<void> deleteSignature(String accountId, String signatureId) async {
-    final session = _sessionForAccountId(accountId);
-    await session.mailService.deleteSignature(signatureId);
-    session.signatures?.removeWhere((item) => item.id == signatureId);
-    notifyListeners();
-  }
+  Future<void> deleteSignature(String accountId, String signatureId) =>
+      _signatures.deleteSignature(accountId, signatureId);
 
   @override
   Future<SignatureDefaults> updateSignatureDefaults(
     String accountId,
     SignatureDefaults defaults,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    final updated = await session.mailService.updateSignatureDefaults(defaults);
-    session.signatureDefaults = updated;
-    notifyListeners();
-    return updated;
-  }
+  ) => _signatures.updateSignatureDefaults(accountId, defaults);
 
   @override
   Future<List<MailIdentity>> listIdentities(
     String accountId, {
     bool refresh = false,
-  }) async {
-    final session = _sessionForAccountId(accountId);
-    if (!refresh && session.identities != null) return session.identities!;
-    final identities = await session.mailService.getIdentities();
-    session.identities =
-        [
-          for (final identity in identities)
-            identity.copyWith(accountId: accountId),
-        ]..sort((a, b) {
-          if (a.isDefault != b.isDefault) return a.isDefault ? -1 : 1;
-          return a.emailAddress.toLowerCase().compareTo(
-            b.emailAddress.toLowerCase(),
-          );
-        });
-    return session.identities!;
-  }
+  }) => _signatures.listIdentities(accountId, refresh: refresh);
 
   @override
   Future<MailIdentity> createIdentity(
     String accountId,
     MailIdentity identity,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    var created = (await session.mailService.createIdentity(identity))
-        .copyWith(accountId: accountId);
-    if (created.isDefault) {
-      await listIdentities(accountId, refresh: true);
-      created = session.identities!.firstWhere((item) => item.id == created.id);
-    } else {
-      final items = session.identities ?? <MailIdentity>[];
-      session.identities = [...items, created];
-    }
-    notifyListeners();
-    return created;
-  }
+  ) => _signatures.createIdentity(accountId, identity);
 
   @override
   Future<MailIdentity> updateIdentity(
     String accountId,
     MailIdentity identity,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    var updated = (await session.mailService.updateIdentity(identity))
-        .copyWith(accountId: accountId);
-    if (updated.isDefault) {
-      await listIdentities(accountId, refresh: true);
-      updated = session.identities!.firstWhere((item) => item.id == updated.id);
-    } else if (session.identities != null) {
-      session.identities = [
-        for (final item in session.identities!)
-          if (item.id == updated.id) updated else item,
-      ];
-    }
-    notifyListeners();
-    return updated;
-  }
+  ) => _signatures.updateIdentity(accountId, identity);
 
   @override
-  Future<void> deleteIdentity(String accountId, String identityId) async {
-    final session = _sessionForAccountId(accountId);
-    await session.mailService.deleteIdentity(identityId);
-    session.identities?.removeWhere((item) => item.id == identityId);
-    notifyListeners();
-  }
+  Future<void> deleteIdentity(String accountId, String identityId) =>
+      _signatures.deleteIdentity(accountId, identityId);
 
   @override
-  Future<void> setSignature(String accountId, String? signature) async {
-    final session = _sessionForAccountId(accountId);
-    final trimmed = signature?.trim();
-    final normalized = trimmed == null || trimmed.isEmpty ? null : trimmed;
-    await session.mailService.updateSignature(normalized);
-    session.account = session.account.copyWith(signature: normalized);
-    notifyListeners();
-  }
+  Future<void> setSignature(String accountId, String? signature) =>
+      _signatures.setSignature(accountId, signature);
 
   @override
-  Future<void> refreshQuota(String accountId) async {
-    final session = _sessions[accountId];
-    if (session != null) await _refreshQuota(session);
-  }
+  Future<List<MailTemplate>> listTemplates(
+    String accountId, {
+    bool refresh = false,
+  }) => _templates.listTemplates(accountId, refresh: refresh);
 
-  /// Loads [session]'s storage quota. `null` from the backend means the
-  /// server has no QUOTA support (or refused it), which hides the usage row.
-  /// Transport failures keep the last known value so going offline doesn't
-  /// flicker the row; a session closed meanwhile is left untouched.
-  Future<void> _refreshQuota(_Session session) async {
-    final AccountQuota? quota;
-    try {
-      quota = await session.mailService.getQuota();
-    } catch (_) {
-      return;
-    }
-    if (!identical(_sessions[session.account.id], session)) return;
-    session.account = session.account.copyWith(quota: quota);
-    notifyListeners();
-  }
+  @override
+  Future<MailTemplate> createTemplate(
+    String accountId,
+    MailTemplate template,
+  ) => _templates.createTemplate(accountId, template);
+
+  @override
+  Future<MailTemplate> updateTemplate(
+    String accountId,
+    MailTemplate template,
+  ) => _templates.updateTemplate(accountId, template);
+
+  @override
+  Future<void> deleteTemplate(String accountId, String templateId) =>
+      _templates.deleteTemplate(accountId, templateId);
+
+  @override
+  Future<void> refreshQuota(String accountId) =>
+      _accountSettings.refreshQuota(accountId);
+
+  @override
+  Future<List<FolderSyncStatus>> getSyncStatus(String accountId) =>
+      _accountSettings.getSyncStatus(accountId);
+
+  @override
+  Future<AccountSyncScope> getSyncScope(String accountId) =>
+      _accountSettings.getSyncScope(accountId);
+
+  @override
+  Future<AccountSyncScope> updateSyncScope(
+    String accountId,
+    FolderSyncScope scope, {
+    List<String>? folderIds,
+  }) =>
+      _accountSettings.updateSyncScope(accountId, scope, folderIds: folderIds);
+
+  @override
+  Future<AccountNotificationSettings> getNotificationSettings(
+    String accountId,
+  ) => _accountSettings.getNotificationSettings(accountId);
+
+  @override
+  Future<AccountNotificationSettings> updateNotificationSettings(
+    String accountId,
+    AccountNotificationSettings settings,
+  ) => _accountSettings.updateNotificationSettings(accountId, settings);
 
   // --- Custom folders -------------------------------------------------
 
-  _Session _sessionForAccountId(String accountId) {
-    final session = _sessions[accountId];
-    if (session == null) {
-      throw ArgumentError('Unknown account for custom folders: $accountId');
-    }
-    return session;
-  }
+  AccountSession _sessionForAccountId(String accountId) =>
+      _registry.forAccount(accountId);
 
   @override
   List<MailCustomFolder> getCustomFolders({String? accountId}) {
@@ -3022,6 +2765,7 @@ class ApiMailRepository extends MailRepository {
     ]..sort((a, b) => a.fullName.compareTo(b.fullName));
     return result;
   }
+
   @override
   Map<MailFolder, String> standardFolderIds(String accountId) =>
       Map.unmodifiable(_sessionForAccountId(accountId).folderIds);
@@ -3029,9 +2773,9 @@ class ApiMailRepository extends MailRepository {
   @override
   List<Email> cachedCustomFolderMails(String accountId, String folderId) =>
       List.unmodifiable(
-        _sessionForAccountId(accountId).customFolderEmails[folderId] ?? const [],
+        _sessionForAccountId(accountId).customFolderEmails[folderId] ??
+            const [],
       );
-
 
   @override
   Future<void> refreshCustomFolders({String? accountId}) async {
@@ -3042,7 +2786,7 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  Future<void> _loadCustomFolders(_Session session) async {
+  Future<void> _loadCustomFolders(AccountSession session) async {
     var folders = await session.mailService.getFolders();
     if (!session.folderHierarchyRequested &&
         folders.any((f) => f.isAvailable && f.delimiter == null)) {
@@ -3053,7 +2797,7 @@ class ApiMailRepository extends MailRepository {
     _applyCustomFolderLists(session, folders);
   }
 
-  Future<void> _reloadCustomFoldersAfterChange(_Session session) async {
+  Future<void> _reloadCustomFoldersAfterChange(AccountSession session) async {
     try {
       await _loadCustomFolders(session);
     } catch (_) {
@@ -3062,7 +2806,7 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  void _putCustomFolder(_Session session, ApiMailFolder folder) {
+  void _putCustomFolder(AccountSession session, ApiMailFolder folder) {
     session.customFolders = [
       for (final f in session.customFolders)
         if (f.id != folder.id) f,
@@ -3070,13 +2814,13 @@ class ApiMailRepository extends MailRepository {
     ];
   }
 
-  void _forgetCustomFolderMails(_Session session, String folderId) {
+  void _forgetCustomFolderMails(AccountSession session, String folderId) {
     session.customFolderEmails.remove(folderId);
     session.customFolderPages.remove(folderId);
     session.customFolderHasMore.remove(folderId);
   }
 
-  void _dropFromCustomFolderMails(_Session session, Set<String> ids) {
+  void _dropFromCustomFolderMails(AccountSession session, Set<String> ids) {
     for (final entry in session.customFolderEmails.entries) {
       if (entry.value.any((e) => ids.contains(e.id))) {
         session.customFolderEmails[entry.key] = [
@@ -3133,7 +2877,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<List<Email>> _fetchCustomFolderPage({
-    required _Session session,
+    required AccountSession session,
     required String folderId,
     required int page,
   }) async {
@@ -3201,6 +2945,7 @@ class ApiMailRepository extends MailRepository {
     _putCustomFolder(session, renamed);
     await _reloadCustomFoldersAfterChange(session);
   }
+
   @override
   Future<void> changeCustomFolderParent({
     required String accountId,
@@ -3215,7 +2960,6 @@ class ApiMailRepository extends MailRepository {
     _putCustomFolder(session, moved);
     await _reloadCustomFoldersAfterChange(session);
   }
-
 
   @override
   Future<void> deleteCustomFolder({
@@ -3421,7 +3165,7 @@ class ApiMailRepository extends MailRepository {
   /// [baseline] is every draft id listed before the write, so only a copy
   /// that appeared afterwards can be matched to it.
   void _trackUnresolvedDraft(
-    _Session session,
+    AccountSession session,
     Email written,
     Set<String> baseline,
   ) {
@@ -3933,139 +3677,6 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<List<MailTemplate>> listTemplates(
-    String accountId, {
-    bool refresh = false,
-  }) async {
-    final session = _sessionForAccountId(accountId);
-    if (!refresh && session.templates != null) return session.templates!;
-    final templates = await session.mailService.getTemplates();
-    session.templates = [
-      for (final template in templates) template.copyWith(accountId: accountId),
-    ];
-    return session.templates!;
-  }
-
-  @override
-  Future<MailTemplate> createTemplate(
-    String accountId,
-    MailTemplate template,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    final created = (await session.mailService.createTemplate(template))
-        .copyWith(accountId: accountId);
-    final items = session.templates ?? <MailTemplate>[];
-    session.templates = [...items, created]
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    return created;
-  }
-
-  @override
-  Future<MailTemplate> updateTemplate(
-    String accountId,
-    MailTemplate template,
-  ) async {
-    final session = _sessionForAccountId(accountId);
-    final updated = (await session.mailService.updateTemplate(template))
-        .copyWith(accountId: accountId);
-    if (session.templates != null) {
-      session.templates = [
-        for (final item in session.templates!)
-          if (item.id == updated.id) updated else item,
-      ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    }
-    return updated;
-  }
-
-  @override
-  Future<void> deleteTemplate(String accountId, String templateId) async {
-    final session = _sessionForAccountId(accountId);
-    await session.mailService.deleteTemplate(templateId);
-    session.templates?.removeWhere((item) => item.id == templateId);
-  }
-
-  @override
-  Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async {
-    final session = _sessions[accountId];
-    if (session == null) return const [];
-    return session.mailService.getSyncStatus();
-  }
-
-  @override
-  Future<AccountSyncScope> getSyncScope(String accountId) async {
-    final service = _sessionForAccountId(accountId).mailService;
-    final (scope, folders) = await (
-      service.getSyncScope(),
-      service.getFolders(),
-    ).wait;
-    return _composeSyncScope(scope, folders);
-  }
-
-  @override
-  Future<AccountSyncScope> updateSyncScope(
-    String accountId,
-    FolderSyncScope scope, {
-    List<String>? folderIds,
-  }) async {
-    final service = _sessionForAccountId(accountId).mailService;
-    final updated = await service.updateSyncScope(
-      scope.backendValue,
-      folderIds: scope == FolderSyncScope.selectedFolders ? folderIds : null,
-    );
-    return _composeSyncScope(updated, await service.getFolders());
-  }
-
-  @override
-  Future<AccountNotificationSettings> getNotificationSettings(
-    String accountId,
-  ) => _sessionForAccountId(accountId).mailService.getNotificationSettings();
-
-  @override
-  Future<AccountNotificationSettings> updateNotificationSettings(
-    String accountId,
-    AccountNotificationSettings settings,
-  ) =>
-      _sessionForAccountId(accountId).mailService
-          .updateNotificationSettings(settings);
-
-  static const _syncScopeFolderOrder = [
-    'Inbox',
-    'Sent',
-    'Drafts',
-    'Archive',
-    'Junk',
-    'Trash',
-  ];
-
-  AccountSyncScope _composeSyncScope(
-    ({String scope, Set<String> syncedFolderIds}) scope,
-    List<ApiMailFolder> folders,
-  ) {
-    int rank(ApiMailFolder f) {
-      final index = _syncScopeFolderOrder.indexOf(f.type);
-      return index < 0 ? _syncScopeFolderOrder.length : index;
-    }
-
-    final available = folders.where((f) => f.isAvailable).toList()
-      ..sort((a, b) {
-        final byType = rank(a).compareTo(rank(b));
-        return byType != 0 ? byType : a.fullName.compareTo(b.fullName);
-      });
-    return AccountSyncScope(
-      scope: FolderSyncScope.fromBackend(scope.scope),
-      folders: [
-        for (final f in available)
-          SyncScopeFolder(
-            id: f.id,
-            name: f.fullName,
-            type: f.type,
-            synced: scope.syncedFolderIds.contains(f.id),
-          ),
-      ],
-    );
-  }
-
-  @override
   Future<int> queuedOfflineMutationCount(String accountId) async {
     final store = _sessions[accountId]?.flagsStore;
     if (store == null) return 0;
@@ -4117,7 +3728,10 @@ class ApiMailRepository extends MailRepository {
     await Future.wait(
       _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
-        final results = await session.mailService.bulkAction('delete', entry.value);
+        final results = await session.mailService.bulkAction(
+          'delete',
+          entry.value,
+        );
         final successfulIds = results
             .where((result) => result.success)
             .map((result) => result.mailId)
@@ -4139,7 +3753,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   /// Drops every cached mail in [ids] from whichever bucket holds it.
-  void _removeMany(_Session session, Iterable<String> ids) {
+  void _removeMany(AccountSession session, Iterable<String> ids) {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
     _touch();
@@ -4249,7 +3863,7 @@ class ApiMailRepository extends MailRepository {
   /// files it there; a mail whose folder can't be determined, or that went
   /// to a folder this client doesn't track, only leaves Trash/Spam locally
   /// and shows up again on that folder's next load.
-  Future<void> _fileRestored(_Session session, List<String> ids) async {
+  Future<void> _fileRestored(AccountSession session, List<String> ids) async {
     if (ids.isEmpty) return;
     final details = await Future.wait(
       ids.map((id) async {
@@ -4403,7 +4017,7 @@ class ApiMailRepository extends MailRepository {
     _throwForFailedBulkResults(accountResults);
   }
 
-  void _restorePinnedState(_Session session, Map<String, bool> previous) {
+  void _restorePinnedState(AccountSession session, Map<String, bool> previous) {
     for (final entry in previous.entries) {
       if (entry.value) {
         session.pinnedIds.add(entry.key);
@@ -4589,7 +4203,11 @@ class ApiMailRepository extends MailRepository {
   static String _canonicalName(String name) =>
       name.trim().replaceAll('İ', 'i').toLowerCase();
 
-  void _assertLabelNameIsFree(_Session session, String name, {String? selfId}) {
+  void _assertLabelNameIsFree(
+    AccountSession session,
+    String name, {
+    String? selfId,
+  }) {
     final canonical = _canonicalName(name);
     if (canonical.isEmpty) throw ArgumentError('Etiket adı boş olamaz.');
     if (session.labels.any(
@@ -4601,7 +4219,7 @@ class ApiMailRepository extends MailRepository {
 
   /// Mirrors backend-confirmed label state into the local cache so labels
   /// still show while offline. Never the source of truth — see [_loadLabels].
-  Future<void> _persistLabels(_Session session) async {
+  Future<void> _persistLabels(AccountSession session) async {
     final store = session.flagsStore;
     if (store == null) return;
     await store.writeLabelDefs([
@@ -4612,7 +4230,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _queueLabels(
-    _Session session,
+    AccountSession session,
     List<String> mailIds,
     Iterable<String> labelIds,
     String operation,
@@ -4628,7 +4246,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _clearQueuedLabels(
-    _Session session,
+    AccountSession session,
     List<String> mailIds,
     Iterable<String> labelIds,
   ) async {
@@ -4644,11 +4262,12 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  void _restampLabels(_Session session, Iterable<String> ids) => _replaceMany(
-    session,
-    ids.toList(),
-    (e) => e.copyWith(labelIds: session.labelMap[e.id] ?? const []),
-  );
+  void _restampLabels(AccountSession session, Iterable<String> ids) =>
+      _replaceMany(
+        session,
+        ids.toList(),
+        (e) => e.copyWith(labelIds: session.labelMap[e.id] ?? const []),
+      );
 
   /// Labels from every account in scope — the unified view unions them
   /// (dedup by id; account-local ids never collide in practice).
@@ -4789,7 +4408,10 @@ class ApiMailRepository extends MailRepository {
       for (final id in entry.value) {
         final current = session.labelMap[id] ?? const <String>[];
         session.labelMap[id] = add
-            ? [...current, ...ownedLabelIds.where((label) => !current.contains(label))]
+            ? [
+                ...current,
+                ...ownedLabelIds.where((label) => !current.contains(label)),
+              ]
             : current.where((label) => !ownedLabelIds.contains(label)).toList();
       }
       _restampLabels(session, entry.value);
@@ -4797,14 +4419,25 @@ class ApiMailRepository extends MailRepository {
       try {
         try {
           if (add) {
-            await session.mailService.assignLabels(entry.value, ownedLabelIds.toList());
+            await session.mailService.assignLabels(
+              entry.value,
+              ownedLabelIds.toList(),
+            );
           } else {
-            await session.mailService.unassignLabels(entry.value, ownedLabelIds.toList());
+            await session.mailService.unassignLabels(
+              entry.value,
+              ownedLabelIds.toList(),
+            );
           }
           await _clearQueuedLabels(session, entry.value, ownedLabelIds);
         } catch (error) {
           if (!_isOfflineFailure(error)) rethrow;
-          await _queueLabels(session, entry.value, ownedLabelIds, add ? 'label_add' : 'label_remove');
+          await _queueLabels(
+            session,
+            entry.value,
+            ownedLabelIds,
+            add ? 'label_add' : 'label_remove',
+          );
         }
         await _persistLabels(session);
       } catch (error) {
@@ -4820,7 +4453,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   void _assertContactEmailIsValid(
-    _Session session,
+    AccountSession session,
     String email, {
     String? selfId,
   }) {
@@ -4835,7 +4468,7 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  Future<void> _persistManualContacts(_Session session) async {
+  Future<void> _persistManualContacts(AccountSession session) async {
     final store = session.flagsStore;
     if (store == null) return;
     await store.writeContacts([
@@ -4845,7 +4478,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   /// The session that owns manual contact [id], if any.
-  _Session? _sessionForManualContact(String id) {
+  AccountSession? _sessionForManualContact(String id) {
     for (final s in _sessions.values) {
       if (s.manualContacts.any((c) => c.id == id)) return s;
     }
@@ -4990,7 +4623,7 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _queueContactMutation(
-    _Session session,
+    AccountSession session,
     String id,
     String operation,
     Map<String, dynamic> contact,
