@@ -4,6 +4,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
+import '../utils/error_messages.dart';
 import '../theme/app_theme.dart';
 
 /// Bottom-sheet label picker shared by the detail screen and the bulk action
@@ -190,8 +191,9 @@ class _LabelRowState extends State<_LabelRow> {
     } catch (error) {
       if (!mounted) return;
       setState(() => _applied = before);
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('Etiket uygulanamadı: $error')));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Etiket uygulanamadı: ${friendlyErrorMessage(error)}')),
+      );
     }
   }
 

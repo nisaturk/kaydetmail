@@ -326,6 +326,85 @@ void main() {
       );
     },
   );
+  testWidgets('move sheet nests selected-account folders and returns child target', (
+    tester,
+  ) async {
+    final repo = _FolderRepo(
+      available: {
+        'a': {MailFolder.inbox, MailFolder.archive},
+        'b': {MailFolder.inbox, MailFolder.archive},
+      },
+      folders: [
+        _folder('a-parent', 'Projects', 'Projects', accountId: 'a'),
+        _folder('a-child', 'Receipts', 'Projects/Receipts',
+            accountId: 'a', parentId: 'a-parent', delimiter: '/'),
+        _folder('b-parent', 'Private', 'Private', accountId: 'b'),
+        _folder('b-child', 'Hidden', 'Private/Hidden',
+            accountId: 'b', parentId: 'b-parent', delimiter: '/'),
+      ],
+    );
+    MoveFolderTarget? selected;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(builder: (context) => TextButton(
+          onPressed: () async => selected = await showMoveFolderSheet(
+            context,
+            repository: repo,
+            accountIds: {'a'},
+            currentFolders: {MailFolder.inbox},
+          ),
+          child: const Text('Open move'),
+        )),
+      ),
+    ));
+    await tester.tap(find.text('Open move'));
+    await tester.pumpAndSettle();
+    expect(find.text('Projects'), findsOneWidget);
+    expect(find.text('Private'), findsNothing);
+    expect(find.text('Hidden'), findsNothing);
+    expect(find.text('Receipts'), findsOneWidget);
+    final parentTile = tester.widget<ListTile>(find.ancestor(
+      of: find.text('Projects'), matching: find.byType(ListTile),
+    ));
+    final childTile = tester.widget<ListTile>(find.ancestor(
+      of: find.text('Receipts'), matching: find.byType(ListTile),
+    ));
+    expect((childTile.contentPadding! as EdgeInsets).left,
+        greaterThan((parentTile.contentPadding! as EdgeInsets).left));
+    await tester.tap(find.text('Receipts'));
+    await tester.pumpAndSettle();
+    expect(selected?.customFolder?.folderId, 'a-child');
+    expect(selected?.accountId, 'a');
+  });
+
+  testWidgets('mixed-account move sheet omits custom targets', (tester) async {
+    final repo = _FolderRepo(
+      available: {
+        'a': {MailFolder.inbox, MailFolder.archive},
+        'b': {MailFolder.inbox, MailFolder.archive},
+      },
+      folders: [
+        _folder('a-parent', 'Projects', 'Projects', accountId: 'a'),
+        _folder('b-parent', 'Private', 'Private', accountId: 'b'),
+      ],
+    );
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(body: Builder(builder: (context) => TextButton(
+        onPressed: () => showMoveFolderSheet(
+          context,
+          repository: repo,
+          accountIds: {'a', 'b'},
+          currentFolders: {MailFolder.inbox},
+        ),
+        child: const Text('Open move'),
+      ))),
+    ));
+    await tester.tap(find.text('Open move'));
+    await tester.pumpAndSettle();
+    expect(find.text('Arşiv'), findsOneWidget);
+    expect(find.text('Projects'), findsNothing);
+    expect(find.text('Private'), findsNothing);
+  });
   testWidgets('create, rename and confirm deletion of a custom folder', (
     tester,
   ) async {

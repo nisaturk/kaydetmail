@@ -131,15 +131,33 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       _thread = _mergeThread(seed, _repo.getThreadEmails(seed.threadId));
       _loading = false;
     }
-    _repo.addListener(_reload);
+    _repo.addListener(_syncCachedMail);
     _reload();
   }
 
   @override
   void dispose() {
-    _repo.removeListener(_reload);
+    _repo.removeListener(_syncCachedMail);
     _scroll.dispose();
     super.dispose();
+  }
+
+  /// Repository notifications already carry local optimistic state; fetching
+  /// detail on every flag change would trigger an avoidable IMAP round trip.
+  void _syncCachedMail() {
+    if (!mounted || _email == null) return;
+    for (final email in _repo.getAllEmails()) {
+      if (email.id != widget.emailId) continue;
+      if (identical(email, _email)) return;
+      setState(() {
+        _email = email;
+        _thread = _mergeThread(email, [
+          ..._fetchedThread.where((e) => e.threadId == email.threadId),
+          ..._repo.getThreadEmails(email.threadId),
+        ]);
+      });
+      return;
+    }
   }
 
   /// Mail-first loading: the opened mail renders as soon as its own detail
@@ -584,7 +602,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
             ),
           ),
           if (email.folder != MailFolder.drafts)
-            const PopupMenuItem(value: 'move', child: Text('Taşı')),
+            const PopupMenuItem(value: 'move', child: Text('Move to')),
           if (email.folder == MailFolder.trash)
             const PopupMenuItem(
               value: 'delete_forever',
@@ -641,7 +659,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     } else if (action == 'label') {
       await showLabelPicker(context, emailIds: _conversationIds);
     } else if (action == 'unlabel') {
-      await removeAllLabels(_repo, _conversationIds);
+      _watchBackgroundMutation(removeAllLabels(_repo, _conversationIds));
     } else if (action == 'delete_forever') {
       await _deleteForever();
     } else if (action == 'move') {
@@ -667,18 +685,27 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     }
   }
 
-  /// Expunges confirmed Trash messages optimistically, then reconciles in the
-  /// background.
+  /// Expunge stays visible until server confirms deletion.
   Future<void> _deleteForever() async {
     final ids = idsInFolder(_repo, _conversationIds, MailFolder.trash);
     if (ids.isEmpty) return;
     final confirmed = await confirmPermanentDelete(context, ids.length);
     if (!confirmed || !mounted) return;
-    _watchBackgroundMutation(
-      _repo.deletePermanently(ids),
-      successMessage: 'E-posta kalıcı olarak silindi.',
-    );
-    unawaited(Navigator.of(context).maybePop().then<void>((_) {}));
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await _repo.deletePermanently(ids);
+      if (!mounted) return;
+      messenger.showSnackBar(
+        const SnackBar(content: Text('E-posta kalıcı olarak silindi.')),
+      );
+      await Navigator.of(context).maybePop();
+    } catch (error) {
+      if (messenger.mounted) {
+        messenger.showSnackBar(
+          SnackBar(content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}')),
+        );
+      }
+    }
   }
 
   /// Fires the header-driven unsubscribe action for the open mail. A

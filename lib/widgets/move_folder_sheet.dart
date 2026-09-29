@@ -95,13 +95,17 @@ class _MoveFolderSheet extends StatefulWidget {
 }
 
 class _MoveFolderSheetState extends State<_MoveFolderSheet> {
-  bool _loading = true;
+  bool _loading = false;
   Object? _error;
 
   @override
   void initState() {
     super.initState();
-    _refresh();
+    if (widget.accountIds.any(
+      (id) => widget.repository.getCustomFolders(accountId: id).isEmpty,
+    )) {
+      _refresh();
+    }
   }
 
   Future<void> _refresh() async {
