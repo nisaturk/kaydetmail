@@ -45,12 +45,16 @@ class MailDetailScreen extends StatefulWidget {
   const MailDetailScreen({
     super.key,
     required this.emailId,
+    this.seed,
     this.openReplyOnLoad = false,
     this.currentCustomFolderId,
     this.showAppBar = true,
   });
 
   final String emailId;
+
+  /// Mail list snapshot shown synchronously while full detail revalidates.
+  final Email? seed;
   final bool openReplyOnLoad;
 
   final String? currentCustomFolderId;
@@ -121,6 +125,12 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
   @override
   void initState() {
     super.initState();
+    final seed = widget.seed;
+    if (seed != null && seed.id == widget.emailId) {
+      _email = seed;
+      _thread = _mergeThread(seed, _repo.getThreadEmails(seed.threadId));
+      _loading = false;
+    }
     _repo.addListener(_reload);
     _reload();
   }
@@ -1439,19 +1449,25 @@ class _AttachmentTile extends StatelessWidget {
         Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
         const SizedBox(width: 10),
         Expanded(
-          child: Text(
-            attachment.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              fontSize: 14,
-              color: Theme.of(context).colorScheme.onSurface,
-            ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                attachment.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: Theme.of(context).colorScheme.onSurface,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                '${attachment.typeLabel} · ${attachment.sizeLabel}',
+                style: TextStyle(fontSize: 12, color: colors.secondaryText),
+              ),
+            ],
           ),
-        ),
-        Text(
-          attachment.sizeLabel,
-          style: TextStyle(fontSize: 13, color: colors.secondaryText),
         ),
       ],
     );

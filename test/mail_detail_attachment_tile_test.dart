@@ -74,7 +74,12 @@ Email _email() => Email(
   timestamp: DateTime(2026, 1, 1),
   isRead: true,
   attachments: const [
-    Attachment(id: 'att-1', name: 'rapor.pdf', sizeBytes: 10),
+    Attachment(
+      id: 'att-1',
+      name: 'rapor.pdf',
+      sizeBytes: 10,
+      mimeType: 'application/pdf',
+    ),
   ],
 );
 
@@ -97,6 +102,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.text('%50'), findsOneWidget);
+    expect(find.text('application/pdf · 10 B'), findsOneWidget);
 
     await tester.tap(find.byTooltip('İndirmeyi iptal et'));
     await tester.pumpAndSettle();

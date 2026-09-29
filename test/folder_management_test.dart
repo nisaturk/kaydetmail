@@ -49,6 +49,8 @@ void main() {
     final created = await service.createFolder('Mobil', parentId: 'inbox-id');
     await service.renameFolder('f-1', 'Yeni');
     await service.deleteFolder('f/1');
+    await service.setFolderRole('f-1', 'Sent');
+    await service.setFolderRole('f-1', null);
 
     expect(requests[0].method, 'POST');
     expect(requests[0].url.path, '/api/folders');
@@ -63,6 +65,10 @@ void main() {
     expect(jsonDecode(requests[1].body), {'name': 'Yeni'});
     expect(requests[2].method, 'DELETE');
     expect(requests[2].url.toString(), endsWith('/api/folders/f%2F1'));
+    expect(requests[3].method, 'PUT');
+    expect(requests[3].url.path, '/api/folders/f-1/role');
+    expect(jsonDecode(requests[3].body), {'role': 'Sent'});
+    expect(jsonDecode(requests[4].body), {'role': null});
   });
 
   test('folder service preserves structured problem error codes', () async {
@@ -119,6 +125,55 @@ void main() {
       'create:Second:null',
       'rename:custom-account-2:Renamed',
     ]);
+  });
+
+  test('folder role routes to the owning account and remaps Sent', () async {
+    SharedPreferences.setMockInitialValues({});
+    final first = _routingAccount('account-1', 'first@example.com');
+    final second = _routingAccount('account-2', 'second@example.com');
+    final repo = ApiMailRepository(
+      authService: first.authService,
+      mailService: first.mailService,
+      sessionFactory: () =>
+          (authService: second.authService, mailService: second.mailService),
+    );
+    await repo.connectAccount(email: 'first@example.com', password: 'pw');
+    await repo.connectAccount(email: 'second@example.com', password: 'pw');
+    await repo.createCustomFolder(accountId: 'account-2', name: 'Sent Items');
+
+    await repo.setFolderRole(
+      accountId: 'account-2',
+      folderId: 'custom-account-2',
+      role: MailFolder.sent,
+    );
+
+    expect(second.mailService.calls, [
+      'create:Sent Items:null',
+      'role:custom-account-2:Sent',
+    ]);
+    expect(first.mailService.calls, isEmpty);
+    expect(repo.availableFolders('account-2'), contains(MailFolder.sent));
+    expect(
+      repo.availableFolders('account-1'),
+      isNot(contains(MailFolder.sent)),
+    );
+    expect(repo.getCustomFolders(accountId: 'account-2'), isEmpty);
+    final assignment = repo.getFolderRoleAssignments().single;
+    expect(assignment.accountId, 'account-2');
+    expect(assignment.folderId, 'custom-account-2');
+    expect(assignment.role, MailFolder.sent);
+
+    await repo.setFolderRole(
+      accountId: 'account-2',
+      folderId: 'custom-account-2',
+      role: null,
+    );
+    expect(
+      repo.availableFolders('account-2'),
+      isNot(contains(MailFolder.sent)),
+    );
+    expect(repo.getFolderRoleAssignments(), isEmpty);
+    expect(repo.getCustomFolders(accountId: 'account-2'), hasLength(1));
   });
 
   test(
@@ -307,6 +362,32 @@ void main() {
     expect(repo.deletedIds, ['folder-1']);
     expect(find.text('Özel klasör yok'), findsOneWidget);
   });
+
+  testWidgets('assigns a folder role and restores automatic detection', (
+    tester,
+  ) async {
+    final repo = _ScreenFolderRepo();
+    repo.folders.add(_folder('sent-items', 'Sent Items', 'INBOX.Sent Items'));
+    AppConfig.mailRepositoryForTest = repo;
+    addTearDown(AppConfig.resetForTest);
+    await tester.pumpWidget(const MaterialApp(home: CustomFoldersScreen()));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byType(PopupMenuButton<String>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Klasör rolü ata'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(MailFolder.sent.label));
+    await tester.pumpAndSettle();
+    expect(repo.roleCalls, ['sent-items:sent']);
+    expect(find.text('Giden Kutusu olarak kullanılıyor'), findsOneWidget);
+
+    await tester.tap(find.text('Otomatiğe döndür'));
+    await tester.pumpAndSettle();
+    expect(repo.roleCalls, ['sent-items:sent', 'sent-items:null']);
+    expect(find.text('Otomatiğe döndür'), findsNothing);
+    expect(find.text('Sent Items'), findsOneWidget);
+  });
 }
 
 MailCustomFolder _folder(
@@ -390,6 +471,7 @@ class _RoutingFolderService extends ApiMailService {
   final List<String> calls = [];
   final List<ApiMailFolder> folders = [];
   int refreshes = 0;
+  final Map<String, String> roles = {};
 
   @override
   Future<MailAccount> getAccount() async =>
@@ -416,9 +498,10 @@ class _RoutingFolderService extends ApiMailService {
         mailAccountId: folder.mailAccountId,
         name: folder.name,
         fullName: folder.fullName,
-        type: folder.type,
+        type: roles[folder.id] ?? folder.type,
         parentId: folder.parentId,
         delimiter: refreshes > 0 ? '/' : folder.delimiter,
+        roleOverride: roles[folder.id],
       ),
   ];
 
@@ -485,6 +568,18 @@ class _RoutingFolderService extends ApiMailService {
     calls.add('delete:$id');
     folders.removeWhere((entry) => entry.id == id);
   }
+
+  @override
+  Future<ApiMailFolder> setFolderRole(String id, String? role) async {
+    calls.add('role:$id:$role');
+    roles.removeWhere((_, value) => value == role);
+    if (role == null) {
+      roles.remove(id);
+    } else {
+      roles[id] = role;
+    }
+    return (await getFolders()).singleWhere((folder) => folder.id == id);
+  }
 }
 
 class _ScreenFolderRepo extends MailRepository {
@@ -492,6 +587,8 @@ class _ScreenFolderRepo extends MailRepository {
   final List<String> createdNames = [];
   final List<String> renamedNames = [];
   final List<String> deletedIds = [];
+  final List<String> roleCalls = [];
+  final List<MailFolderRoleAssignment> assignments = [];
 
   @override
   List<MailAccount> get accounts => const [
@@ -546,6 +643,40 @@ class _ScreenFolderRepo extends MailRepository {
   }) async {
     deletedIds.add(folderId);
     folders.removeWhere((folder) => folder.folderId == folderId);
+    notifyListeners();
+  }
+
+  @override
+  List<MailFolderRoleAssignment> getFolderRoleAssignments({
+    String? accountId,
+  }) => assignments;
+
+  @override
+  Future<void> setFolderRole({
+    required String accountId,
+    required String folderId,
+    required MailFolder? role,
+  }) async {
+    roleCalls.add('$folderId:${role?.name}');
+    if (role == null) {
+      final restored = assignments.singleWhere(
+        (assignment) => assignment.folderId == folderId,
+      );
+      assignments.remove(restored);
+      folders.add(_folder(folderId, restored.name, restored.fullName));
+    } else {
+      final folder = folders.singleWhere((f) => f.folderId == folderId);
+      folders.remove(folder);
+      assignments.add(
+        MailFolderRoleAssignment(
+          accountId: accountId,
+          folderId: folderId,
+          name: folder.name,
+          fullName: folder.fullName,
+          role: role,
+        ),
+      );
+    }
     notifyListeners();
   }
 

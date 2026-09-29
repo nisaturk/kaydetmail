@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
@@ -22,6 +23,7 @@ import '../widgets/move_folder_sheet.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
 import 'compose_screen.dart';
+import 'custom_folder_mail_screen.dart';
 import 'custom_folders_screen.dart';
 import 'inbox_screen.dart';
 import 'mail_detail_screen.dart';
@@ -52,7 +54,7 @@ class _HomeScreenState extends State<HomeScreen> {
   /// Mail shown in the wide-layout detail pane (>=[_masterDetailBreakpoint]).
   /// Null shows [_DetailPanePlaceholder] instead — nothing selected yet, or
   /// the folder was just switched (see [_selectFolder]).
-  String? _selectedMailId;
+  Email? _selectedMail;
 
   // ── Adaptive layout breakpoints ─────────────────────────────────────
   //
@@ -126,7 +128,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _selection.exit();
     setState(() {
       _folder = folder;
-      _selectedMailId = null;
+      _selectedMail = null;
     });
     if (!_isRailLayout) Navigator.of(context).pop();
   }
@@ -159,6 +161,19 @@ class _HomeScreenState extends State<HomeScreen> {
       DrawerDestination.settings => const SettingsScreen(),
     };
     Navigator.of(context).push(MaterialPageRoute(builder: (_) => screen));
+  }
+
+  void _openCustomFolder(MailCustomFolder folder) {
+    if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => CustomFolderMailScreen(
+          accountId: folder.accountId,
+          folderId: folder.folderId,
+          name: folder.name,
+        ),
+      ),
+    );
   }
 
   bool _syncingAccounts = false;
@@ -667,6 +682,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onOpenDestination: _openDestination,
           onSyncAccounts: _syncAccounts,
           onAddAccount: _addAccount,
+          onSelectCustomFolder: _openCustomFolder,
         );
         return Scaffold(
           appBar: _selection.isActive
@@ -712,7 +728,7 @@ class _HomeScreenState extends State<HomeScreen> {
         folder: _folder,
         selection: _selection,
         onOpenMail: showDetailPane
-            ? (id) => setState(() => _selectedMailId = id)
+            ? (email) => setState(() => _selectedMail = email)
             : null,
       ),
     );
@@ -723,11 +739,12 @@ class _HomeScreenState extends State<HomeScreen> {
               SizedBox(width: 440, child: list),
               VerticalDivider(width: 1, color: AppTheme.colors(context).border),
               Expanded(
-                child: _selectedMailId == null
+                child: _selectedMail == null
                     ? const _DetailPanePlaceholder()
                     : MailDetailScreen(
-                        key: ValueKey(_selectedMailId),
-                        emailId: _selectedMailId!,
+                        key: ValueKey(_selectedMail!.id),
+                        emailId: _selectedMail!.id,
+                        seed: _selectedMail,
                         showAppBar: false,
                       ),
               ),

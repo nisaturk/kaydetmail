@@ -109,12 +109,13 @@ class MailCache {
 
   factory MailCache.inMemory() => MailCache._(platform.openInMemory());
 
-  /// Every cached mail for [accountId]; offline history is bounded only by
-  /// what the user has loaded, not by a fixed per-folder count.
+  /// Every cached logical-folder mail for [accountId]. Custom folder rows are
+  /// loaded separately by [loadCustomFolders], preserving their raw bucket.
   List<Email> load(String accountId) {
+    final placeholders = List.filled(MailFolder.values.length, '?').join(',');
     final rows = _db.select(
-      'SELECT json FROM mails WHERE account_id = ? ORDER BY ts DESC',
-      [accountId],
+      'SELECT json FROM mails WHERE account_id = ? AND folder IN ($placeholders) ORDER BY ts DESC',
+      [accountId, ...MailFolder.values.map((folder) => folder.name)],
     );
     return [
       for (final row in rows)
@@ -122,12 +123,34 @@ class MailCache {
     ];
   }
 
-  /// Upserts [changed] and deletes [removedIds] for [accountId] atomically.
+  /// Cached mails grouped by raw custom-folder id.
+  Map<String, List<Email>> loadCustomFolders(String accountId) {
+    final rows = _db.select(
+      "SELECT folder, json FROM mails WHERE account_id = ? AND folder LIKE 'custom:%' ORDER BY ts DESC",
+      [accountId],
+    );
+    final result = <String, List<Email>>{};
+    for (final row in rows) {
+      final bucket = row['folder'] as String;
+      result
+          .putIfAbsent(bucket.substring('custom:'.length), () => <Email>[])
+          .add(
+            _fromJson(
+              jsonDecode(row['json'] as String) as Map<String, dynamic>,
+            ),
+          );
+    }
+    return result;
+  }
+
+  /// Upserts [changed] into logical folders, or into [customFolderId] when
+  /// supplied, and deletes [removedIds] for [accountId] atomically.
   void apply(
     String accountId,
     Iterable<Email> changed,
-    Iterable<String> removedIds,
-  ) {
+    Iterable<String> removedIds, {
+    String? customFolderId,
+  }) {
     _db.execute('BEGIN');
     try {
       final del = _db.prepare(
@@ -144,9 +167,42 @@ class MailCache {
         ins.execute([
           accountId,
           e.id,
-          e.folder.name,
+          customFolderId == null ? e.folder.name : 'custom:$customFolderId',
           e.timestamp.millisecondsSinceEpoch,
           jsonEncode(_toJson(e)),
+        ]);
+      }
+      ins.close();
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
+
+  /// Replaces one custom-folder bucket without touching other folders or
+  /// accounts. Used when page one revalidation becomes authoritative.
+  void replaceCustomFolder(
+    String accountId,
+    String folderId,
+    Iterable<Email> emails,
+  ) {
+    _db.execute('BEGIN');
+    try {
+      _db.execute('DELETE FROM mails WHERE account_id = ? AND folder = ?', [
+        accountId,
+        'custom:$folderId',
+      ]);
+      final ins = _db.prepare(
+        'INSERT OR REPLACE INTO mails VALUES (?, ?, ?, ?, ?)',
+      );
+      for (final email in emails) {
+        ins.execute([
+          accountId,
+          email.id,
+          'custom:$folderId',
+          email.timestamp.millisecondsSinceEpoch,
+          jsonEncode(_toJson(email)),
         ]);
       }
       ins.close();
@@ -170,15 +226,12 @@ class MailCache {
   }
 
   void queueDraft(String accountId, Email draft) {
-    _db.execute(
-      'INSERT OR REPLACE INTO draft_queue VALUES (?, ?, ?, ?)',
-      [
-        accountId,
-        draft.id,
-        jsonEncode(_toJson(draft, includeAttachmentBytes: true)),
-        DateTime.now().millisecondsSinceEpoch,
-      ],
-    );
+    _db.execute('INSERT OR REPLACE INTO draft_queue VALUES (?, ?, ?, ?)', [
+      accountId,
+      draft.id,
+      jsonEncode(_toJson(draft, includeAttachmentBytes: true)),
+      DateTime.now().millisecondsSinceEpoch,
+    ]);
   }
 
   void removeQueuedDraft(String accountId, String draftId) => _db.execute(
@@ -300,9 +353,10 @@ class MailCache {
     bodyText: j['bodyText'] as String,
     bodyHtml: j['bodyHtml'] as String?,
     hasRemoteContent: j['hasRemoteContent'] as bool,
-    remoteImageHosts: (j['remoteImageHosts'] as List? ?? const []).cast<String>(),
-    trackingPixelHosts:
-        (j['trackingPixelHosts'] as List? ?? const []).cast<String>(),
+    remoteImageHosts: (j['remoteImageHosts'] as List? ?? const [])
+        .cast<String>(),
+    trackingPixelHosts: (j['trackingPixelHosts'] as List? ?? const [])
+        .cast<String>(),
     remoteImagesAllowed: j['remoteImagesAllowed'] as bool? ?? false,
     timestamp: DateTime.fromMillisecondsSinceEpoch(j['ts'] as int),
     isRead: j['isRead'] as bool,
@@ -322,9 +376,7 @@ class MailCache {
           name: a['name'] as String,
           sizeBytes: a['size'] as int,
           mimeType: a['mime'] as String?,
-          bytes: a['bytes'] == null
-              ? null
-              : base64Decode(a['bytes'] as String),
+          bytes: a['bytes'] == null ? null : base64Decode(a['bytes'] as String),
         ),
     ],
   );

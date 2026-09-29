@@ -204,6 +204,7 @@ void main() {
             onOpenDestination: (_) {},
             onSyncAccounts: () {},
             onAddAccount: () {},
+            onSelectCustomFolder: (_) {},
           ),
           body: const SizedBox.shrink(),
         ),

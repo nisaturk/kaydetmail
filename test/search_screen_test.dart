@@ -5,6 +5,7 @@ import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/folder_sync_status.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
+import 'package:kaydetmail/models/mail_custom_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/models/remote_search_result.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
@@ -15,15 +16,21 @@ class _Call {
     required this.query,
     required this.accountId,
     required this.folder,
+    required this.customFolderId,
     required this.isRead,
     required this.labelId,
+    this.flagged,
+    this.hasAttachment,
   });
 
   final String query;
   final String? accountId;
   final MailFolder? folder;
+  final String? customFolderId;
   final bool? isRead;
   final String? labelId;
+  final bool? flagged;
+  final bool? hasAttachment;
 }
 
 class _FakeRepo extends MailRepository {
@@ -42,6 +49,7 @@ class _FakeRepo extends MailRepository {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,
@@ -67,7 +75,9 @@ class _FakeRepo extends MailRepository {
         accountId: accountId ?? _accounts.first.id,
       ),
     ];
-    if (remoteCalls <= remoteRounds.length) return remoteRounds[remoteCalls - 1];
+    if (remoteCalls <= remoteRounds.length) {
+      return remoteRounds[remoteCalls - 1];
+    }
     return const RemoteSearchResult(
       matched: 1,
       imported: 1,
@@ -92,6 +102,7 @@ class _FakeRepo extends MailRepository {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,
@@ -108,14 +119,27 @@ class _FakeRepo extends MailRepository {
       _Call(
         query: query,
         accountId: accountId,
+        customFolderId: customFolderId,
         folder: folder,
         isRead: isRead,
         labelId: labelId,
+        flagged: flagged,
+        hasAttachment: hasAttachment,
       ),
     );
     return nextResult;
   }
 
+  @override
+  List<MailCustomFolder> getCustomFolders({String? accountId}) => const [
+    MailCustomFolder(
+      accountId: 'a1',
+      folderId: 'custom-1',
+      name: 'Projeler',
+      fullName: 'Projeler',
+      isSyncEnabled: false,
+    ),
+  ];
   @override
   Future<List<FolderSyncStatus>> getSyncStatus(String accountId) async =>
       accountId == _accounts.first.id ? syncStatusForFirstAccount : const [];
@@ -218,6 +242,24 @@ void main() {
     expect(find.textContaining('b@example.com'), findsWidgets);
   });
 
+  testWidgets('custom folder search sends its raw folderId', (tester) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+    ]);
+    await _pumpSearch(tester, repo);
+
+    await tester.tap(find.byTooltip('Filtreler'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Projeler'));
+    await tester.ensureVisible(find.text('Uygula'));
+    await tester.tap(find.text('Uygula'));
+    await tester.pumpAndSettle();
+
+    expect(repo.calls.single.accountId, 'a1');
+    expect(repo.calls.single.customFolderId, 'custom-1');
+    expect(repo.calls.single.folder, isNull);
+  });
+
   testWidgets('an incomplete backfill shows the completeness banner', (
     tester,
   ) async {
@@ -244,6 +286,30 @@ void main() {
     );
   });
 
+  testWidgets('attachment filter stays local-only', (tester) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+    ]);
+    await _pumpSearch(tester, repo);
+    await tester.enterText(find.byType(TextField).first, 'rapor');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Filtreler'));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('Ek var'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Ek var'));
+    await tester.ensureVisible(find.text('Uygula'));
+    await tester.tap(find.text('Uygula'));
+    await tester.pumpAndSettle();
+
+    expect(repo.calls.last.hasAttachment, isTrue);
+    expect(repo.calls.last.query, 'rapor');
+    expect(find.byKey(const Key('search-remote')), findsNothing);
+    expect(repo.remoteCalls, 0);
+  });
+
   testWidgets('remote search imports results then reruns cached search', (
     tester,
   ) async {
@@ -268,29 +334,28 @@ void main() {
   testWidgets(
     'partial remote scan continues automatically and stops when it stalls',
     (tester) async {
-      final repo = _FakeRepo(const [
-        MailAccount(id: 'a1', email: 'a@example.com'),
-      ])
-        ..remoteRounds = const [
-          RemoteSearchResult(
-            matched: 30,
-            imported: 10,
-            remaining: 20,
-            complete: false,
-          ),
-          RemoteSearchResult(
-            matched: 30,
-            imported: 10,
-            remaining: 10,
-            complete: false,
-          ),
-          RemoteSearchResult(
-            matched: 30,
-            imported: 0,
-            remaining: 10,
-            complete: false,
-          ),
-        ];
+      final repo =
+          _FakeRepo(const [MailAccount(id: 'a1', email: 'a@example.com')])
+            ..remoteRounds = const [
+              RemoteSearchResult(
+                matched: 30,
+                imported: 10,
+                remaining: 20,
+                complete: false,
+              ),
+              RemoteSearchResult(
+                matched: 30,
+                imported: 10,
+                remaining: 10,
+                complete: false,
+              ),
+              RemoteSearchResult(
+                matched: 30,
+                imported: 0,
+                remaining: 10,
+                complete: false,
+              ),
+            ];
       await _pumpSearch(tester, repo);
       await tester.enterText(find.byType(TextField).first, 'sunucu');
       await tester.pump(const Duration(milliseconds: 400));
@@ -308,23 +373,22 @@ void main() {
   );
 
   testWidgets('partial remote scan continues until complete', (tester) async {
-    final repo = _FakeRepo(const [
-      MailAccount(id: 'a1', email: 'a@example.com'),
-    ])
-      ..remoteRounds = const [
-        RemoteSearchResult(
-          matched: 15,
-          imported: 10,
-          remaining: 5,
-          complete: false,
-        ),
-        RemoteSearchResult(
-          matched: 15,
-          imported: 5,
-          remaining: 0,
-          complete: true,
-        ),
-      ];
+    final repo =
+        _FakeRepo(const [MailAccount(id: 'a1', email: 'a@example.com')])
+          ..remoteRounds = const [
+            RemoteSearchResult(
+              matched: 15,
+              imported: 10,
+              remaining: 5,
+              complete: false,
+            ),
+            RemoteSearchResult(
+              matched: 15,
+              imported: 5,
+              remaining: 0,
+              complete: true,
+            ),
+          ];
     await _pumpSearch(tester, repo);
     await tester.enterText(find.byType(TextField).first, 'sunucu');
     await tester.pump(const Duration(milliseconds: 400));

@@ -5,6 +5,7 @@ import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/mail_detail_screen.dart';
+import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/widgets/mail_link_handler.dart';
 
 class _FakeRepo extends MailRepository {
@@ -48,6 +49,7 @@ void main() {
   late List<Uri> launched;
 
   setUp(() {
+    AppSettingsController.resetForTest();
     launched = [];
     MailLinkOpener.launcherForTest((uri) async {
       launched.add(uri);
@@ -56,6 +58,7 @@ void main() {
   });
 
   tearDown(() {
+    AppSettingsController.resetForTest();
     MailLinkOpener.launcherForTest(null);
     AppConfig.resetForTest();
   });
@@ -78,7 +81,7 @@ void main() {
     (tester) async {
       await pumpDetail(
         tester,
-        '<p><a data-remote-href="https://xn--grnti-4veb.example/giris">'
+        '<p><a data-remote-href="https://xn--grnti-4veb.example/giris?utm_source=mail">'
         'https://www.garanti.com.tr</a></p>',
       );
 
@@ -87,6 +90,13 @@ void main() {
       expect(find.text('Bu bağlantı şüpheli görünüyor'), findsOneWidget);
       expect(find.text('gаrаnti.example'), findsOneWidget);
       expect(find.text('xn--grnti-4veb.example'), findsOneWidget);
+      expect(
+        find.text(
+          'https://xn--grnti-4veb.example/giris?utm_source=mail',
+          findRichText: true,
+        ),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('İptal'));
       await tester.pumpAndSettle();
@@ -114,6 +124,37 @@ void main() {
 
     expect(find.text('Bu bağlantı şüpheli görünüyor'), findsNothing);
     expect(launched, [Uri.parse('https://kampanya.garanti.com.tr/x')]);
+  });
+
+  testWidgets('launch cleans tracking query when privacy setting is enabled', (
+    tester,
+  ) async {
+    await pumpDetail(
+      tester,
+      '<p><a href="https://example.com/path?utm_source=mail&id=7#details">'
+      'Kampanya sayfası</a></p>',
+    );
+
+    await tapLink(tester, 'Kampanya sayfası');
+
+    expect(launched, [Uri.parse('https://example.com/path?id=7#details')]);
+  });
+
+  testWidgets('launch keeps tracking query when privacy setting is disabled', (
+    tester,
+  ) async {
+    AppSettingsController.instance.cleanTrackingQueries = false;
+    await pumpDetail(
+      tester,
+      '<p><a href="https://example.com/path?utm_source=mail&id=7">'
+      'Kampanya sayfası</a></p>',
+    );
+
+    await tapLink(tester, 'Kampanya sayfası');
+
+    expect(launched, [
+      Uri.parse('https://example.com/path?utm_source=mail&id=7'),
+    ]);
   });
 
   testWidgets('unsafe scheme is blocked with a message and never launched', (

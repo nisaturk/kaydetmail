@@ -38,6 +38,15 @@ class Attachment {
     return '${(sizeBytes / (1024 * 1024)).toStringAsFixed(1)} MB';
   }
 
+  String get typeLabel {
+    final type = mimeType?.split(';').first.trim();
+    if (type != null && type.isNotEmpty) return type;
+    final dot = name.lastIndexOf('.');
+    return dot >= 0 && dot < name.length - 1
+        ? name.substring(dot + 1).toUpperCase()
+        : 'Dosya';
+  }
+
   @override
   bool operator ==(Object other) =>
       other is Attachment && other.name == name && other.sizeBytes == sizeBytes;

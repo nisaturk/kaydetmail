@@ -52,6 +52,19 @@ class ApiMailService {
     signature: body['signature'] as String?,
   );
 
+  /// Current account's mailbox storage usage, or `null` when the IMAP server
+  /// does not expose QUOTA (or refused the request).
+  Future<AccountQuota?> getQuota() async {
+    final body = await _client.get('/api/account/quota');
+    final used = body['usedBytes'];
+    final limit = body['limitBytes'];
+    if (body['available'] != true || used is! num || limit is! num) {
+      return null;
+    }
+    if (limit <= 0) return null;
+    return AccountQuota(usedBytes: used.toInt(), limitBytes: limit.toInt());
+  }
+
   /// Sets or clears (blank/null) the signature appended to outgoing mail
   /// from this account — synced, so every device signed into it sees it.
   Future<void> updateSignature(String? signature) =>
@@ -173,6 +186,15 @@ class ApiMailService {
       ApiMailFolder.fromJson(
         await _client.patchJson('/api/folders/${Uri.encodeComponent(id)}', {
           'name': name,
+        }),
+      );
+
+  /// `PUT /api/folders/{id}/role`: [role] is `Sent`, `Drafts`, `Trash`,
+  /// `Junk`, or null to restore server-side detection.
+  Future<ApiMailFolder> setFolderRole(String id, String? role) async =>
+      ApiMailFolder.fromJson(
+        await _client.putJson('/api/folders/${Uri.encodeComponent(id)}/role', {
+          'role': role,
         }),
       );
 
@@ -1515,6 +1537,7 @@ class ApiMailFolder {
     this.isAvailable = true,
     this.delimiter,
     this.parentId,
+    this.roleOverride,
   }) : fullName = fullName ?? name;
 
   factory ApiMailFolder.fromJson(Map<String, dynamic> item) => ApiMailFolder(
@@ -1529,6 +1552,7 @@ class ApiMailFolder {
     isAvailable: item['isAvailable'] as bool? ?? true,
     delimiter: item['delimiter'] as String?,
     parentId: item['parentId'] as String?,
+    roleOverride: item['folderRoleOverride'] as String?,
   );
 
   final String id;
@@ -1554,6 +1578,10 @@ class ApiMailFolder {
 
   final String? delimiter;
   final String? parentId;
+
+  /// User-assigned role (`Sent`/`Drafts`/`Trash`/`Junk`); [type] already
+  /// reflects it. Null when the role comes from server detection.
+  final String? roleOverride;
 }
 
 /// Per-item outcome from `POST /api/mails/bulk/{action}`.

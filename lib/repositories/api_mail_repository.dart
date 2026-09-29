@@ -36,6 +36,7 @@ import '../services/mail_cache.dart';
 import '../services/signature_store.dart';
 import '../models/attachment_download_state.dart';
 import '../services/attachment_download_manager.dart';
+import '../services/attachment_auto_download_policy.dart';
 import '../services/token_store.dart';
 import '../services/session_store.dart';
 import 'mail_repository.dart';
@@ -113,6 +114,10 @@ class _Session {
   /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
   /// every login, since most accounts never open the custom-folders screen.
   List<ApiMailFolder> customFolders = [];
+
+  /// Folders whose role the user assigned (see
+  /// [ApiMailRepository.setFolderRole]); refreshed with [customFolders].
+  List<ApiMailFolder> roleOverrideFolders = [];
   bool folderHierarchyRequested = false;
   final Map<String, List<Email>> customFolderEmails = {};
   final Map<String, int> customFolderPages = {};
@@ -196,10 +201,13 @@ class ApiMailRepository extends MailRepository {
     this._sessionFactory,
     this._snoozeExpiryCheckInterval = const Duration(seconds: 30),
     AttachmentDownloadManager? attachmentDownloadManager,
+    AttachmentAutoDownloader? attachmentAutoDownloader,
   }) : _initialAuthService = authService,
        _initialMailService = mailService,
        _attachmentDownloadManager =
-           attachmentDownloadManager ?? AttachmentDownloadManager.instance;
+           attachmentDownloadManager ?? AttachmentDownloadManager.instance,
+       _attachmentAutoDownloader =
+           attachmentAutoDownloader ?? AttachmentAutoDownloader();
 
   // Test seams: the first session created (via login/connect/restore) uses
   // the injected auth+mail service pair when present; every session after
@@ -212,6 +220,7 @@ class ApiMailRepository extends MailRepository {
 
   final Future<MailCache> Function()? _openCache;
   final AttachmentDownloadManager _attachmentDownloadManager;
+  final AttachmentAutoDownloader _attachmentAutoDownloader;
   MailCache? _cache;
 
   /// Every connected account's session, keyed by account id, in connection
@@ -467,7 +476,8 @@ class ApiMailRepository extends MailRepository {
   Future<void> reconnect({required String password}) async {
     final session = _primarySession;
     final account = await session.mailService.reconnect(password: password);
-    session.account = account;
+    session.account = account.copyWith(quota: session.account.quota);
+    unawaited(_refreshQuota(session));
     _touch();
     notifyListeners();
   }
@@ -693,10 +703,12 @@ class ApiMailRepository extends MailRepository {
       await _seedStarred(session);
       unawaited(_seedThreadSizes(session));
       try {
-        session.account = await mailService.getAccount();
+        final refreshed = await mailService.getAccount();
+        session.account = refreshed.copyWith(quota: session.account.quota);
       } catch (_) {
         // Token-derived account remains usable until server details load.
       }
+      unawaited(_refreshQuota(session));
       unawaited(_migrateLegacySignature(session));
       await SessionStore.saveAccountId(account.email, account.id);
       notifyListeners();
@@ -769,8 +781,10 @@ class ApiMailRepository extends MailRepository {
       await _seedStarred(session);
       unawaited(_seedThreadSizes(session));
       try {
-        session.account = await session.mailService.getAccount();
+        final refreshed = await session.mailService.getAccount();
+        session.account = refreshed.copyWith(quota: session.account.quota);
       } catch (_) {}
+      unawaited(_refreshQuota(session));
       unawaited(_migrateLegacySignature(session));
       notifyListeners();
     } catch (_) {
@@ -980,6 +994,7 @@ class ApiMailRepository extends MailRepository {
     session.folderIds.clear();
     session.folderTypeById.clear();
     for (final entry in saved.entries) {
+      if (entry.value == 'custom') continue;
       MailFolder logical;
       try {
         logical = MailFolder.values.byName(entry.value);
@@ -1005,7 +1020,6 @@ class ApiMailRepository extends MailRepository {
           (e) => !queuedIds.contains(e.id),
         ),
       ];
-      if (cached.isEmpty) return false;
       session.emails.clear();
       session.pages.clear();
       for (final email in cached) {
@@ -1016,7 +1030,17 @@ class ApiMailRepository extends MailRepository {
       for (final list in session.emails.values) {
         list.sort((a, b) => b.timestamp.compareTo(a.timestamp));
       }
-      return true;
+      final custom = _cache?.loadCustomFolders(session.account.id) ?? const {};
+      session.customFolderEmails
+        ..clear()
+        ..addAll({
+          for (final entry in custom.entries)
+            entry.key: [
+              for (final email in entry.value) session.stampLocalFlags(email),
+            ],
+        });
+      unawaited(_attachmentAutoDownloader.preloadListed(this, cached));
+      return cached.isNotEmpty || custom.isNotEmpty;
     } catch (_) {
       return false;
     }
@@ -1142,13 +1166,45 @@ class ApiMailRepository extends MailRepository {
   }
 
   Future<void> _loadMailbox(_Session session) async {
-    final folders = await session.mailService.getFolders();
+    _applyFolderMap(session, await session.mailService.getFolders());
+    _cancelReconnectRetry(session);
+    session.offline = false;
+    await _replayQueuedMutations(session);
+    _persistFolderMap(session);
+    notifyListeners();
+  }
+
+  /// Rebuilds the logical-folder map from the server list. `folderType` is
+  /// the effective role, so user overrides (e.g. `INBOX.Sent Items` as Sent)
+  /// resolve here without extra handling.
+  void _applyFolderMap(_Session session, List<ApiMailFolder> folders) {
     session.folderIds.clear();
     session.folderTypeById.clear();
     session.serverUnread.clear();
     for (final folder in folders) {
       if (!folder.isAvailable) continue;
-      final logical = switch (folder.type.toLowerCase()) {
+      final logical = _logicalFolderForType(folder.type);
+      if (logical != null) {
+        session.folderIds[logical] = folder.id;
+        session.folderTypeById[folder.id] = logical;
+        final unread = folder.unreadCount;
+        if (unread != null) session.serverUnread[logical] = unread;
+      }
+    }
+    _applyCustomFolderLists(session, folders);
+  }
+
+  void _applyCustomFolderLists(_Session session, List<ApiMailFolder> folders) {
+    session.customFolders = folders
+        .where((folder) => folder.type == 'Custom' && folder.isAvailable)
+        .toList();
+    session.roleOverrideFolders = folders
+        .where((folder) => folder.roleOverride != null && folder.isAvailable)
+        .toList();
+  }
+
+  static MailFolder? _logicalFolderForType(String type) =>
+      switch (type.toLowerCase()) {
         'inbox' => MailFolder.inbox,
         'sent' => MailFolder.sent,
         'drafts' => MailFolder.drafts,
@@ -1158,19 +1214,6 @@ class ApiMailRepository extends MailRepository {
         'archive' => MailFolder.archive,
         _ => null,
       };
-      if (logical != null) {
-        session.folderIds[logical] = folder.id;
-        session.folderTypeById[folder.id] = logical;
-        final unread = folder.unreadCount;
-        if (unread != null) session.serverUnread[logical] = unread;
-      }
-    }
-    _cancelReconnectRetry(session);
-    session.offline = false;
-    await _replayQueuedMutations(session);
-    _persistFolderMap(session);
-    notifyListeners();
-  }
 
   /// Best-effort: remembers the current folder map so
   /// [_hydrateFolderMapFromCache] can restore it on a future offline cold
@@ -1182,6 +1225,7 @@ class ApiMailRepository extends MailRepository {
       cache.saveFolders(session.account.id, {
         for (final entry in session.folderIds.entries)
           entry.value: entry.key.name,
+        for (final folder in session.customFolders) folder.id: 'custom',
       });
     } catch (_) {
       // Cache is an optimization; never surface its failures.
@@ -2016,6 +2060,7 @@ class ApiMailRepository extends MailRepository {
     session.offline = false;
     await _replayQueuedMutations(session);
     notifyListeners();
+    unawaited(_attachmentAutoDownloader.preloadListed(this, fresh));
     return List.unmodifiable(fresh);
   }
 
@@ -2065,6 +2110,7 @@ class ApiMailRepository extends MailRepository {
                 ),
         ),
     ];
+    unawaited(_attachmentAutoDownloader.preloadListed(this, refreshed));
     // Refresh only re-fetches page 1. Mail paged in earlier via
     // loadMoreEmails is still real and must not vanish just because this
     // pass didn't re-verify it — losing it also breaks threadStatusOf's
@@ -2470,6 +2516,10 @@ class ApiMailRepository extends MailRepository {
       _upsertDetail(session, stamped);
     }
     thread.sort((a, b) => a.timestamp.compareTo(b.timestamp));
+    session.serverThreadSizes[threadId] = thread.length;
+    // One notification persists every upsert to this account's SQLite bucket
+    // and lets open detail panes consume enriched bodies immediately.
+    notifyListeners();
     return List.unmodifiable(thread);
   }
 
@@ -2866,6 +2916,28 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
+  @override
+  Future<void> refreshQuota(String accountId) async {
+    final session = _sessions[accountId];
+    if (session != null) await _refreshQuota(session);
+  }
+
+  /// Loads [session]'s storage quota. `null` from the backend means the
+  /// server has no QUOTA support (or refused it), which hides the usage row.
+  /// Transport failures keep the last known value so going offline doesn't
+  /// flicker the row; a session closed meanwhile is left untouched.
+  Future<void> _refreshQuota(_Session session) async {
+    final AccountQuota? quota;
+    try {
+      quota = await session.mailService.getQuota();
+    } catch (_) {
+      return;
+    }
+    if (!identical(_sessions[session.account.id], session)) return;
+    session.account = session.account.copyWith(quota: quota);
+    notifyListeners();
+  }
+
   // --- Custom folders -------------------------------------------------
 
   _Session _sessionForAccountId(String accountId) {
@@ -2916,9 +2988,7 @@ class ApiMailRepository extends MailRepository {
       await session.mailService.refreshFolders();
       folders = await session.mailService.getFolders();
     }
-    session.customFolders = folders
-        .where((f) => f.type == 'Custom' && f.isAvailable)
-        .toList();
+    _applyCustomFolderLists(session, folders);
   }
 
   Future<void> _reloadCustomFoldersAfterChange(_Session session) async {
@@ -2959,11 +3029,25 @@ class ApiMailRepository extends MailRepository {
   Future<List<Email>> getCustomFolderMails({
     required String accountId,
     required String folderId,
-  }) => _fetchCustomFolderPage(
-    session: _sessionForAccountId(accountId),
-    folderId: folderId,
-    page: 1,
-  );
+  }) {
+    final session = _sessionForAccountId(accountId);
+    final cached = session.customFolderEmails[folderId];
+    if (cached != null) {
+      unawaited(
+        _fetchCustomFolderPage(
+          session: session,
+          folderId: folderId,
+          page: 1,
+        ).catchError((_) => cached),
+      );
+      return Future.value(List.unmodifiable(cached));
+    }
+    return _fetchCustomFolderPage(
+      session: session,
+      folderId: folderId,
+      page: 1,
+    );
+  }
 
   @override
   bool hasMoreCustomFolderMails(String accountId, String folderId) =>
@@ -3004,6 +3088,21 @@ class ApiMailRepository extends MailRepository {
         ? fetched
         : [...?session.customFolderEmails[folderId], ...fetched];
     session.customFolderEmails[folderId] = accumulated;
+    try {
+      if (page == 1) {
+        _cache?.replaceCustomFolder(session.account.id, folderId, accumulated);
+      } else {
+        _cache?.apply(
+          session.account.id,
+          fetched,
+          const [],
+          customFolderId: folderId,
+        );
+      }
+    } catch (_) {
+      // Cache is an optimization; never surface its failures.
+    }
+    unawaited(_attachmentAutoDownloader.preloadListed(this, fetched));
     notifyListeners();
     return accumulated;
   }
@@ -3054,6 +3153,57 @@ class ApiMailRepository extends MailRepository {
     ];
     _forgetCustomFolderMails(session, folderId);
     await _reloadCustomFoldersAfterChange(session);
+  }
+
+  @override
+  List<MailFolderRoleAssignment> getFolderRoleAssignments({String? accountId}) {
+    final sessions = accountId == null
+        ? _scopedSessions
+        : [?_sessions[accountId]];
+    return [
+      for (final session in sessions)
+        for (final f in session.roleOverrideFolders)
+          if (_logicalFolderForType(f.roleOverride!) case final role?)
+            MailFolderRoleAssignment(
+              accountId: session.account.id,
+              folderId: f.id,
+              name: f.name,
+              fullName: f.fullName,
+              role: role,
+            ),
+    ];
+  }
+
+  @override
+  Future<void> setFolderRole({
+    required String accountId,
+    required String folderId,
+    required MailFolder? role,
+  }) async {
+    final wire = switch (role) {
+      null => null,
+      MailFolder.sent => 'Sent',
+      MailFolder.drafts => 'Drafts',
+      MailFolder.trash => 'Trash',
+      MailFolder.spam => 'Junk',
+      _ => throw ArgumentError.value(role, 'role', 'not assignable'),
+    };
+    final session = _sessionForAccountId(accountId);
+    final previous = Map.of(session.folderIds);
+    await session.mailService.setFolderRole(folderId, wire);
+    _applyFolderMap(session, await session.mailService.getFolders());
+    _persistFolderMap(session);
+    // A logical bucket now backed by a different server folder holds the
+    // old folder's mail; drop it so the next open fetches the new folder.
+    for (final logical in {...previous.keys, ...session.folderIds.keys}) {
+      if (previous[logical] == session.folderIds[logical]) continue;
+      session.emails.remove(logical);
+      session.pages.remove(logical);
+      session.hasMore.remove(logical);
+      session.lastSynced.remove(logical);
+    }
+    _forgetCustomFolderMails(session, folderId);
+    notifyListeners();
   }
 
   @override
@@ -3602,6 +3752,7 @@ class ApiMailRepository extends MailRepository {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,
@@ -3619,7 +3770,12 @@ class ApiMailRepository extends MailRepository {
         : [?_sessions[accountId]];
     final all = <Email>[];
     for (final session in sessions) {
-      final folderId = folder == null ? null : session.folderIds[folder];
+      final folderId =
+          customFolderId ?? (folder == null ? null : session.folderIds[folder]);
+      if (customFolderId != null &&
+          !session.customFolders.any((item) => item.id == customFolderId)) {
+        continue;
+      }
       if (folder != null && folderId == null) continue;
       final results = await session.mailService.search(
         query: query,
@@ -3647,6 +3803,7 @@ class ApiMailRepository extends MailRepository {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,
@@ -3665,7 +3822,12 @@ class ApiMailRepository extends MailRepository {
     var remaining = 0;
     var complete = true;
     for (final session in sessions) {
-      final folderId = folder == null ? null : session.folderIds[folder];
+      final folderId =
+          customFolderId ?? (folder == null ? null : session.folderIds[folder]);
+      if (customFolderId != null &&
+          !session.customFolders.any((item) => item.id == customFolderId)) {
+        continue;
+      }
       if (folder != null && folderId == null) continue;
       final result = await session.mailService.searchRemote(
         query: query,

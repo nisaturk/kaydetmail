@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
+import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
+import '../state/custom_folder_order_controller.dart';
 import '../theme/app_theme.dart';
 import 'mail_avatar.dart';
 
@@ -44,6 +46,7 @@ class AppDrawer extends StatelessWidget {
     required this.onOpenDestination,
     required this.onSyncAccounts,
     required this.onAddAccount,
+    required this.onSelectCustomFolder,
   });
 
   final MailFolder selectedFolder;
@@ -55,6 +58,9 @@ class AppDrawer extends StatelessWidget {
   /// scope. The host closes the drawer and reports progress/failure.
   final VoidCallback onSyncAccounts;
   final VoidCallback onAddAccount;
+
+  /// Opens one server custom folder's mail list.
+  final ValueChanged<MailCustomFolder> onSelectCustomFolder;
 
   static const _primaryFolders = [
     MailFolder.inbox,
@@ -105,6 +111,15 @@ class AppDrawer extends StatelessWidget {
                               onTap: () => onSelectFolder(folder),
                               badgeCount: _badgeCount(repo, folder),
                             ),
+                          _CustomFolderSection(
+                            folders: repo.getCustomFolders(),
+                            accountNames: {
+                              for (final account in repo.accounts)
+                                account.id: account.email,
+                            },
+                            order: CustomFolderOrderController.instance,
+                            onSelect: onSelectCustomFolder,
+                          ),
                         ],
                       ),
                       Column(
@@ -237,6 +252,226 @@ class _MenuHeading extends StatelessWidget {
           fontWeight: FontWeight.w600,
           color: AppTheme.colors(context).secondaryText,
         ),
+      ),
+    );
+  }
+}
+
+typedef _DrawerFolderRow = ({
+  MailCustomFolder folder,
+  int depth,
+  bool canMoveUp,
+  bool canMoveDown,
+});
+
+/// Server custom folders shown as an indented tree, grouped per account in
+/// the unified mailbox. Reorder mode moves a folder (with its subtree) among
+/// the siblings under the same parent; the order persists per account.
+class _CustomFolderSection extends StatefulWidget {
+  const _CustomFolderSection({
+    required this.folders,
+    required this.accountNames,
+    required this.order,
+    required this.onSelect,
+  });
+
+  final List<MailCustomFolder> folders;
+  final Map<String, String> accountNames;
+  final CustomFolderOrderController order;
+  final ValueChanged<MailCustomFolder> onSelect;
+
+  @override
+  State<_CustomFolderSection> createState() => _CustomFolderSectionState();
+}
+
+class _CustomFolderSectionState extends State<_CustomFolderSection> {
+  bool _reordering = false;
+  late String _folderKey = _keyOf(widget.folders);
+
+  static String _keyOf(List<MailCustomFolder> folders) =>
+      [for (final folder in folders) '${folder.accountId}/${folder.folderId}']
+          .join('|');
+
+  @override
+  void initState() {
+    super.initState();
+    widget.order.sync(widget.folders);
+  }
+
+  @override
+  void didUpdateWidget(_CustomFolderSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final key = _keyOf(widget.folders);
+    if (key == _folderKey) return;
+    _folderKey = key;
+    widget.order.sync(widget.folders);
+  }
+
+  List<_DrawerFolderRow> _rowsFor(List<MailCustomFolder> accountFolders) {
+    final rows = <_DrawerFolderRow>[];
+    void visit(List<MailCustomFolderNode> siblings, int depth) {
+      for (final (index, node) in siblings.indexed) {
+        rows.add((
+          folder: node.folder,
+          depth: depth,
+          canMoveUp: index > 0,
+          canMoveDown: index < siblings.length - 1,
+        ));
+        visit(node.children, depth + 1);
+      }
+    }
+
+    visit(
+      buildCustomFolderTree(
+        accountFolders,
+        orderByAccount: widget.order.orders,
+      ),
+      0,
+    );
+    return rows;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.folders.isEmpty) return const SizedBox.shrink();
+    return ListenableBuilder(
+      listenable: widget.order,
+      builder: (context, _) {
+        final groups = <String, List<MailCustomFolder>>{
+          for (final accountId in widget.accountNames.keys) accountId: [],
+        };
+        for (final folder in widget.folders) {
+          groups.putIfAbsent(folder.accountId, () => []).add(folder);
+        }
+        groups.removeWhere((_, folders) => folders.isEmpty);
+        final showAccounts = groups.length > 1;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Divider(height: 12),
+            Row(
+              children: [
+                const Expanded(child: _MenuHeading('Klasörler')),
+                Padding(
+                  padding: const EdgeInsets.only(right: 12),
+                  child: IconButton(
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    tooltip: _reordering
+                        ? 'Sıralamayı bitir'
+                        : 'Klasörleri sırala',
+                    icon: Icon(
+                      _reordering ? LucideIcons.check : LucideIcons.arrowUpDown,
+                    ),
+                    onPressed: () => setState(() => _reordering = !_reordering),
+                  ),
+                ),
+              ],
+            ),
+            for (final MapEntry(key: accountId, value: accountFolders)
+                in groups.entries) ...[
+              if (showAccounts)
+                _AccountSubheading(widget.accountNames[accountId] ?? ''),
+              for (final row in _rowsFor(accountFolders))
+                _CustomFolderTile(
+                  row: row,
+                  reordering: _reordering,
+                  onTap: () => widget.onSelect(row.folder),
+                  onMove: (offset) => widget.order.move(
+                    accountFolders,
+                    row.folder.folderId,
+                    offset,
+                  ),
+                ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AccountSubheading extends StatelessWidget {
+  const _AccountSubheading(this.email);
+
+  final String email;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 6, 24, 2),
+      child: Text(
+        email,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          fontSize: 12,
+          color: AppTheme.colors(context).secondaryText,
+        ),
+      ),
+    );
+  }
+}
+
+class _CustomFolderTile extends StatelessWidget {
+  const _CustomFolderTile({
+    required this.row,
+    required this.reordering,
+    required this.onTap,
+    required this.onMove,
+  });
+
+  final _DrawerFolderRow row;
+  final bool reordering;
+  final VoidCallback onTap;
+  final ValueChanged<int> onMove;
+
+  @override
+  Widget build(BuildContext context) {
+    final secondaryText = AppTheme.colors(context).secondaryText;
+    final unread = row.folder.unreadCount ?? 0;
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 8),
+      child: ListTile(
+        dense: true,
+        visualDensity: const VisualDensity(vertical: -2),
+        minTileHeight: 42,
+        contentPadding: EdgeInsets.only(
+          left: 16.0 + 16.0 * row.depth,
+          right: 8,
+        ),
+        onTap: reordering ? null : onTap,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+        leading: Icon(LucideIcons.folder, size: 20, color: secondaryText),
+        title: Text(
+          row.folder.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: TextStyle(fontSize: 14.5, color: secondaryText),
+        ),
+        trailing: reordering
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    tooltip: 'Yukarı taşı',
+                    icon: const Icon(LucideIcons.chevronUp),
+                    onPressed: row.canMoveUp ? () => onMove(-1) : null,
+                  ),
+                  IconButton(
+                    visualDensity: VisualDensity.compact,
+                    iconSize: 18,
+                    tooltip: 'Aşağı taşı',
+                    icon: const Icon(LucideIcons.chevronDown),
+                    onPressed: row.canMoveDown ? () => onMove(1) : null,
+                  ),
+                ],
+              )
+            : unread > 0
+            ? Badge(label: Text('$unread'), largeSize: 20)
+            : null,
       ),
     );
   }
