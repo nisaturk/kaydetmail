@@ -1355,5 +1355,14 @@
       },
       "names": {}
     }
+  },
+  "earlierMessages": "Önceki iletiler",
+  "conversationMessageCount": "{count} ileti",
+  "@conversationMessageCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

@@ -4786,6 +4786,18 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'{count, plural, =1{Paylaşılan dosya okunamadı: {names}} other{Paylaşılan {count} dosya okunamadı: {names}}}'**
   String couldntReadSharedFiles(int count, Object names);
+
+  /// No description provided for @earlierMessages.
+  ///
+  /// In tr, this message translates to:
+  /// **'Önceki iletiler'**
+  String get earlierMessages;
+
+  /// No description provided for @conversationMessageCount.
+  ///
+  /// In tr, this message translates to:
+  /// **'{count} ileti'**
+  String conversationMessageCount(int count);
 }
 
 class _AppLocalizationsDelegate

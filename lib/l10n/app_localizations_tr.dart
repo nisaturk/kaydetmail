@@ -2700,4 +2700,12 @@ class AppLocalizationsTr extends AppLocalizations {
     );
     return '$_temp0';
   }
+
+  @override
+  String get earlierMessages => 'Önceki iletiler';
+
+  @override
+  String conversationMessageCount(int count) {
+    return '$count ileti';
+  }
 }

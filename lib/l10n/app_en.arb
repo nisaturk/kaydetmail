@@ -778,5 +778,7 @@
   "couldntAddPhoto": "Couldn’t add the photo: {error}",
   "couldntAddPhotos": "Couldn’t add the photos: {error}",
   "emailCount": "{count, plural, =1{1 email} other{{count} emails}}",
-  "couldntReadSharedFiles": "{count, plural, =1{Couldn’t read the shared file: {names}} other{Couldn’t read {count} shared files: {names}}}"
+  "couldntReadSharedFiles": "{count, plural, =1{Couldn’t read the shared file: {names}} other{Couldn’t read {count} shared files: {names}}}",
+  "earlierMessages": "Earlier messages",
+  "conversationMessageCount": "{count, plural, =1{1 message} other{{count} messages}}"
 }
