@@ -20,10 +20,11 @@ one unified inbox.
   archive, spam, move, and multi-select bulk actions.
 - **Compose.** Attachments (files, camera and gallery), drafts,
   reply/reply-all/forward with quoted history, templates, snippets, multiple
-  signatures, sender identities and OS share-sheet intake. Immediate sends can
-  optionally request read (MDN) and delivery (SMTP DSN) receipts; neither is
-  guaranteed by recipients or providers. Receipt requests are not supported
-  for scheduled sends.
+  signatures, sender identities and OS share-sheet intake. Draft changes are persisted
+  locally first, then synchronized in the background; failed synchronization warns and
+  reopens the intact local draft. Immediate sends can optionally request read (MDN) and
+  delivery (SMTP DSN) receipts; neither is guaranteed by recipients or providers.
+  Receipt requests are not supported for scheduled sends.
 - **Scheduled send.** Queue a message for a future time from Compose; the backend
   delivers it even if the app is closed and retries recoverable pre-delivery failures
   with backoff. Failed/delivery-uncertain sends stay visible in Zamanlanmış

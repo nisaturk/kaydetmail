@@ -677,6 +677,11 @@ class ApiMailRepository extends MailRepository {
       session.flagsStore = flags;
       await _hydrateLocalSessionState(session, flags);
       _recomputeWatchedSnoozeDeadline();
+      final queuedDrafts = _cache!.loadDraftQueue(account.id);
+      if (queuedDrafts.isNotEmpty) {
+        session.emails[MailFolder.drafts] = queuedDrafts;
+        _scheduleDraftSync();
+      }
       _startSnoozeExpiryTimerIfNeeded();
       _hydrateFolderMapFromCache(session);
       final hydrated = await _hydrateFromCache(session);
@@ -1003,7 +1008,13 @@ class ApiMailRepository extends MailRepository {
   Future<bool> _hydrateFromCache(_Session session) async {
     try {
       session.persisted = {};
-      final cached = _cache?.load(session.account.id) ?? const <Email>[];
+      final queued = _cache?.loadDraftQueue(session.account.id) ?? const <Email>[];
+      final queuedIds = queued.map((e) => e.id).toSet();
+      final cached = [
+        ...queued,
+        ...(_cache?.load(session.account.id) ?? const <Email>[])
+            .where((e) => !queuedIds.contains(e.id)),
+      ];
       if (cached.isEmpty) return false;
       session.emails.clear();
       session.pages.clear();
@@ -1775,18 +1786,6 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-  static bool _pinned(Email email) => email.isPinned;
-
-  /// Sent items open past [MailRepository.unansweredReminderThreshold] with
-  /// no inbound reply float to the top of the Sent view (below pinned) —
-  /// same age gate as the "Yanıtlanmadı" badge in `MailListItem`, so the
-  /// sort order and the badge never disagree. Gated by
-  /// [MailRepository.unansweredReminderEnabled], currently off.
-  static bool _isStaleUnanswered(Email email) =>
-      MailRepository.unansweredReminderEnabled &&
-      !email.threadReceivedReply &&
-      DateTime.now().difference(email.timestamp) >
-          MailRepository.unansweredReminderThreshold;
 
   /// Sessions the public read/write methods operate on: just the active one
   /// when scoped, every connected session when unified (`null`).
@@ -1877,10 +1876,8 @@ class ApiMailRepository extends MailRepository {
   void _touch() => _viewCache.clear();
 
   /// [MailFolder.starred] is virtual — "Yıldızlılar" surfaces starred mail
-  /// regardless of its real folder. Pinning remains independent: pinned mail
-  /// floats above the rest inside whichever folder it already belongs to.
-  /// The unified mailbox (`activeAccountId == null`) merges every session's
-  /// mail into one such view.
+  /// regardless of its real folder. All mailbox views use strict newest-first
+  /// timestamp ordering, including the unified mailbox across accounts.
   @override
   List<Email> getEmailsInFolder(MailFolder folder) {
     final key = 'folder:${folder.name}:${_activeAccountId ?? ''}';
@@ -1896,7 +1893,7 @@ class ApiMailRepository extends MailRepository {
             if (_snoozedUntil(s, e.id) case final until?)
               (email: e, until: until),
       ];
-      pairs.sort((a, b) => a.until.compareTo(b.until));
+      pairs.sort((a, b) => b.email.timestamp.compareTo(a.email.timestamp));
       return List.unmodifiable([for (final p in pairs) p.email]);
     }
     final result = folder == MailFolder.starred || folder == MailFolder.all
@@ -1917,17 +1914,7 @@ class ApiMailRepository extends MailRepository {
                 (e) => _snoozedUntil(s, e.id) == null,
               ),
           ];
-    result.sort((a, b) {
-      final ha = _pinned(a);
-      final hb = _pinned(b);
-      if (ha != hb) return ha ? -1 : 1;
-      if (folder == MailFolder.sent) {
-        final ua = _isStaleUnanswered(a);
-        final ub = _isStaleUnanswered(b);
-        if (ua != ub) return ua ? -1 : 1;
-      }
-      return b.timestamp.compareTo(a.timestamp);
-    });
+    result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return List.unmodifiable(result);
   }
 
@@ -2116,9 +2103,19 @@ class ApiMailRepository extends MailRepository {
               e.timestamp.isBefore(oldestFetched),
         )
         .map(session.stampLocalFlags);
-    if (folder == MailFolder.drafts) _resolveDraftsFrom(refreshed);
-    session.emails[folder] = [...refreshed, ...stale]
-      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    if (folder == MailFolder.drafts) {
+      _resolveDraftsFrom(refreshed);
+      final queued = _cache?.loadDraftQueue(session.account.id) ?? const <Email>[];
+      final queuedIds = queued.map((e) => e.id).toSet();
+      session.emails[folder] = [
+        ...queued,
+        ...refreshed.where((e) => !queuedIds.contains(e.id)),
+        ...stale.where((e) => !queuedIds.contains(e.id)),
+      ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    } else {
+      session.emails[folder] = [...refreshed, ...stale]
+        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    }
     session.pages[folder] = max(session.pages[folder] ?? 1, result.page);
     session.hasMore[folder] =
         (session.emails[folder]?.length ?? 0) < result.total;
@@ -2235,7 +2232,7 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<Email?> getEmail(String id) async {
     final owner = _sessionOwning(id);
-    final candidates = owner != null ? [owner] : _scopedSessions.toList();
+    final candidates = owner != null ? [owner] : _sessions.values.toList();
     var sawNotFound = false;
     for (final session in candidates) {
       try {
@@ -3197,7 +3194,98 @@ class ApiMailRepository extends MailRepository {
 
   /// Tail of the draft write queue — see [_serializeDraftWrite].
   Future<void> _draftWrites = Future.value();
+  final Map<String, void Function(Email)> _draftFailureCallbacks = {};
+  final _draftSyncFailureController = StreamController<Email>.broadcast();
 
+  @override
+  Stream<Email> get draftSyncFailures => _draftSyncFailureController.stream;
+
+  @override
+  void detachDraftSyncFailureHandler(String draftId) {
+    _draftFailureCallbacks.remove(draftId);
+  }
+
+  bool _draftSyncScheduled = false;
+  bool _draftSyncRequested = false;
+
+  void _scheduleDraftSync() {
+    if (_draftSyncScheduled) {
+      _draftSyncRequested = true;
+      return;
+    }
+    _draftSyncScheduled = true;
+    unawaited(Future<void>.delayed(Duration.zero, () async {
+      try {
+        await _syncQueuedDrafts();
+      } finally {
+        _draftSyncScheduled = false;
+        if (_draftSyncRequested) {
+          _draftSyncRequested = false;
+          _scheduleDraftSync();
+        }
+      }
+    }));
+  }
+
+  Future<void> _syncQueuedDrafts() async {
+    final cache = _cache;
+    if (cache == null) return;
+    for (final session in _sessions.values) {
+      for (final local in cache.loadDraftQueue(session.account.id)) {
+        try {
+          final saved = await _serializeDraftWrite(
+            () => _writeDraft(
+              to: local.recipients,
+              cc: local.cc,
+              bcc: local.bcc,
+              subject: local.subject,
+              body: local.bodyText,
+              bodyHtml: local.bodyHtml,
+              attachments: local.attachments,
+              from: local.senderEmail,
+              fromAccountId: session.account.id,
+              threadId: local.threadId,
+              inReplyToId: local.inReplyToId,
+              identityId: local.headers['draftIdentityId'],
+              draftId: local.id.startsWith('local-draft-') ? null : local.id,
+            ),
+          );
+          final latest = session.emails[MailFolder.drafts]
+              ?.firstWhere((e) => e.id == local.id, orElse: () => local);
+          if (latest != null && !cache.queuedDraftMatches(session.account.id, latest)) {
+            _scheduleDraftSync();
+            continue;
+          }
+          final drafts = session.emails[MailFolder.drafts];
+          if (saved.id != local.id) {
+            drafts?.removeWhere((e) => e.id == saved.id);
+          }
+          final index = drafts?.indexWhere((e) => e.id == local.id) ?? -1;
+          if (index >= 0) drafts![index] = saved;
+          if (saved.id != local.id) _draftIdSuccessor[local.id] = saved.id;
+          cache.removeQueuedDraft(session.account.id, local.id);
+          _draftFailureCallbacks.remove(local.id);
+          notifyListeners();
+        } catch (_) {
+          final latest = session.findLoaded(local.id);
+          if (latest != null && !cache.queuedDraftMatches(session.account.id, latest)) {
+            _scheduleDraftSync();
+            continue;
+          }
+          final callback = _draftFailureCallbacks[local.id];
+          if (callback != null) {
+            callback(local);
+          } else {
+            _draftSyncFailureController.add(local);
+          }
+          Future<void>.delayed(const Duration(seconds: 15), () {
+            _scheduleDraftSync();
+          });
+          return;
+        }
+      }
+    }
+  }
   /// Old draft id -> the id `PUT /drafts/{id}` replaced it with.
   final Map<String, String> _draftIdSuccessor = {};
 
@@ -3310,23 +3398,58 @@ class ApiMailRepository extends MailRepository {
     String? inReplyToId,
     String? identityId,
     String? draftId,
-  }) => _serializeDraftWrite(
-    () async => _writeDraft(
-      to: to,
-      cc: cc,
-      bcc: bcc,
-      subject: subject,
-      body: body,
-      bodyHtml: bodyHtml,
-      attachments: attachments,
-      from: from,
-      fromAccountId: fromAccountId,
-      threadId: threadId,
-      inReplyToId: inReplyToId,
-      identityId: identityId,
-      draftId: draftId == null ? null : await _serverDraftId(draftId),
-    ),
-  );
+    void Function(Email draft)? onSyncFailure,
+  }) async {
+    final cache = _cache;
+    if (cache == null) {
+      throw StateError('Draft cache unavailable');
+    }
+    final resolvedDraftId = draftId == null ? null : _latestDraftId(draftId);
+    final session = resolvedDraftId != null
+        ? (_sessionOwning(resolvedDraftId) ??
+              _sessionForCompose(from: from, fromAccountId: fromAccountId))
+        : _sessionForCompose(from: from, fromAccountId: fromAccountId);
+    draftId = resolvedDraftId;
+    final id = draftId ?? 'local-draft-${DateTime.now().microsecondsSinceEpoch}';
+    final drafts = session.emails.putIfAbsent(MailFolder.drafts, () => <Email>[]);
+    final oldIndex = drafts.indexWhere((e) => e.id == id);
+    final previous = oldIndex < 0 ? null : drafts[oldIndex];
+    final local = Email(
+      id: id,
+      senderName: session.account.displayName ?? session.account.email,
+      senderEmail: from ?? session.account.email,
+      recipients: to, cc: cc, bcc: bcc, subject: subject, bodyText: body,
+      bodyHtml: bodyHtml, timestamp: DateTime.now(), isRead: true,
+      folder: MailFolder.drafts, attachments: attachments, accountId: session.account.id,
+      threadId: (threadId == null || threadId.isEmpty)
+          ? (previous?.threadId.isNotEmpty == true ? previous!.threadId : 't-$id')
+          : threadId,
+      inReplyToId: inReplyToId ?? previous?.inReplyToId,
+      headers: {
+        // ignore: use_null_aware_elements
+        if (identityId != null) 'draftIdentityId': identityId,
+      },
+    );
+    if (oldIndex < 0) {
+      drafts.insert(0, local);
+    } else {
+      drafts[oldIndex] = local;
+    }
+    try {
+      cache.queueDraft(session.account.id, local);
+    } catch (_) {
+      if (oldIndex < 0) {
+        drafts.remove(local);
+      } else {
+        drafts[oldIndex] = previous!;
+      }
+      rethrow;
+    }
+    if (onSyncFailure != null) _draftFailureCallbacks[id] = onSyncFailure;
+    notifyListeners();
+    _scheduleDraftSync();
+    return local;
+  }
 
   Future<Email> _writeDraft({
     required List<String> to,
@@ -3466,6 +3589,13 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<void> deleteDraft(String draftId) {
     final initialSession = _sessionOwning(draftId) ?? _primarySession;
+    if (draftId.startsWith('local-draft-')) {
+      _cache?.removeQueuedDraft(initialSession.account.id, draftId);
+      _draftFailureCallbacks.remove(draftId);
+      _removeMany(initialSession, [draftId]);
+      notifyListeners();
+      return Future.value();
+    }
     final initialSnapshot = _snapshotMailLocations(initialSession, [draftId]);
     _removeMany(initialSession, [draftId]);
     notifyListeners();

@@ -62,24 +62,17 @@ class MailListItem extends StatelessWidget {
   /// labeled mail is obvious without opening it.
   final List<MailLabel> labels;
 
-  /// Mail older than this with no reply gets a "Yanıt bekliyor" nudge
-  /// (Gmail-style) — Inbox mail with no reply sent yet, or Sent mail with
-  /// no reply received back yet. Purely a display hint computed from
-  /// fields the row already has, no repository access needed.
+  /// Sent mail older than this without a received reply gets a
+  /// "Yanıt bekliyor" nudge. Purely a display hint computed from fields
+  /// the row already has, no repository access needed.
   static const Duration _nudgeThreshold =
       MailRepository.unansweredReminderThreshold;
 
-  bool get _needsReply {
-    if (!MailRepository.unansweredReminderEnabled) return false;
-    if (DateTime.now().difference(email.timestamp) <= _nudgeThreshold) {
-      return false;
-    }
-    return switch (email.folder) {
-      MailFolder.inbox => !email.isReplied,
-      MailFolder.sent => !email.threadReceivedReply,
-      _ => false,
-    };
-  }
+  bool get _needsReply =>
+      MailRepository.unansweredReminderEnabled &&
+      email.folder == MailFolder.sent &&
+      DateTime.now().difference(email.timestamp) > _nudgeThreshold &&
+      !email.threadReceivedReply;
 
   /// Drafts are the user's own unsent mail: read/unread means nothing for
   /// them, so they always render in the calm "read" style with no state.

@@ -45,6 +45,7 @@ class AppDrawer extends StatelessWidget {
     required this.onLogout,
     required this.onOpenDestination,
     required this.onSyncAccounts,
+    required this.onAddAccount,
   });
 
   final MailFolder selectedFolder;
@@ -55,6 +56,7 @@ class AppDrawer extends StatelessWidget {
   /// "Hesapları eşitle": runs the mailbox-wide sync for every account in
   /// scope. The host closes the drawer and reports progress/failure.
   final VoidCallback onSyncAccounts;
+  final VoidCallback onAddAccount;
 
   static const _primaryFolders = [
     MailFolder.inbox,
@@ -92,7 +94,10 @@ class AppDrawer extends StatelessWidget {
                       Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          _DrawerHeader(repo.currentUser),
+                          _DrawerHeader(
+                            repo.currentUser,
+                            onAddAccount: onAddAccount,
+                          ),
                           const Divider(),
                           const SizedBox(height: 4),
                           for (final folder in _primaryFolders)
@@ -168,9 +173,10 @@ class AppDrawer extends StatelessWidget {
 }
 
 class _DrawerHeader extends StatelessWidget {
-  const _DrawerHeader(this.currentUser);
+  const _DrawerHeader(this.currentUser, {required this.onAddAccount});
 
   final String currentUser;
+  final VoidCallback onAddAccount;
 
   @override
   Widget build(BuildContext context) {
@@ -205,6 +211,11 @@ class _DrawerHeader extends StatelessWidget {
                 ),
               ],
             ),
+          ),
+          IconButton(
+            onPressed: onAddAccount,
+            tooltip: 'Yeni hesap ekle',
+            icon: const Icon(LucideIcons.plus),
           ),
         ],
       ),

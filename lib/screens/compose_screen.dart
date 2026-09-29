@@ -408,6 +408,9 @@ class _ComposeScreenState extends State<ComposeScreen> {
 
   @override
   void dispose() {
+    if (_draftId case final draftId?) {
+      _repo.detachDraftSyncFailureHandler(draftId);
+    }
     _repo.removeListener(_refreshContacts);
     _removeSuggestionOverlay();
     _toInputController.dispose();
@@ -1408,8 +1411,15 @@ class _ComposeScreenState extends State<ComposeScreen> {
         attachments: List.unmodifiable(_attachments),
         threadId: widget.initialThreadId,
         inReplyToId: widget.inReplyToId,
-        // Editing a draft updates it in place — never a duplicate.
         draftId: _draftId,
+        onSyncFailure: (_) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.'),
+            ),
+          );
+        },
       );
       _draftId = saved.id;
       _savedDraftFingerprint = fingerprint;

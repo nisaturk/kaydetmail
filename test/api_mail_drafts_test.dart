@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'dart:convert';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -124,7 +123,7 @@ void main() {
 
   group('ApiMailRepository drafts', () {
     test(
-      'saveDraft with draftId swaps the old id for the new mailId',
+      'saveDraft persists locally first, then reconciles with server id',
       () async {
         final mailService = _RecordingMailService();
         final repo = await _loggedInRepository(mailService);
@@ -134,62 +133,27 @@ void main() {
           to: ['a@x.com'],
           subject: 'Taslak',
         );
-        expect(created.id, 'draft-old');
+        expect(created.id, startsWith('local-draft-'));
         expect(created.senderName, 'person@example.com');
-
-        final updated = await repo.saveDraft(
-          to: ['a@x.com'],
-          subject: 'Taslak v2',
-          draftId: 'draft-old',
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+          contains(created.id),
         );
 
-        expect(updated.id, 'draft-new');
-        expect(updated.subject, 'Taslak v2');
-        final drafts = repo.getEmailsInFolder(MailFolder.drafts);
-        expect(drafts.map((e) => e.id), contains('draft-new'));
-        expect(drafts.map((e) => e.id), isNot(contains('draft-old')));
-        expect(drafts.where((e) => e.subject == 'Taslak v2').length, 1);
+        await _flushDraftSync();
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+          contains('draft-old'),
+        );
       },
     );
-
-    test('overlapping saves of the same draft update it once each, in order, '
-        'without cloning it', () async {
-      final mailService = _VersioningMailService();
-      final repo = await _loggedInRepository(mailService);
-      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
-
-      // A double-tapped "Taslağı Kaydet": both calls carry the id the
-      // editor was opened with.
-      await Future.wait([
-        repo.saveDraft(to: ['a@x.com'], subject: 'v1', draftId: 'draft-old'),
-        repo.saveDraft(to: ['a@x.com'], subject: 'v2', draftId: 'draft-old'),
-      ]);
-
-      expect(mailService.updatedIds, ['draft-old', 'draft-v1']);
-      final drafts = repo.getEmailsInFolder(MailFolder.drafts);
-      expect(drafts.map((e) => (e.id, e.subject)), [('draft-v2', 'v2')]);
-    });
-
-    test('an update still reconciling drops the retired draft instead of '
-        'keeping its dead id', () async {
-      final mailService = _PendingUpdateMailService();
-      final repo = await _loggedInRepository(mailService);
-      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
-
-      await repo.saveDraft(
-        to: ['a@x.com'],
-        subject: 'Taslak v2',
-        draftId: 'draft-old',
-      );
-
-      expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
-    });
 
     test('deleteDraft removes the draft through the service', () async {
       final mailService = _RecordingMailService();
       final repo = await _loggedInRepository(mailService);
 
       await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+      await _flushDraftSync();
       await repo.deleteDraft('draft-old');
 
       expect(mailService.deletedDraftIds, ['draft-old']);
@@ -200,7 +164,7 @@ void main() {
       final mailService = _SlowDeleteMailService();
       final repo = await _loggedInRepository(mailService);
       await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
-      expect(repo.getEmailsInFolder(MailFolder.drafts), isNotEmpty);
+      await _flushDraftSync();
 
       final deletion = repo.deleteDraft('draft-old');
 
@@ -210,63 +174,6 @@ void main() {
       expect(mailService.deleteStarted.isCompleted, isFalse);
       mailService.deleteStarted.complete();
       await deletion;
-    });
-
-    test('a created draft still reconciling is deleted under its server id '
-        'once the Drafts list names it', () async {
-      final mailService = _PendingCreateMailService();
-      final repo = await _loggedInRepository(mailService);
-
-      final created = await repo.saveDraft(to: ['a@x.com'], subject: 'Yeni');
-      expect(created.id, startsWith('draft-'));
-
-      mailService.listed = [
-        _draftRow('server-other', 'Başka', DateTime.now()),
-        _draftRow('server-42', 'Yeni', DateTime.now()),
-      ];
-      await repo.deleteDraft(created.id);
-
-      expect(mailService.deletedDraftIds, ['server-42']);
-      expect(
-        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
-        ['server-other'],
-      );
-    });
-
-    test('a blank-subject draft matches the server "(no subject)" copy', () async {
-      final mailService = _PendingCreateMailService();
-      final repo = await _loggedInRepository(mailService);
-      final created = await repo.saveDraft(to: ['a@x.com']);
-
-      mailService.listed = [
-        _draftRow('server-7', '(no subject)', DateTime.now()),
-      ];
-      await repo.deleteDraft(created.id);
-
-      expect(mailService.deletedDraftIds, ['server-7']);
-    });
-
-    test('deleting a draft the server has not named yet fails clearly and '
-        'keeps it', () async {
-      final mailService = _PendingCreateMailService();
-      final repo = await _loggedInRepository(mailService);
-      final created = await repo.saveDraft(to: ['a@x.com'], subject: 'Yeni');
-
-      await expectLater(
-        repo.deleteDraft(created.id),
-        throwsA(
-          isA<ApiException>().having(
-            (e) => e.code,
-            'code',
-            'draft_not_reconciled',
-          ),
-        ),
-      );
-      expect(mailService.deletedDraftIds, isEmpty);
-      expect(
-        repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
-        [created.id],
-      );
     });
   });
 
@@ -349,11 +256,13 @@ void main() {
       final mailService = _RecordingMailService();
       final repo = await _loggedInRepository(mailService);
 
-      await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+      final created = await repo.saveDraft(to: ['a@x.com'], subject: 'Taslak');
+      expect(created.id, startsWith('local-draft-'));
       expect(
         repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
-        contains('draft-old'),
+        contains(created.id),
       );
+      await _flushDraftSync();
 
       expect(repo.getEmailsInFolder(MailFolder.sent), isEmpty);
       await repo.sendDraft('draft-old');
@@ -476,100 +385,6 @@ class _SlowDeleteMailService extends _RecordingMailService {
     await super.deleteDraft(id);
   }
 }
-
-/// Like [_RecordingMailService], but every update re-creates the draft under
-/// a fresh id — the way `PUT /drafts/{id}` does — and rejects stale ids.
-class _VersioningMailService extends _RecordingMailService {
-  final List<String> updatedIds = [];
-  final Set<String> _retired = {};
-
-  @override
-  Future<DraftResult> updateDraft(
-    String id, {
-    required List<String> to,
-    List<String> cc = const [],
-    List<String> bcc = const [],
-    String subject = '',
-    String bodyText = '',
-    String? bodyHtml,
-    List<Attachment> attachments = const [],
-    String? replySourceMailId,
-    String? identityId,
-  }) async {
-    if (_retired.contains(id)) {
-      throw const ApiException(status: 422, code: 'mail_not_draft');
-    }
-    updatedIds.add(id);
-    await Future<void>.delayed(const Duration(milliseconds: 10));
-    _retired.add(id);
-    return DraftResult(created: false, mailId: 'draft-v${updatedIds.length}');
-  }
-}
-
-/// `POST /drafts` answering `reconciliationPending`; the Drafts list returns
-/// whatever the test put in [listed].
-class _PendingCreateMailService extends _RecordingMailService {
-  List<Email> listed = const [];
-
-  @override
-  Future<DraftResult> createDraft({
-    required List<String> to,
-    List<String> cc = const [],
-    List<String> bcc = const [],
-    String subject = '',
-    String bodyText = '',
-    String? bodyHtml,
-    List<Attachment> attachments = const [],
-    String? replySourceMailId,
-    String? identityId,
-  }) async => const DraftResult(created: true, mailId: null);
-
-  @override
-  Future<MailListPage> getMails({
-    required String folderId,
-    required MailFolder Function(String folderId) resolveFolder,
-    int page = 1,
-    int pageSize = 20,
-    bool? isRead,
-    bool? hasAttachments,
-    String? search,
-  }) async => MailListPage(
-    items: listed,
-    page: 1,
-    pageSize: pageSize,
-    total: listed.length,
-  );
-}
-
-Email _draftRow(String id, String subject, DateTime timestamp) => Email(
-  id: id,
-  senderName: 'person@example.com',
-  senderEmail: 'person@example.com',
-  recipients: const ['a@x.com'],
-  subject: subject,
-  bodyText: '',
-  timestamp: timestamp,
-  folder: MailFolder.drafts,
-  accountId: 'account-1',
-);
-
-/// `PUT /drafts/{id}` answering `reconciliationPending` with no `mailId`.
-class _PendingUpdateMailService extends _RecordingMailService {
-  @override
-  Future<DraftResult> updateDraft(
-    String id, {
-    required List<String> to,
-    List<String> cc = const [],
-    List<String> bcc = const [],
-    String subject = '',
-    String bodyText = '',
-    String? bodyHtml,
-    List<Attachment> attachments = const [],
-    String? replySourceMailId,
-    String? identityId,
-  }) async => const DraftResult(created: false, mailId: null);
-}
-
 /// Reads every no-filename multipart part named [field], in order.
 Future<List<String>> _partValues(WireMultipart request, String field) async =>
     request.values(field);
@@ -580,6 +395,8 @@ ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
       accountId: 'account-1',
       httpClient: MockClient(handler),
     );
+Future<void> _flushDraftSync() =>
+    Future<void>.delayed(const Duration(milliseconds: 50));
 
 ApiClient _multipartClient(
   Future<http.Response> Function(WireMultipart) handler,

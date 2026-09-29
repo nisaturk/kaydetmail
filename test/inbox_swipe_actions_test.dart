@@ -203,6 +203,7 @@ void main() {
             onLogout: () {},
             onOpenDestination: (_) {},
             onSyncAccounts: () {},
+            onAddAccount: () {},
           ),
           body: const SizedBox.shrink(),
         ),

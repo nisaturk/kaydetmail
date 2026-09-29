@@ -212,6 +212,7 @@ class _FakeMailRepository extends MailRepository {
     String? inReplyToId,
     String? identityId,
     String? draftId,
+    void Function(Email draft)? onSyncFailure,
   }) async {
     final email = Email(
       id: draftId ?? 'draft-${savedDrafts.length}',

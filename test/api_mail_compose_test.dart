@@ -293,7 +293,7 @@ void main() {
     );
 
     test(
-      'saveDraft uses the server-assigned mailId and caches it under Drafts',
+      'saveDraft persists local row before asynchronously reconciling it',
       () async {
         final mailService = _RecordingMailService()..draftMailId = 'draft-42';
         final repo = await _loggedInRepository(mailService);
@@ -303,9 +303,17 @@ void main() {
           subject: 'Taslak',
         );
 
-        expect(email.id, 'draft-42');
+        expect(email.id, startsWith('local-draft-'));
         expect(email.folder, MailFolder.drafts);
-        expect(repo.getEmailsInFolder(MailFolder.drafts).single.id, 'draft-42');
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+          contains(email.id),
+        );
+        await _flushDraftSync();
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).map((e) => e.id),
+          contains('draft-42'),
+        );
       },
     );
 
@@ -358,6 +366,9 @@ class _SendCall {
   final String idempotencyKey;
   final String? bodyHtml;
 }
+
+Future<void> _flushDraftSync() =>
+    Future<void>.delayed(const Duration(milliseconds: 50));
 
 class _RecordingMailService extends ApiMailService {
   _RecordingMailService()
