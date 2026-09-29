@@ -117,6 +117,11 @@ class AppDrawer extends StatelessWidget {
                               for (final account in repo.accounts)
                                 account.id: account.email,
                             },
+                            standardParents: {
+                              for (final account in repo.accounts)
+                                account.id:
+                                    repo.standardFolderIds(account.id).values.toSet(),
+                            },
                             order: CustomFolderOrderController.instance,
                             onSelect: onSelectCustomFolder,
                           ),
@@ -271,12 +276,14 @@ class _CustomFolderSection extends StatefulWidget {
   const _CustomFolderSection({
     required this.folders,
     required this.accountNames,
+    required this.standardParents,
     required this.order,
     required this.onSelect,
   });
 
   final List<MailCustomFolder> folders;
   final Map<String, String> accountNames;
+  final Map<String, Set<String>> standardParents;
   final CustomFolderOrderController order;
   final ValueChanged<MailCustomFolder> onSelect;
 
@@ -307,17 +314,25 @@ class _CustomFolderSectionState extends State<_CustomFolderSection> {
     widget.order.sync(widget.folders);
   }
 
-  List<_DrawerFolderRow> _rowsFor(List<MailCustomFolder> accountFolders) {
+  List<_DrawerFolderRow> _rowsFor(
+    List<MailCustomFolder> accountFolders,
+    String accountId,
+  ) {
     final rows = <_DrawerFolderRow>[];
     void visit(List<MailCustomFolderNode> siblings, int depth) {
       for (final (index, node) in siblings.indexed) {
+        final actualDepth = depth == 0 &&
+                (widget.standardParents[accountId] ?? const {})
+                    .contains(node.folder.parentFolderId)
+            ? 1
+            : depth;
         rows.add((
           folder: node.folder,
-          depth: depth,
+          depth: actualDepth,
           canMoveUp: index > 0,
           canMoveDown: index < siblings.length - 1,
         ));
-        visit(node.children, depth + 1);
+        visit(node.children, actualDepth + 1);
       }
     }
 
@@ -372,7 +387,7 @@ class _CustomFolderSectionState extends State<_CustomFolderSection> {
                 in groups.entries) ...[
               if (showAccounts)
                 _AccountSubheading(widget.accountNames[accountId] ?? ''),
-              for (final row in _rowsFor(accountFolders))
+              for (final row in _rowsFor(accountFolders, accountId))
                 _CustomFolderTile(
                   row: row,
                   reordering: _reordering,

@@ -188,6 +188,14 @@ class ApiMailService {
           'name': name,
         }),
       );
+  /// Null moves the folder to the personal namespace root.
+  Future<ApiMailFolder> setFolderParent(String id, String? parentId) async =>
+      ApiMailFolder.fromJson(
+        await _client.putJson('/api/folders/${Uri.encodeComponent(id)}/parent', {
+          'parentId': parentId,
+        }),
+      );
+
 
   /// `PUT /api/folders/{id}/role`: [role] is `Sent`, `Drafts`, `Trash`,
   /// `Junk`, or null to restore server-side detection.
@@ -1322,8 +1330,7 @@ class ApiMailService {
     return '';
   }
 
-  /// Maps one `include=body` conversation message. No recipients/attachment
-  /// list in this shape — see [getConversationWithBodies].
+  /// Maps one `include=body` conversation message, including recipients.
   Email mapConversationMessage(
     Map<String, dynamic> item,
     MailFolder Function(String folderId) resolveFolder,
@@ -1337,7 +1344,9 @@ class ApiMailService {
       id: item['id'] as String,
       senderName: name.isNotEmpty ? name : address,
       senderEmail: address,
-      recipients: const [],
+      recipients: _addresses(item['to']),
+      cc: _addresses(item['cc']),
+      bcc: _addresses(item['bcc']),
       subject: item['subject'] as String? ?? '',
       bodyText: _resolveBodyText(item, body),
       bodyHtml: _nonEmpty(body?['html']),
@@ -1537,6 +1546,7 @@ class ApiMailFolder {
     this.isAvailable = true,
     this.delimiter,
     this.parentId,
+    this.parentIdKnown = false,
     this.roleOverride,
   }) : fullName = fullName ?? name;
 
@@ -1552,6 +1562,7 @@ class ApiMailFolder {
     isAvailable: item['isAvailable'] as bool? ?? true,
     delimiter: item['delimiter'] as String?,
     parentId: item['parentId'] as String?,
+    parentIdKnown: item.containsKey('parentId'),
     roleOverride: item['folderRoleOverride'] as String?,
   );
 
@@ -1578,6 +1589,7 @@ class ApiMailFolder {
 
   final String? delimiter;
   final String? parentId;
+  final bool parentIdKnown;
 
   /// User-assigned role (`Sent`/`Drafts`/`Trash`/`Junk`); [type] already
   /// reflects it. Null when the role comes from server detection.

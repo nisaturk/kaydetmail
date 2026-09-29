@@ -38,6 +38,7 @@ class MailCustomFolder {
     required this.fullName,
     required this.isSyncEnabled,
     this.parentFolderId,
+    this.parentIdKnown = false,
     this.delimiter,
     this.unreadCount,
     this.totalCount,
@@ -57,6 +58,9 @@ class MailCustomFolder {
   final bool isSyncEnabled;
 
   final String? parentFolderId;
+  /// Distinguishes an explicit root from older responses without parentId.
+  /// A virtual root can retain an IMAP fullName under another folder.
+  final bool parentIdKnown;
   final String? delimiter;
   final int? unreadCount;
   final int? totalCount;
@@ -89,6 +93,7 @@ List<MailCustomFolderNode> buildCustomFolderTree(
       if (parentId == folder.folderId) return null;
       return nodes[(folder.accountId, parentId)];
     }
+    if (folder.parentIdKnown) return null;
     final delimiter = folder.delimiter;
     if (delimiter == null || delimiter.isEmpty) return null;
     final cut = folder.fullName.lastIndexOf(delimiter);
@@ -162,6 +167,7 @@ List<MailCustomFolderNode> buildCustomFolderTree(
 List<MailCustomFolderRow> flattenCustomFolderTree(
   Iterable<MailCustomFolder> folders, {
   Map<String, List<String>> orderByAccount = const {},
+  Set<String> standardParentIds = const {},
 }) {
   final rows = <MailCustomFolderRow>[];
   void visit(MailCustomFolderNode node, int depth) {
@@ -175,7 +181,7 @@ List<MailCustomFolderRow> flattenCustomFolderTree(
     folders,
     orderByAccount: orderByAccount,
   )) {
-    visit(root, 0);
+    visit(root, standardParentIds.contains(root.folder.parentFolderId) ? 1 : 0);
   }
   return rows;
 }

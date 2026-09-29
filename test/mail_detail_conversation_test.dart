@@ -51,19 +51,23 @@ class _ThreadRepo extends MailRepository {
   bool openedUnread = false;
   bool starred = false;
   Completer<Email?>? detailGate;
+  Completer<List<Email>>? enrichmentGate;
+  List<Email>? history;
 
-  List<Email> get _thread => [
-    showDiagnostics
-        ? newer.copyWith(
-            isRead: !openedUnread,
-            trackingPixelHosts: const ['tracker.example'],
-            remoteImageHosts: const ['tracker.example'],
-            remoteImagesAllowed: true,
-            security: const MailContentSecurity(signed: 'SMime'),
-          )
-        : newer.copyWith(isRead: !openedUnread, isStarred: starred),
-    older,
-  ];
+  List<Email> get _thread =>
+      history ??
+      [
+        older,
+        showDiagnostics
+            ? newer.copyWith(
+                isRead: !openedUnread,
+                trackingPixelHosts: const ['tracker.example'],
+                remoteImageHosts: const ['tracker.example'],
+                remoteImagesAllowed: true,
+                security: const MailContentSecurity(signed: 'SMime'),
+              )
+            : newer.copyWith(isRead: !openedUnread, isStarred: starred),
+      ];
 
   @override
   List<MailAccount> get accounts => const [
@@ -90,7 +94,8 @@ class _ThreadRepo extends MailRepository {
   List<Email> getThreadEmails(String threadId) => [..._thread, ...cached];
 
   @override
-  Future<List<Email>> fetchThreadEmails(String threadId) async => _thread;
+  Future<List<Email>> fetchThreadEmails(String threadId) async =>
+      enrichmentGate?.future ?? _thread;
 
   @override
   List<Email> getAllEmails() => _thread;
@@ -223,42 +228,169 @@ void main() {
       tester,
     ) async {
       await open(tester, 'm2');
-
-      expect(find.byIcon(Icons.star_outline), findsOneWidget);
-      await tester.tap(find.byTooltip('Yıldızla'));
+      expect(find.byIcon(Icons.star_outline), findsWidgets);
+      await tester.tap(find.byTooltip('Yıldızla').first);
       await tester.pumpAndSettle();
-
-      final icon = tester.widget<Icon>(find.byIcon(Icons.star));
+      final icon = tester.widget<Icon>(find.byIcon(Icons.star).first);
       expect(icon.color, Colors.amber);
     });
 
-    testWidgets('expand/collapse all and hidden quotes by default', (
+    testWidgets('plain and HTML bodies use the available thread width', (
       tester,
     ) async {
+      await tester.binding.setSurfaceSize(const Size(360, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      repo.history = [
+        repo.older.copyWith(bodyText: 'Kısa eski ileti'),
+        repo.newer.copyWith(bodyText: 'Kısa ileti', bodyHtml: '<p>Kısa ileti</p>'),
+      ];
+      await open(tester, 'm2');
+      expect(tester.getSize(find.byKey(const Key('message-body-m2'))).width, 328);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('message-body-m1')),
+        200,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(tester.getSize(find.byKey(const Key('message-body-m1'))).width, 328);
+      await tester.binding.setSurfaceSize(const Size(900, 700));
+      await tester.pumpAndSettle();
+      expect(tester.getSize(find.byKey(const Key('message-body-m1'))).width, 868);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('wide HTML table stays inside the available message width', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      repo.history = [
+        repo.newer.copyWith(
+          bodyText: 'Tablo',
+          bodyHtml: '<p>Normal metin</p><table style="width:1200px">'
+              '<tr><td>Birinci sütun</td><td>İkinci sütun</td></tr></table>',
+        ),
+      ];
+      await open(tester, 'm2');
+      expect(tester.getSize(find.byKey(const Key('message-body-m2'))).width, 288);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets(
+      'm2 opens first, older m1 stays expanded; quote alone toggles',
+      (tester) async {
+        await open(tester, 'm2');
+        expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
+        final scroll = tester
+            .state<ScrollableState>(find.byType(Scrollable).first)
+            .position;
+        expect(scroll.pixels, 0);
+        expect(find.text('Mehmet'), findsOneWidget);
+        expect(find.byType(Card), findsNothing);
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('message-reply-m1')),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.textContaining('İlk mesaj gövdesi.'), findsWidgets);
+        expect(find.byKey(const Key('message-reply-m1')), findsOneWidget);
+        expect(find.textContaining('> İlk mesaj'), findsNothing);
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('toggle-quoted-m2')),
+          -200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('> İlk mesaj'), findsOneWidget);
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('message-recipients-m2')),
+          -200,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(find.byKey(const Key('message-recipients-m2')));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('Kimden: '), findsOneWidget);
+      },
+    );
+
+    testWidgets('compact header reveals recipients only on summary tap', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await open(tester, 'm2');
 
-      expect(find.text('Ayse, Mehmet · 2 ileti'), findsOneWidget);
-      expect(find.textContaining('> İlk mesaj'), findsNothing);
-      expect(find.byKey(const Key('message-reply-m1')), findsNothing);
+      expect(find.text('E-posta'), findsNothing);
+      expect(find.text('bana'), findsWidgets);
+      expect(find.textContaining('Kimden: '), findsNothing);
+      expect(find.byKey(const Key('quick-reply')), findsOneWidget);
+      expect(tester.takeException(), isNull);
 
-      await tester.tap(find.byKey(const Key('thread-toggle-all')));
+      await tester.tap(find.byKey(const Key('message-recipients-m2')));
       await tester.pumpAndSettle();
-      expect(find.byKey(const Key('message-reply-m1')), findsOneWidget);
-      expect(find.text('Tümünü kapat'), findsOneWidget);
-      // Açık kartta gönderen/alıcı yalnızca kart başlığında görünür; ileti
-      // gövdesi aynı başlığı ikinci kez basmaz.
-      expect(find.text('Mehmet'), findsOneWidget);
-      expect(find.text('mehmet@example.com'), findsNothing);
+      expect(find.textContaining('Kimden: '), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
 
-      await tester.ensureVisible(find.byKey(const Key('toggle-quoted-m2')));
-      await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
-      await tester.pumpAndSettle();
-      expect(find.textContaining('> İlk mesaj'), findsOneWidget);
+    testWidgets('opening m1 excludes newer m2 and replies target m1', (
+      tester,
+    ) async {
+      repo.failPrefill = true;
+      await open(tester, 'm1');
+      expect(find.textContaining('İlk mesaj gövdesi.'), findsWidgets);
+      expect(find.text('Tamam, bakıyorum.'), findsNothing);
+      await tester.tap(find.byKey(const Key('message-reply-m1')));
+      await tester.pump();
+      expect(repo.prefillSources, ['reply:m1']);
+    });
 
-      await tester.ensureVisible(find.byKey(const Key('thread-toggle-all')));
-      await tester.tap(find.byKey(const Key('thread-toggle-all')));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const Key('message-reply-m2')), findsNothing);
+    testWidgets('same timestamp follows server order, not cache order', (
+      tester,
+    ) async {
+      final m3 = _message('m3', 'Ali', 'Üçüncü ileti', 21);
+      repo.history = [repo.older, repo.newer, m3];
+      await open(tester, 'm2');
+      expect(find.text('Üçüncü ileti'), findsNothing);
+      expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
+      await open(tester, 'm3');
+      expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
+    });
+
+    testWidgets('m4 opens at zero; delayed older history keeps scroll offset', (
+      tester,
+    ) async {
+      final m4 = _message(
+        'm4',
+        'Derya',
+        List.filled(36, 'Açılan ileti').join('\n'),
+        24,
+      );
+      final m3 = _message('m3', 'Ali', 'Üçüncü ileti', 23);
+      repo.history = [repo.older, repo.newer, m3, m4];
+      repo.enrichmentGate = Completer<List<Email>>();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MailDetailScreen(emailId: 'm4', seed: m4),
+        ),
+      );
+      await tester.pump();
+      final scroll = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      expect(scroll.pixels, 0);
+      scroll.jumpTo(120);
+      await tester.pump();
+      repo.history = [repo.older, repo.newer, m3, m4];
+      repo.enrichmentGate!.complete(repo.history!);
+      await tester.pump();
+      expect(scroll.pixels, 120);
+      expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('message-reply-m3')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
+      expect(find.byKey(const Key('message-reply-m3')), findsOneWidget);
     });
 
     testWidgets('per-message reply uses that message as the source', (
@@ -266,37 +398,35 @@ void main() {
     ) async {
       repo.failPrefill = true;
       await open(tester, 'm2');
-      await tester.tap(find.byKey(const Key('thread-toggle-all')));
-      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
 
-      await tester.ensureVisible(find.byKey(const Key('message-reply-m1')));
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('message-reply-m1')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.tap(find.byKey(const Key('message-reply-m1')));
       await tester.pump();
 
       expect(repo.prefillSources, ['reply:m1']);
     });
 
-    testWidgets(
-      'a send echo replaced by the real Sent copy is not duplicated',
-      (tester) async {
-        await open(tester, 'm2');
-        repo.replaceCached([_message('sent-1', 'Ben', 'Yanıtım', 22)]);
-        await tester.pumpAndSettle();
-        expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
-
-        repo.replaceCached([_message('m3', 'Ben', 'Yanıtım', 22)]);
-        await tester.pumpAndSettle();
-        expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
-      },
-    );
+    testWidgets('newer send echoes stay out of opened m2 history', (
+      tester,
+    ) async {
+      await open(tester, 'm2');
+      repo.replaceCached([_message('m3', 'Ben', 'Yanıtım', 22)]);
+      await tester.pumpAndSettle();
+      expect(find.text('Yanıtım'), findsNothing);
+      expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
+    });
 
     testWidgets(
       'tracking remains blocked after loading images; signed mail is unverified',
       (tester) async {
         repo.showDiagnostics = true;
         await open(tester, 'm2');
-        await tester.tap(find.byKey(const Key('thread-toggle-all')));
-        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
 
         expect(find.text('Takip içeriği engellendi'), findsOneWidget);
         expect(find.text('S/MIME imzalı (doğrulanmadı)'), findsOneWidget);
@@ -307,6 +437,11 @@ void main() {
       tester,
     ) async {
       await open(tester, 'm2');
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('quick-reply-field')),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
 
       await tester.enterText(
         find.byKey(const Key('quick-reply-field')),

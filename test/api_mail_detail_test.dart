@@ -320,10 +320,25 @@ void main() {
       expect(uri.path, '/api/conversations/conv-1');
       expect(conversation.messageIds, ['m-new', 'm-old']);
     });
+
+    test('include=body message preserves To, Cc and Bcc participants', () {
+      final service = ApiMailService(_client((_) async => http.Response('{}', 200)));
+      final email = service.mapConversationMessage({
+        'id': 'm4',
+        'folderId': 'inbox',
+        'fromAddress': 'sender@example.com',
+        'to': [{'address': 'reader@example.com', 'displayName': 'Reader'}],
+        'cc': [{'address': 'team@example.com'}],
+        'bcc': [{'address': 'private@example.com'}],
+      }, (_) => MailFolder.inbox);
+      expect(email.recipients, ['reader@example.com']);
+      expect(email.cc, ['team@example.com']);
+      expect(email.bcc, ['private@example.com']);
+    });
   });
 
   group('ApiMailRepository threads', () {
-    test('fetchThreadEmails loads full bodies sorted oldest first', () async {
+    test('fetchThreadEmails loads full bodies in server order', () async {
       final repo = await _repoWithService(_ThreadMailService());
 
       final thread = await repo.fetchThreadEmails('conv-1');
@@ -419,15 +434,15 @@ class _ThreadMailService extends _RecordingMailService {
       const ApiConversation(
         id: 'conv-1',
         subject: 'T',
-        messageIds: ['m-new', 'm-old', 'm-bad'],
+        messageIds: ['m-old', 'm-new', 'm-bad'],
         messages: [
-          {'id': 'm-new', 'folderId': 'f', 'hasAttachments': true},
           {
             'id': 'm-old',
             'folderId': 'f',
             'bodyText': 'old body',
             'receivedAt': '2026-01-01T00:00:00Z',
           },
+          {'id': 'm-new', 'folderId': 'f', 'hasAttachments': true},
           {'id': 'm-new', 'folderId': 'f', 'hasAttachments': true},
           {
             'id': 'm-bad',

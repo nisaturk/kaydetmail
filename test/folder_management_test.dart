@@ -47,6 +47,8 @@ void main() {
     );
 
     final created = await service.createFolder('Mobil', parentId: 'inbox-id');
+    await service.setFolderParent('f-1', null);
+    await service.setFolderParent('f-1', 'inbox-id');
     await service.renameFolder('f-1', 'Yeni');
     await service.deleteFolder('f/1');
     await service.setFolderRole('f-1', 'Sent');
@@ -60,15 +62,19 @@ void main() {
     });
     expect(created.delimiter, '.');
     expect(created.parentId, 'inbox-id');
-    expect(requests[1].method, 'PATCH');
-    expect(requests[1].url.path, '/api/folders/f-1');
-    expect(jsonDecode(requests[1].body), {'name': 'Yeni'});
-    expect(requests[2].method, 'DELETE');
-    expect(requests[2].url.toString(), endsWith('/api/folders/f%2F1'));
-    expect(requests[3].method, 'PUT');
-    expect(requests[3].url.path, '/api/folders/f-1/role');
-    expect(jsonDecode(requests[3].body), {'role': 'Sent'});
-    expect(jsonDecode(requests[4].body), {'role': null});
+    expect(requests[1].method, 'PUT');
+    expect(requests[1].url.path, '/api/folders/f-1/parent');
+    expect(jsonDecode(requests[1].body), {'parentId': null});
+    expect(jsonDecode(requests[2].body), {'parentId': 'inbox-id'});
+    expect(requests[3].method, 'PATCH');
+    expect(requests[3].url.path, '/api/folders/f-1');
+    expect(jsonDecode(requests[3].body), {'name': 'Yeni'});
+    expect(requests[4].method, 'DELETE');
+    expect(requests[4].url.toString(), endsWith('/api/folders/f%2F1'));
+    expect(requests[5].method, 'PUT');
+    expect(requests[5].url.path, '/api/folders/f-1/role');
+    expect(jsonDecode(requests[5].body), {'role': 'Sent'});
+    expect(jsonDecode(requests[6].body), {'role': null});
   });
 
   test('folder service preserves structured problem error codes', () async {
@@ -112,6 +118,11 @@ void main() {
       folderId: 'custom-account-2',
       name: 'Renamed',
     );
+    await repo.changeCustomFolderParent(
+      accountId: 'account-2',
+      folderId: 'custom-account-2',
+      parentFolderId: 'inbox-account-2',
+    );
     await repo.deleteCustomFolder(
       accountId: 'account-1',
       folderId: 'custom-account-1',
@@ -124,6 +135,7 @@ void main() {
     expect(second.mailService.calls, [
       'create:Second:null',
       'rename:custom-account-2:Renamed',
+      'parent:custom-account-2:inbox-account-2',
     ]);
   });
 
@@ -279,6 +291,24 @@ void main() {
     ]);
   });
 
+  test('explicit root ignores unchanged IMAP path after virtual reparent', () {
+    final rows = flattenCustomFolderTree([
+      _folder('parent', 'Parent', 'Parent', delimiter: '/'),
+      _folder('child', 'Child', 'Parent/Child',
+          delimiter: '/', parentKnown: true),
+    ]);
+    expect(rows.map((row) => (row.folder.folderId, row.depth)), [
+      ('child', 0),
+      ('parent', 0),
+    ]);
+    expect(flattenCustomFolderTree([
+      _folder('standard-child', 'Child', 'INBOX/Child',
+          parentId: 'inbox-id', parentKnown: true),
+      _folder('nested', 'Nested', 'INBOX/Child/Nested',
+          parentId: 'standard-child', parentKnown: true),
+    ], standardParentIds: {'inbox-id'}).map((row) => row.depth), [1, 2]);
+  });
+
   test(
     'move target list filters current folders and account-local folders',
     () {
@@ -415,6 +445,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Yeni klasör'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Bağımsız klasör'));
+    await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), ' Projects ');
     await tester.tap(find.text('Kaydet'));
     await tester.pumpAndSettle();
@@ -467,6 +499,51 @@ void main() {
     expect(find.text('Otomatiğe döndür'), findsNothing);
     expect(find.text('Sent Items'), findsOneWidget);
   });
+  testWidgets('creates below standard and reassigns to custom then root', (
+    tester,
+  ) async {
+    final repo = _ScreenFolderRepo();
+    repo.folders.add(_folder('parent', 'Projects', 'Projects'));
+    AppConfig.mailRepositoryForTest = repo;
+    addTearDown(AppConfig.resetForTest);
+    await tester.pumpWidget(const MaterialApp(home: CustomFoldersScreen()));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Yeni klasör'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text(MailFolder.inbox.label));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Receipts');
+    await tester.tap(find.text('Kaydet'));
+    await tester.pumpAndSettle();
+    expect(repo.createdParents, ['inbox-id']);
+    expect(repo.folders.last.parentFolderId, 'inbox-id');
+
+    await tester.tap(find.byType(PopupMenuButton<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Üst klasörü değiştir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Projects').last);
+    await tester.pumpAndSettle();
+    expect(repo.parentChanges, ['folder-1:parent']);
+    final projectsTile = tester.widget<ListTile>(find.ancestor(
+      of: find.text('Projects').first, matching: find.byType(ListTile),
+    ));
+    final receiptsTile = tester.widget<ListTile>(find.ancestor(
+      of: find.text('Receipts').first, matching: find.byType(ListTile),
+    ));
+    expect((receiptsTile.contentPadding! as EdgeInsets).left,
+        greaterThan((projectsTile.contentPadding! as EdgeInsets).left));
+
+    await tester.tap(find.byType(PopupMenuButton<String>).last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Üst klasörü değiştir'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bağımsız klasör'));
+    await tester.pumpAndSettle();
+    expect(repo.parentChanges, ['folder-1:parent', 'folder-1:null']);
+    expect(repo.folders.last.parentFolderId, isNull);
+  });
+
 }
 
 MailCustomFolder _folder(
@@ -476,6 +553,7 @@ MailCustomFolder _folder(
   String accountId = 'a',
   String? parentId,
   String? delimiter,
+  bool parentKnown = false,
 }) => MailCustomFolder(
   accountId: accountId,
   folderId: id,
@@ -483,6 +561,7 @@ MailCustomFolder _folder(
   fullName: fullName,
   isSyncEnabled: false,
   parentFolderId: parentId,
+  parentIdKnown: parentKnown,
   delimiter: delimiter,
 );
 
@@ -643,6 +722,23 @@ class _RoutingFolderService extends ApiMailService {
   }
 
   @override
+  Future<ApiMailFolder> setFolderParent(String id, String? parentId) async {
+    calls.add('parent:$id:$parentId');
+    final previous = folders.singleWhere((folder) => folder.id == id);
+    final changed = ApiMailFolder(
+      id: id,
+      mailAccountId: accountId,
+      name: previous.name,
+      type: 'Custom',
+      parentId: parentId,
+      parentIdKnown: true,
+    );
+    folders.remove(previous);
+    folders.add(changed);
+    return changed;
+  }
+
+  @override
   Future<void> deleteFolder(String id) async {
     calls.add('delete:$id');
     folders.removeWhere((entry) => entry.id == id);
@@ -664,6 +760,8 @@ class _RoutingFolderService extends ApiMailService {
 class _ScreenFolderRepo extends MailRepository {
   final List<MailCustomFolder> folders = [];
   final List<String> createdNames = [];
+  final List<String?> createdParents = [];
+  final List<String> parentChanges = [];
   final List<String> renamedNames = [];
   final List<String> deletedIds = [];
   final List<String> roleCalls = [];
@@ -676,6 +774,10 @@ class _ScreenFolderRepo extends MailRepository {
 
   @override
   String? get activeAccountId => 'a';
+  @override
+  Map<MailFolder, String> standardFolderIds(String accountId) =>
+      {MailFolder.inbox: 'inbox-id'};
+
 
   @override
   List<MailCustomFolder> getCustomFolders({String? accountId}) => folders;
@@ -690,6 +792,7 @@ class _ScreenFolderRepo extends MailRepository {
     String? parentFolderId,
   }) async {
     createdNames.add(name);
+    createdParents.add(parentFolderId);
     folders.add(
       _folder(
         'folder-1',
@@ -712,6 +815,26 @@ class _ScreenFolderRepo extends MailRepository {
     renamedNames.add(name);
     final index = folders.indexWhere((folder) => folder.folderId == folderId);
     folders[index] = _folder(folderId, name, name, accountId: accountId);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> changeCustomFolderParent({
+    required String accountId,
+    required String folderId,
+    required String? parentFolderId,
+  }) async {
+    parentChanges.add('$folderId:$parentFolderId');
+    final index = folders.indexWhere((folder) => folder.folderId == folderId);
+    final old = folders[index];
+    folders[index] = _folder(
+      old.folderId,
+      old.name,
+      old.fullName,
+      accountId: old.accountId,
+      parentId: parentFolderId,
+      parentKnown: true,
+    );
     notifyListeners();
   }
 

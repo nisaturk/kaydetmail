@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/email.dart';
+import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
@@ -147,10 +148,12 @@ class InboxScreen extends StatefulWidget {
     super.key,
     required this.folder,
     required this.selection,
+    this.customFolder,
     this.onOpenMail,
   });
 
   final MailFolder folder;
+  final MailCustomFolder? customFolder;
   final MailSelectionController selection;
 
   /// When set, called with the tapped mail instead of pushing
@@ -219,7 +222,13 @@ class _InboxScreenState extends State<InboxScreen>
       _error = null;
     });
     try {
-      if (_repo.getEmailsInFolder(widget.folder).isEmpty) {
+      final custom = widget.customFolder;
+      if (custom != null) {
+        await _repo.getCustomFolderMails(
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+      } else if (_repo.getEmailsInFolder(widget.folder).isEmpty) {
         await _repo.loadMoreEmails(widget.folder);
       }
       _fillIfShort();
@@ -239,9 +248,15 @@ class _InboxScreenState extends State<InboxScreen>
   }
 
   Future<void> _loadMore() async {
+    final custom = widget.customFolder;
     if (_loadingMore ||
         _initialLoading ||
-        !_repo.hasMoreEmails(widget.folder)) {
+        (custom == null
+            ? !_repo.hasMoreEmails(widget.folder)
+            : !_repo.hasMoreCustomFolderMails(
+                custom.accountId,
+                custom.folderId,
+              ))) {
       return;
     }
     setState(() {
@@ -249,7 +264,14 @@ class _InboxScreenState extends State<InboxScreen>
       _loadMoreError = null;
     });
     try {
-      await _repo.loadMoreEmails(widget.folder);
+      if (custom != null) {
+        await _repo.loadMoreCustomFolderMails(
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+      } else {
+        await _repo.loadMoreEmails(widget.folder);
+      }
     } catch (error) {
       if (mounted) setState(() => _loadMoreError = error);
     } finally {
@@ -258,6 +280,26 @@ class _InboxScreenState extends State<InboxScreen>
   }
 
   Future<void> _refresh() async {
+    final custom = widget.customFolder;
+    if (custom != null) {
+      try {
+        await _repo.syncCustomFolder(
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+        await _repo.getCustomFolderMails(
+          accountId: custom.accountId,
+          folderId: custom.folderId,
+        );
+      } catch (error) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(friendlyErrorMessage(error))),
+          );
+        }
+      }
+      return;
+    }
     try {
       if (widget.folder == MailFolder.all) {
         await _repo.syncFolder(MailFolder.all);
@@ -310,9 +352,14 @@ class _InboxScreenState extends State<InboxScreen>
     } else if (widget.onOpenMail != null) {
       widget.onOpenMail!(email);
     } else {
+      final custom = widget.customFolder;
       Navigator.of(context).push(
         MaterialPageRoute(
-          builder: (_) => MailDetailScreen(emailId: email.id, seed: email),
+          builder: (_) => MailDetailScreen(
+            emailId: email.id,
+            seed: email,
+            currentCustomFolderId: custom?.folderId,
+          ),
         ),
       );
     }
@@ -381,7 +428,16 @@ class _InboxScreenState extends State<InboxScreen>
       if (!confirmed || !mounted) return;
     }
     if (ids.isEmpty) return;
-    final previousFolders = previousFoldersOf(_repo, ids);
+    final custom = widget.customFolder;
+    final customIds = custom == null
+        ? const <String>[]
+        : _repo
+            .cachedCustomFolderMails(custom.accountId, custom.folderId)
+            .where((mail) => ids.contains(mail.id))
+            .map((mail) => mail.id)
+            .toList();
+    final previousFolders = previousFoldersOf(_repo, ids)
+      ..removeWhere((id, _) => customIds.contains(id));
     final undoKey = _dismissKey(representative);
     if (_moving.contains(undoKey)) return;
     setState(() {
@@ -428,6 +484,13 @@ class _InboxScreenState extends State<InboxScreen>
           action: SnackBarAction(
             label: 'Geri al',
             onPressed: () {
+              if (custom != null && customIds.isNotEmpty) {
+                unawaited(_repo.moveToCustomFolder(
+                  customIds,
+                  accountId: custom.accountId,
+                  folderId: custom.folderId,
+                ));
+              }
               restorePreviousFolders(_repo, previousFolders);
               if (mounted) setState(() => _dismissed.remove(undoKey));
             },
@@ -450,7 +513,10 @@ class _InboxScreenState extends State<InboxScreen>
     return ListenableBuilder(
       listenable: Listenable.merge([_repo, AppSettingsController.instance]),
       builder: (context, _) {
-        final emails = _repo.getEmailsInFolder(widget.folder);
+        final custom = widget.customFolder;
+        final emails = custom == null
+            ? _repo.getEmailsInFolder(widget.folder)
+            : _repo.cachedCustomFolderMails(custom.accountId, custom.folderId);
 
         if (_error != null) {
           return _ErrorState(onRetry: _init, folder: widget.folder);
@@ -494,7 +560,7 @@ class _InboxScreenState extends State<InboxScreen>
         return RefreshIndicator(
           onRefresh: _refresh,
           child: ListView.separated(
-            key: PageStorageKey(widget.folder),
+            key: PageStorageKey(custom?.folderId ?? widget.folder),
             controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(),
             itemCount: itemCount,
