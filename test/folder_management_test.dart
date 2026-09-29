@@ -12,7 +12,11 @@ import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/services/api_exception.dart';
+import 'package:kaydetmail/models/account_sync_scope.dart';
+import 'package:kaydetmail/models/mail_folder_info.dart';
 import 'package:kaydetmail/screens/custom_folders_screen.dart';
+import 'package:kaydetmail/screens/folder_manager_screen.dart';
+import 'package:kaydetmail/utils/error_messages.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/token_store.dart';
@@ -230,30 +234,18 @@ void main() {
 
   test('folder error messages explain management conflicts in Turkish', () {
     expect(
-      customFolderErrorMessage(
+      friendlyErrorMessage(
         const ApiException(status: 409, code: 'mail_folder_exists'),
       ),
       'Bu adda bir klasör zaten var.',
     );
     expect(
-      customFolderErrorMessage(
+      friendlyErrorMessage(
         const ApiException(status: 409, code: 'mail_folder_has_children'),
       ),
       'Önce alt klasörleri silin.',
     );
   });
-
-  test(
-    'folder names are trimmed and reject the active hierarchy delimiter',
-    () {
-      expect(validateCustomFolderName('  Mobil  '), isNull);
-      expect(
-        validateCustomFolderName('Work.Archive', delimiter: '.'),
-        'Klasör adı "." karakterini içeremez.',
-      );
-      expect(validateCustomFolderName('   '), isNotNull);
-    },
-  );
 
   test('tree resolves parent ids across slash and INBOX dot paths', () {
     final folders = [
@@ -294,19 +286,40 @@ void main() {
   test('explicit root ignores unchanged IMAP path after virtual reparent', () {
     final rows = flattenCustomFolderTree([
       _folder('parent', 'Parent', 'Parent', delimiter: '/'),
-      _folder('child', 'Child', 'Parent/Child',
-          delimiter: '/', parentKnown: true),
+      _folder(
+        'child',
+        'Child',
+        'Parent/Child',
+        delimiter: '/',
+        parentKnown: true,
+      ),
     ]);
     expect(rows.map((row) => (row.folder.folderId, row.depth)), [
       ('child', 0),
       ('parent', 0),
     ]);
-    expect(flattenCustomFolderTree([
-      _folder('standard-child', 'Child', 'INBOX/Child',
-          parentId: 'inbox-id', parentKnown: true),
-      _folder('nested', 'Nested', 'INBOX/Child/Nested',
-          parentId: 'standard-child', parentKnown: true),
-    ], standardParentIds: {'inbox-id'}).map((row) => row.depth), [1, 2]);
+    expect(
+      flattenCustomFolderTree(
+        [
+          _folder(
+            'standard-child',
+            'Child',
+            'INBOX/Child',
+            parentId: 'inbox-id',
+            parentKnown: true,
+          ),
+          _folder(
+            'nested',
+            'Nested',
+            'INBOX/Child/Nested',
+            parentId: 'standard-child',
+            parentKnown: true,
+          ),
+        ],
+        standardParentIds: {'inbox-id'},
+      ).map((row) => row.depth),
+      [1, 2],
+    );
   });
 
   test(
@@ -356,56 +369,81 @@ void main() {
       );
     },
   );
-  testWidgets('move sheet nests selected-account folders and returns child target', (
-    tester,
-  ) async {
-    final repo = _FolderRepo(
-      available: {
-        'a': {MailFolder.inbox, MailFolder.archive},
-        'b': {MailFolder.inbox, MailFolder.archive},
-      },
-      folders: [
-        _folder('a-parent', 'Projects', 'Projects', accountId: 'a'),
-        _folder('a-child', 'Receipts', 'Projects/Receipts',
-            accountId: 'a', parentId: 'a-parent', delimiter: '/'),
-        _folder('b-parent', 'Private', 'Private', accountId: 'b'),
-        _folder('b-child', 'Hidden', 'Private/Hidden',
-            accountId: 'b', parentId: 'b-parent', delimiter: '/'),
-      ],
-    );
-    MoveFolderTarget? selected;
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(
-        body: Builder(builder: (context) => TextButton(
-          onPressed: () async => selected = await showMoveFolderSheet(
-            context,
-            repository: repo,
-            accountIds: {'a'},
-            currentFolders: {MailFolder.inbox},
+  testWidgets(
+    'move sheet nests selected-account folders and returns child target',
+    (tester) async {
+      final repo = _FolderRepo(
+        available: {
+          'a': {MailFolder.inbox, MailFolder.archive},
+          'b': {MailFolder.inbox, MailFolder.archive},
+        },
+        folders: [
+          _folder('a-parent', 'Projects', 'Projects', accountId: 'a'),
+          _folder(
+            'a-child',
+            'Receipts',
+            'Projects/Receipts',
+            accountId: 'a',
+            parentId: 'a-parent',
+            delimiter: '/',
           ),
-          child: const Text('Open move'),
-        )),
-      ),
-    ));
-    await tester.tap(find.text('Open move'));
-    await tester.pumpAndSettle();
-    expect(find.text('Projects'), findsOneWidget);
-    expect(find.text('Private'), findsNothing);
-    expect(find.text('Hidden'), findsNothing);
-    expect(find.text('Receipts'), findsOneWidget);
-    final parentTile = tester.widget<ListTile>(find.ancestor(
-      of: find.text('Projects'), matching: find.byType(ListTile),
-    ));
-    final childTile = tester.widget<ListTile>(find.ancestor(
-      of: find.text('Receipts'), matching: find.byType(ListTile),
-    ));
-    expect((childTile.contentPadding! as EdgeInsets).left,
-        greaterThan((parentTile.contentPadding! as EdgeInsets).left));
-    await tester.tap(find.text('Receipts'));
-    await tester.pumpAndSettle();
-    expect(selected?.customFolder?.folderId, 'a-child');
-    expect(selected?.accountId, 'a');
-  });
+          _folder('b-parent', 'Private', 'Private', accountId: 'b'),
+          _folder(
+            'b-child',
+            'Hidden',
+            'Private/Hidden',
+            accountId: 'b',
+            parentId: 'b-parent',
+            delimiter: '/',
+          ),
+        ],
+      );
+      MoveFolderTarget? selected;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async => selected = await showMoveFolderSheet(
+                  context,
+                  repository: repo,
+                  accountIds: {'a'},
+                  currentFolders: {MailFolder.inbox},
+                ),
+                child: const Text('Open move'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open move'));
+      await tester.pumpAndSettle();
+      expect(find.text('Projects'), findsOneWidget);
+      expect(find.text('Private'), findsNothing);
+      expect(find.text('Hidden'), findsNothing);
+      expect(find.text('Receipts'), findsOneWidget);
+      final parentTile = tester.widget<ListTile>(
+        find.ancestor(
+          of: find.text('Projects'),
+          matching: find.byType(ListTile),
+        ),
+      );
+      final childTile = tester.widget<ListTile>(
+        find.ancestor(
+          of: find.text('Receipts'),
+          matching: find.byType(ListTile),
+        ),
+      );
+      expect(
+        (childTile.contentPadding! as EdgeInsets).left,
+        greaterThan((parentTile.contentPadding! as EdgeInsets).left),
+      );
+      await tester.tap(find.text('Receipts'));
+      await tester.pumpAndSettle();
+      expect(selected?.customFolder?.folderId, 'a-child');
+      expect(selected?.accountId, 'a');
+    },
+  );
 
   testWidgets('mixed-account move sheet omits custom targets', (tester) async {
     final repo = _FolderRepo(
@@ -418,32 +456,59 @@ void main() {
         _folder('b-parent', 'Private', 'Private', accountId: 'b'),
       ],
     );
-    await tester.pumpWidget(MaterialApp(
-      home: Scaffold(body: Builder(builder: (context) => TextButton(
-        onPressed: () => showMoveFolderSheet(
-          context,
-          repository: repo,
-          accountIds: {'a', 'b'},
-          currentFolders: {MailFolder.inbox},
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showMoveFolderSheet(
+                context,
+                repository: repo,
+                accountIds: {'a', 'b'},
+                currentFolders: {MailFolder.inbox},
+              ),
+              child: const Text('Open move'),
+            ),
+          ),
         ),
-        child: const Text('Open move'),
-      ))),
-    ));
+      ),
+    );
     await tester.tap(find.text('Open move'));
     await tester.pumpAndSettle();
     expect(find.text('Arşiv'), findsOneWidget);
     expect(find.text('Projects'), findsNothing);
     expect(find.text('Private'), findsNothing);
   });
-  testWidgets('create, rename and confirm deletion of a custom folder', (
-    tester,
-  ) async {
-    final repo = _ScreenFolderRepo();
+  Future<_ScreenFolderRepo> pumpManager(
+    WidgetTester tester, {
+    List<MailFolderInfo> extra = const [],
+    List<SyncScopeFolder>? scope,
+  }) async {
+    tester.view
+      ..physicalSize = const Size(800, 2400)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final repo = _ScreenFolderRepo()..folders.addAll(extra);
+    if (scope != null) repo.scope = scope;
     AppConfig.mailRepositoryForTest = repo;
     addTearDown(AppConfig.resetForTest);
-    await tester.pumpWidget(const MaterialApp(home: CustomFoldersScreen()));
+    await tester.pumpWidget(
+      const MaterialApp(home: FolderManagerScreen(accountId: 'a')),
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Yeni klasör'));
+    return repo;
+  }
+
+  Future<void> openMenu(WidgetTester tester, String folderId) async {
+    await tester.tap(find.byKey(ValueKey('folder-menu-$folderId')));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('create, rename and delete an empty custom folder', (
+    tester,
+  ) async {
+    final repo = await pumpManager(tester);
+    await tester.tap(find.byKey(const Key('new-folder')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Bağımsız klasör'));
     await tester.pumpAndSettle();
@@ -453,39 +518,84 @@ void main() {
     expect(repo.createdNames, ['Projects']);
     expect(find.text('Projects'), findsOneWidget);
 
-    await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
+    await openMenu(tester, 'folder-1');
     await tester.tap(find.text('Yeniden adlandır'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(TextField), 'Work');
     await tester.tap(find.text('Kaydet'));
     await tester.pumpAndSettle();
     expect(repo.renamedNames, ['Work']);
-    expect(find.text('Work'), findsOneWidget);
 
-    await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Sil').last);
+    await openMenu(tester, 'folder-1');
+    await tester.tap(find.text('Sil'));
     await tester.pumpAndSettle();
     expect(find.text('Klasör silinsin mi?'), findsOneWidget);
     await tester.tap(find.text('Sil').last);
     await tester.pumpAndSettle();
     expect(repo.deletedIds, ['folder-1']);
-    expect(find.text('Özel klasör yok'), findsOneWidget);
+    expect(find.text('Work'), findsNothing);
+  });
+
+  testWidgets('duplicate sibling names are rejected before any request', (
+    tester,
+  ) async {
+    final repo = await pumpManager(tester, extra: [_info('p', 'Projects')]);
+    await tester.tap(find.byKey(const Key('new-folder')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Bağımsız klasör'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'projects');
+    await tester.tap(find.text('Kaydet'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bu adda bir klasör zaten var.'), findsOneWidget);
+    expect(repo.createdNames, isEmpty);
+  });
+
+  testWidgets(
+    'a folder with mail or sub-folders explains why it cannot be deleted',
+    (tester) async {
+      final repo = await pumpManager(
+        tester,
+        extra: [
+          _info('full', 'Full', total: 3),
+          _info('kid', 'Kid', parent: 'full'),
+        ],
+      );
+
+      await openMenu(tester, 'full');
+      await tester.tap(find.text('Sil'));
+      await tester.pumpAndSettle();
+      expect(find.text('Klasör silinemez'), findsOneWidget);
+      expect(find.textContaining('alt klasörleri'), findsOneWidget);
+      await tester.tap(find.text('Tamam'));
+      await tester.pumpAndSettle();
+
+      expect(repo.deletedIds, isEmpty);
+    },
+  );
+
+  testWidgets('standard folders offer neither rename nor delete', (
+    tester,
+  ) async {
+    await pumpManager(tester);
+    await openMenu(tester, 'inbox-id');
+
+    expect(find.text('Alt klasör oluştur'), findsOneWidget);
+    expect(find.text('Yeniden adlandır'), findsNothing);
+    expect(find.text('Sil'), findsNothing);
+    expect(find.text('Üst klasörü değiştir'), findsNothing);
   });
 
   testWidgets('assigns a folder role and restores automatic detection', (
     tester,
   ) async {
-    final repo = _ScreenFolderRepo();
-    repo.folders.add(_folder('sent-items', 'Sent Items', 'INBOX.Sent Items'));
-    AppConfig.mailRepositoryForTest = repo;
-    addTearDown(AppConfig.resetForTest);
-    await tester.pumpWidget(const MaterialApp(home: CustomFoldersScreen()));
-    await tester.pumpAndSettle();
+    final repo = await pumpManager(
+      tester,
+      extra: [_info('sent-items', 'Sent Items')],
+    );
 
-    await tester.tap(find.byType(PopupMenuButton<String>));
-    await tester.pumpAndSettle();
+    await openMenu(tester, 'sent-items');
     await tester.tap(find.text('Klasör rolü ata'));
     await tester.pumpAndSettle();
     await tester.tap(find.text(MailFolder.sent.label));
@@ -493,58 +603,154 @@ void main() {
     expect(repo.roleCalls, ['sent-items:sent']);
     expect(find.text('Giden Kutusu olarak kullanılıyor'), findsOneWidget);
 
+    await openMenu(tester, 'sent-items');
     await tester.tap(find.text('Otomatiğe döndür'));
     await tester.pumpAndSettle();
     expect(repo.roleCalls, ['sent-items:sent', 'sent-items:null']);
-    expect(find.text('Otomatiğe döndür'), findsNothing);
-    expect(find.text('Sent Items'), findsOneWidget);
+    expect(find.text('Giden Kutusu olarak kullanılıyor'), findsNothing);
   });
-  testWidgets('creates below standard and reassigns to custom then root', (
+
+  testWidgets(
+    'creates below INBOX, nests it, moves it and returns it to the root',
+    (tester) async {
+      final repo = await pumpManager(
+        tester,
+        extra: [_info('parent', 'Projects')],
+      );
+
+      await openMenu(tester, 'inbox-id');
+      await tester.tap(find.text('Alt klasör oluştur'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Receipts');
+      await tester.tap(find.text('Kaydet'));
+      await tester.pumpAndSettle();
+      expect(repo.createdParents, ['inbox-id']);
+
+      double indent(String name) =>
+          (tester
+                      .widget<ListTile>(
+                        find.ancestor(
+                          of: find.text(name),
+                          matching: find.byType(ListTile),
+                        ),
+                      )
+                      .contentPadding!
+                  as EdgeInsets)
+              .left;
+      expect(indent('Receipts'), greaterThan(indent('INBOX')));
+
+      await openMenu(tester, 'folder-1');
+      await tester.tap(find.text('Üst klasörü değiştir'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Projects').last);
+      await tester.pumpAndSettle();
+      expect(repo.parentChanges, ['folder-1:parent']);
+      expect(indent('Receipts'), greaterThan(indent('Projects')));
+
+      await openMenu(tester, 'folder-1');
+      await tester.tap(find.text('Üst klasörü değiştir'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Bağımsız klasör'));
+      await tester.pumpAndSettle();
+      expect(repo.parentChanges, ['folder-1:parent', 'folder-1:null']);
+    },
+  );
+
+  testWidgets('automatic sync can be toggled per folder but never emptied', (
     tester,
   ) async {
-    final repo = _ScreenFolderRepo();
-    repo.folders.add(_folder('parent', 'Projects', 'Projects'));
-    AppConfig.mailRepositoryForTest = repo;
-    addTearDown(AppConfig.resetForTest);
-    await tester.pumpWidget(const MaterialApp(home: CustomFoldersScreen()));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Yeni klasör'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text(MailFolder.inbox.label));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byType(TextField), 'Receipts');
-    await tester.tap(find.text('Kaydet'));
-    await tester.pumpAndSettle();
-    expect(repo.createdParents, ['inbox-id']);
-    expect(repo.folders.last.parentFolderId, 'inbox-id');
+    final repo = await pumpManager(
+      tester,
+      extra: [_info('docs', 'Docs')],
+      scope: const [
+        SyncScopeFolder(
+          id: 'inbox-id',
+          name: 'INBOX',
+          type: 'Inbox',
+          synced: true,
+        ),
+        SyncScopeFolder(
+          id: 'docs',
+          name: 'Docs',
+          type: 'Custom',
+          synced: false,
+        ),
+      ],
+    );
 
-    await tester.tap(find.byType(PopupMenuButton<String>).last);
+    await openMenu(tester, 'docs');
+    await tester.tap(find.text('Otomatik eşitlemeyi aç'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Üst klasörü değiştir'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Projects').last);
-    await tester.pumpAndSettle();
-    expect(repo.parentChanges, ['folder-1:parent']);
-    final projectsTile = tester.widget<ListTile>(find.ancestor(
-      of: find.text('Projects').first, matching: find.byType(ListTile),
-    ));
-    final receiptsTile = tester.widget<ListTile>(find.ancestor(
-      of: find.text('Receipts').first, matching: find.byType(ListTile),
-    ));
-    expect((receiptsTile.contentPadding! as EdgeInsets).left,
-        greaterThan((projectsTile.contentPadding! as EdgeInsets).left));
+    expect(repo.scopeUpdates.single.toSet(), {'inbox-id', 'docs'});
 
-    await tester.tap(find.byType(PopupMenuButton<String>).last);
+    await openMenu(tester, 'docs');
+    await tester.tap(find.text('Otomatik eşitlemeyi kapat'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Üst klasörü değiştir'));
+    expect(repo.scopeUpdates.last, ['inbox-id']);
+
+    // The last synced folder cannot be switched off: its menu item is disabled.
+    await openMenu(tester, 'inbox-id');
+    final item = tester.widget<PopupMenuItem<String>>(
+      find.ancestor(
+        of: find.text('Otomatik eşitlemeyi kapat'),
+        matching: find.byType(PopupMenuItem<String>),
+      ),
+    );
+    expect(item.enabled, isFalse);
+    await tester.tap(
+      find.text('Otomatik eşitlemeyi kapat'),
+      warnIfMissed: false,
+    );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Bağımsız klasör'));
-    await tester.pumpAndSettle();
-    expect(repo.parentChanges, ['folder-1:parent', 'folder-1:null']);
-    expect(repo.folders.last.parentFolderId, isNull);
+    expect(repo.scopeUpdates, hasLength(2));
   });
 
+  testWidgets('the refresh action asks the server to rediscover folders', (
+    tester,
+  ) async {
+    final repo = await pumpManager(tester);
+    expect(repo.rediscoverCalls, [false]);
+
+    await tester.tap(find.byTooltip('Sunucudaki klasörleri yeniden tara'));
+    await tester.pumpAndSettle();
+
+    expect(repo.rediscoverCalls, [false, true]);
+  });
+
+  testWidgets(
+    'with several accounts the entry screen asks which one to manage',
+    (tester) async {
+      AppConfig.mailRepositoryForTest = _TwoAccountRepo();
+      addTearDown(AppConfig.resetForTest);
+      await tester.pumpWidget(const MaterialApp(home: CustomFoldersScreen()));
+      await tester.pumpAndSettle();
+
+      expect(find.text('a@example.com'), findsOneWidget);
+      expect(find.text('b@example.com'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('manage-folders-b')));
+      await tester.pumpAndSettle();
+      expect(find.byType(FolderManagerScreen), findsOneWidget);
+    },
+  );
 }
+
+MailFolderInfo _info(
+  String id,
+  String name, {
+  String? parent,
+  int? total,
+  FolderKind kind = FolderKind.custom,
+}) => MailFolderInfo(
+  accountId: 'a',
+  folderId: id,
+  name: name,
+  fullName: name,
+  kind: kind,
+  isSyncEnabled: false,
+  parentFolderId: parent,
+  totalCount: total,
+  delimiter: '/',
+);
 
 MailCustomFolder _folder(
   String id,
@@ -758,14 +964,26 @@ class _RoutingFolderService extends ApiMailService {
 }
 
 class _ScreenFolderRepo extends MailRepository {
-  final List<MailCustomFolder> folders = [];
+  final List<MailFolderInfo> folders = [
+    const MailFolderInfo(
+      accountId: 'a',
+      folderId: 'inbox-id',
+      name: 'INBOX',
+      fullName: 'INBOX',
+      kind: FolderKind.inbox,
+      isSyncEnabled: true,
+      delimiter: '/',
+    ),
+  ];
   final List<String> createdNames = [];
   final List<String?> createdParents = [];
   final List<String> parentChanges = [];
   final List<String> renamedNames = [];
   final List<String> deletedIds = [];
   final List<String> roleCalls = [];
-  final List<MailFolderRoleAssignment> assignments = [];
+  final List<bool> rediscoverCalls = [];
+  final List<List<String>> scopeUpdates = [];
+  List<SyncScopeFolder>? scope;
 
   @override
   List<MailAccount> get accounts => const [
@@ -774,16 +992,48 @@ class _ScreenFolderRepo extends MailRepository {
 
   @override
   String? get activeAccountId => 'a';
-  @override
-  Map<MailFolder, String> standardFolderIds(String accountId) =>
-      {MailFolder.inbox: 'inbox-id'};
-
 
   @override
-  List<MailCustomFolder> getCustomFolders({String? accountId}) => folders;
+  MailAccount? getAccount(String accountId) => accounts.first;
 
   @override
-  Future<void> refreshCustomFolders({String? accountId}) async {}
+  List<MailFolderInfo> getAccountFolders(String accountId) =>
+      List.unmodifiable(folders);
+
+  @override
+  Future<void> refreshCustomFolders({
+    String? accountId,
+    bool rediscover = false,
+  }) async => rediscoverCalls.add(rediscover);
+
+  @override
+  Future<AccountSyncScope> getSyncScope(String accountId) async {
+    final current = scope;
+    if (current == null) throw const ApiException(status: 503);
+    return AccountSyncScope(
+      scope: FolderSyncScope.selectedFolders,
+      folders: current,
+    );
+  }
+
+  @override
+  Future<AccountSyncScope> updateSyncScope(
+    String accountId,
+    FolderSyncScope scope, {
+    List<String>? folderIds,
+  }) async {
+    scopeUpdates.add(folderIds!);
+    this.scope = [
+      for (final f in this.scope!)
+        SyncScopeFolder(
+          id: f.id,
+          name: f.name,
+          type: f.type,
+          synced: folderIds.contains(f.id),
+        ),
+    ];
+    return AccountSyncScope(scope: scope, folders: this.scope!);
+  }
 
   @override
   Future<void> createCustomFolder({
@@ -793,16 +1043,7 @@ class _ScreenFolderRepo extends MailRepository {
   }) async {
     createdNames.add(name);
     createdParents.add(parentFolderId);
-    folders.add(
-      _folder(
-        'folder-1',
-        name,
-        name,
-        accountId: accountId,
-        delimiter: '/',
-        parentId: parentFolderId,
-      ),
-    );
+    folders.add(_info('folder-1', name, parent: parentFolderId));
     notifyListeners();
   }
 
@@ -813,8 +1054,9 @@ class _ScreenFolderRepo extends MailRepository {
     required String name,
   }) async {
     renamedNames.add(name);
-    final index = folders.indexWhere((folder) => folder.folderId == folderId);
-    folders[index] = _folder(folderId, name, name, accountId: accountId);
+    final index = folders.indexWhere((f) => f.folderId == folderId);
+    final old = folders[index];
+    folders[index] = _info(folderId, name, parent: old.parentFolderId);
     notifyListeners();
   }
 
@@ -825,15 +1067,11 @@ class _ScreenFolderRepo extends MailRepository {
     required String? parentFolderId,
   }) async {
     parentChanges.add('$folderId:$parentFolderId');
-    final index = folders.indexWhere((folder) => folder.folderId == folderId);
-    final old = folders[index];
-    folders[index] = _folder(
-      old.folderId,
-      old.name,
-      old.fullName,
-      accountId: old.accountId,
-      parentId: parentFolderId,
-      parentKnown: true,
+    final index = folders.indexWhere((f) => f.folderId == folderId);
+    folders[index] = _info(
+      folderId,
+      folders[index].name,
+      parent: parentFolderId,
     );
     notifyListeners();
   }
@@ -844,14 +1082,9 @@ class _ScreenFolderRepo extends MailRepository {
     required String folderId,
   }) async {
     deletedIds.add(folderId);
-    folders.removeWhere((folder) => folder.folderId == folderId);
+    folders.removeWhere((f) => f.folderId == folderId);
     notifyListeners();
   }
-
-  @override
-  List<MailFolderRoleAssignment> getFolderRoleAssignments({
-    String? accountId,
-  }) => assignments;
 
   @override
   Future<void> setFolderRole({
@@ -860,27 +1093,52 @@ class _ScreenFolderRepo extends MailRepository {
     required MailFolder? role,
   }) async {
     roleCalls.add('$folderId:${role?.name}');
-    if (role == null) {
-      final restored = assignments.singleWhere(
-        (assignment) => assignment.folderId == folderId,
-      );
-      assignments.remove(restored);
-      folders.add(_folder(folderId, restored.name, restored.fullName));
-    } else {
-      final folder = folders.singleWhere((f) => f.folderId == folderId);
-      folders.remove(folder);
-      assignments.add(
-        MailFolderRoleAssignment(
-          accountId: accountId,
-          folderId: folderId,
-          name: folder.name,
-          fullName: folder.fullName,
-          role: role,
-        ),
-      );
-    }
+    final index = folders.indexWhere((f) => f.folderId == folderId);
+    final old = folders[index];
+    final kind = role == null ? FolderKind.custom : FolderKind.sent;
+    folders[index] = MailFolderInfo(
+      accountId: old.accountId,
+      folderId: old.folderId,
+      name: old.name,
+      fullName: old.fullName,
+      kind: kind,
+      isSyncEnabled: false,
+      parentFolderId: old.parentFolderId,
+      roleOverride: role == null ? null : kind,
+    );
     notifyListeners();
   }
+
+  @override
+  Never noSuchMethod(Invocation invocation) => throw UnimplementedError();
+}
+
+class _TwoAccountRepo extends MailRepository {
+  @override
+  List<MailAccount> get accounts => const [
+    MailAccount(id: 'a', email: 'a@example.com'),
+    MailAccount(id: 'b', email: 'b@example.com'),
+  ];
+
+  @override
+  String? get activeAccountId => null;
+
+  @override
+  MailAccount? getAccount(String accountId) =>
+      accounts.where((a) => a.id == accountId).firstOrNull;
+
+  @override
+  List<MailFolderInfo> getAccountFolders(String accountId) => const [];
+
+  @override
+  Future<void> refreshCustomFolders({
+    String? accountId,
+    bool rediscover = false,
+  }) async {}
+
+  @override
+  Future<AccountSyncScope> getSyncScope(String accountId) async =>
+      throw const ApiException(status: 503);
 
   @override
   Never noSuchMethod(Invocation invocation) => throw UnimplementedError();

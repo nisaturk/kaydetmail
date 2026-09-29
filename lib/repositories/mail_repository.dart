@@ -15,6 +15,7 @@ import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
+import '../models/mail_folder_info.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
@@ -757,6 +758,10 @@ abstract class MailRepository extends ChangeNotifier {
   /// starred/pinned. Populated by [refreshCustomFolders].
   List<MailCustomFolder> getCustomFolders({String? accountId}) => const [];
 
+  /// Every available folder of [accountId] — standard and custom — with
+  /// counts, sync flag and role. Populated by [refreshCustomFolders].
+  List<MailFolderInfo> getAccountFolders(String accountId) => const [];
+
   /// Physical server folder ids for available standard roles of an account.
   /// Virtual folders have no remote parent and are not included.
   Map<MailFolder, String> standardFolderIds(String accountId) => const {};
@@ -767,7 +772,13 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Re-fetches the custom folder list for every account in scope, or only
   /// for [accountId] when given.
-  Future<void> refreshCustomFolders({String? accountId}) async {}
+  ///
+  /// [rediscover] also asks the server to re-scan its folder tree first, so
+  /// folders created or deleted outside the app (webmail, cPanel) show up.
+  Future<void> refreshCustomFolders({
+    String? accountId,
+    bool rediscover = false,
+  }) async {}
 
   /// One page of mail from one custom folder, newest first. Independent of
   /// the [MailFolder]-keyed paging used elsewhere — custom folders are

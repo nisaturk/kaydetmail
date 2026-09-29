@@ -16,6 +16,7 @@ import '../models/mail_security.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
+import '../models/mail_folder_info.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../models/mail_signature.dart';
@@ -1082,6 +1083,10 @@ class ApiMailRepository extends MailRepository {
     AccountSession session,
     List<ApiMailFolder> folders,
   ) {
+    session.allFolders = [
+      for (final folder in folders)
+        if (folder.isAvailable) folder,
+    ];
     session.customFolders = folders
         .where((folder) => folder.type == 'Custom' && folder.isAvailable)
         .toList();
@@ -2723,6 +2728,26 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
+  List<MailFolderInfo> getAccountFolders(String accountId) => [
+    for (final f in _registry.forAccount(accountId).allFolders)
+      MailFolderInfo(
+        accountId: accountId,
+        folderId: f.id,
+        name: f.name,
+        fullName: f.fullName,
+        kind: FolderKind.fromBackend(f.type),
+        isSyncEnabled: f.isSyncEnabled,
+        parentFolderId: f.parentId,
+        delimiter: f.delimiter,
+        unreadCount: f.unreadCount,
+        totalCount: f.totalCount,
+        roleOverride: f.roleOverride == null
+            ? null
+            : FolderKind.fromBackend(f.roleOverride!),
+      ),
+  ];
+
+  @override
   Map<MailFolder, String> standardFolderIds(String accountId) =>
       Map.unmodifiable(_sessionForAccountId(accountId).folderIds);
 
@@ -2734,17 +2759,27 @@ class ApiMailRepository extends MailRepository {
       );
 
   @override
-  Future<void> refreshCustomFolders({String? accountId}) async {
+  Future<void> refreshCustomFolders({
+    String? accountId,
+    bool rediscover = false,
+  }) async {
     final sessions = accountId == null
         ? _scopedSessions
         : [_sessionForAccountId(accountId)];
-    await Future.wait(sessions.map(_loadCustomFolders));
+    await Future.wait(
+      sessions.map((s) => _loadCustomFolders(s, rediscover: rediscover)),
+    );
     notifyListeners();
   }
 
-  Future<void> _loadCustomFolders(AccountSession session) async {
+  Future<void> _loadCustomFolders(
+    AccountSession session, {
+    bool rediscover = false,
+  }) async {
+    if (rediscover) await session.mailService.refreshFolders();
     var folders = await session.mailService.getFolders();
-    if (!session.folderHierarchyRequested &&
+    if (!rediscover &&
+        !session.folderHierarchyRequested &&
         folders.any((f) => f.isAvailable && f.delimiter == null)) {
       session.folderHierarchyRequested = true;
       await session.mailService.refreshFolders();

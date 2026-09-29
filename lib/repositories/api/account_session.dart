@@ -77,6 +77,10 @@ class AccountSession {
   /// every login, since most accounts never open the custom-folders screen.
   List<ApiMailFolder> customFolders = [];
 
+  /// Every available server folder (standard and custom) from the last
+  /// folder fetch — the folder manager's source of truth.
+  List<ApiMailFolder> allFolders = [];
+
   /// Folders whose role the user assigned (see
   /// [ApiMailRepository.setFolderRole]); refreshed with [customFolders].
   List<ApiMailFolder> roleOverrideFolders = [];
