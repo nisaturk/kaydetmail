@@ -48,8 +48,7 @@ final _devices = <AndroidDevice>[
 
 // The compose screens never settle under this harness yet (pumpAndSettle hangs
 // for minutes), so the matrix is parked until that is diagnosed.
-const _skipReason =
-    'work in progress: compose does not settle under the matrix';
+const _skipReason = true;
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
