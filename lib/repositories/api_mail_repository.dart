@@ -45,6 +45,9 @@ import '../services/session_store.dart';
 import 'api/account_session.dart';
 import 'api/account_settings_module.dart';
 import 'api/scheduled_send_module.dart';
+import 'api/contact_module.dart';
+import 'api/label_module.dart';
+import 'api/repository_context.dart';
 import 'api/session_registry.dart';
 import 'api/signature_module.dart';
 import 'api/template_module.dart';
@@ -75,7 +78,7 @@ typedef _MailLocationSnapshot = ({
 /// methods below operate on; `null` fans reads out across every session
 /// (the unified mailbox) and routes writes to whichever session actually
 /// owns the ids involved.
-class ApiMailRepository extends MailRepository {
+class ApiMailRepository extends MailRepository implements RepositoryContext {
   ApiMailRepository({
     ApiAuthService? authService,
     ApiMailService? mailService,
@@ -658,7 +661,7 @@ class ApiMailRepository extends MailRepository {
         MailLabel(
           id: label['id'] as String,
           name: label['name'] as String,
-          color: Color(_unsignedArgb(label['color'] as int)),
+          color: Color(LabelModule.unsignedArgb(label['color'] as int)),
         ),
     ];
     session.labelMap = await flags.readLabelMap();
@@ -776,7 +779,7 @@ class ApiMailRepository extends MailRepository {
           MailLabel(
             id: d['id'] as String,
             name: d['name'] as String,
-            color: Color(_unsignedArgb(d['color'] as int)),
+            color: Color(LabelModule.unsignedArgb(d['color'] as int)),
           ),
       ];
       session.labelMap = await session.mailService.getLabelAssignments();
@@ -791,7 +794,7 @@ class ApiMailRepository extends MailRepository {
           MailLabel(
             id: d['id'] as String,
             name: d['name'] as String,
-            color: Color(_unsignedArgb(d['color'] as int)),
+            color: Color(LabelModule.unsignedArgb(d['color'] as int)),
           ),
       ];
       session.labelMap = await flags.readLabelMap();
@@ -862,7 +865,7 @@ class ApiMailRepository extends MailRepository {
         if (serverId == null) {
           final created = await session.mailService.createLabel(
             name,
-            _signedArgb(d['color'] as int),
+            LabelModule.signedArgb(d['color'] as int),
           );
           serverId = created['id'] as String;
           idsByName[normalizedName] = serverId;
@@ -883,11 +886,6 @@ class ApiMailRepository extends MailRepository {
       // remain available via [_loadLabels] until migration can run again.
     }
   }
-
-  static int _signedArgb(int color) =>
-      color >= 0x80000000 ? color - 0x100000000 : color;
-
-  static int _unsignedArgb(int color) => color & 0xFFFFFFFF;
 
   /// Restores the last-known server-folder-id -> [MailFolder] mapping so
   /// cached mail stays actionable (open, move, sync) even before — or
@@ -1682,7 +1680,7 @@ class ApiMailRepository extends MailRepository {
     } catch (_) {}
     _recomputeWatchedSnoozeDeadline();
     _restampFlags(session);
-    _restampLabels(session, [
+    _labels.restamp(session, [
       for (final list in session.emails.values)
         for (final e in list) e.id,
     ]);
@@ -1694,8 +1692,6 @@ class ApiMailRepository extends MailRepository {
     'contact_update',
     'contact_delete',
   };
-
-  static const _localContactIdPrefix = 'local-contact-';
 
   Future<void> _replayManualContacts(
     AccountSession session,
@@ -1746,7 +1742,7 @@ class ApiMailRepository extends MailRepository {
         }
       }
     }
-    if (createdContact || stillQueued) await _persistManualContacts(session);
+    if (createdContact || stillQueued) await _contacts.persist(session);
     if (stillQueued) return;
     await _loadManualContacts(session, store);
     notifyListeners();
@@ -1756,7 +1752,6 @@ class ApiMailRepository extends MailRepository {
   AccountSession get _primarySession => _registry.primary;
   AccountSession? _sessionOwning(String id) => _registry.owning(id);
   AccountSession? _sessionForThread(String id) => _registry.forThread(id);
-  AccountSession? _sessionForLabel(String id) => _registry.forLabel(id);
   Map<AccountSession, List<String>> _groupBySession(List<String> ids) =>
       _registry.groupByOwner(ids);
   AccountSession _sessionForCompose({String? from, String? fromAccountId}) =>
@@ -2595,6 +2590,102 @@ class ApiMailRepository extends MailRepository {
 
   @override
   Future<void> refreshScheduledSends() => _scheduled.refreshScheduledSends();
+
+  late final LabelModule _labels = LabelModule(this);
+  late final ContactModule _contacts = ContactModule(this);
+
+  @override
+  List<MailLabel> getLabels() => _labels.getLabels();
+
+  @override
+  List<MailLabel> getLabelsForAccount(String accountId) =>
+      _labels.getLabelsForAccount(accountId);
+
+  @override
+  Future<MailLabel> createLabel({
+    required String name,
+    required Color color,
+    String? accountId,
+  }) => _labels.createLabel(name: name, color: color, accountId: accountId);
+
+  @override
+  Future<void> updateLabel({
+    required String id,
+    required String name,
+    required Color color,
+  }) => _labels.updateLabel(id: id, name: name, color: color);
+
+  @override
+  Future<void> deleteLabel(String labelId) => _labels.deleteLabel(labelId);
+
+  @override
+  Future<void> addLabelsToEmails(
+    List<String> emailIds,
+    List<String> labelIds,
+  ) => _labels.addLabelsToEmails(emailIds, labelIds);
+
+  @override
+  Future<void> removeLabelsFromEmails(
+    List<String> emailIds,
+    List<String> labelIds,
+  ) => _labels.removeLabelsFromEmails(emailIds, labelIds);
+
+  @override
+  List<ManualContact> getManualContacts() => _contacts.getManualContacts();
+
+  @override
+  List<ManualContact> getManualContactsForAccount(String accountId) =>
+      _contacts.getManualContactsForAccount(accountId);
+
+  @override
+  Future<ManualContact> addManualContact({
+    required String email,
+    String? displayName,
+    String? accountId,
+  }) => _contacts.addManualContact(
+    email: email,
+    displayName: displayName,
+    accountId: accountId,
+  );
+
+  @override
+  Future<void> updateManualContact({
+    required String id,
+    required String email,
+    String? displayName,
+  }) => _contacts.updateManualContact(
+    id: id,
+    email: email,
+    displayName: displayName,
+  );
+
+  @override
+  Future<void> deleteManualContact(String id) =>
+      _contacts.deleteManualContact(id);
+
+  // --- RepositoryContext (what the modules share) -------------------------
+
+  @override
+  SessionRegistry get registry => _registry;
+
+  @override
+  MailCache? get cache => _cache;
+
+  @override
+  void notify() => notifyListeners();
+
+  @override
+  bool isOfflineFailure(Object error) => _isOfflineFailure(error);
+
+  @override
+  void markOffline(AccountSession session) => _markOffline(session);
+
+  @override
+  void replaceMany(
+    AccountSession session,
+    List<String> ids,
+    Email Function(Email) update,
+  ) => _replaceMany(session, ids, update);
 
   // --- Account-owned data, delegated to focused modules --------------------
 
@@ -4199,446 +4290,5 @@ class ApiMailRepository extends MailRepository {
       _restampFlags(session);
     }
     notifyListeners();
-  }
-
-  static String _canonicalName(String name) =>
-      name.trim().replaceAll('İ', 'i').toLowerCase();
-
-  void _assertLabelNameIsFree(
-    AccountSession session,
-    String name, {
-    String? selfId,
-  }) {
-    final canonical = _canonicalName(name);
-    if (canonical.isEmpty) throw ArgumentError('Etiket adı boş olamaz.');
-    if (session.labels.any(
-      (l) => l.id != selfId && _canonicalName(l.name) == canonical,
-    )) {
-      throw ArgumentError('Bu isimde bir etiket zaten var.');
-    }
-  }
-
-  /// Mirrors backend-confirmed label state into the local cache so labels
-  /// still show while offline. Never the source of truth — see [_loadLabels].
-  Future<void> _persistLabels(AccountSession session) async {
-    final store = session.flagsStore;
-    if (store == null) return;
-    await store.writeLabelDefs([
-      for (final l in session.labels)
-        {'id': l.id, 'name': l.name, 'color': l.color.toARGB32()},
-    ]);
-    await store.writeLabelMap(session.labelMap);
-  }
-
-  Future<void> _queueLabels(
-    AccountSession session,
-    List<String> mailIds,
-    Iterable<String> labelIds,
-    String operation,
-  ) async {
-    _markOffline(session);
-    final store = session.flagsStore;
-    if (store == null) return;
-    for (final mailId in mailIds) {
-      for (final labelId in labelIds) {
-        await store.queueMutation(mailId, operation, folderId: labelId);
-      }
-    }
-  }
-
-  Future<void> _clearQueuedLabels(
-    AccountSession session,
-    List<String> mailIds,
-    Iterable<String> labelIds,
-  ) async {
-    final store = session.flagsStore;
-    if (store == null) return;
-    for (final mailId in mailIds) {
-      for (final labelId in labelIds) {
-        await store.clearQueuedMutation(
-          mailId,
-          mutationCategoryFor('label_add', labelId),
-        );
-      }
-    }
-  }
-
-  void _restampLabels(AccountSession session, Iterable<String> ids) =>
-      _replaceMany(
-        session,
-        ids.toList(),
-        (e) => e.copyWith(labelIds: session.labelMap[e.id] ?? const []),
-      );
-
-  /// Labels from every account in scope — the unified view unions them
-  /// (dedup by id; account-local ids never collide in practice).
-  @override
-  List<MailLabel> getLabels() {
-    final seen = <String>{};
-    final result = <MailLabel>[];
-    for (final session in _scopedSessions) {
-      for (final label in session.labels) {
-        if (seen.add(label.id)) result.add(label);
-      }
-    }
-    return List.unmodifiable(result);
-  }
-
-  @override
-  List<MailLabel> getLabelsForAccount(String accountId) =>
-      List.unmodifiable(_sessions[accountId]?.labels ?? const <MailLabel>[]);
-
-  @override
-  Future<MailLabel> createLabel({
-    required String name,
-    required Color color,
-    String? accountId,
-  }) async {
-    final session = accountId == null
-        ? _primarySession
-        : _sessionForAccountId(accountId);
-    _assertLabelNameIsFree(session, name);
-    final trimmed = name.trim();
-    Map<String, dynamic> created;
-    try {
-      created = await session.mailService.createLabel(
-        trimmed,
-        _signedArgb(color.toARGB32()),
-      );
-    } on ApiException catch (e) {
-      if (e.code == 'label_name_taken') {
-        throw ArgumentError('Bu isimde bir etiket zaten var.');
-      }
-      rethrow;
-    }
-    final label = MailLabel(
-      id: created['id'] as String,
-      name: created['name'] as String,
-      color: Color(_unsignedArgb(created['color'] as int)),
-    );
-    session.labels = [...session.labels, label];
-    await _persistLabels(session);
-    notifyListeners();
-    return label;
-  }
-
-  @override
-  Future<void> updateLabel({
-    required String id,
-    required String name,
-    required Color color,
-  }) async {
-    final session = _sessionForLabel(id);
-    if (session == null) return;
-    final index = session.labels.indexWhere((l) => l.id == id);
-    if (index < 0) return;
-    _assertLabelNameIsFree(session, name, selfId: id);
-    final trimmed = name.trim();
-    try {
-      await session.mailService.updateLabel(
-        id,
-        trimmed,
-        _signedArgb(color.toARGB32()),
-      );
-    } on ApiException catch (e) {
-      if (e.code == 'label_name_taken') {
-        throw ArgumentError('Bu isimde bir etiket zaten var.');
-      }
-      rethrow;
-    }
-    session.labels = [...session.labels]
-      ..[index] = MailLabel(id: id, name: trimmed, color: color);
-    await _persistLabels(session);
-    notifyListeners();
-  }
-
-  @override
-  Future<void> deleteLabel(String labelId) async {
-    final session = _sessionForLabel(labelId);
-    if (session == null) return;
-    try {
-      await session.mailService.deleteLabel(labelId);
-    } catch (_) {
-      // Never desync: a failed server delete leaves local state untouched.
-      return;
-    }
-    session.labels = session.labels.where((l) => l.id != labelId).toList();
-    final touched = [
-      for (final e in session.labelMap.entries)
-        if (e.value.contains(labelId)) e.key,
-    ];
-    for (final id in touched) {
-      session.labelMap[id] = session.labelMap[id]!
-          .where((l) => l != labelId)
-          .toList();
-    }
-    await _persistLabels(session);
-    _restampLabels(session, touched);
-    notifyListeners();
-  }
-
-  @override
-  Future<void> addLabelsToEmails(
-    List<String> emailIds,
-    List<String> labelIds,
-  ) => _changeEmailLabels(emailIds, labelIds, add: true);
-
-  @override
-  Future<void> removeLabelsFromEmails(
-    List<String> emailIds,
-    List<String> labelIds,
-  ) => _changeEmailLabels(emailIds, labelIds, add: false);
-
-  Future<void> _changeEmailLabels(
-    List<String> emailIds,
-    List<String> labelIds, {
-    required bool add,
-  }) async {
-    Object? firstError;
-    for (final entry in _groupBySession(emailIds).entries) {
-      final session = entry.key;
-      final ownedLabelIds = {
-        for (final label in session.labels)
-          if (labelIds.contains(label.id)) label.id,
-      };
-      if (ownedLabelIds.isEmpty) continue;
-      final previous = {
-        for (final id in entry.value)
-          id: List<String>.of(session.labelMap[id] ?? const []),
-      };
-      for (final id in entry.value) {
-        final current = session.labelMap[id] ?? const <String>[];
-        session.labelMap[id] = add
-            ? [
-                ...current,
-                ...ownedLabelIds.where((label) => !current.contains(label)),
-              ]
-            : current.where((label) => !ownedLabelIds.contains(label)).toList();
-      }
-      _restampLabels(session, entry.value);
-      notifyListeners();
-      try {
-        try {
-          if (add) {
-            await session.mailService.assignLabels(
-              entry.value,
-              ownedLabelIds.toList(),
-            );
-          } else {
-            await session.mailService.unassignLabels(
-              entry.value,
-              ownedLabelIds.toList(),
-            );
-          }
-          await _clearQueuedLabels(session, entry.value, ownedLabelIds);
-        } catch (error) {
-          if (!_isOfflineFailure(error)) rethrow;
-          await _queueLabels(
-            session,
-            entry.value,
-            ownedLabelIds,
-            add ? 'label_add' : 'label_remove',
-          );
-        }
-        await _persistLabels(session);
-      } catch (error) {
-        for (final previousEntry in previous.entries) {
-          session.labelMap[previousEntry.key] = previousEntry.value;
-        }
-        _restampLabels(session, entry.value);
-        notifyListeners();
-        firstError ??= error;
-      }
-    }
-    if (firstError != null) throw firstError;
-  }
-
-  void _assertContactEmailIsValid(
-    AccountSession session,
-    String email, {
-    String? selfId,
-  }) {
-    if (email.isEmpty || !email.contains('@')) {
-      throw ArgumentError('Geçerli bir e-posta adresi girin.');
-    }
-    final canonical = email.toLowerCase();
-    if (session.manualContacts.any(
-      (c) => c.id != selfId && c.email.toLowerCase() == canonical,
-    )) {
-      throw ArgumentError('Bu e-posta zaten kayıtlı.');
-    }
-  }
-
-  Future<void> _persistManualContacts(AccountSession session) async {
-    final store = session.flagsStore;
-    if (store == null) return;
-    await store.writeContacts([
-      for (final c in session.manualContacts)
-        {'id': c.id, 'email': c.email, 'displayName': c.displayName},
-    ]);
-  }
-
-  /// The session that owns manual contact [id], if any.
-  AccountSession? _sessionForManualContact(String id) {
-    for (final s in _sessions.values) {
-      if (s.manualContacts.any((c) => c.id == id)) return s;
-    }
-    return null;
-  }
-
-  /// Manually-added contacts from every account in scope — the unified
-  /// view unions them (dedup by id; account-local ids never collide in
-  /// practice), same shape as [getLabels].
-  @override
-  List<ManualContact> getManualContacts() {
-    final seen = <String>{};
-    final result = <ManualContact>[];
-    for (final session in _scopedSessions) {
-      for (final c in session.manualContacts) {
-        if (seen.add(c.id)) result.add(c);
-      }
-    }
-    return List.unmodifiable(result);
-  }
-
-  @override
-  List<ManualContact> getManualContactsForAccount(String accountId) =>
-      List.unmodifiable(
-        _sessions[accountId]?.manualContacts ?? const <ManualContact>[],
-      );
-
-  @override
-  Future<ManualContact> addManualContact({
-    required String email,
-    String? displayName,
-    String? accountId,
-  }) async {
-    final session = accountId != null
-        ? _sessionForAccountId(accountId)
-        : _primarySession;
-    final trimmedEmail = email.trim();
-    final trimmedName = displayName?.trim();
-    final name = (trimmedName == null || trimmedName.isEmpty)
-        ? null
-        : trimmedName;
-    _assertContactEmailIsValid(session, trimmedEmail);
-    Map<String, dynamic> created;
-    try {
-      created = await session.mailService.createContact(trimmedEmail, name);
-    } on ApiException catch (e) {
-      if (e.code == 'contact_already_exists') {
-        throw ArgumentError('Bu e-posta zaten kayıtlı.');
-      }
-      if (!_isOfflineFailure(e)) rethrow;
-      _markOffline(session);
-      created = {
-        'id': '$_localContactIdPrefix${newIdempotencyKey()}',
-        'email': trimmedEmail,
-        'displayName': name,
-      };
-      await _queueContactMutation(
-        session,
-        created['id'] as String,
-        'contact_create',
-        created,
-      );
-    }
-    final contact = ManualContact(
-      id: created['id'] as String,
-      accountId: session.account.id,
-      email: created['email'] as String,
-      displayName: created['displayName'] as String?,
-    );
-    session.manualContacts = [...session.manualContacts, contact];
-    await _persistManualContacts(session);
-    notifyListeners();
-    return contact;
-  }
-
-  @override
-  Future<void> updateManualContact({
-    required String id,
-    required String email,
-    String? displayName,
-  }) async {
-    final session = _sessionForManualContact(id);
-    if (session == null) return;
-    final index = session.manualContacts.indexWhere((c) => c.id == id);
-    if (index < 0) return;
-    final trimmedEmail = email.trim();
-    final trimmedName = displayName?.trim();
-    final name = (trimmedName == null || trimmedName.isEmpty)
-        ? null
-        : trimmedName;
-    _assertContactEmailIsValid(session, trimmedEmail, selfId: id);
-    Map<String, dynamic> updated = {'email': trimmedEmail, 'displayName': name};
-    if (id.startsWith(_localContactIdPrefix)) {
-      await _queueContactMutation(session, id, 'contact_create', updated);
-    } else {
-      try {
-        updated = await session.mailService.updateContact(
-          id,
-          trimmedEmail,
-          name,
-        );
-        await session.flagsStore?.clearQueuedMutation(id, 'contact');
-      } on ApiException catch (e) {
-        if (e.code == 'contact_already_exists') {
-          throw ArgumentError('Bu e-posta zaten kayıtlı.');
-        }
-        if (!_isOfflineFailure(e)) rethrow;
-        _markOffline(session);
-        await _queueContactMutation(session, id, 'contact_update', updated);
-      }
-    }
-    session.manualContacts = [...session.manualContacts]
-      ..[index] = ManualContact(
-        id: id,
-        accountId: session.account.id,
-        email: updated['email'] as String,
-        displayName: updated['displayName'] as String?,
-      );
-    await _persistManualContacts(session);
-    notifyListeners();
-  }
-
-  @override
-  Future<void> deleteManualContact(String id) async {
-    final session = _sessionForManualContact(id);
-    if (session == null) return;
-    final store = session.flagsStore;
-    if (id.startsWith(_localContactIdPrefix)) {
-      await store?.clearQueuedMutation(id, 'contact');
-    } else {
-      try {
-        await session.mailService.deleteContact(id);
-        await store?.clearQueuedMutation(id, 'contact');
-      } catch (error) {
-        if (!_isOfflineFailure(error)) return;
-        _markOffline(session);
-        await store?.queueMutation(id, 'contact_delete');
-      }
-    }
-    session.manualContacts = session.manualContacts
-        .where((c) => c.id != id)
-        .toList();
-    await _persistManualContacts(session);
-    notifyListeners();
-  }
-
-  Future<void> _queueContactMutation(
-    AccountSession session,
-    String id,
-    String operation,
-    Map<String, dynamic> contact,
-  ) async {
-    await session.flagsStore?.queueMutation(
-      id,
-      operation,
-      folderId: jsonEncode({
-        'email': contact['email'],
-        'displayName': contact['displayName'],
-      }),
-    );
   }
 }
