@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -78,13 +80,14 @@ class _ScheduledSendsScreenState extends State<ScheduledSendsScreen> {
               return _EmptyState(onRetry: _load);
             }
             return ListView.separated(
-              padding: const EdgeInsets.symmetric(vertical: 8),
+              padding: withBottomInset(
+                context,
+                const EdgeInsets.symmetric(vertical: 8),
+              ),
               itemCount: items.length,
               separatorBuilder: (_, _) => const Divider(height: 1),
-              itemBuilder: (context, i) => _ScheduledRow(
-                item: items[i],
-                onOpen: () => _open(items[i]),
-              ),
+              itemBuilder: (context, i) =>
+                  _ScheduledRow(item: items[i], onOpen: () => _open(items[i])),
             );
           },
         ),
@@ -228,8 +231,11 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       final detail = await _repo.getScheduledSend(widget.item.id);
       if (!mounted) return;
       _detail = detail;
-      final plain = detail.bodyText ??
-          (detail.bodyHtml == null ? null : htmlToPlainText(detail.bodyHtml!)) ??
+      final plain =
+          detail.bodyText ??
+          (detail.bodyHtml == null
+              ? null
+              : htmlToPlainText(detail.bodyHtml!)) ??
           '';
       _bodyController.text = plain;
       setState(() => _loading = false);
@@ -273,7 +279,13 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     );
     if (time == null || !mounted) return;
     setState(() {
-      _sendAt = DateTime(date.year, date.month, date.day, time.hour, time.minute);
+      _sendAt = DateTime(
+        date.year,
+        date.month,
+        date.day,
+        time.hour,
+        time.minute,
+      );
     });
   }
 
@@ -328,9 +340,8 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       );
     } catch (e) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyErrorMessage(e))),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -339,7 +350,9 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     if (to.isEmpty || !_sendAt.isAfter(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('En az bir al\u0131c\u0131 ve ileri bir tarih se\u00e7in.'),
+          content: Text(
+            'En az bir al\u0131c\u0131 ve ileri bir tarih se\u00e7in.',
+          ),
         ),
       );
       return;
@@ -364,14 +377,17 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Zamanlanm\u0131\u015f g\u00f6nderim g\u00fcncellendi.')),
+        const SnackBar(
+          content: Text(
+            'Zamanlanm\u0131\u015f g\u00f6nderim g\u00fcncellendi.',
+          ),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyErrorMessage(e))),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -380,7 +396,9 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     if (to.isEmpty || !_sendAt.isAfter(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('En az bir al\u0131c\u0131 ve ileri bir tarih se\u00e7in.'),
+          content: Text(
+            'En az bir al\u0131c\u0131 ve ileri bir tarih se\u00e7in.',
+          ),
         ),
       );
       return;
@@ -404,14 +422,15 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       if (!mounted) return;
       Navigator.of(context).pop(true);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('G\u00f6nderim yeniden kuyru\u011fa al\u0131nd\u0131.')),
+        const SnackBar(
+          content: Text('G\u00f6nderim yeniden kuyru\u011fa al\u0131nd\u0131.'),
+        ),
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(friendlyErrorMessage(e))),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(e))));
     }
   }
 
@@ -422,7 +441,11 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(_failed ? 'Ba\u015far\u0131s\u0131z g\u00f6nderim' : 'Zamanlanm\u0131\u015f\u0131 d\u00fczenle'),
+        title: Text(
+          _failed
+              ? 'Ba\u015far\u0131s\u0131z g\u00f6nderim'
+              : 'Zamanlanm\u0131\u015f\u0131 d\u00fczenle',
+        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -532,9 +555,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                       icon: const Icon(LucideIcons.x, size: 18),
                       onPressed: _saving
                           ? null
-                          : () => setState(
-                              () => _newAttachments.remove(added),
-                            ),
+                          : () => setState(() => _newAttachments.remove(added)),
                     ),
                   ),
                 if (!_failed)

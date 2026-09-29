@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'package:flutter/material.dart';
 
 import '../models/mail_header_entry.dart';
@@ -83,7 +85,7 @@ class _MailInspectionScreenState extends State<MailInspectionScreen> {
         }
         return switch (snapshot.data!) {
           List<MailHeaderEntry> headers => ListView.separated(
-            padding: const EdgeInsets.all(16),
+            padding: withBottomInset(context, const EdgeInsets.all(16)),
             itemCount: headers.length,
             separatorBuilder: (_, _) => const Divider(height: 20),
             itemBuilder: (context, index) {

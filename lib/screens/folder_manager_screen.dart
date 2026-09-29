@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -426,7 +428,10 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
             onRefresh: () => _load(rediscover: true),
             child: ListView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.only(bottom: 96),
+              padding: withBottomInset(
+                context,
+                const EdgeInsets.only(bottom: 96),
+              ),
               children: [
                 if (account != null)
                   Padding(

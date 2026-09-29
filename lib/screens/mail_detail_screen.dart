@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
@@ -264,7 +266,10 @@ class _MailDetailScreenState extends _MailDetailStateBase
 
     return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: withBottomInset(
+        context,
+        const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      ),
       itemCount: _thread.length + 2,
       itemBuilder: (context, index) {
         if (index == 0) {

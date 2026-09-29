@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -34,7 +36,10 @@ class SettingsScreen extends StatelessWidget {
         final accounts = AppConfig.mailRepository.accounts;
         return ListView(
           key: const Key('settings-list'),
-          padding: const EdgeInsets.symmetric(vertical: 8),
+          padding: withBottomInset(
+            context,
+            const EdgeInsets.symmetric(vertical: 8),
+          ),
           children: [
             SettingsCategoryTile(
               icon: LucideIcons.slidersHorizontal,

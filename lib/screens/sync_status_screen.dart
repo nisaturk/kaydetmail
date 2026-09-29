@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -83,7 +85,7 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
           : RefreshIndicator(
               onRefresh: _loadAll,
               child: ListView.builder(
-                padding: const EdgeInsets.all(16),
+                padding: withBottomInset(context, const EdgeInsets.all(16)),
                 itemCount: accounts.length,
                 itemBuilder: (context, index) {
                   final account = accounts[index];

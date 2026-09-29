@@ -1,3 +1,5 @@
+import '../../utils/insets.dart';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -81,7 +83,10 @@ class SettingsPage extends StatelessWidget {
         builder: (context, _) {
           final content = Column(children: sections(context));
           return ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: withBottomInset(
+              context,
+              const EdgeInsets.symmetric(vertical: 8),
+            ),
             children: [
               if (grouped)
                 SettingsGroup(title: title, icon: icon, child: content)

@@ -1,3 +1,5 @@
+import '../../utils/insets.dart';
+
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -49,7 +51,10 @@ class AccountSettingsScreen extends StatelessWidget {
         return Scaffold(
           appBar: AppBar(title: Text(account.email)),
           body: ListView(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding: withBottomInset(
+              context,
+              const EdgeInsets.symmetric(vertical: 8),
+            ),
             children: [
               _AccountHeader(account: account),
               AccountQuotaSection(accountId: accountId),
