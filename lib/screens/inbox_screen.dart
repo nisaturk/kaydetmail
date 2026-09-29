@@ -9,6 +9,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
+import '../models/mail_list_view.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../services/home_widget_service.dart';
@@ -19,6 +20,7 @@ import '../utils/error_messages.dart';
 import '../utils/mail_threads.dart';
 import '../utils/mail_ordering.dart';
 import '../widgets/mail_list_item.dart';
+import '../widgets/mail_list_view_bar.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
 import 'compose_screen.dart';
@@ -173,6 +175,8 @@ class _InboxScreenState extends State<InboxScreen>
   MailRepository get _repo => AppConfig.mailRepository;
 
   final ScrollController _scrollController = ScrollController();
+  MailListFilter _filter = MailListFilter.all;
+  MailListSort _sort = MailListSort.newest;
   bool _initialLoading = true;
   bool _loadingMore = false;
   Object? _error;
@@ -331,9 +335,9 @@ class _InboxScreenState extends State<InboxScreen>
         );
       } catch (error) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text(friendlyErrorMessage(error))),
-          );
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
         }
       }
       return;
@@ -470,10 +474,10 @@ class _InboxScreenState extends State<InboxScreen>
     final customIds = custom == null
         ? const <String>[]
         : _repo
-            .cachedCustomFolderMails(custom.accountId, custom.folderId)
-            .where((mail) => ids.contains(mail.id))
-            .map((mail) => mail.id)
-            .toList();
+              .cachedCustomFolderMails(custom.accountId, custom.folderId)
+              .where((mail) => ids.contains(mail.id))
+              .map((mail) => mail.id)
+              .toList();
     final previousFolders = previousFoldersOf(_repo, ids)
       ..removeWhere((id, _) => customIds.contains(id));
     final undoKey = _dismissKey(representative);
@@ -523,11 +527,13 @@ class _InboxScreenState extends State<InboxScreen>
             label: 'Geri al',
             onPressed: () {
               if (custom != null && customIds.isNotEmpty) {
-                unawaited(_repo.moveToCustomFolder(
-                  customIds,
-                  accountId: custom.accountId,
-                  folderId: custom.folderId,
-                ));
+                unawaited(
+                  _repo.moveToCustomFolder(
+                    customIds,
+                    accountId: custom.accountId,
+                    folderId: custom.folderId,
+                  ),
+                );
               }
               restorePreviousFolders(_repo, previousFolders);
               if (mounted) setState(() => _dismissed.remove(undoKey));
@@ -555,7 +561,10 @@ class _InboxScreenState extends State<InboxScreen>
         final emails = custom == null
             ? _repo.getEmailsInFolder(widget.folder)
             : pinnedFirst(
-                _repo.cachedCustomFolderMails(custom.accountId, custom.folderId),
+                _repo.cachedCustomFolderMails(
+                  custom.accountId,
+                  custom.folderId,
+                ),
               );
 
         if (_error != null) {
@@ -568,9 +577,12 @@ class _InboxScreenState extends State<InboxScreen>
         // One row per conversation: emails sharing a threadId collapse into a
         // single representative row (newest of the group wins). Swiped rows
         // stay hidden until the repository confirms the move.
-        final grouped = _groupByThread(emails)
-            .where((e) => !_dismissed.contains(_dismissKey(e)))
-            .toList();
+        final grouped = sortMailList(
+          _groupByThread(applyMailListFilter(emails, _filter))
+              .where((e) => !_dismissed.contains(_dismissKey(e)))
+              .toList(),
+          _sort,
+        );
         widget.selection.syncVisibleIds(grouped.map((e) => e.id).toList());
 
         final threadCounts = _threadCounts();
@@ -585,9 +597,21 @@ class _InboxScreenState extends State<InboxScreen>
         final labelsById = {for (final l in _repo.getLabels()) l.id: l};
 
         if (grouped.isEmpty) {
-          return RefreshIndicator(
-            onRefresh: _refresh,
-            child: _EmptyScrollable(folder: widget.folder, onRefresh: _refresh),
+          if (_filter != MailListFilter.all) {
+            return _withViewBar(
+              _NoMatches(
+                onClear: () => setState(() => _filter = MailListFilter.all),
+              ),
+            );
+          }
+          return _withViewBar(
+            RefreshIndicator(
+              onRefresh: _refresh,
+              child: _EmptyScrollable(
+                folder: widget.folder,
+                onRefresh: _refresh,
+              ),
+            ),
           );
         }
 
@@ -597,132 +621,148 @@ class _InboxScreenState extends State<InboxScreen>
         final colors = AppTheme.colors(context);
         final showFooter = _loadingMore || _loadMoreError != null;
         final itemCount = grouped.length + (showFooter ? 1 : 0);
-        return RefreshIndicator(
-          onRefresh: _refresh,
-          child: ListView.separated(
-            key: PageStorageKey(custom?.folderId ?? widget.folder),
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(),
-            itemCount: itemCount,
-            separatorBuilder: (_, _) =>
-                const Divider(indent: 64, endIndent: 16),
-            itemBuilder: (context, index) {
-              if (index == grouped.length) {
-                if (_loadMoreError != null) {
-                  return Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 8),
+        return _withViewBar(
+          RefreshIndicator(
+            onRefresh: _refresh,
+            child: ListView.separated(
+              key: PageStorageKey(custom?.folderId ?? widget.folder),
+              controller: _scrollController,
+              physics: const AlwaysScrollableScrollPhysics(),
+              itemCount: itemCount,
+              separatorBuilder: (_, _) =>
+                  const Divider(indent: 64, endIndent: 16),
+              itemBuilder: (context, index) {
+                if (index == grouped.length) {
+                  if (_loadMoreError != null) {
+                    return Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      child: Center(
+                        child: TextButton.icon(
+                          onPressed: _loadMore,
+                          icon: const Icon(LucideIcons.refreshCw, size: 18),
+                          label: const Text('Daha fazlasını tekrar yükle'),
+                        ),
+                      ),
+                    );
+                  }
+                  return const Padding(
+                    padding: EdgeInsets.symmetric(vertical: 16),
                     child: Center(
-                      child: TextButton.icon(
-                        onPressed: _loadMore,
-                        icon: const Icon(LucideIcons.refreshCw, size: 18),
-                        label: const Text('Daha fazlasını tekrar yükle'),
+                      child: SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(strokeWidth: 2.4),
                       ),
                     ),
                   );
                 }
-                return const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 16),
-                  child: Center(
-                    child: SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2.4),
-                    ),
+                final email = grouped[index];
+                final row = MailListItem(
+                  key: ValueKey(email.id),
+                  email: email,
+                  selected:
+                      widget.selection.isActive &&
+                      widget.selection.selectedIds.contains(email.id),
+                  accountLabel: showAccount
+                      ? accountEmail[email.accountId]
+                      : null,
+                  labels: [
+                    for (final id in email.labelIds)
+                      if (labelsById[id] != null) labelsById[id]!,
+                  ],
+                  threadCount: max(
+                    threadCounts[email.threadId] ?? 0,
+                    _repo.serverThreadSize(email.threadId),
                   ),
+                  onTap: () => _onMailTap(email),
+                  onLongPress: () => widget.selection.toggle(email.id),
                 );
-              }
-              final email = grouped[index];
-              final row = MailListItem(
-                key: ValueKey(email.id),
-                email: email,
-                selected:
-                    widget.selection.isActive &&
-                    widget.selection.selectedIds.contains(email.id),
-                accountLabel: showAccount
-                    ? accountEmail[email.accountId]
-                    : null,
-                labels: [
-                  for (final id in email.labelIds)
-                    if (labelsById[id] != null) labelsById[id]!,
-                ],
-                threadCount: max(
-                  threadCounts[email.threadId] ?? 0,
-                  _repo.serverThreadSize(email.threadId),
-                ),
-                onTap: () => _onMailTap(email),
-                onLongPress: () => widget.selection.toggle(email.id),
-              );
 
-              final dismissKey = _dismissKey(email);
-              final canSwipe =
-                  swipeEnabled &&
-                  !widget.selection.isActive &&
-                  !_moving.contains(dismissKey);
-              final hasStart = canSwipe && startAction != _SwipeAction.none;
-              final hasEnd = canSwipe && endAction != _SwipeAction.none;
-              final direction = hasStart && hasEnd
-                  ? DismissDirection.horizontal
-                  : hasStart
-                  ? DismissDirection.startToEnd
-                  : hasEnd
-                  ? DismissDirection.endToStart
-                  : DismissDirection.none;
+                final dismissKey = _dismissKey(email);
+                final canSwipe =
+                    swipeEnabled &&
+                    !widget.selection.isActive &&
+                    !_moving.contains(dismissKey);
+                final hasStart = canSwipe && startAction != _SwipeAction.none;
+                final hasEnd = canSwipe && endAction != _SwipeAction.none;
+                final direction = hasStart && hasEnd
+                    ? DismissDirection.horizontal
+                    : hasStart
+                    ? DismissDirection.startToEnd
+                    : hasEnd
+                    ? DismissDirection.endToStart
+                    : DismissDirection.none;
 
-              Widget dismissible = Dismissible(
-                key: ValueKey('dismiss-$dismissKey'),
-                direction: direction,
-                confirmDismiss: (swipeDirection) async {
-                  await _swipeMove(
-                    email,
-                    swipeDirection == DismissDirection.startToEnd
-                        ? startAction
-                        : endAction,
+                Widget dismissible = Dismissible(
+                  key: ValueKey('dismiss-$dismissKey'),
+                  direction: direction,
+                  confirmDismiss: (swipeDirection) async {
+                    await _swipeMove(
+                      email,
+                      swipeDirection == DismissDirection.startToEnd
+                          ? startAction
+                          : endAction,
+                    );
+                    return false;
+                  },
+                  background: _SwipeBackground(
+                    action: startAction,
+                    colors: colors,
+                    alignStart: true,
+                  ),
+                  secondaryBackground: _SwipeBackground(
+                    action: endAction,
+                    colors: colors,
+                    alignStart: false,
+                  ),
+                  child: row,
+                );
+
+                // Screen readers can't swipe, so every folder-contextual swipe
+                // action also gets a matching custom semantics action —
+                // reachable from the accessibility actions rotor instead of a
+                // gesture (audit: "swipe aksiyonlarının erişilebilir
+                // alternatifi görünür değil").
+                final customActions = <CustomSemanticsAction, VoidCallback>{
+                  if (startAction != _SwipeAction.none)
+                    CustomSemanticsAction(
+                      label: _swipeActionMeta(startAction).label,
+                    ): () =>
+                        _swipeMove(email, startAction),
+                  if (endAction != _SwipeAction.none)
+                    CustomSemanticsAction(
+                      label: _swipeActionMeta(endAction).label,
+                    ): () =>
+                        _swipeMove(email, endAction),
+                };
+                if (customActions.isNotEmpty) {
+                  dismissible = Semantics(
+                    customSemanticsActions: customActions,
+                    child: dismissible,
                   );
-                  return false;
-                },
-                background: _SwipeBackground(
-                  action: startAction,
-                  colors: colors,
-                  alignStart: true,
-                ),
-                secondaryBackground: _SwipeBackground(
-                  action: endAction,
-                  colors: colors,
-                  alignStart: false,
-                ),
-                child: row,
-              );
-
-              // Screen readers can't swipe, so every folder-contextual swipe
-              // action also gets a matching custom semantics action —
-              // reachable from the accessibility actions rotor instead of a
-              // gesture (audit: "swipe aksiyonlarının erişilebilir
-              // alternatifi görünür değil").
-              final customActions = <CustomSemanticsAction, VoidCallback>{
-                if (startAction != _SwipeAction.none)
-                  CustomSemanticsAction(
-                    label: _swipeActionMeta(startAction).label,
-                  ): () =>
-                      _swipeMove(email, startAction),
-                if (endAction != _SwipeAction.none)
-                  CustomSemanticsAction(
-                    label: _swipeActionMeta(endAction).label,
-                  ): () =>
-                      _swipeMove(email, endAction),
-              };
-              if (customActions.isNotEmpty) {
-                dismissible = Semantics(
-                  customSemanticsActions: customActions,
-                  child: dismissible,
-                );
-              }
-              return dismissible;
-            },
+                }
+                return dismissible;
+              },
+            ),
           ),
         );
       },
     );
   }
+
+  /// Filter chips and sort menu on top of [body]. Both are per-screen
+  /// (per folder) session state: switching folders starts from "all, newest".
+  Widget _withViewBar(Widget body) => Column(
+    children: [
+      MailListViewBar(
+        filter: _filter,
+        sort: _sort,
+        onFilterChanged: (value) => setState(() => _filter = value),
+        onSortChanged: (value) => setState(() => _sort = value),
+      ),
+      Expanded(child: body),
+    ],
+  );
 
   /// Drops every mail whose thread already appeared earlier in the (newest
   /// first) list, so a conversation occupies exactly one row. The
@@ -894,6 +934,30 @@ class _SkeletonRow extends StatelessWidget {
 
 /// Scrollable wrapper around the empty state so pull-to-refresh keeps working
 /// even when the folder has no mails (and short lists stay pullable).
+class _NoMatches extends StatelessWidget {
+  const _NoMatches({required this.onClear});
+
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Text('Bu filtreyle eşleşen posta yok'),
+          const SizedBox(height: 8),
+          TextButton(
+            key: const Key('mail-filter-clear'),
+            onPressed: onClear,
+            child: const Text('Filtreyi temizle'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _EmptyScrollable extends StatelessWidget {
   const _EmptyScrollable({required this.folder, required this.onRefresh});
 
