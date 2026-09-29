@@ -160,4 +160,14 @@ class AccountSession {
       }
     }
   }
+
+  /// The active snooze deadline for [mailId], or null when it isn't snoozed
+  /// or the snooze already elapsed (elapsed entries stay in storage, inert,
+  /// and are pruned lazily on the next write).
+  DateTime? activeSnoozeDeadline(String mailId) {
+    final ms = snoozedUntil[mailId];
+    if (ms == null) return null;
+    final until = DateTime.fromMillisecondsSinceEpoch(ms);
+    return until.isAfter(DateTime.now()) ? until : null;
+  }
 }

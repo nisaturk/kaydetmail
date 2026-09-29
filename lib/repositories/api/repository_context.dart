@@ -1,5 +1,6 @@
 import '../../models/email.dart';
 import '../../models/mail_folder.dart';
+import '../../services/local_mail_flags_store.dart';
 import '../../services/mail_cache.dart';
 import 'account_session.dart';
 import 'session_registry.dart';
@@ -32,6 +33,32 @@ abstract class RepositoryContext {
     List<String> ids,
     Email Function(Email) update,
   );
+
+  /// Refreshes the server unread counters of [session] in the background.
+  void refreshCounts(AccountSession session);
+
+  /// Re-evaluates the soonest snooze deadline the expiry timer watches.
+  void recomputeSnoozeDeadline();
+
+  /// Backend-first, cache-fallback loaders used when replay re-reads state.
+  Future<Set<String>> loadPinnedIds(
+    AccountSession session,
+    LocalMailFlagsStore store,
+  );
+  Future<Map<String, int>> loadSnoozedUntil(
+    AccountSession session,
+    LocalMailFlagsStore store,
+  );
+  Future<void> loadManualContacts(
+    AccountSession session,
+    LocalMailFlagsStore store,
+  );
+
+  /// Re-derives the label ids stamped on [ids] from the session's label map.
+  void restampLabels(AccountSession session, Iterable<String> ids);
+
+  /// Writes the session's manual contacts to the device cache.
+  Future<void> persistContacts(AccountSession session);
 
   /// Drops the memoised folder views so the next read rebuilds them.
   void touch();

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:async';
 import 'dart:math';
@@ -49,6 +48,7 @@ import 'api/contact_module.dart';
 import 'api/draft_module.dart';
 import 'api/folder_module.dart';
 import 'api/label_module.dart';
+import 'api/mail_actions_module.dart';
 import 'api/mail_buckets.dart';
 import 'api/repository_context.dart';
 import 'api/search_module.dart';
@@ -1055,7 +1055,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     _folders.applyFolderMap(session, await session.mailService.getFolders());
     _cancelReconnectRetry(session);
     session.offline = false;
-    await _replayQueuedMutations(session);
+    await _actions.replayQueuedMutations(session);
     _folders.persistFolderMap(session);
     notifyListeners();
   }
@@ -1133,332 +1133,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     _scheduleReconnectRetry(session);
   }
 
-  /// Applies a bulk action immediately in the local cache, then reconciles
-  /// per-item results with the server. Transport failures keep the optimistic
-  /// state and persist a mutation for replay; rejected items restore their
-  /// previous cache locations. Permanent `delete` is handled separately.
-  Future<List<BulkActionResult>> _bulkAndApplyOrQueue(
-    AccountSession session,
-    String operation,
-    List<String> ids,
-    void Function(List<String> succeededIds) apply, {
-    String? folderId,
-  }) async {
-    if (ids.isEmpty) return const [];
-    final snapshots = _buckets.snapshotMailLocations(session, ids);
-    apply(ids);
-    notifyListeners();
-    List<BulkActionResult> results;
-    try {
-      results = await session.mailService.bulkAction(
-        operation,
-        ids,
-        folderId: folderId,
-      );
-    } catch (error) {
-      if (_isOfflineFailure(error)) {
-        _markOffline(session);
-        final store = session.flagsStore;
-        if (store != null) {
-          try {
-            for (final id in ids) {
-              await store.queueMutation(id, operation, folderId: folderId);
-            }
-          } catch (_) {
-            _buckets.restoreMailLocations(
-              session,
-              _buckets.selectMailLocations(snapshots, ids),
-            );
-            notifyListeners();
-            rethrow;
-          }
-        }
-        return const [];
-      }
-      _buckets.restoreMailLocations(
-        session,
-        _buckets.selectMailLocations(snapshots, ids),
-      );
-      notifyListeners();
-      rethrow;
-    }
-    final successfulIds = results
-        .where((result) => result.success)
-        .map((result) => result.mailId)
-        .toSet();
-    final failedSnapshots = _buckets.selectMailLocations(
-      snapshots,
-      ids.where((id) => !successfulIds.contains(id)),
-    );
-    if (failedSnapshots.isNotEmpty) {
-      _buckets.restoreMailLocations(session, failedSnapshots);
-      notifyListeners();
-    }
-    final store = session.flagsStore;
-    if (store != null) {
-      final category = mutationCategoryFor(operation);
-      for (final id in successfulIds) {
-        await store.clearQueuedMutation(id, category);
-      }
-    }
-    unawaited(_refreshCountsFor(session));
-    return results;
-  }
-
-  void _throwForFailedBulkResults(
-    Iterable<Iterable<BulkActionResult>> accountResults,
-  ) {
-    final failure = accountResults
-        .expand((results) => results)
-        .where((result) => !result.success)
-        .firstOrNull;
-    if (failure != null) {
-      throw ApiException(
-        status: 0,
-        code: failure.code ?? 'mail_operation_failed',
-      );
-    }
-  }
-
-  /// Replays queued mail, pin/snooze/label and manual contact mutations.
-  /// Transport failures remain queued for the next reconnect. Server
-  /// rejections are dropped and surfaced through [offlineMutationConflicts];
-  /// backend-owned state is re-read to replace rejected optimistic changes.
-  /// Mail changes in the same category and contact changes for the same id
-  /// collapse at queue time (see `LocalMailFlagsStore.queueMutation`).
-  Future<void> _replayQueuedMutations(AccountSession session) async {
-    final store = session.flagsStore;
-    if (store == null) return;
-    final all = await store.readQueuedMutations();
-    if (all.isEmpty) return;
-    final contacts = [
-      for (final m in all)
-        if (_contactOperations.contains(m.operation)) m,
-    ];
-    if (contacts.isNotEmpty) {
-      await _replayManualContacts(session, store, contacts);
-    }
-    final queued = [
-      for (final m in all)
-        if (!_appStateOperations.contains(m.operation) &&
-            !_contactOperations.contains(m.operation))
-          m,
-    ];
-    final appState = [
-      for (final m in all)
-        if (_appStateOperations.contains(m.operation)) m,
-    ];
-    if (queued.isEmpty) {
-      if (appState.isNotEmpty) await _replayAppState(session, store, appState);
-      return;
-    }
-    final byOp = <(String, String?), List<QueuedMutation>>{};
-    for (final mutation in queued) {
-      byOp
-          .putIfAbsent((mutation.operation, mutation.folderId), () => [])
-          .add(mutation);
-    }
-    var changed = false;
-    for (final entry in byOp.entries) {
-      final (operation, folderId) = entry.key;
-      final ids = [for (final m in entry.value) m.mailId];
-      final category = mutationCategoryFor(operation, folderId);
-      List<BulkActionResult> results;
-      try {
-        results = await session.mailService.bulkAction(
-          operation,
-          ids,
-          folderId: folderId,
-        );
-      } catch (_) {
-        continue; // Still offline; the next reconnect retries.
-      }
-      final restored = <String>[];
-      for (final r in results) {
-        if (r.success) {
-          await store.clearQueuedMutation(r.mailId, category);
-          changed = true;
-          if (operation == 'restore') restored.add(r.mailId);
-        } else if (r.code == 'mail_operation_conflict' ||
-            r.code == 'mailbox_changed' ||
-            r.code == 'mail_not_found') {
-          await store.clearQueuedMutation(r.mailId, category);
-          session.mutationConflicts.add(r.mailId);
-          changed = true;
-        }
-        // Any other failure (e.g. reauthentication needed) stays queued.
-      }
-      // The offline placeholder filed a queued restore into Inbox (see
-      // `moveToFolder`) — now that the server confirmed it, correct it to
-      // wherever it actually came from, same as the online restore path.
-      if (restored.isNotEmpty) await _fileRestored(session, restored);
-    }
-    if (changed) notifyListeners();
-    if (appState.isNotEmpty) await _replayAppState(session, store, appState);
-  }
-
-  static const _appStateOperations = {
-    'pin',
-    'unpin',
-    'snooze',
-    'unsnooze',
-    'label_add',
-    'label_remove',
-  };
-
-  /// Replays queued pin/snooze/label changes. A still-unreachable backend
-  /// leaves them queued; a server rejection (e.g. pin cap reached on another
-  /// device) drops the mutation and surfaces it via [offlineMutationConflicts].
-  /// Once nothing of that kind is left queued, pins, snoozes and label
-  /// assignments are re-read from the backend so the local cache matches the
-  /// authoritative state.
-  Future<void> _replayAppState(
-    AccountSession session,
-    LocalMailFlagsStore store,
-    List<QueuedMutation> queued,
-  ) async {
-    var stillQueued = false;
-    final groups = <(String, String?), List<String>>{};
-    for (final m in queued) {
-      final key = m.operation.contains('snooze')
-          ? (m.operation, '${m.mailId}\u0000${m.folderId ?? ''}')
-          : (m.operation, m.folderId);
-      groups.putIfAbsent(key, () => []).add(m.mailId);
-    }
-    for (final MapEntry(key: (operation, argument), value: ids)
-        in groups.entries) {
-      Future<void> drop(Iterable<String> mailIds) async {
-        for (final id in mailIds) {
-          await store.clearQueuedMutation(
-            id,
-            mutationCategoryFor(
-              operation,
-              operation.startsWith('label') ? argument : null,
-            ),
-          );
-          session.mutationConflicts.add(id);
-        }
-      }
-
-      try {
-        switch (operation) {
-          case 'pin' || 'unpin':
-            final results = await session.mailService.setPinned(
-              ids,
-              operation == 'pin',
-            );
-            for (final r in results) {
-              if (r.success) {
-                await store.clearQueuedMutation(r.mailId, 'pin_state');
-              } else {
-                await drop([r.mailId]);
-              }
-            }
-          case 'snooze':
-            final until = DateTime.parse(argument!.split('\u0000').last);
-            await session.mailService.setSnooze(ids.single, until);
-            await store.clearQueuedMutation(ids.single, 'snooze_state');
-          case 'unsnooze':
-            await session.mailService.clearSnooze(ids.single);
-            await store.clearQueuedMutation(ids.single, 'snooze_state');
-          case 'label_add' || 'label_remove':
-            operation == 'label_add'
-                ? await session.mailService.assignLabels(ids, [argument!])
-                : await session.mailService.unassignLabels(ids, [argument!]);
-            for (final id in ids) {
-              await store.clearQueuedMutation(
-                id,
-                mutationCategoryFor(operation, argument),
-              );
-            }
-        }
-      } catch (error) {
-        if (_isOfflineFailure(error)) {
-          stillQueued = true;
-        } else if (error is ApiException) {
-          await drop(ids);
-        } else {
-          stillQueued = true;
-        }
-      }
-    }
-    if (stillQueued) return;
-    session.pinnedIds = await _loadPinnedIds(session, store);
-    session.snoozedUntil = await _loadSnoozedUntil(session, store);
-    try {
-      session.labelMap = await session.mailService.getLabelAssignments();
-      await store.writeLabelMap(session.labelMap);
-    } catch (_) {}
-    _recomputeWatchedSnoozeDeadline();
-    _buckets.restampFlags(session);
-    _labels.restamp(session, [
-      for (final list in session.emails.values)
-        for (final e in list) e.id,
-    ]);
-    notifyListeners();
-  }
-
-  static const _contactOperations = {
-    'contact_create',
-    'contact_update',
-    'contact_delete',
-  };
-
-  Future<void> _replayManualContacts(
-    AccountSession session,
-    LocalMailFlagsStore store,
-    List<QueuedMutation> queued,
-  ) async {
-    var stillQueued = false;
-    var createdContact = false;
-    for (final m in queued) {
-      final payload = m.folderId == null
-          ? null
-          : jsonDecode(m.folderId!) as Map<String, dynamic>;
-      try {
-        switch (m.operation) {
-          case 'contact_create':
-            final created = await session.mailService.createContact(
-              payload!['email'] as String,
-              payload['displayName'] as String?,
-            );
-            session.manualContacts = [
-              for (final c in session.manualContacts)
-                c.id == m.mailId
-                    ? ManualContact(
-                        id: created['id'] as String,
-                        accountId: c.accountId,
-                        email: c.email,
-                        displayName: c.displayName,
-                      )
-                    : c,
-            ];
-            createdContact = true;
-          case 'contact_update':
-            await session.mailService.updateContact(
-              m.mailId,
-              payload!['email'] as String,
-              payload['displayName'] as String?,
-            );
-          case 'contact_delete':
-            await session.mailService.deleteContact(m.mailId);
-        }
-        await store.clearQueuedMutation(m.mailId, 'contact');
-      } catch (error) {
-        if (error is ApiException && !_isOfflineFailure(error)) {
-          await store.clearQueuedMutation(m.mailId, 'contact');
-          session.mutationConflicts.add(m.mailId);
-        } else {
-          stillQueued = true;
-        }
-      }
-    }
-    if (createdContact || stillQueued) await _contacts.persist(session);
-    if (stillQueued) return;
-    await _loadManualContacts(session, store);
-    notifyListeners();
-  }
-
   Iterable<AccountSession> get _scopedSessions => _registry.scoped;
   AccountSession get _primarySession => _registry.primary;
   AccountSession? _sessionOwning(String id) => _registry.owning(id);
@@ -1491,7 +1165,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
       final pairs = [
         for (final s in sessions)
           for (final e in s.emails.values.expand((list) => list))
-            if (_snoozedUntil(s, e.id) case final until?)
+            if (s.activeSnoozeDeadline(e.id) case final until?)
               (email: e, until: until),
       ];
       pairs.sort((a, b) => b.email.timestamp.compareTo(a.email.timestamp));
@@ -1506,27 +1180,17 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
                   .where(
                     (e) =>
                         (folder != MailFolder.starred || e.isStarred) &&
-                        _snoozedUntil(s, e.id) == null,
+                        s.activeSnoozeDeadline(e.id) == null,
                   ),
           ]
         : [
             for (final s in sessions)
               ...(s.emails[folder] ?? const <Email>[]).where(
-                (e) => _snoozedUntil(s, e.id) == null,
+                (e) => s.activeSnoozeDeadline(e.id) == null,
               ),
           ];
     result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
     return List.unmodifiable(pinnedFirst(result));
-  }
-
-  /// The active snooze deadline for [mailId] in [session], or null when it
-  /// isn't snoozed or the snooze already elapsed (elapsed entries are left
-  /// in storage — they're simply inert — and pruned lazily on next write).
-  DateTime? _snoozedUntil(AccountSession session, String mailId) {
-    final ms = session.snoozedUntil[mailId];
-    if (ms == null) return null;
-    final until = DateTime.fromMillisecondsSinceEpoch(ms);
-    return until.isAfter(DateTime.now()) ? until : null;
   }
 
   Iterable<Email> _allCachedEmails(AccountSession session) sync* {
@@ -1639,7 +1303,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     session.lastSynced[folder] = DateTime.now();
     _cancelReconnectRetry(session);
     session.offline = false;
-    await _replayQueuedMutations(session);
+    await _actions.replayQueuedMutations(session);
     notifyListeners();
     unawaited(_attachmentAutoDownloader.preloadListed(this, fresh));
     return List.unmodifiable(fresh);
@@ -1678,7 +1342,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     };
     _cancelReconnectRetry(session);
     session.offline = false;
-    await _replayQueuedMutations(session);
+    await _actions.replayQueuedMutations(session);
     final refreshed = [
       for (final e in result.items)
         // List items carry no body or star state; keep what we already know.
@@ -2551,6 +2215,88 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     Map<String, MailLocationSnapshot> snapshots,
   ) => _buckets.restoreMailLocations(session, snapshots);
 
+  late final MailActionsModule _actions = MailActionsModule(this, _buckets);
+
+  @override
+  Future<void> moveToTrash(List<String> ids) => _actions.moveToTrash(ids);
+
+  @override
+  Future<void> deletePermanently(List<String> ids) =>
+      _actions.deletePermanently(ids);
+
+  @override
+  Future<void> moveToFolder(List<String> ids, MailFolder folder) =>
+      _actions.moveToFolder(ids, folder);
+
+  @override
+  Future<void> markAsRead(List<String> ids) => _actions.markAsRead(ids);
+
+  @override
+  Future<void> markAsUnread(List<String> ids) => _actions.markAsUnread(ids);
+
+  @override
+  List<String> get offlineMutationConflicts =>
+      _actions.offlineMutationConflicts;
+
+  @override
+  void dismissMutationConflict(String id) =>
+      _actions.dismissMutationConflict(id);
+
+  @override
+  Future<void> setPinned(List<String> ids, bool pinned) =>
+      _actions.setPinned(ids, pinned);
+
+  @override
+  Future<void> setStarred(List<String> ids, bool starred) =>
+      _actions.setStarred(ids, starred);
+
+  @override
+  Future<void> markAsReplied(List<String> ids) => _actions.markAsReplied(ids);
+
+  @override
+  Future<void> markAsForwarded(List<String> ids) =>
+      _actions.markAsForwarded(ids);
+
+  @override
+  Future<void> setSnoozed(List<String> ids, DateTime? until) =>
+      _actions.setSnoozed(ids, until);
+
+  @override
+  DateTime? snoozedUntilOf(String mailId) => _actions.snoozedUntilOf(mailId);
+
+  @override
+  void refreshCounts(AccountSession session) =>
+      unawaited(_refreshCountsFor(session));
+
+  @override
+  void recomputeSnoozeDeadline() => _recomputeWatchedSnoozeDeadline();
+
+  @override
+  Future<Set<String>> loadPinnedIds(
+    AccountSession session,
+    LocalMailFlagsStore store,
+  ) => _loadPinnedIds(session, store);
+
+  @override
+  Future<Map<String, int>> loadSnoozedUntil(
+    AccountSession session,
+    LocalMailFlagsStore store,
+  ) => _loadSnoozedUntil(session, store);
+
+  @override
+  Future<void> loadManualContacts(
+    AccountSession session,
+    LocalMailFlagsStore store,
+  ) => _loadManualContacts(session, store);
+
+  @override
+  Future<void> persistContacts(AccountSession session) =>
+      _contacts.persist(session);
+
+  @override
+  void restampLabels(AccountSession session, Iterable<String> ids) =>
+      _labels.restamp(session, ids);
+
   // --- Account-owned data, delegated to focused modules --------------------
 
   late final SignatureModule _signatures = SignatureModule(
@@ -2785,7 +2531,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   }) async {
     if (ids.isEmpty) return;
     final session = _sessionForAccountId(accountId);
-    final results = await _bulkAndApplyOrQueue(session, 'move', ids, (
+    final results = await _actions.bulkAndApplyOrQueue(session, 'move', ids, (
       succeeded,
     ) {
       _buckets.removeMany(session, succeeded);
@@ -2878,495 +2624,5 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     final store = _sessions[accountId]?.flagsStore;
     if (store == null) return 0;
     return (await store.readQueuedMutations()).length;
-  }
-
-  @override
-  Future<void> moveToTrash(List<String> ids) async {
-    final results = await Future.wait(
-      _groupBySession(ids).entries.map(
-        (entry) => _bulkAndApplyOrQueue(
-          entry.key,
-          'trash',
-          entry.value,
-          (succeeded) =>
-              _buckets.moveMany(entry.key, succeeded, MailFolder.trash),
-        ),
-      ),
-    );
-    final failure = results
-        .expand((perAccount) => perAccount)
-        .where((result) => !result.success)
-        .firstOrNull;
-    if (failure != null) {
-      throw ApiException(
-        status: 0,
-        code: failure.code ?? 'mail_operation_failed',
-      );
-    }
-  }
-
-  /// Expunge is irreversible: retain cached messages until server confirmation.
-  @override
-  Future<void> deletePermanently(List<String> ids) async {
-    final failures = <String>[];
-    await Future.wait(
-      _groupBySession(ids).entries.map((entry) async {
-        final session = entry.key;
-        final results = await session.mailService.bulkAction(
-          'delete',
-          entry.value,
-        );
-        final successfulIds = results
-            .where((result) => result.success)
-            .map((result) => result.mailId)
-            .toList();
-        if (successfulIds.isNotEmpty) {
-          _buckets.removeMany(session, successfulIds);
-          notifyListeners();
-        }
-        failures.addAll([
-          for (final result in results)
-            if (!result.success) result.code ?? 'mail_operation_failed',
-        ]);
-        unawaited(_refreshCountsFor(session));
-      }),
-    );
-    if (failures.isNotEmpty) {
-      throw ApiException(status: 0, code: failures.first);
-    }
-  }
-
-  /// Mails currently in Trash/Spam go back through bulk `restore` (the only
-  /// action that reverses those two); everything else moves via the bulk
-  /// `move`/`archive` actions. Both branches can run per account when [ids]
-  /// mixes trashed and non-trashed mails across multiple connected accounts.
-  ///
-  /// `restore`'s true target folder is only known once the server responds
-  /// (a restored draft goes back to Drafts, not Inbox — see
-  /// [_fileRestored]), so it cannot share [_bulkAndApplyOrQueue]'s generic
-  /// "apply this same local effect online or offline" contract: offline, it
-  /// queues the mutation and files the mail into Inbox as a placeholder;
-  /// [_replayQueuedMutations] calls [_fileRestored] once the real answer is
-  /// known, exactly like the immediate-online path below does.
-  @override
-  Future<void> moveToFolder(List<String> ids, MailFolder folder) async {
-    if (ids.isEmpty) return;
-    for (final entry in _groupBySession(ids).entries) {
-      final session = entry.key;
-      final folderId = session.folderIds[folder];
-      if (folderId == null) {
-        throw ArgumentError('Unknown target folder for this account: $folder');
-      }
-      final idsForSession = entry.value;
-      final restoring = _buckets.idsInTrashOrSpam(session, idsForSession);
-      if (restoring.isNotEmpty) {
-        final snapshots = _buckets.snapshotMailLocations(session, restoring);
-        _buckets.moveMany(session, restoring, MailFolder.inbox);
-        notifyListeners();
-        List<BulkActionResult>? results;
-        try {
-          results = await session.mailService.bulkAction('restore', restoring);
-        } catch (error) {
-          if (!_isOfflineFailure(error)) {
-            _buckets.restoreMailLocations(session, snapshots);
-            notifyListeners();
-            rethrow;
-          }
-          _markOffline(session);
-          final store = session.flagsStore;
-          if (store != null) {
-            try {
-              for (final id in restoring) {
-                await store.queueMutation(id, 'restore');
-              }
-            } catch (_) {
-              _buckets.restoreMailLocations(session, snapshots);
-              notifyListeners();
-              rethrow;
-            }
-          }
-        }
-        if (results != null) {
-          final restored = results
-              .where((result) => result.success)
-              .map((result) => result.mailId)
-              .toList();
-          final failedSnapshots = _buckets.selectMailLocations(
-            snapshots,
-            restoring.where((id) => !restored.contains(id)),
-          );
-          if (failedSnapshots.isNotEmpty) {
-            _buckets.restoreMailLocations(session, failedSnapshots);
-            notifyListeners();
-          }
-          final store = session.flagsStore;
-          if (store != null) {
-            for (final id in restored) {
-              await store.clearQueuedMutation(id, 'location');
-            }
-          }
-          await _fileRestored(session, restored);
-          _throwForFailedBulkResults([results]);
-        }
-      }
-
-      final rest = idsForSession
-          .where((id) => !restoring.contains(id))
-          .toList();
-      if (rest.isNotEmpty) {
-        final results = await _bulkAndApplyOrQueue(
-          session,
-          folder == MailFolder.archive ? 'archive' : 'move',
-          rest,
-          (succeeded) => _buckets.moveMany(session, succeeded, folder),
-          folderId: folder == MailFolder.archive ? null : folderId,
-        );
-        _throwForFailedBulkResults([results]);
-      }
-    }
-  }
-
-  /// `restore` sends each mail back to the folder it was trashed/spammed
-  /// from, which only the server tracks — the target a caller passes to
-  /// [moveToFolder] says nothing about where it went (a restored draft goes
-  /// back to Drafts, not Inbox). Asks the server where each mail landed and
-  /// files it there; a mail whose folder can't be determined, or that went
-  /// to a folder this client doesn't track, only leaves Trash/Spam locally
-  /// and shows up again on that folder's next load.
-  Future<void> _fileRestored(AccountSession session, List<String> ids) async {
-    if (ids.isEmpty) return;
-    final details = await Future.wait(
-      ids.map((id) async {
-        String? landedFolderId;
-        try {
-          final detail = await session.mailService.getMail(
-            id,
-            resolveFolder: (folderId) {
-              landedFolderId = folderId;
-              return session.resolveFolder(folderId);
-            },
-          );
-          final tracked = session.folderTypeById.containsKey(landedFolderId);
-          return tracked ? detail : null;
-        } catch (_) {
-          return null;
-        }
-      }),
-    );
-    for (final detail in details) {
-      if (detail == null) continue;
-      _buckets.removeMany(session, [detail.id]);
-      session.emails
-          .putIfAbsent(detail.folder, () => <Email>[])
-          .insert(0, session.stampLocalFlags(detail));
-    }
-    notifyListeners();
-  }
-
-  @override
-  Future<void> markAsRead(List<String> ids) async {
-    final results = await Future.wait(
-      _groupBySession(ids).entries.map(
-        (entry) => _bulkAndApplyOrQueue(
-          entry.key,
-          'read',
-          entry.value,
-          (affected) => _buckets.replaceMany(
-            entry.key,
-            affected,
-            (mail) => mail.copyWith(isRead: true),
-          ),
-        ),
-      ),
-    );
-    _throwForFailedBulkResults(results);
-  }
-
-  @override
-  Future<void> markAsUnread(List<String> ids) async {
-    final results = await Future.wait(
-      _groupBySession(ids).entries.map(
-        (entry) => _bulkAndApplyOrQueue(
-          entry.key,
-          'unread',
-          entry.value,
-          (affected) => _buckets.replaceMany(
-            entry.key,
-            affected,
-            (mail) => mail.copyWith(isRead: false),
-          ),
-        ),
-      ),
-    );
-    _throwForFailedBulkResults(results);
-  }
-
-  @override
-  List<String> get offlineMutationConflicts => [
-    for (final session in _scopedSessions) ...session.mutationConflicts,
-  ];
-
-  @override
-  void dismissMutationConflict(String id) {
-    for (final session in _sessions.values) {
-      if (session.mutationConflicts.remove(id)) {
-        notifyListeners();
-        return;
-      }
-    }
-  }
-
-  /// Updates pin state optimistically; the server remains authoritative and
-  /// rejected changes are rolled back before the error is returned.
-  @override
-  Future<void> setPinned(List<String> ids, bool pinned) async {
-    if (ids.isEmpty) return;
-    final accountResults = <List<BulkActionResult>>[];
-    await Future.wait(
-      _groupBySession(ids).entries.map((entry) async {
-        final session = entry.key;
-        final affected = entry.value;
-        final previous = {
-          for (final id in affected) id: session.pinnedIds.contains(id),
-        };
-        if (pinned) {
-          session.pinnedIds.addAll(affected);
-        } else {
-          session.pinnedIds.removeAll(affected);
-        }
-        _buckets.replaceMany(
-          session,
-          affected,
-          (mail) => mail.copyWith(isPinned: pinned),
-        );
-        notifyListeners();
-        List<BulkActionResult> results;
-        try {
-          results = await session.mailService.setPinned(affected, pinned);
-        } catch (error) {
-          if (!_isOfflineFailure(error)) {
-            _restorePinnedState(session, previous);
-            notifyListeners();
-            rethrow;
-          }
-          _markOffline(session);
-          try {
-            for (final id in affected) {
-              await session.flagsStore?.queueMutation(
-                id,
-                pinned ? 'pin' : 'unpin',
-              );
-            }
-          } catch (_) {
-            _restorePinnedState(session, previous);
-            notifyListeners();
-            rethrow;
-          }
-          await session.flagsStore?.writePinned(session.pinnedIds);
-          return;
-        }
-        accountResults.add(results);
-        final successful = results
-            .where((result) => result.success)
-            .map((result) => result.mailId)
-            .toSet();
-        final rejected = {
-          for (final id in affected)
-            if (!successful.contains(id)) id: previous[id]!,
-        };
-        if (rejected.isNotEmpty) {
-          _restorePinnedState(session, rejected);
-          notifyListeners();
-        }
-        for (final id in successful) {
-          await session.flagsStore?.clearQueuedMutation(id, 'pin_state');
-        }
-        await session.flagsStore?.writePinned(session.pinnedIds);
-      }),
-    );
-    _throwForFailedBulkResults(accountResults);
-  }
-
-  void _restorePinnedState(AccountSession session, Map<String, bool> previous) {
-    for (final entry in previous.entries) {
-      if (entry.value) {
-        session.pinnedIds.add(entry.key);
-      } else {
-        session.pinnedIds.remove(entry.key);
-      }
-    }
-    _buckets.replaceMany(
-      session,
-      previous.keys,
-      (mail) => mail.copyWith(isPinned: previous[mail.id] ?? false),
-    );
-  }
-
-  @override
-  Future<void> setStarred(List<String> ids, bool starred) async {
-    final results = await Future.wait(
-      _groupBySession(ids).entries.map((entry) {
-        final session = entry.key;
-        return _bulkAndApplyOrQueue(
-          session,
-          starred ? 'star' : 'unstar',
-          entry.value,
-          (affected) {
-            starred
-                ? session.starredIds.addAll(affected)
-                : session.starredIds.removeAll(affected);
-            _buckets.replaceMany(
-              session,
-              affected,
-              (mail) => mail.copyWith(isStarred: starred),
-            );
-          },
-        );
-      }),
-    );
-    _throwForFailedBulkResults(results);
-  }
-
-  /// Records a reply successfully sent from KaydetMail. The "replied" flag
-  /// itself is local-only (see [LocalMailFlagsStore]); the resulting read
-  /// state goes through the real `read` action instead of being faked
-  /// locally.
-  @override
-  Future<void> markAsReplied(List<String> ids) async {
-    if (ids.isEmpty) return;
-    await markAsRead(ids);
-    for (final entry in _groupBySession(ids).entries) {
-      final session = entry.key;
-      final store = session.flagsStore;
-      if (store == null) continue;
-      session.repliedFromKaydetMailIds.addAll(entry.value);
-      for (final id in entry.value) {
-        final threadId = session.findLoaded(id)?.threadId;
-        if (threadId != null && threadId.isNotEmpty) {
-          session.repliedFromKaydetMailThreadIds.add(threadId);
-        }
-      }
-      await Future.wait([
-        store.writeRepliedFromKaydetMail(session.repliedFromKaydetMailIds),
-        store.writeRepliedFromKaydetMailThreads(
-          session.repliedFromKaydetMailThreadIds,
-        ),
-      ]);
-      _buckets.restampFlags(session);
-    }
-    notifyListeners();
-  }
-
-  /// Snoozing changes the virtual folder membership, so apply it immediately
-  /// and reconcile each item with the backend response. Offline writes stay
-  /// queued; rejected online writes restore their previous deadlines.
-  @override
-  Future<void> setSnoozed(List<String> ids, DateTime? until) async {
-    if (ids.isEmpty) return;
-    final errors = <Object>[];
-    await Future.wait(
-      _groupBySession(ids).entries.map((entry) async {
-        final session = entry.key;
-        final store = session.flagsStore;
-        final previous = {
-          for (final id in entry.value) id: session.snoozedUntil[id],
-        };
-        if (until == null) {
-          session.snoozedUntil.removeWhere((id, _) => entry.value.contains(id));
-        } else {
-          final deadline = until.toUtc().millisecondsSinceEpoch;
-          for (final id in entry.value) {
-            session.snoozedUntil[id] = deadline;
-          }
-        }
-        _recomputeWatchedSnoozeDeadline();
-        _touch();
-        notifyListeners();
-
-        final rejected = <String>{};
-        await Future.wait(
-          entry.value.map((id) async {
-            try {
-              if (until == null) {
-                await session.mailService.clearSnooze(id);
-              } else {
-                await session.mailService.setSnooze(id, until);
-              }
-              await store?.clearQueuedMutation(id, 'snooze_state');
-            } catch (error) {
-              if (_isOfflineFailure(error)) {
-                _markOffline(session);
-                try {
-                  await store?.queueMutation(
-                    id,
-                    until == null ? 'unsnooze' : 'snooze',
-                    folderId: until?.toUtc().toIso8601String(),
-                  );
-                  return;
-                } catch (queueError) {
-                  errors.add(queueError);
-                }
-              } else {
-                errors.add(error);
-              }
-              rejected.add(id);
-            }
-          }),
-        );
-        for (final id in rejected) {
-          final deadline = previous[id];
-          if (deadline == null) {
-            session.snoozedUntil.remove(id);
-          } else {
-            session.snoozedUntil[id] = deadline;
-          }
-        }
-        await store?.writeSnoozed(session.snoozedUntil);
-        if (rejected.isNotEmpty) {
-          _recomputeWatchedSnoozeDeadline();
-          _touch();
-          notifyListeners();
-        }
-      }),
-    );
-    if (errors.isNotEmpty) throw errors.first;
-  }
-
-  @override
-  DateTime? snoozedUntilOf(String mailId) {
-    for (final session in _scopedSessions) {
-      final until = _snoozedUntil(session, mailId);
-      if (until != null) return until;
-    }
-    return null;
-  }
-
-  /// Records a forward successfully sent from KaydetMail — same split as
-  /// [markAsReplied]: "forwarded" is local-only, the resulting read state
-  /// goes through the real `read` action.
-  @override
-  Future<void> markAsForwarded(List<String> ids) async {
-    if (ids.isEmpty) return;
-    await markAsRead(ids);
-    for (final entry in _groupBySession(ids).entries) {
-      final session = entry.key;
-      final store = session.flagsStore;
-      if (store == null) continue;
-      session.forwardedFromKaydetMailIds.addAll(entry.value);
-      for (final id in entry.value) {
-        final threadId = session.findLoaded(id)?.threadId;
-        if (threadId != null && threadId.isNotEmpty) {
-          session.forwardedFromKaydetMailThreadIds.add(threadId);
-        }
-      }
-      await Future.wait([
-        store.writeForwardedFromKaydetMail(session.forwardedFromKaydetMailIds),
-        store.writeForwardedFromKaydetMailThreads(
-          session.forwardedFromKaydetMailThreadIds,
-        ),
-      ]);
-      _buckets.restampFlags(session);
-    }
-    notifyListeners();
   }
 }
