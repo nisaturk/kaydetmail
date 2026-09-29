@@ -26,6 +26,7 @@ import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/trusted_sender.dart';
+import '../utils/mail_ordering.dart';
 import '../services/account_data_purger.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -1944,8 +1945,9 @@ class ApiMailRepository extends MailRepository {
   void _touch() => _viewCache.clear();
 
   /// [MailFolder.starred] is virtual — "Yıldızlılar" surfaces starred mail
-  /// regardless of its real folder. All mailbox views use strict newest-first
-  /// timestamp ordering, including the unified mailbox across accounts.
+  /// regardless of its real folder. Mailbox views are ordered newest-first by
+  /// timestamp (including the unified mailbox across accounts) with pinned
+  /// mail floated to the top — see [pinnedFirst].
   @override
   List<Email> getEmailsInFolder(MailFolder folder) {
     final key = 'folder:${folder.name}:${_activeAccountId ?? ''}';
@@ -1983,7 +1985,7 @@ class ApiMailRepository extends MailRepository {
               ),
           ];
     result.sort((a, b) => b.timestamp.compareTo(a.timestamp));
-    return List.unmodifiable(result);
+    return List.unmodifiable(pinnedFirst(result));
   }
 
   /// The active snooze deadline for [mailId] in [session], or null when it

@@ -1,5 +1,10 @@
 import 'package:flutter/foundation.dart';
 
+import '../utils/html_to_text.dart';
+
+/// A reusable text ("hazır metin"). Plain text only: the HTML body older
+/// templates may carry on the server is flattened to text when read
+/// ([MailTemplate.fromJson]) and cleared on the next save ([toJson]).
 @immutable
 class MailTemplate {
   const MailTemplate({
@@ -9,7 +14,6 @@ class MailTemplate {
     required this.createdAt,
     required this.updatedAt,
     this.bodyText,
-    this.bodyHtml,
     this.accountId = '',
   });
 
@@ -18,41 +22,48 @@ class MailTemplate {
   final String name;
   final String subject;
   final String? bodyText;
-  final String? bodyHtml;
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  factory MailTemplate.fromJson(Map<String, dynamic> json) => MailTemplate(
-    id: json['id'] as String,
-    name: json['name'] as String,
-    subject: json['subject'] as String? ?? '',
-    bodyText: json['bodyText'] as String?,
-    bodyHtml: json['bodyHtml'] as String?,
-    createdAt: DateTime.parse(json['createdAt'] as String),
-    updatedAt: DateTime.parse(json['updatedAt'] as String),
-  );
+  factory MailTemplate.fromJson(Map<String, dynamic> json) {
+    final text = json['bodyText'] as String?;
+    final html = json['bodyHtml'] as String?;
+    return MailTemplate(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      subject: json['subject'] as String? ?? '',
+      bodyText:
+          (text == null || text.trim().isEmpty) &&
+              html != null &&
+              html.trim().isNotEmpty
+          ? htmlToPlainText(html)
+          : text,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+    );
+  }
 
   MailTemplate copyWith({
     String? accountId,
     String? name,
     String? subject,
     String? bodyText,
-    String? bodyHtml,
   }) => MailTemplate(
     id: id,
     accountId: accountId ?? this.accountId,
     name: name ?? this.name,
     subject: subject ?? this.subject,
     bodyText: bodyText ?? this.bodyText,
-    bodyHtml: bodyHtml ?? this.bodyHtml,
     createdAt: createdAt,
     updatedAt: updatedAt,
   );
 
+  /// `bodyHtml` is sent explicitly as null so saving a legacy HTML template
+  /// replaces it on the server instead of keeping a stale HTML alternative.
   Map<String, dynamic> toJson() => {
     'name': name,
     'subject': subject,
     'bodyText': bodyText,
-    'bodyHtml': bodyHtml,
+    'bodyHtml': null,
   };
 }

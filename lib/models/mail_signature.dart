@@ -1,12 +1,16 @@
 import 'package:flutter/foundation.dart';
 
+import '../utils/html_to_text.dart';
+
+/// A reusable signature. Plain text only: the HTML body some older
+/// signatures carry on the server is flattened to text when read
+/// ([MailSignature.fromJson]) and cleared on the next save ([toJson]).
 @immutable
 class MailSignature {
   const MailSignature({
     required this.id,
     required this.name,
     required this.bodyText,
-    this.bodyHtml,
     required this.createdAt,
     required this.updatedAt,
     this.accountId = '',
@@ -16,38 +20,39 @@ class MailSignature {
   final String accountId;
   final String name;
   final String bodyText;
-  final String? bodyHtml;
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  factory MailSignature.fromJson(Map<String, dynamic> json) => MailSignature(
-    id: json['id'] as String,
-    name: json['name'] as String? ?? '',
-    bodyText: json['bodyText'] as String? ?? '',
-    bodyHtml: json['bodyHtml'] as String?,
-    createdAt: DateTime.parse(json['createdAt'] as String),
-    updatedAt: DateTime.parse(json['updatedAt'] as String),
-  );
+  factory MailSignature.fromJson(Map<String, dynamic> json) {
+    final text = json['bodyText'] as String? ?? '';
+    final html = json['bodyHtml'] as String?;
+    return MailSignature(
+      id: json['id'] as String,
+      name: json['name'] as String? ?? '',
+      bodyText: text.trim().isEmpty && html != null && html.trim().isNotEmpty
+          ? htmlToPlainText(html)
+          : text,
+      createdAt: DateTime.parse(json['createdAt'] as String),
+      updatedAt: DateTime.parse(json['updatedAt'] as String),
+    );
+  }
 
-  MailSignature copyWith({
-    String? accountId,
-    String? name,
-    String? bodyText,
-    String? bodyHtml,
-  }) => MailSignature(
-    id: id,
-    accountId: accountId ?? this.accountId,
-    name: name ?? this.name,
-    bodyText: bodyText ?? this.bodyText,
-    bodyHtml: bodyHtml ?? this.bodyHtml,
-    createdAt: createdAt,
-    updatedAt: updatedAt,
-  );
+  MailSignature copyWith({String? accountId, String? name, String? bodyText}) =>
+      MailSignature(
+        id: id,
+        accountId: accountId ?? this.accountId,
+        name: name ?? this.name,
+        bodyText: bodyText ?? this.bodyText,
+        createdAt: createdAt,
+        updatedAt: updatedAt,
+      );
 
+  /// `bodyHtml` is sent explicitly as null so saving a legacy HTML signature
+  /// replaces it on the server instead of keeping a stale HTML alternative.
   Map<String, dynamic> toJson() => {
     'name': name,
     'bodyText': bodyText,
-    'bodyHtml': bodyHtml,
+    'bodyHtml': null,
   };
 }
 

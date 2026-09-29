@@ -912,10 +912,7 @@ class _ComposeScreenState extends State<ComposeScreen> {
       _subjectController.text = template.subject;
     }
     if (!mounted) return;
-    final body = template.bodyText?.trim().isNotEmpty == true
-        ? template.bodyText!
-        : htmlToPlainText(template.bodyHtml ?? '');
-    _insertReusableText(body);
+    _insertReusableText(template.bodyText ?? '');
   }
 
   void _insertReusableText(String inserted) {

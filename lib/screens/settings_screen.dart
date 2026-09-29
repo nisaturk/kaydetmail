@@ -15,6 +15,7 @@ import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
+import '../widgets/color_picker_dialog.dart';
 import '../widgets/server_address_dialog.dart';
 import 'add_account_screen.dart';
 import 'notification_settings_screen.dart';
@@ -429,49 +430,104 @@ class _ColorPalette extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final onSurface = Theme.of(context).colorScheme.onSurface;
+    final presets = SettingsScreen.labelColors;
+    // A colour picked earlier through the custom picker is not one of the
+    // presets; keep showing (and selecting) it as its own swatch.
+    final customSelected = presets.contains(selected) ? null : selected;
+
+    Widget swatch({
+      Key? key,
+      required String label,
+      required Color? color,
+      required bool isSelected,
+      required VoidCallback onTap,
+      Widget? child,
+      Gradient? gradient,
+    }) => Semantics(
+      button: true,
+      label: label,
+      selected: isSelected,
+      child: Material(
+        color: Colors.transparent,
+        shape: const CircleBorder(),
+        child: InkWell(
+          key: key,
+          onTap: onTap,
+          customBorder: const CircleBorder(),
+          child: SizedBox(
+            width: AppTheme.minTouchTarget,
+            height: AppTheme.minTouchTarget,
+            child: Center(
+              child: Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color,
+                  gradient: gradient,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: isSelected ? onSurface : Colors.transparent,
+                    width: 2,
+                  ),
+                ),
+                child: isSelected && child == null
+                    ? const Icon(
+                        LucideIcons.check,
+                        size: 18,
+                        color: Colors.white,
+                      )
+                    : child,
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
-        for (final (i, c) in SettingsScreen.labelColors.indexed)
-          Semantics(
-            button: true,
+        for (final (i, c) in presets.indexed)
+          swatch(
             label: SettingsScreen.labelColorNames[i],
-            selected: c == selected,
-            child: Material(
-              color: Colors.transparent,
-              shape: const CircleBorder(),
-              child: InkWell(
-                onTap: () => onSelected(c),
-                customBorder: const CircleBorder(),
-                child: SizedBox(
-                  width: AppTheme.minTouchTarget,
-                  height: AppTheme.minTouchTarget,
-                  child: Center(
-                    child: Container(
-                      width: 32,
-                      height: 32,
-                      decoration: BoxDecoration(
-                        color: c,
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: c == selected ? onSurface : Colors.transparent,
-                          width: 2,
-                        ),
-                      ),
-                      child: c == selected
-                          ? const Icon(
-                              LucideIcons.check,
-                              size: 18,
-                              color: Colors.white,
-                            )
-                          : null,
-                    ),
-                  ),
-                ),
-              ),
-            ),
+            color: c,
+            isSelected: c == selected,
+            onTap: () => onSelected(c),
           ),
+        if (customSelected != null)
+          swatch(
+            key: const Key('custom-color-current'),
+            label: 'Özel renk ${colorToHex(customSelected)}',
+            color: customSelected,
+            isSelected: true,
+            onTap: () => onSelected(customSelected),
+          ),
+        swatch(
+          key: const Key('custom-color-swatch'),
+          label: 'Özel renk seç',
+          color: null,
+          isSelected: false,
+          gradient: const SweepGradient(
+            colors: [
+              Color(0xFFFF0000),
+              Color(0xFFFFFF00),
+              Color(0xFF00FF00),
+              Color(0xFF00FFFF),
+              Color(0xFF0000FF),
+              Color(0xFFFF00FF),
+              Color(0xFFFF0000),
+            ],
+          ),
+          child: const Icon(LucideIcons.pipette, size: 16, color: Colors.white),
+          onTap: () async {
+            final picked = await showColorPickerDialog(
+              context,
+              initial: selected,
+            );
+            if (picked != null) onSelected(picked);
+          },
+        ),
       ],
     );
   }
@@ -540,6 +596,14 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
           _error = e.message;
         });
       }
+    } catch (error) {
+      // Network/server failures must re-enable the form, not leave it stuck.
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _error = friendlyErrorMessage(error);
+        });
+      }
     }
   }
 
@@ -567,8 +631,17 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
     );
     if (confirmed != true || !mounted) return;
     setState(() => _submitting = true);
-    await AppConfig.mailRepository.deleteLabel(widget.label!.id);
-    if (mounted) Navigator.of(context).pop();
+    try {
+      await AppConfig.mailRepository.deleteLabel(widget.label!.id);
+      if (mounted) Navigator.of(context).pop();
+    } catch (error) {
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _error = friendlyErrorMessage(error);
+        });
+      }
+    }
   }
 
   @override

@@ -17,6 +17,7 @@ import '../state/mail_selection_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 import '../utils/mail_threads.dart';
+import '../utils/mail_ordering.dart';
 import '../widgets/mail_list_item.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
@@ -516,7 +517,9 @@ class _InboxScreenState extends State<InboxScreen>
         final custom = widget.customFolder;
         final emails = custom == null
             ? _repo.getEmailsInFolder(widget.folder)
-            : _repo.cachedCustomFolderMails(custom.accountId, custom.folderId);
+            : pinnedFirst(
+                _repo.cachedCustomFolderMails(custom.accountId, custom.folderId),
+              );
 
         if (_error != null) {
           return _ErrorState(onRetry: _init, folder: widget.folder);
