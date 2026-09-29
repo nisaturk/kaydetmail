@@ -25,6 +25,46 @@ class AppPreferencesStore {
       'kaydet.attachments.autoDownloadMode';
   static const _attachmentAutoDownloadLimitKey =
       'kaydet.attachments.autoDownloadLimit';
+  static const _cleanTrackingQueriesKey = 'kaydet.privacy.cleanTrackingQueries';
+
+  static const _customFolderOrderKeyPrefix = 'kaydet.folders.customOrder.';
+
+  static Future<List<String>> loadCustomFolderOrder(String accountId) async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getStringList(
+            '$_customFolderOrderKeyPrefix$accountId',
+          ) ??
+          const [];
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  static Future<void> saveCustomFolderOrder(
+    String accountId,
+    List<String> folderIds,
+  ) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setStringList(
+      '$_customFolderOrderKeyPrefix$accountId',
+      folderIds,
+    );
+  }
+
+  static Future<bool> loadCleanTrackingQueries() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getBool(_cleanTrackingQueriesKey) ?? true;
+    } catch (_) {
+      return true;
+    }
+  }
+
+  static Future<void> saveCleanTrackingQueries(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_cleanTrackingQueriesKey, value);
+  }
 
   static Future<bool> loadDeviceContactsEnabled() async {
     try {

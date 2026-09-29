@@ -7,6 +7,7 @@ import '../config/app_config.dart';
 import '../models/email.dart';
 import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
+import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
@@ -19,6 +20,7 @@ class _AdvancedFilters {
   const _AdvancedFilters({
     this.accountId,
     this.folder,
+    this.customFolder,
     this.from,
     this.to,
     this.fromDate,
@@ -30,6 +32,7 @@ class _AdvancedFilters {
 
   final String? accountId;
   final MailFolder? folder;
+  final MailCustomFolder? customFolder;
   final String? from;
   final String? to;
   final DateTime? fromDate;
@@ -43,6 +46,7 @@ class _AdvancedFilters {
   bool get isEmpty =>
       accountId == null &&
       folder == null &&
+      customFolder == null &&
       from == null &&
       to == null &&
       fromDate == null &&
@@ -54,6 +58,7 @@ class _AdvancedFilters {
   int get activeCount => [
     accountId,
     folder,
+    customFolder,
     from,
     to,
     fromDate,
@@ -66,6 +71,7 @@ class _AdvancedFilters {
   _AdvancedFilters copyWith({
     String? Function()? accountId,
     MailFolder? Function()? folder,
+    MailCustomFolder? Function()? customFolder,
     String? Function()? from,
     String? Function()? to,
     DateTime? Function()? fromDate,
@@ -76,6 +82,7 @@ class _AdvancedFilters {
   }) => _AdvancedFilters(
     accountId: accountId != null ? accountId() : this.accountId,
     folder: folder != null ? folder() : this.folder,
+    customFolder: customFolder != null ? customFolder() : this.customFolder,
     from: from != null ? from() : this.from,
     to: to != null ? to() : this.to,
     fromDate: fromDate != null ? fromDate() : this.fromDate,
@@ -114,6 +121,9 @@ class _SearchScreenState extends State<SearchScreen> {
   void initState() {
     super.initState();
     _loadSyncStatus();
+    _repo.refreshCustomFolders().then((_) {
+      if (mounted) setState(() {});
+    });
   }
 
   @override
@@ -141,6 +151,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _query.trim().isNotEmpty || _labelId != null || !_filters.isEmpty;
   bool get _canSearchRemote =>
       _labelId == null &&
+      _filters.hasAttachment == null &&
       (_query.trim().isNotEmpty ||
           (_filters.from?.trim().isNotEmpty ?? false) ||
           (_filters.to?.trim().isNotEmpty ?? false));
@@ -182,6 +193,7 @@ class _SearchScreenState extends State<SearchScreen> {
         query: _query.trim(),
         accountId: _filters.accountId,
         folder: _filters.folder,
+        customFolderId: _filters.customFolder?.folderId,
         from: _filters.from,
         to: _filters.to,
         fromDate: _filters.fromDate,
@@ -229,6 +241,7 @@ class _SearchScreenState extends State<SearchScreen> {
           query: _query.trim(),
           accountId: _filters.accountId,
           folder: _filters.folder,
+          customFolderId: _filters.customFolder?.folderId,
           from: _filters.from,
           to: _filters.to,
           fromDate: _filters.fromDate,
@@ -314,8 +327,11 @@ class _SearchScreenState extends State<SearchScreen> {
     final result = await showModalBottomSheet<_AdvancedFilters>(
       context: context,
       isScrollControlled: true,
-      builder: (context) =>
-          _FilterSheet(initial: _filters, accounts: _repo.accounts),
+      builder: (context) => _FilterSheet(
+        initial: _filters,
+        accounts: _repo.accounts,
+        customFolders: _repo.getCustomFolders(),
+      ),
     );
     if (result != null) _applyFilters(result);
   }
@@ -456,7 +472,9 @@ class _SearchScreenState extends State<SearchScreen> {
       openDraftEditor(context, email);
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: email.id)),
+        MaterialPageRoute(
+          builder: (_) => MailDetailScreen(emailId: email.id, seed: email),
+        ),
       );
     }
   }
@@ -566,6 +584,11 @@ class _ActiveFilterChips extends StatelessWidget {
           'Klasör: ${folder.label}',
           () => onClear(filters.copyWith(folder: () => null)),
         ),
+      if (filters.customFolder case final folder?)
+        (
+          'Klasör: ${folder.name}',
+          () => onClear(filters.copyWith(customFolder: () => null)),
+        ),
       if (filters.from case final from?)
         ('Kimden: $from', () => onClear(filters.copyWith(from: () => null))),
       if (filters.to case final to?)
@@ -613,10 +636,15 @@ class _ActiveFilterChips extends StatelessWidget {
 }
 
 class _FilterSheet extends StatefulWidget {
-  const _FilterSheet({required this.initial, required this.accounts});
+  const _FilterSheet({
+    required this.initial,
+    required this.accounts,
+    required this.customFolders,
+  });
 
   final _AdvancedFilters initial;
   final List<MailAccount> accounts;
+  final List<MailCustomFolder> customFolders;
 
   @override
   State<_FilterSheet> createState() => _FilterSheetState();
@@ -726,9 +754,13 @@ class _FilterSheetState extends State<_FilterSheet> {
                 children: [
                   ChoiceChip(
                     label: const Text('Tümü'),
-                    selected: _draft.folder == null,
+                    selected:
+                        _draft.folder == null && _draft.customFolder == null,
                     onSelected: (_) => setState(
-                      () => _draft = _draft.copyWith(folder: () => null),
+                      () => _draft = _draft.copyWith(
+                        folder: () => null,
+                        customFolder: () => null,
+                      ),
                     ),
                   ),
                   for (final folder in _folders)
@@ -736,7 +768,28 @@ class _FilterSheetState extends State<_FilterSheet> {
                       label: Text(folder.label),
                       selected: _draft.folder == folder,
                       onSelected: (_) => setState(
-                        () => _draft = _draft.copyWith(folder: () => folder),
+                        () => _draft = _draft.copyWith(
+                          folder: () => folder,
+                          customFolder: () => null,
+                        ),
+                      ),
+                    ),
+                  for (final folder in widget.customFolders.where(
+                    (folder) =>
+                        _draft.accountId == null ||
+                        folder.accountId == _draft.accountId,
+                  ))
+                    ChoiceChip(
+                      label: Text(folder.name),
+                      selected:
+                          _draft.customFolder?.accountId == folder.accountId &&
+                          _draft.customFolder?.folderId == folder.folderId,
+                      onSelected: (_) => setState(
+                        () => _draft = _draft.copyWith(
+                          accountId: () => folder.accountId,
+                          folder: () => null,
+                          customFolder: () => folder,
+                        ),
                       ),
                     ),
                 ],

@@ -224,6 +224,7 @@ class _CustomFolderMailScreenState extends State<CustomFolderMailScreen> {
                 MaterialPageRoute(
                   builder: (_) => MailDetailScreen(
                     emailId: email.id,
+                    seed: email,
                     currentCustomFolderId: widget.folderId,
                   ),
                 ),

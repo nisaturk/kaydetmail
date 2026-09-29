@@ -61,6 +61,24 @@ enum MailAccountStatus {
   };
 }
 
+/// Mailbox storage usage reported by the IMAP server's QUOTA extension.
+/// Absent (`null` on [MailAccount.quota]) when the server has no quota.
+@immutable
+class AccountQuota {
+  const AccountQuota({required this.usedBytes, required this.limitBytes});
+
+  final int usedBytes;
+  final int limitBytes;
+
+  /// Share of the limit in use, clamped to 0..1 (servers may over-report).
+  double get usedFraction =>
+      limitBytes <= 0 ? 0 : (usedBytes / limitBytes).clamp(0.0, 1.0);
+
+  /// Whole-number percentage shown next to the usage bar.
+  int get usedPercent =>
+      limitBytes <= 0 ? 0 : (usedBytes * 100 / limitBytes).round();
+}
+
 /// One connected mailbox account.
 ///
 /// Identity (`id`) comes from the backend. Whether an account is currently
@@ -74,6 +92,7 @@ class MailAccount {
     this.provider = AccountProvider.other,
     this.status = MailAccountStatus.active,
     this.signature,
+    this.quota,
   });
 
   final String id;
@@ -85,22 +104,27 @@ class MailAccount {
   /// Text appended to outgoing mail sent from this account. Synced to the
   /// backend — every device signed into this account sees the same value.
   final String? signature;
+  final AccountQuota? quota;
 
   String get label => displayName ?? email;
 
   /// `signature: null` clears it — unlike most copyWith patterns, omitting
   /// the parameter (not passing it at all) keeps the current value.
-  MailAccount copyWith({String? displayName, Object? signature = _unset}) =>
-      MailAccount(
-        id: id,
-        email: email,
-        displayName: displayName ?? this.displayName,
-        provider: provider,
-        status: status,
-        signature: identical(signature, _unset)
-            ? this.signature
-            : signature as String?,
-      );
+  MailAccount copyWith({
+    String? displayName,
+    Object? signature = _unset,
+    Object? quota = _unset,
+  }) => MailAccount(
+    id: id,
+    email: email,
+    displayName: displayName ?? this.displayName,
+    provider: provider,
+    status: status,
+    signature: identical(signature, _unset)
+        ? this.signature
+        : signature as String?,
+    quota: identical(quota, _unset) ? this.quota : quota as AccountQuota?,
+  );
 }
 
 const _unset = Object();

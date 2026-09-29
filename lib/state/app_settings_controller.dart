@@ -124,6 +124,8 @@ class AppSettingsController extends ChangeNotifier {
   bool _pauseSyncOnBatterySaver = true;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
       AttachmentAutoDownloadLimit.fiveMb;
+  bool _cleanTrackingQueries = true;
+
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
 
@@ -155,6 +157,14 @@ class AppSettingsController extends ChangeNotifier {
   SwipeGesture get swipeRight => _swipeRight;
 
   bool get deviceContactsEnabled => _deviceContactsEnabled;
+  bool get cleanTrackingQueries => _cleanTrackingQueries;
+
+  set cleanTrackingQueries(bool value) {
+    if (_cleanTrackingQueries == value) return;
+    _cleanTrackingQueries = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveCleanTrackingQueries(value));
+  }
 
   set deviceContactsEnabled(bool value) {
     if (_deviceContactsEnabled == value) return;
@@ -357,6 +367,13 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> loadCleanTrackingQueries() async {
+    final loaded = await AppPreferencesStore.loadCleanTrackingQueries();
+    if (loaded == _cleanTrackingQueries) return;
+    _cleanTrackingQueries = loaded;
+    notifyListeners();
+  }
+
   /// Loads the persisted theme mode. Awaited before `runApp` in `main()` so
   /// the very first frame already uses the right mode — no light-then-dark
   /// flash.
@@ -400,6 +417,7 @@ class AppSettingsController extends ChangeNotifier {
       .._swipeRight = SwipeGesture.archive
       .._deviceContactsEnabled = false
       .._swipeLeft = SwipeGesture.trash
+      .._cleanTrackingQueries = true
       ..notifyListeners();
   }
 }

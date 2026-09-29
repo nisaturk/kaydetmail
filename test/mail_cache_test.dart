@@ -42,6 +42,42 @@ void main() {
     expect(cache.load('other').length, 1);
   });
 
+  test('round-trips custom folder buckets and keeps accounts isolated', () {
+    final cache = MailCache.inMemory();
+    cache.apply(
+      'acc',
+      [_mail('custom-1', 3)],
+      const [],
+      customFolderId: 'folder-projects',
+    );
+    cache.apply(
+      'other',
+      [_mail('custom-2', 4)],
+      const [],
+      customFolderId: 'folder-projects',
+    );
+
+    expect(cache.load('acc'), isEmpty);
+    expect(
+      cache.loadCustomFolders('acc')['folder-projects']!.map((mail) => mail.id),
+      ['custom-1'],
+    );
+    expect(
+      cache
+          .loadCustomFolders('other')['folder-projects']!
+          .map((mail) => mail.id),
+      ['custom-2'],
+    );
+
+    cache.replaceCustomFolder('acc', 'folder-projects', [
+      _mail('custom-new', 5),
+    ]);
+    expect(
+      cache.loadCustomFolders('acc')['folder-projects']!.map((mail) => mail.id),
+      ['custom-new'],
+    );
+  });
+
   test('round-trips the folder id -> type map, scoped by account', () {
     final cache = MailCache.inMemory();
     cache.saveFolders('acc', {'folder-1': 'inbox', 'folder-2': 'sent'});

@@ -133,8 +133,12 @@ class GeneralSettingsScreen extends StatelessWidget {
         _CategoryTile(
           icon: LucideIcons.shieldCheck,
           title: 'Gizlilik',
-          subtitle: 'Uygulama kilidi, cihazlar ve oturumlar',
-          page: (_) => [_BiometricLockSection(), _SessionsSection()],
+          subtitle: 'Uygulama kilidi, bağlantılar, cihazlar ve oturumlar',
+          page: (_) => [
+            _CleanTrackingQueriesSection(),
+            _BiometricLockSection(),
+            _SessionsSection(),
+          ],
         ),
       ],
     ),
@@ -156,6 +160,7 @@ class AccountSettingsScreen extends StatelessWidget {
       body: ListView(
         padding: const EdgeInsets.symmetric(vertical: 8),
         children: [
+          _AccountQuotaSection(accountId: accountId),
           _CategoryTile(
             icon: LucideIcons.penLine,
             title: 'İmzalar',
@@ -196,6 +201,83 @@ class AccountSettingsScreen extends StatelessWidget {
       ),
     );
   }
+}
+
+/// Mailbox storage usage for one account. Refreshes on open and renders
+/// nothing while the quota is unknown or the server has no QUOTA support.
+class _AccountQuotaSection extends StatefulWidget {
+  const _AccountQuotaSection({required this.accountId});
+
+  final String accountId;
+
+  @override
+  State<_AccountQuotaSection> createState() => _AccountQuotaSectionState();
+}
+
+class _AccountQuotaSectionState extends State<_AccountQuotaSection> {
+  @override
+  void initState() {
+    super.initState();
+    unawaited(AppConfig.mailRepository.refreshQuota(widget.accountId));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final repo = AppConfig.mailRepository;
+    return ListenableBuilder(
+      listenable: repo,
+      builder: (context, _) {
+        final quota = repo.accounts
+            .where((item) => item.id == widget.accountId)
+            .firstOrNull
+            ?.quota;
+        if (quota == null) return const SizedBox.shrink();
+        final colors = AppTheme.colors(context);
+        return ListTile(
+          key: const Key('account-quota'),
+          leading: Icon(
+            LucideIcons.hardDrive,
+            size: 22,
+            color: colors.secondaryText,
+          ),
+          title: const Text('Depolama'),
+          subtitle: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '${formatStorageSize(quota.usedBytes)} / '
+                '${formatStorageSize(quota.limitBytes)} kullanılıyor '
+                '(%${quota.usedPercent})',
+              ),
+              const SizedBox(height: 6),
+              LinearProgressIndicator(
+                value: quota.usedFraction,
+                semanticsLabel: 'Depolama kullanımı',
+                semanticsValue: '${quota.usedPercent}',
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+}
+
+/// Binary-unit size with a Turkish decimal comma: `512 KB`, `1,5 GB`, `15 GB`.
+@visibleForTesting
+String formatStorageSize(int bytes) {
+  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
+  var value = bytes.toDouble();
+  var unit = 0;
+  while (value >= 1024 && unit < units.length - 1) {
+    value /= 1024;
+    unit++;
+  }
+  var text = unit == 0 || value >= 100
+      ? value.round().toString()
+      : value.toStringAsFixed(1).replaceAll('.', ',');
+  if (text.endsWith(',0')) text = text.substring(0, text.length - 2);
+  return '$text ${units[unit]}';
 }
 
 /// One row of the settings index. Either pushes [page] (section widgets shown
@@ -896,6 +978,26 @@ class _ServerSectionState extends State<_ServerSection> {
           onTap: checking ? null : _checkHealth,
         ),
       ],
+    );
+  }
+}
+
+class _CleanTrackingQueriesSection extends StatelessWidget {
+  const _CleanTrackingQueriesSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return SwitchListTile(
+      key: const Key('clean-tracking-queries-toggle'),
+      dense: true,
+      title: const Text('Bağlantı takip parametrelerini temizle'),
+      subtitle: const Text(
+        'E-postalardaki bağlantıları açmadan önce bilinen reklam ve kampanya '
+        'takip parametrelerini kaldırır.',
+      ),
+      value: settings.cleanTrackingQueries,
+      onChanged: (value) => settings.cleanTrackingQueries = value,
     );
   }
 }

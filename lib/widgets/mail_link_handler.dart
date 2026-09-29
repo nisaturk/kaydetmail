@@ -6,7 +6,9 @@ import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart
 import 'package:url_launcher/url_launcher.dart';
 
 import '../theme/app_theme.dart';
+import '../state/app_settings_controller.dart';
 import '../utils/link_safety.dart';
+import '../utils/query_parameter_cleaner.dart';
 
 typedef MailLinkLauncher = Future<bool> Function(Uri uri);
 
@@ -46,7 +48,10 @@ class MailLinkOpener {
     }
     var opened = false;
     try {
-      opened = await _launcher(assessment.uri!);
+      final target = AppSettingsController.instance.cleanTrackingQueries
+          ? cleanTrackingQueryParameters(assessment.uri!)
+          : assessment.uri!;
+      opened = await _launcher(target);
     } catch (_) {
       opened = false;
     }

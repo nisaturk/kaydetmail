@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
 import '../models/mail_custom_folder.dart';
+import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
 import '../theme/app_theme.dart';
@@ -166,6 +167,46 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
     );
   }
 
+  Future<void> _assignRole(MailCustomFolder folder) async {
+    final role = await showDialog<MailFolder>(
+      context: context,
+      builder: (context) => SimpleDialog(
+        title: Text('"${folder.name}" ne olarak kullanılsın?'),
+        children: [
+          for (final role in assignableFolderRoles)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(context).pop(role),
+              child: Row(
+                children: [
+                  Icon(role.icon, size: 18),
+                  const SizedBox(width: 12),
+                  Text(role.label),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
+    if (role == null || !mounted) return;
+    await _perform(
+      () => _repo.setFolderRole(
+        accountId: folder.accountId,
+        folderId: folder.folderId,
+        role: role,
+      ),
+      success: '"${folder.name}" artık ${role.label} olarak kullanılıyor.',
+    );
+  }
+
+  Future<void> _resetRole(MailFolderRoleAssignment assignment) => _perform(
+    () => _repo.setFolderRole(
+      accountId: assignment.accountId,
+      folderId: assignment.folderId,
+      role: null,
+    ),
+    success: '"${assignment.name}" için otomatik tespit geri yüklendi.',
+  );
+
   Future<void> _perform(
     Future<void> Function() action, {
     required String success,
@@ -191,6 +232,7 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
     final folders = _repo.getCustomFolders();
+    final assignments = _repo.getFolderRoleAssignments();
     final showAccounts =
         _repo.activeAccountId == null && _repo.accounts.length > 1;
     final accountNames = {
@@ -199,6 +241,11 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
     final groups = <String, List<MailCustomFolder>>{};
     for (final folder in folders) {
       groups.putIfAbsent(folder.accountId, () => []).add(folder);
+    }
+    final roleGroups = <String, List<MailFolderRoleAssignment>>{};
+    for (final assignment in assignments) {
+      groups.putIfAbsent(assignment.accountId, () => []);
+      roleGroups.putIfAbsent(assignment.accountId, () => []).add(assignment);
     }
     final accountIds = showAccounts
         ? _repo.accounts
@@ -212,7 +259,7 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
       body = const Center(child: CircularProgressIndicator());
     } else if (_error != null) {
       body = _ErrorState(message: _error!, onRetry: _load);
-    } else if (folders.isEmpty) {
+    } else if (folders.isEmpty && assignments.isEmpty) {
       body = _EmptyState(onRefresh: _load);
     } else {
       body = RefreshIndicator(
@@ -232,6 +279,8 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
                     ),
                   ),
                 ),
+              for (final assignment in roleGroups[accountId] ?? const [])
+                _roleRow(assignment),
               for (final row in flattenCustomFolderTree(groups[accountId]!))
                 _folderRow(row.folder, row.depth),
             ],
@@ -278,11 +327,14 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
               _rename(folder);
             case 'delete':
               _delete(folder);
+            case 'role':
+              _assignRole(folder);
           }
         },
         itemBuilder: (_) => const [
           PopupMenuItem(value: 'child', child: Text('Alt klasör oluştur')),
           PopupMenuItem(value: 'rename', child: Text('Yeniden adlandır')),
+          PopupMenuItem(value: 'role', child: Text('Klasör rolü ata')),
           PopupMenuItem(value: 'delete', child: Text('Sil')),
         ],
       ),
@@ -294,6 +346,20 @@ class _CustomFoldersScreenState extends State<CustomFoldersScreen> {
             name: folder.name,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _roleRow(MailFolderRoleAssignment assignment) {
+    final colors = AppTheme.colors(context);
+    return ListTile(
+      contentPadding: const EdgeInsets.only(left: 16, right: 8),
+      leading: Icon(assignment.role.icon, color: colors.secondaryText),
+      title: Text(assignment.name),
+      subtitle: Text('${assignment.role.label} olarak kullanılıyor'),
+      trailing: TextButton(
+        onPressed: _busy ? null : () => _resetRole(assignment),
+        child: const Text('Otomatiğe döndür'),
       ),
     );
   }

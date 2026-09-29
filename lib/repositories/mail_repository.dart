@@ -147,6 +147,12 @@ abstract class MailRepository extends ChangeNotifier {
   /// [ArgumentError] for an unknown accountId.
   Future<void> setSignature(String accountId, String? signature) async {}
 
+  /// Reloads [accountId]'s mailbox storage quota into its
+  /// [MailAccount.quota]. Best-effort: unsupported servers clear it (the UI
+  /// hides usage), failures keep the last known value. No-op for
+  /// implementations without server quota.
+  Future<void> refreshQuota(String accountId) async {}
+
   Future<List<MailSignature>> listSignatures(
     String accountId, {
     bool refresh = false,
@@ -348,12 +354,12 @@ abstract class MailRepository extends ChangeNotifier {
   /// larger than what is loaded locally (e.g. replies still in Sent).
   int serverThreadSize(String threadId) => 0;
 
-  /// Asynchronously loads the full conversation for [threadId], oldest
-  /// first, with complete message bodies.
+  /// Asynchronously refreshes the full conversation for [threadId], oldest
+  /// first, with complete message bodies, and upserts results into the
+  /// account-scoped memory and persistent mail caches.
   ///
-  /// Fetches the conversation and then each message's full detail. Callers
-  /// must treat a failure as "enrichment unavailable" and keep whatever
-  /// mail they already show — never blank the screen because of it.
+  /// Callers should render [getThreadEmails] first and treat a refresh failure
+  /// as "enrichment unavailable" — never blank mail already shown.
   Future<List<Email>> fetchThreadEmails(String threadId);
 
   // --- Writing ------------------------------------------------------
@@ -576,6 +582,7 @@ abstract class MailRepository extends ChangeNotifier {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,
@@ -593,6 +600,7 @@ abstract class MailRepository extends ChangeNotifier {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,
@@ -797,6 +805,21 @@ abstract class MailRepository extends ChangeNotifier {
     required String accountId,
     required String folderId,
   }) => throw UnimplementedError('deleteCustomFolder');
+
+  /// Folders whose role was assigned by the user, for every account in
+  /// scope or only [accountId]. Populated with [refreshCustomFolders].
+  List<MailFolderRoleAssignment> getFolderRoleAssignments({
+    String? accountId,
+  }) => const [];
+
+  /// Uses [folderId] of [accountId] as [role] (one of
+  /// [assignableFolderRoles]); null restores server detection. Refreshes the
+  /// account's folder map so Sent/Drafts/Trash/Spam resolve to the new folder.
+  Future<void> setFolderRole({
+    required String accountId,
+    required String folderId,
+    required MailFolder? role,
+  }) => throw UnimplementedError('setFolderRole');
 
   Future<void> moveToCustomFolder(
     List<String> ids, {

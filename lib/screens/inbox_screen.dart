@@ -153,12 +153,12 @@ class InboxScreen extends StatefulWidget {
   final MailFolder folder;
   final MailSelectionController selection;
 
-  /// When set, called with the tapped mail's id instead of pushing
+  /// When set, called with the tapped mail instead of pushing
   /// [MailDetailScreen] — lets a wide-layout parent (master/detail) update
   /// an in-place detail pane. Null preserves the original full-screen push
   /// for every narrower layout. Never consulted for drafts, which always
   /// open the compose editor.
-  final ValueChanged<String>? onOpenMail;
+  final ValueChanged<Email>? onOpenMail;
 
   @override
   State<InboxScreen> createState() => _InboxScreenState();
@@ -308,10 +308,12 @@ class _InboxScreenState extends State<InboxScreen>
       // messages keep opening the read-only detail view.
       openDraftEditor(context, email);
     } else if (widget.onOpenMail != null) {
-      widget.onOpenMail!(email.id);
+      widget.onOpenMail!(email);
     } else {
       Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => MailDetailScreen(emailId: email.id)),
+        MaterialPageRoute(
+          builder: (_) => MailDetailScreen(emailId: email.id, seed: email),
+        ),
       );
     }
   }

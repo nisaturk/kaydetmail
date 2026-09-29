@@ -326,6 +326,7 @@ class _FakeMailRepository extends MailRepository {
     required String query,
     String? accountId,
     MailFolder? folder,
+    String? customFolderId,
     String? conversationId,
     String? from,
     String? to,

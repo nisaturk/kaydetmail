@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
@@ -48,6 +50,7 @@ class _ThreadRepo extends MailRepository {
   bool failMarkRead = false;
   bool openedUnread = false;
   bool starred = false;
+  Completer<Email?>? detailGate;
 
   List<Email> get _thread => [
     showDiagnostics
@@ -71,8 +74,9 @@ class _ThreadRepo extends MailRepository {
   MailAccount? getAccount(String accountId) => accounts.first;
 
   @override
-  Future<Email?> getEmail(String id) async =>
-      _thread.where((m) => m.id == id).firstOrNull;
+  Future<Email?> getEmail(String id) =>
+      detailGate?.future ??
+      Future.value(_thread.where((m) => m.id == id).firstOrNull);
 
   /// Local-only copies (e.g. a send echo) the cache holds on top of the
   /// server conversation.
@@ -181,6 +185,25 @@ void main() {
       await tester.pumpWidget(MaterialApp(home: MailDetailScreen(emailId: id)));
       await tester.pumpAndSettle();
     }
+
+    testWidgets('list seed renders before detail request completes', (
+      tester,
+    ) async {
+      repo.detailGate = Completer<Email?>();
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: MailDetailScreen(emailId: repo.newer.id, seed: repo.newer),
+        ),
+      );
+      await tester.pump();
+
+      expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
+      expect(find.byType(CircularProgressIndicator), findsNothing);
+
+      repo.detailGate!.complete(repo.newer);
+      await tester.pumpAndSettle();
+    });
 
     testWidgets('mark-read failure keeps detail visible and reports error', (
       tester,

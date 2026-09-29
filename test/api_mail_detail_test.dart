@@ -14,6 +14,7 @@ import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/token_store.dart';
+import 'package:kaydetmail/services/mail_cache.dart';
 import 'package:kaydetmail/utils/html_to_text.dart';
 
 /// Realistic `GET /api/mails/{id}` response straight from the handoff
@@ -336,6 +337,26 @@ void main() {
       ]);
     });
 
+    test('fetchThreadEmails upserts memory and account SQLite cache', () async {
+      final cache = MailCache.inMemory();
+      final repo = await _repoWithService(_ThreadMailService(), cache: cache);
+
+      await repo.fetchThreadEmails('conv-1');
+
+      expect(repo.getThreadEmails('conv-1').map((e) => e.id), [
+        'm-old',
+        'm-new',
+        'm-bad',
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 900));
+      expect(cache.load('account-1').map((e) => e.id).toSet(), {
+        'm-old',
+        'm-new',
+        'm-bad',
+      });
+      expect(cache.load('other'), isEmpty);
+    });
+
     test('fetchThreadEmails propagates a conversation-level failure', () async {
       final repo = await _repoWithService(_BrokenConversationService());
 
@@ -471,7 +492,10 @@ class _SingleMailService extends _RecordingMailService {
   );
 }
 
-Future<ApiMailRepository> _repoWithService(ApiMailService mailService) async {
+Future<ApiMailRepository> _repoWithService(
+  ApiMailService mailService, {
+  MailCache? cache,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
@@ -490,6 +514,7 @@ Future<ApiMailRepository> _repoWithService(ApiMailService mailService) async {
   final repo = ApiMailRepository(
     authService: authService,
     mailService: mailService,
+    openCache: cache == null ? null : () async => cache,
   );
   await repo.restoreSession('person@example.com');
   return repo;
