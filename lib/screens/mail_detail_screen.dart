@@ -155,18 +155,11 @@ class _MailDetailScreenState extends _MailDetailStateBase
             enabled: !_composeActionBusy,
             child: Text(l10nNow.forward),
           ),
+          const PopupMenuDivider(),
           PopupMenuItem(
             value: 'pin',
             child: Text(email.isPinned ? l10nNow.unpin : l10nNow.pin),
           ),
-          PopupMenuItem(
-            value: 'star',
-            child: Text(email.isStarred ? l10nNow.removeStar : l10nNow.star),
-          ),
-          if (email.isRead)
-            PopupMenuItem(value: 'unread', child: Text(l10nNow.markAsUnread))
-          else
-            PopupMenuItem(value: 'read', child: Text(l10nNow.markAsRead)),
           PopupMenuItem(
             value: 'snooze',
             child: Text(
@@ -186,6 +179,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
             PopupMenuItem(value: 'unlabel', child: Text(l10nNow.removeLabel))
           else
             PopupMenuItem(value: 'label', child: Text(l10nNow.label)),
+          const PopupMenuDivider(),
           PopupMenuItem(value: 'print', child: Text(l10nNow.print)),
           PopupMenuItem(value: 'share_pdf', child: Text(l10nNow.shareAsPdf)),
           if (parseUnsubscribeHeaders(email.headers)?.hasAction ?? false)
@@ -193,6 +187,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
               value: 'unsubscribe',
               child: Text(l10nNow.unsubscribe),
             ),
+          const PopupMenuDivider(),
           PopupMenuItem(
             value: 'all_headers',
             child: Text(l10nNow.showAllHeaders),
@@ -262,14 +257,31 @@ class _MailDetailScreenState extends _MailDetailStateBase
         if (index == 0) {
           return Padding(
             padding: const EdgeInsets.only(bottom: 8),
-            child: Text(
-              email.subject,
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: Theme.of(context).colorScheme.onSurface,
-                height: 1.2,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  email.subject,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).colorScheme.onSurface,
+                    height: 1.25,
+                  ),
+                ),
+                if (_thread.length > 1)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 4),
+                    child: Text(
+                      l10nNow.conversationMessageCount(_thread.length),
+                      key: const Key('thread-message-count'),
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colors.secondaryText,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           );
         }
@@ -288,6 +300,19 @@ class _MailDetailScreenState extends _MailDetailStateBase
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            if (index == 3)
+              Padding(
+                padding: const EdgeInsets.only(top: 12, bottom: 4),
+                child: Text(
+                  l10nNow.earlierMessages,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 0.3,
+                    color: colors.secondaryText,
+                  ),
+                ),
+              ),
             if (index > 2)
               Divider(height: 24, thickness: 0.5, color: colors.border),
             _SingleMessage(
@@ -348,27 +373,44 @@ class _SingleMessageState extends State<_SingleMessage> {
       children: [
         const SizedBox(height: 4),
         Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             MailAvatar(
               identity: email.senderEmail,
               displayName: email.senderName,
-              size: 36,
+              size: 40,
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    email.senderName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w600,
-                      color: onSurface,
-                    ),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.baseline,
+                    textBaseline: TextBaseline.alphabetic,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          email.senderName,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            color: onSurface,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Text(
+                        formatMailTime(email.timestamp),
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: colors.secondaryText,
+                        ),
+                      ),
+                    ],
                   ),
                   TextButton.icon(
                     key: Key('message-recipients-${email.id}'),
@@ -376,6 +418,7 @@ class _SingleMessageState extends State<_SingleMessage> {
                       padding: EdgeInsets.zero,
                       minimumSize: const Size(0, 24),
                       tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                      alignment: Alignment.centerLeft,
                       foregroundColor: colors.secondaryText,
                     ),
                     onPressed: () =>
@@ -397,14 +440,6 @@ class _SingleMessageState extends State<_SingleMessage> {
                 ],
               ),
             ),
-            Flexible(
-              child: Text(
-                formatMailTime(email.timestamp),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontSize: 12, color: colors.secondaryText),
-              ),
-            ),
             IconButton(
               onPressed: widget.onStar,
               tooltip: email.isStarred ? l10nNow.removeStar : l10nNow.star,
@@ -415,32 +450,11 @@ class _SingleMessageState extends State<_SingleMessage> {
                 color: email.isStarred ? Colors.amber : null,
               ),
             ),
-            PopupMenuButton<String>(
-              tooltip: l10nNow.messageActions,
-              iconSize: 20,
-              icon: const Icon(LucideIcons.moreVertical),
-              onSelected: (mode) => widget.onCompose(
-                mode,
-                mode == 'forward'
-                    ? l10nNow.forward
-                    : mode == 'reply-all'
-                    ? l10nNow.replyAll
-                    : l10nNow.reply,
-              ),
-              itemBuilder: (_) => [
-                PopupMenuItem(value: 'reply', child: Text(l10nNow.reply)),
-                PopupMenuItem(
-                  value: 'reply-all',
-                  child: Text(l10nNow.replyAll),
-                ),
-                PopupMenuItem(value: 'forward', child: Text(l10nNow.forward)),
-              ],
-            ),
           ],
         ),
         if (_detailsVisible)
           Padding(
-            padding: const EdgeInsets.only(left: 46, top: 4),
+            padding: const EdgeInsets.only(left: 52, top: 4),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -539,19 +553,19 @@ class _SingleMessageState extends State<_SingleMessage> {
           AttachmentList(email: email),
         ],
         Padding(
-          padding: const EdgeInsets.only(top: 6),
+          padding: const EdgeInsets.only(top: 12),
           child: Wrap(
-            spacing: 2,
-            runSpacing: 0,
+            spacing: 8,
+            runSpacing: 8,
             children: [
-              TextButton.icon(
+              OutlinedButton.icon(
                 key: Key('message-reply-${email.id}'),
                 style: _actionStyle(colors),
                 onPressed: () => widget.onCompose('reply', l10nNow.reply),
                 icon: const Icon(LucideIcons.reply, size: 16),
                 label: Text(l10nNow.reply),
               ),
-              TextButton.icon(
+              OutlinedButton.icon(
                 key: Key('message-reply-all-${email.id}'),
                 style: _actionStyle(colors),
                 onPressed: () =>
@@ -559,7 +573,7 @@ class _SingleMessageState extends State<_SingleMessage> {
                 icon: const Icon(LucideIcons.replyAll, size: 16),
                 label: Text(l10nNow.replyAll2),
               ),
-              TextButton.icon(
+              OutlinedButton.icon(
                 key: Key('message-forward-${email.id}'),
                 style: _actionStyle(colors),
                 onPressed: () => widget.onCompose('forward', l10nNow.forward),
@@ -573,11 +587,14 @@ class _SingleMessageState extends State<_SingleMessage> {
     );
   }
 
-  ButtonStyle _actionStyle(AppColors colors) => TextButton.styleFrom(
-    foregroundColor: colors.secondaryText,
-    padding: const EdgeInsets.symmetric(horizontal: 6),
-    minimumSize: const Size(0, 40),
-    textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w400),
+  ButtonStyle _actionStyle(AppColors colors) => OutlinedButton.styleFrom(
+    foregroundColor: Theme.of(context).colorScheme.onSurface,
+    side: BorderSide(color: colors.border),
+    shape: const StadiumBorder(),
+    padding: const EdgeInsets.symmetric(horizontal: 14),
+    minimumSize: const Size(0, 36),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    textStyle: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
   );
 
   String _recipientSummary(List<String> recipients, String? ownAddress) {

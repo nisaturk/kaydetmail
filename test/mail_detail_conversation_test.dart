@@ -242,19 +242,31 @@ void main() {
       addTearDown(() => tester.binding.setSurfaceSize(null));
       repo.history = [
         repo.older.copyWith(bodyText: 'Kısa eski ileti'),
-        repo.newer.copyWith(bodyText: 'Kısa ileti', bodyHtml: '<p>Kısa ileti</p>'),
+        repo.newer.copyWith(
+          bodyText: 'Kısa ileti',
+          bodyHtml: '<p>Kısa ileti</p>',
+        ),
       ];
       await open(tester, 'm2');
-      expect(tester.getSize(find.byKey(const Key('message-body-m2'))).width, 328);
+      expect(
+        tester.getSize(find.byKey(const Key('message-body-m2'))).width,
+        328,
+      );
       await tester.scrollUntilVisible(
         find.byKey(const Key('message-body-m1')),
         200,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(tester.getSize(find.byKey(const Key('message-body-m1'))).width, 328);
+      expect(
+        tester.getSize(find.byKey(const Key('message-body-m1'))).width,
+        328,
+      );
       await tester.binding.setSurfaceSize(const Size(900, 700));
       await tester.pumpAndSettle();
-      expect(tester.getSize(find.byKey(const Key('message-body-m1'))).width, 868);
+      expect(
+        tester.getSize(find.byKey(const Key('message-body-m1'))).width,
+        868,
+      );
       expect(tester.takeException(), isNull);
     });
 
@@ -266,12 +278,16 @@ void main() {
       repo.history = [
         repo.newer.copyWith(
           bodyText: 'Tablo',
-          bodyHtml: '<p>Normal metin</p><table style="width:1200px">'
+          bodyHtml:
+              '<p>Normal metin</p><table style="width:1200px">'
               '<tr><td>Birinci sütun</td><td>İkinci sütun</td></tr></table>',
         ),
       ];
       await open(tester, 'm2');
-      expect(tester.getSize(find.byKey(const Key('message-body-m2'))).width, 288);
+      expect(
+        tester.getSize(find.byKey(const Key('message-body-m2'))).width,
+        288,
+      );
       expect(tester.takeException(), isNull);
     });
 
@@ -432,6 +448,44 @@ void main() {
         expect(find.text('S/MIME imzalı (doğrulanmadı)'), findsOneWidget);
       },
     );
+
+    testWidgets('a five-message chain lists every earlier message', (
+      tester,
+    ) async {
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      repo.history = [
+        _message('m1', 'Ayse', 'Birinci', 20),
+        _message('m2', 'Mehmet', 'İkinci', 21),
+        _message('m3', 'Ali', 'Üçüncü', 22),
+        _message('m4', 'Derya', 'Dördüncü', 23),
+        _message('m5', 'Can', 'Beşinci', 24),
+      ];
+      await open(tester, 'm5');
+
+      expect(find.byKey(const Key('thread-message-count')), findsOneWidget);
+      expect(find.text('5 ileti'), findsOneWidget);
+      expect(find.text('Önceki iletiler'), findsOneWidget);
+      for (final id in ['m4', 'm3', 'm2', 'm1']) {
+        await tester.scrollUntilVisible(
+          find.byKey(Key('message-reply-$id')),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        expect(find.byKey(Key('message-reply-$id')), findsOneWidget);
+      }
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a single message shows no count or earlier heading', (
+      tester,
+    ) async {
+      repo.history = [repo.newer];
+      await open(tester, 'm2');
+
+      expect(find.byKey(const Key('thread-message-count')), findsNothing);
+      expect(find.text('Önceki iletiler'), findsNothing);
+    });
 
     testWidgets('quick reply queues a threaded reply through the outbox', (
       tester,
