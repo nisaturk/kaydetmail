@@ -1,4 +1,5 @@
 import '../../models/email.dart';
+import '../../models/mail_folder.dart';
 import '../../services/mail_cache.dart';
 import 'account_session.dart';
 import 'session_registry.dart';
@@ -31,4 +32,31 @@ abstract class RepositoryContext {
     List<String> ids,
     Email Function(Email) update,
   );
+
+  /// Drops the memoised folder views so the next read rebuilds them.
+  void touch();
+
+  /// Re-fetches the first page of [folder] for [session].
+  Future<void> refreshFolderMail(AccountSession session, MailFolder folder);
+
+  /// Removes mails [ids] from every cached bucket of [session].
+  void removeMany(AccountSession session, Iterable<String> ids);
+
+  /// Remembers where mails [ids] sit so a failed server call can put them back.
+  Map<String, MailLocationSnapshot> snapshotMailLocations(
+    AccountSession session,
+    Iterable<String> ids,
+  );
+
+  void restoreMailLocations(
+    AccountSession session,
+    Map<String, MailLocationSnapshot> snapshots,
+  );
 }
+
+/// Where one cached mail sat before an optimistic change: its position in
+/// each logical and custom-folder bucket.
+typedef MailLocationSnapshot = ({
+  Map<MailFolder, (Email, int)> folders,
+  Map<String, (Email, int)> customFolders,
+});
