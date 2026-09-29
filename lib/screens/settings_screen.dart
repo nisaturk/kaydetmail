@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -133,10 +134,12 @@ class GeneralSettingsScreen extends StatelessWidget {
         _CategoryTile(
           icon: LucideIcons.shieldCheck,
           title: 'Gizlilik',
-          subtitle: 'Uygulama kilidi, bağlantılar, cihazlar ve oturumlar',
+          subtitle:
+              'Uygulama kilidi, ekran koruması, bağlantılar, cihazlar ve oturumlar',
           page: (_) => [
             _CleanTrackingQueriesSection(),
             _BiometricLockSection(),
+            _ScreenProtectionSection(),
             _SessionsSection(),
           ],
         ),
@@ -1043,6 +1046,35 @@ class _BiometricLockSection extends StatelessWidget {
             ),
         ],
       ],
+    );
+  }
+}
+
+/// Privacy-screen toggle (`FLAG_SECURE` on Android, app-switcher cover on
+/// iOS) — see `ScreenProtectionService`. Hidden where there is no native
+/// side (web/desktop).
+class _ScreenProtectionSection extends StatelessWidget {
+  const _ScreenProtectionSection();
+
+  @override
+  Widget build(BuildContext context) {
+    final platform = defaultTargetPlatform;
+    if (platform != TargetPlatform.android && platform != TargetPlatform.iOS) {
+      return const SizedBox.shrink();
+    }
+    final settings = AppSettingsController.instance;
+    return SwitchListTile(
+      key: const ValueKey('screen-protection-switch'),
+      dense: true,
+      title: const Text('Ekran Koruması'),
+      subtitle: Text(
+        platform == TargetPlatform.iOS
+            ? 'Uygulama geçiş ekranında posta içeriğini gizler.'
+            : 'Ekran görüntüsü ve ekran kaydını engeller, son kullanılan '
+                  'uygulamalar listesinde içeriği gizler.',
+      ),
+      value: settings.screenProtectionEnabled,
+      onChanged: (value) => settings.screenProtectionEnabled = value,
     );
   }
 }

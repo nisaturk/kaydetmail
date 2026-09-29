@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'screen_protection_service.dart';
+
 /// Cross-platform persistence for UI behavior preferences.
 ///
 /// SharedPreferences is used instead of the native SQLite mail cache so the
@@ -10,6 +12,7 @@ class AppPreferencesStore {
   static const _syncIntervalKey = 'kaydet.sync.interval';
   static const _swipeDeleteKey = 'kaydet.swipe.deleteEnabled';
   static const _themeModeKey = 'kaydet.theme.mode';
+  static const _screenProtectionKey = ScreenProtectionService.preferenceKey;
   static const _biometricLockKey = 'kaydet.security.biometricLockEnabled';
   static const _biometricLockTimeoutKey =
       'kaydet.security.biometricLockTimeout';
@@ -235,5 +238,19 @@ class AppPreferencesStore {
   static Future<void> saveBiometricLockTimeout(String value) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(_biometricLockTimeoutKey, value);
+  }
+
+  static Future<bool> loadScreenProtectionEnabled() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getBool(_screenProtectionKey) ?? false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> saveScreenProtectionEnabled(bool value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setBool(_screenProtectionKey, value);
   }
 }
