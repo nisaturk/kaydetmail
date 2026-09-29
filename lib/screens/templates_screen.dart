@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/mail_template.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 class TemplatesScreen extends StatefulWidget {
   const TemplatesScreen({super.key, required this.accountId});
@@ -71,18 +72,16 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Hazır metni sil?'),
-        content: Text(
-          '“${template.name}” hazır metni kalıcı olarak silinecek.',
-        ),
+        title: Text(l10nNow.deleteSavedText),
+        content: Text(l10nNow.theSavedTextWillBe(template.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sil'),
+            child: Text(l10nNow.delete),
           ),
         ],
       ),
@@ -101,7 +100,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Hazır metinler')),
+    appBar: AppBar(title: Text(l10nNow.savedTexts2)),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
@@ -113,12 +112,12 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Text(_error!, textAlign: TextAlign.center),
                 ),
-                TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+                TextButton(onPressed: _load, child: Text(l10nNow.tryAgain)),
               ],
             ),
           )
         : _templates.isEmpty
-        ? const Center(child: Text('Henüz hazır metin yok'))
+        ? Center(child: Text(l10nNow.noSavedTextsYet))
         : ListView.separated(
             itemCount: _templates.length,
             separatorBuilder: (_, _) => const Divider(height: 1),
@@ -129,11 +128,11 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
                 leading: const Icon(LucideIcons.layoutTemplate),
                 title: Text(template.name),
                 subtitle: template.subject.isEmpty
-                    ? const Text('Konu yok')
+                    ? Text(l10nNow.noSubject)
                     : Text(template.subject, maxLines: 1),
                 onTap: () => _edit(template),
                 trailing: IconButton(
-                  tooltip: 'Sil',
+                  tooltip: l10nNow.delete,
                   icon: const Icon(LucideIcons.trash2),
                   onPressed: () => _delete(template),
                 ),
@@ -144,7 +143,7 @@ class _TemplatesScreenState extends State<TemplatesScreen> {
         ? null
         : FloatingActionButton(
             key: const Key('add-template-fab'),
-            tooltip: 'Yeni hazır metin',
+            tooltip: l10nNow.newSavedText,
             onPressed: _edit,
             child: const Icon(LucideIcons.plus),
           ),
@@ -195,17 +194,15 @@ class _TemplateEditorState extends State<_TemplateEditor> {
     final subject = _subject.text.trim();
     final bodyText = _bodyText.text.trim();
     if (name.isEmpty || name.length > 100) {
-      setState(() => _error = 'Hazır metin adı 1-100 karakter olmalı.');
+      setState(() => _error = l10nNow.savedTextNameMustBe);
       return;
     }
     if (subject.length > 500 || subject.contains('\n')) {
-      setState(
-        () => _error = 'Konu tek satır ve en fazla 500 karakter olmalı.',
-      );
+      setState(() => _error = l10nNow.subjectMustBeASingle);
       return;
     }
     if (bodyText.isEmpty) {
-      setState(() => _error = 'Hazır metin gövdesini yazın.');
+      setState(() => _error = l10nNow.enterTheSavedTextBody);
       return;
     }
     setState(() {
@@ -254,8 +251,8 @@ class _TemplateEditorState extends State<_TemplateEditor> {
         children: [
           Text(
             widget.template == null
-                ? 'Yeni hazır metin'
-                : 'Hazır metni düzenle',
+                ? l10nNow.newSavedText
+                : l10nNow.editSavedText,
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
@@ -263,21 +260,21 @@ class _TemplateEditorState extends State<_TemplateEditor> {
             key: const Key('template-name'),
             controller: _name,
             maxLength: 100,
-            decoration: const InputDecoration(labelText: 'Ad'),
+            decoration: InputDecoration(labelText: l10nNow.name),
           ),
           TextField(
             key: const Key('template-subject'),
             controller: _subject,
             maxLength: 500,
             maxLines: 1,
-            decoration: const InputDecoration(labelText: 'Konu'),
+            decoration: InputDecoration(labelText: l10nNow.subject),
           ),
           TextField(
             key: const Key('template-body-text'),
             controller: _bodyText,
             minLines: 4,
             maxLines: 8,
-            decoration: const InputDecoration(labelText: 'Metin gövdesi'),
+            decoration: InputDecoration(labelText: l10nNow.textBody),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
@@ -295,7 +292,7 @@ class _TemplateEditorState extends State<_TemplateEditor> {
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Kaydet'),
+                : Text(l10nNow.save),
           ),
         ],
       ),

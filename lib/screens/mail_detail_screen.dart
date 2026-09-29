@@ -29,6 +29,7 @@ import 'mail_inspection_screen.dart';
 import 'mail_detail/message_body.dart';
 import 'mail_detail/quick_reply.dart';
 import 'mail_detail/message_parts.dart';
+import '../l10n/l10n.dart';
 part 'mail_detail_state/reply.dart';
 part 'mail_detail_state/thread_load.dart';
 part 'mail_detail_state/mail_actions.dart';
@@ -113,7 +114,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
             );
             unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
           },
-          tooltip: 'Arşivle',
+          tooltip: l10nNow.archive2,
           icon: const Icon(LucideIcons.archive),
         ),
       if (email.folder != MailFolder.trash)
@@ -122,7 +123,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
             _watchBackgroundMutation(_repo.moveToTrash([email.id]));
             unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
           },
-          tooltip: 'Sil',
+          tooltip: l10nNow.delete,
           icon: const Icon(LucideIcons.trash2),
         ),
       IconButton(
@@ -131,86 +132,72 @@ class _MailDetailScreenState extends _MailDetailStateBase
               ? _repo.markAsUnread([email.id])
               : _repo.markAsRead([email.id]),
         ),
-        tooltip: email.isRead
-            ? 'Okunmadı olarak işaretle'
-            : 'Okundu olarak işaretle',
+        tooltip: email.isRead ? l10nNow.markAsUnread : l10nNow.markAsRead,
         icon: Icon(email.isRead ? LucideIcons.mail : LucideIcons.mailOpen),
       ),
       PopupMenuButton<String>(
         icon: const Icon(LucideIcons.moreHorizontal),
-        tooltip: 'Daha fazla',
+        tooltip: l10nNow.more,
         onSelected: (action) => _handleMenu(action),
         itemBuilder: (context) => [
           PopupMenuItem(
             value: 'reply_all',
             enabled: !_composeActionBusy,
-            child: const Text('Tümünü Yanıtla'),
+            child: Text(l10nNow.replyAll),
           ),
           PopupMenuItem(
             value: 'reply',
             enabled: !_composeActionBusy,
-            child: const Text('Yanıtla'),
+            child: Text(l10nNow.reply),
           ),
           PopupMenuItem(
             value: 'forward',
             enabled: !_composeActionBusy,
-            child: const Text('İlet'),
+            child: Text(l10nNow.forward),
           ),
           PopupMenuItem(
             value: 'pin',
-            child: Text(email.isPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'),
+            child: Text(email.isPinned ? l10nNow.unpin : l10nNow.pin),
           ),
           PopupMenuItem(
             value: 'star',
-            child: Text(email.isStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
+            child: Text(email.isStarred ? l10nNow.removeStar : l10nNow.star),
           ),
           if (email.isRead)
-            const PopupMenuItem(
-              value: 'unread',
-              child: Text('Okunmadı olarak işaretle'),
-            )
+            PopupMenuItem(value: 'unread', child: Text(l10nNow.markAsUnread))
           else
-            const PopupMenuItem(
-              value: 'read',
-              child: Text('Okundu olarak işaretle'),
-            ),
+            PopupMenuItem(value: 'read', child: Text(l10nNow.markAsRead)),
           PopupMenuItem(
             value: 'snooze',
             child: Text(
               _repo.snoozedUntilOf(email.id) != null
-                  ? 'Ertelemeyi kaldır'
-                  : 'Ertele',
+                  ? l10nNow.removeSnooze
+                  : l10nNow.snooze,
             ),
           ),
           if (email.folder != MailFolder.drafts)
-            const PopupMenuItem(value: 'move', child: Text('Move to')),
+            PopupMenuItem(value: 'move', child: Text(l10nNow.move)),
           if (email.folder == MailFolder.trash)
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'delete_forever',
-              child: Text('Kalıcı olarak sil'),
+              child: Text(l10nNow.deletePermanently),
             ),
           if (anyLabeled(_repo, _conversationIds))
-            const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
+            PopupMenuItem(value: 'unlabel', child: Text(l10nNow.removeLabel))
           else
-            const PopupMenuItem(value: 'label', child: Text('Etiketle')),
-          const PopupMenuItem(value: 'print', child: Text('Yazdır')),
-          const PopupMenuItem(
-            value: 'share_pdf',
-            child: Text('PDF olarak paylaş'),
-          ),
+            PopupMenuItem(value: 'label', child: Text(l10nNow.label)),
+          PopupMenuItem(value: 'print', child: Text(l10nNow.print)),
+          PopupMenuItem(value: 'share_pdf', child: Text(l10nNow.shareAsPdf)),
           if (parseUnsubscribeHeaders(email.headers)?.hasAction ?? false)
-            const PopupMenuItem(
+            PopupMenuItem(
               value: 'unsubscribe',
-              child: Text('Abonelikten Çık'),
+              child: Text(l10nNow.unsubscribe),
             ),
-          const PopupMenuItem(
+          PopupMenuItem(
             value: 'all_headers',
-            child: Text('Tüm başlıkları göster'),
+            child: Text(l10nNow.showAllHeaders),
           ),
-          const PopupMenuItem(
-            value: 'raw_mime',
-            child: Text('Ham MIME göster'),
-          ),
+          PopupMenuItem(value: 'raw_mime', child: Text(l10nNow.showRawMime)),
         ],
       ),
     ];
@@ -230,7 +217,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
       if (error == null) {
         return Center(
           child: Text(
-            'Bu e-posta artık mevcut değil.',
+            l10nNow.thisEmailNoLongerExists,
             style: TextStyle(fontSize: 15, color: colors.secondaryText),
           ),
         );
@@ -256,7 +243,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
               TextButton.icon(
                 onPressed: _retry,
                 icon: const Icon(LucideIcons.refreshCw, size: 18),
-                label: const Text('Tekrar dene'),
+                label: Text(l10nNow.tryAgain),
               ),
             ],
           ),
@@ -420,7 +407,7 @@ class _SingleMessageState extends State<_SingleMessage> {
             ),
             IconButton(
               onPressed: widget.onStar,
-              tooltip: email.isStarred ? 'Yıldızı kaldır' : 'Yıldızla',
+              tooltip: email.isStarred ? l10nNow.removeStar : l10nNow.star,
               visualDensity: VisualDensity.compact,
               iconSize: 20,
               icon: Icon(
@@ -429,24 +416,24 @@ class _SingleMessageState extends State<_SingleMessage> {
               ),
             ),
             PopupMenuButton<String>(
-              tooltip: 'İleti işlemleri',
+              tooltip: l10nNow.messageActions,
               iconSize: 20,
               icon: const Icon(LucideIcons.moreVertical),
               onSelected: (mode) => widget.onCompose(
                 mode,
                 mode == 'forward'
-                    ? 'İlet'
+                    ? l10nNow.forward
                     : mode == 'reply-all'
-                    ? 'Tümünü Yanıtla'
-                    : 'Yanıtla',
+                    ? l10nNow.replyAll
+                    : l10nNow.reply,
               ),
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'reply', child: Text('Yanıtla')),
+              itemBuilder: (_) => [
+                PopupMenuItem(value: 'reply', child: Text(l10nNow.reply)),
                 PopupMenuItem(
                   value: 'reply-all',
-                  child: Text('Tümünü Yanıtla'),
+                  child: Text(l10nNow.replyAll),
                 ),
-                PopupMenuItem(value: 'forward', child: Text('İlet')),
+                PopupMenuItem(value: 'forward', child: Text(l10nNow.forward)),
               ],
             ),
           ],
@@ -457,21 +444,27 @@ class _SingleMessageState extends State<_SingleMessage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                RecipientLine(label: 'Kimden: ', addresses: email.senderEmail),
+                RecipientLine(
+                  label: l10nNow.from2,
+                  addresses: email.senderEmail,
+                ),
                 if (email.recipients.isNotEmpty)
                   RecipientLine(
-                    label: 'Alıcı: ',
+                    label: l10nNow.to2,
                     addresses: email.recipients.join(', '),
                   ),
                 if (email.cc.isNotEmpty)
-                  RecipientLine(label: 'Cc: ', addresses: email.cc.join(', ')),
+                  RecipientLine(
+                    label: l10nNow.cc,
+                    addresses: email.cc.join(', '),
+                  ),
                 if (email.bcc.isNotEmpty)
                   RecipientLine(
-                    label: 'Bcc: ',
+                    label: l10nNow.bcc,
                     addresses: email.bcc.join(', '),
                   ),
                 RecipientLine(
-                  label: 'Tarih: ',
+                  label: l10nNow.date,
                   addresses: formatMailDateFull(email.timestamp),
                 ),
               ],
@@ -493,9 +486,13 @@ class _SingleMessageState extends State<_SingleMessage> {
             title: Text(
               [
                 if (security.signed case final signed?)
-                  '${signed == 'SMime' ? 'S/MIME' : 'OpenPGP'} imzalı (doğrulanmadı)',
+                  l10nNow.signedByNotVerified(
+                    signed == 'SMime' ? 'S/MIME' : 'OpenPGP',
+                  ),
                 if (security.encrypted case final encrypted?)
-                  '${encrypted == 'SMime' ? 'S/MIME' : 'OpenPGP'} şifreli (açılamıyor)',
+                  l10nNow.encryptedByCantBeOpened(
+                    encrypted == 'SMime' ? 'S/MIME' : 'OpenPGP',
+                  ),
               ].join(' · '),
             ),
             onTap: security.signed == null
@@ -517,7 +514,7 @@ class _SingleMessageState extends State<_SingleMessage> {
             children: [
               const Icon(LucideIcons.eyeOff, size: 18),
               const SizedBox(width: 8),
-              const Expanded(child: Text('Takip içeriği engellendi')),
+              Expanded(child: Text(l10nNow.trackingContentBlocked)),
             ],
           ),
           const SizedBox(height: 12),
@@ -531,7 +528,7 @@ class _SingleMessageState extends State<_SingleMessage> {
         if (email.attachments.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text(
-            'Ekler',
+            l10nNow.attachments,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -550,24 +547,24 @@ class _SingleMessageState extends State<_SingleMessage> {
               TextButton.icon(
                 key: Key('message-reply-${email.id}'),
                 style: _actionStyle(colors),
-                onPressed: () => widget.onCompose('reply', 'Yanıtla'),
+                onPressed: () => widget.onCompose('reply', l10nNow.reply),
                 icon: const Icon(LucideIcons.reply, size: 16),
-                label: const Text('Yanıtla'),
+                label: Text(l10nNow.reply),
               ),
               TextButton.icon(
                 key: Key('message-reply-all-${email.id}'),
                 style: _actionStyle(colors),
                 onPressed: () =>
-                    widget.onCompose('reply-all', 'Tümünü Yanıtla'),
+                    widget.onCompose('reply-all', l10nNow.replyAll),
                 icon: const Icon(LucideIcons.replyAll, size: 16),
-                label: const Text('Tümünü yanıtla'),
+                label: Text(l10nNow.replyAll2),
               ),
               TextButton.icon(
                 key: Key('message-forward-${email.id}'),
                 style: _actionStyle(colors),
-                onPressed: () => widget.onCompose('forward', 'İlet'),
+                onPressed: () => widget.onCompose('forward', l10nNow.forward),
                 icon: const Icon(LucideIcons.forward, size: 16),
-                label: const Text('İlet'),
+                label: Text(l10nNow.forward),
               ),
             ],
           ),
@@ -584,7 +581,7 @@ class _SingleMessageState extends State<_SingleMessage> {
   );
 
   String _recipientSummary(List<String> recipients, String? ownAddress) {
-    if (recipients.isEmpty) return 'alıcı yok';
+    if (recipients.isEmpty) return l10nNow.noRecipients;
     if (ownAddress != null &&
         recipients.any((recipient) {
           final address = recipient.contains('<')
@@ -592,12 +589,12 @@ class _SingleMessageState extends State<_SingleMessage> {
               : recipient.trim();
           return address.toLowerCase() == ownAddress.toLowerCase();
         })) {
-      return 'bana';
+      return l10nNow.recipientToMe;
     }
     final first = recipients.first;
     final name = first.contains('<')
         ? first.substring(0, first.indexOf('<')).trim().replaceAll('"', '')
         : first.split('@').first;
-    return name.isEmpty ? first : "$name'ye";
+    return name.isEmpty ? first : l10nNow.recipientToName(name);
   }
 }

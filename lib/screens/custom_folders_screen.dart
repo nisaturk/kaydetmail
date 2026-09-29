@@ -4,6 +4,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../config/app_config.dart';
 import '../theme/app_theme.dart';
 import 'folder_manager_screen.dart';
+import '../l10n/l10n.dart';
 
 /// Drawer entry for "Klasörleri yönet": goes straight to the folder manager
 /// of the active account, or of the only account; with several accounts in
@@ -20,12 +21,12 @@ class CustomFoldersScreen extends StatelessWidget {
         (accounts.length == 1 ? accounts.single.id : null);
     if (direct != null) return FolderManagerScreen(accountId: direct);
     return Scaffold(
-      appBar: AppBar(title: const Text('Klasörleri yönet')),
+      appBar: AppBar(title: Text(l10nNow.manageFolders)),
       body: ListView(
         children: [
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text('Hangi hesabın klasörleri yönetilsin?'),
+            child: Text(l10nNow.whichAccountsFoldersDoYou),
           ),
           for (final account in accounts)
             ListTile(

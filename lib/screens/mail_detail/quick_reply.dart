@@ -9,6 +9,7 @@ import '../../state/pending_send_queue.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/compose_signature.dart';
 import '../../utils/error_messages.dart';
+import '../../l10n/l10n.dart';
 
 class QuickReply extends StatefulWidget {
   const QuickReply({super.key, required this.email, required this.from});
@@ -76,7 +77,7 @@ class _QuickReplyState extends State<QuickReply> {
       final undoWindow = PendingSendQueue.undoWindow;
       messenger.showSnackBar(
         SnackBar(
-          content: Text(queued ? 'Yanıt gönderiliyor' : 'Yanıt gönderildi'),
+          content: Text(queued ? l10nNow.sendingReply : l10nNow.replySent),
           // Aksiyonlu SnackBar varsayılan olarak kalıcıdır; süre dolunca
           // kapanması için açıkça kapatılır.
           persist: false,
@@ -85,7 +86,7 @@ class _QuickReplyState extends State<QuickReply> {
               : const Duration(seconds: 3),
           action: queued && undoWindow > Duration.zero
               ? SnackBarAction(
-                  label: 'Geri Al',
+                  label: l10nNow.undo,
                   onPressed: () {
                     if (queue.cancel(pending.id) && mounted) {
                       _controller.text = text;
@@ -100,7 +101,9 @@ class _QuickReplyState extends State<QuickReply> {
       setState(() => _sending = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Yanıt gönderilemedi: ${friendlyErrorMessage(error)}'),
+          content: Text(
+            l10nNow.couldntSendTheReply(friendlyErrorMessage(error)),
+          ),
         ),
       );
     }
@@ -131,8 +134,8 @@ class _QuickReplyState extends State<QuickReply> {
               textCapitalization: TextCapitalization.sentences,
               style: const TextStyle(fontSize: 14),
               onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                hintText: 'Hızlı yanıt yaz…',
+              decoration: InputDecoration(
+                hintText: l10nNow.writeAQuickReply,
                 isDense: true,
                 contentPadding: EdgeInsets.symmetric(vertical: 10),
                 border: InputBorder.none,
@@ -145,7 +148,7 @@ class _QuickReplyState extends State<QuickReply> {
           ),
           IconButton(
             key: const Key('quick-reply-send'),
-            tooltip: 'Yanıtı gönder',
+            tooltip: l10nNow.sendReply,
             onPressed: _sending || _controller.text.trim().isEmpty
                 ? null
                 : _send,

@@ -16,6 +16,7 @@ import 'settings/privacy_sections.dart';
 import 'settings/settings_widgets.dart';
 
 export 'settings/account_settings_screen.dart';
+import '../l10n/l10n.dart';
 
 /// Settings index: device-wide preferences ("Genel ayarlar") and, below
 /// them, one entry per connected account. Everything that belongs to a
@@ -25,11 +26,11 @@ class SettingsScreen extends StatelessWidget {
   const SettingsScreen({super.key});
 
   static const List<Color> labelColors = kLabelColors;
-  static const List<String> labelColorNames = kLabelColorNames;
+  static final List<String> labelColorNames = kLabelColorNames;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Ayarlar')),
+    appBar: AppBar(title: Text(l10nNow.settings)),
     body: ListenableBuilder(
       listenable: AppConfig.mailRepository,
       builder: (context, _) {
@@ -43,20 +44,20 @@ class SettingsScreen extends StatelessWidget {
           children: [
             SettingsCategoryTile(
               icon: LucideIcons.slidersHorizontal,
-              title: 'Genel ayarlar',
-              subtitle: 'Görüntü, etkileşim, bildirimler, ağ ve gizlilik',
+              title: l10nNow.generalSettings,
+              subtitle: l10nNow.appearanceInteractionNotificationsNetworkAnd,
               onTap: (ctx) => Navigator.of(ctx).push(
                 MaterialPageRoute(
                   builder: (_) => const GeneralSettingsScreen(),
                 ),
               ),
             ),
-            const SettingsSectionHeader('Hesaplar'),
+            SettingsSectionHeader(l10nNow.accounts),
             for (final account in accounts) _AccountTile(account: account),
             SettingsCategoryTile(
               icon: LucideIcons.plus,
-              title: 'Hesap ekle',
-              subtitle: 'Yeni posta hesabı bağla',
+              title: l10nNow.addAccount,
+              subtitle: l10nNow.connectANewMailAccount,
               onTap: (ctx) => Navigator.of(ctx).push(
                 MaterialPageRoute(builder: (_) => const AddAccountScreen()),
               ),
@@ -74,12 +75,11 @@ class _AccountTile extends StatelessWidget {
   final MailAccount account;
 
   static String subtitleFor(MailAccount account) => switch (account.status) {
-    MailAccountStatus.active =>
-      'İmza, etiket, kişi, klasör ve bildirim ayarları',
+    MailAccountStatus.active => l10nNow.signatureLabelContactFolderAnd,
     MailAccountStatus.needsReauthentication =>
-      'Bağlantısı kesildi — şifreyi güncelleyin',
-    MailAccountStatus.connectionError => 'Bağlantı sorunu',
-    MailAccountStatus.disabled => 'Devre dışı',
+      l10nNow.disconnectedUpdateThePassword,
+    MailAccountStatus.connectionError => l10nNow.connectionProblem,
+    MailAccountStatus.disabled => l10nNow.disabled,
   };
 
   @override
@@ -120,20 +120,26 @@ class GeneralSettingsScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Genel ayarlar')),
+    appBar: AppBar(title: Text(l10nNow.generalSettings)),
     body: ListView(
       padding: const EdgeInsets.symmetric(vertical: 8),
       children: [
         SettingsCategoryTile(
           icon: LucideIcons.palette,
-          title: 'Görüntü',
-          subtitle: 'Açık, koyu veya sistem teması',
+          title: l10nNow.appearance,
+          subtitle: l10nNow.lightDarkOrSystemTheme,
           page: (_) => [AppearanceSection()],
         ),
         SettingsCategoryTile(
+          icon: LucideIcons.languages,
+          title: l10nNow.language,
+          subtitle: l10nNow.tRkEOrEnglish,
+          page: (_) => [LanguageSection()],
+        ),
+        SettingsCategoryTile(
           icon: LucideIcons.slidersHorizontal,
-          title: 'Etkileşim',
-          subtitle: 'Kaydırma, göndermeyi geri alma ve cihaz kişileri',
+          title: l10nNow.interaction,
+          subtitle: l10nNow.swipeUndoSendAndDevice,
           page: (_) => [
             SwipeSection(),
             UndoSendSection(),
@@ -142,21 +148,21 @@ class GeneralSettingsScreen extends StatelessWidget {
         ),
         SettingsCategoryTile(
           icon: LucideIcons.bell,
-          title: 'Bildirimler',
-          subtitle: 'Bu cihazda yeni e-posta bildirimleri',
+          title: l10nNow.notifications,
+          subtitle: l10nNow.newEmailNotificationsOnThis,
           page: (_) => [NotificationsSection()],
         ),
         SettingsCategoryTile(
           icon: LucideIcons.network,
-          title: 'Ağ',
-          subtitle: 'Yenileme, ekler ve sunucu',
+          title: l10nNow.network,
+          subtitle: l10nNow.refreshAttachmentsAndServer,
           page: (_) => [NetworkSection()],
           grouped: false,
         ),
         SettingsCategoryTile(
           icon: LucideIcons.shieldCheck,
-          title: 'Gizlilik',
-          subtitle: 'Uygulama kilidi, ekran koruması ve bağlantılar',
+          title: l10nNow.privacy,
+          subtitle: l10nNow.appLockScreenProtectionAnd,
           page: (_) => [
             CleanTrackingQueriesSection(),
             BiometricLockSection(),

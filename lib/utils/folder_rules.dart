@@ -1,4 +1,5 @@
 import '../models/mail_folder_info.dart';
+import '../l10n/l10n.dart';
 
 /// What the backend allows for a folder, decided client-side so the UI can
 /// hide/disable actions and explain instead of failing with a server error.
@@ -41,13 +42,12 @@ class FolderRules {
     MailFolderInfo folder,
     Iterable<MailFolderInfo> siblingsOfAccount,
   ) {
-    if (!canDelete(folder)) return 'Standart klasörler silinemez.';
+    if (!canDelete(folder)) return l10nNow.standardFoldersCantBeDeleted;
     if (siblingsOfAccount.any((f) => f.parentFolderId == folder.folderId)) {
-      return 'Önce alt klasörleri silin ya da taşıyın.';
+      return l10nNow.deleteOrMoveTheSubfolders;
     }
     if ((folder.totalCount ?? 0) > 0) {
-      return 'Klasörde e-posta var. Silmeden önce e-postaları başka bir '
-          'klasöre taşıyın.';
+      return l10nNow.theFolderContainsEmailsMove;
     }
     return null;
   }
@@ -63,29 +63,31 @@ class FolderRules {
     MailFolderInfo? self,
   }) {
     final trimmed = name.trim();
-    if (trimmed.isEmpty) return 'Klasör adı boş olamaz.';
+    if (trimmed.isEmpty) return l10nNow.folderNameCantBeEmpty;
     if (trimmed.length > 200 || trimmed.runes.any((c) => c < 32 || c == 127)) {
-      return 'Klasör adı geçersiz.';
+      return l10nNow.theFolderNameIsInvalid;
     }
     // IMAP wildcards are legal in some servers' names but break LIST/LSUB
     // patterns; Dovecot/cPanel also treat the hierarchy delimiter as a path
     // separator, which would silently create a nested folder.
     if (trimmed.contains('*') || trimmed.contains('%')) {
-      return 'Klasör adı * veya % karakteri içeremez.';
+      return l10nNow.folderNameCantContainOr;
     }
     if (delimiter != null &&
         delimiter.isNotEmpty &&
         trimmed.contains(delimiter)) {
-      return 'Klasör adı "$delimiter" karakterini içeremez.';
+      return l10nNow.folderNameCantContain(delimiter);
     }
-    if (trimmed == '.' || trimmed == '..') return 'Klasör adı geçersiz.';
+    if (trimmed == '.' || trimmed == '..') {
+      return l10nNow.theFolderNameIsInvalid;
+    }
     final lower = trimmed.toLowerCase();
-    if (lower == 'inbox') return 'Bu ad ayrılmış. Başka bir ad seçin.';
+    if (lower == 'inbox') return l10nNow.thisNameIsReservedChoose;
     final clash = siblings.any(
       (f) =>
           f.folderId != self?.folderId && f.name.trim().toLowerCase() == lower,
     );
-    if (clash) return 'Bu adda bir klasör zaten var.';
+    if (clash) return l10nNow.aFolderWithThisName;
     return null;
   }
 }

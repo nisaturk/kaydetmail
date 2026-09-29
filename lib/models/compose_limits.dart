@@ -1,5 +1,6 @@
 import '../services/api_exception.dart';
 import 'email.dart';
+import '../l10n/l10n.dart';
 
 class ComposeLimits {
   const ComposeLimits({
@@ -20,13 +21,13 @@ class ComposeLimits {
   final int maxAttachmentCount;
 
   String get fileTooLargeMessage =>
-      'Bu dosya izin verilen maksimum boyutu (${formatLimitSize(maxAttachmentBytes)}) aşıyor.';
+      l10nNow.thisFileExceedsTheMaximum(formatLimitSize(maxAttachmentBytes));
 
-  String get tooManyMessage =>
-      'En fazla $maxAttachmentCount dosya ekleyebilirsiniz.';
+  String get tooManyMessage => l10nNow.youCanAttachAtMost(maxAttachmentCount);
 
-  String get totalTooLargeMessage =>
-      'Eklerin toplam boyutu izin verilen sınırı (${formatLimitSize(maxMessageAttachmentBytes)}) aşıyor.';
+  String get totalTooLargeMessage => l10nNow.theTotalSizeOfAttachments(
+    formatLimitSize(maxMessageAttachmentBytes),
+  );
 
   String? violationFor(List<Attachment> attachments) {
     final oversized = attachments.where(
@@ -75,8 +76,8 @@ class AttachmentLimitException extends ApiException {
     final String message;
     if (limits == null) {
       message = tooMany
-          ? 'Ek dosya sayısı sınırı aşıldı.'
-          : 'Bir ek izin verilen maksimum boyutu aşıyor.';
+          ? l10nNow.attachmentCountLimitExceeded
+          : l10nNow.anAttachmentExceedsTheMaximum;
     } else if (tooMany) {
       message = limits.tooManyMessage;
     } else {

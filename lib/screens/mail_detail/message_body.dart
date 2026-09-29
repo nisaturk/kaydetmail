@@ -9,6 +9,7 @@ import '../../theme/app_theme.dart';
 import '../../utils/conversation_text.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/mail_link_handler.dart';
+import '../../l10n/l10n.dart';
 
 class MessageBody extends StatefulWidget {
   const MessageBody({
@@ -97,7 +98,7 @@ class _MessageBodyState extends State<MessageBody> {
           key: Key('toggle-quoted-${email.id}'),
           onPressed: () => setState(() => _showQuoted = !_showQuoted),
           child: Text(
-            _showQuoted ? 'Alıntıyı gizle' : 'Alıntı ve imzayı göster',
+            _showQuoted ? l10nNow.hideQuote : l10nNow.showQuoteAndSignature,
           ),
         ),
       ],
@@ -148,9 +149,7 @@ class _RemoteContentBannerState extends State<RemoteContentBanner> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            'Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.',
-          ),
+          Text(l10nNow.remoteImagesWereBlockedIn),
           if (_error != null) ...[
             const SizedBox(height: 4),
             Text(
@@ -174,7 +173,9 @@ class _RemoteContentBannerState extends State<RemoteContentBanner> {
                         height: 16,
                         child: CircularProgressIndicator(strokeWidth: 2),
                       )
-                    : Text(_error == null ? 'Görselleri yükle' : 'Tekrar dene'),
+                    : Text(
+                        _error == null ? l10nNow.loadImages : l10nNow.tryAgain,
+                      ),
               ),
             ],
           ),

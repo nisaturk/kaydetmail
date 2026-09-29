@@ -12,6 +12,7 @@ class AppPreferencesStore {
   static const _syncIntervalKey = 'kaydet.sync.interval';
   static const _swipeDeleteKey = 'kaydet.swipe.deleteEnabled';
   static const _themeModeKey = 'kaydet.theme.mode';
+  static const _languageKey = 'kaydet.language';
   static const _screenProtectionKey = ScreenProtectionService.preferenceKey;
   static const _biometricLockKey = 'kaydet.security.biometricLockEnabled';
   static const _biometricLockTimeoutKey =
@@ -252,5 +253,19 @@ class AppPreferencesStore {
   static Future<void> saveScreenProtectionEnabled(bool value) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setBool(_screenProtectionKey, value);
+  }
+
+  static Future<String?> loadLanguage() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_languageKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveLanguage(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_languageKey, value);
   }
 }

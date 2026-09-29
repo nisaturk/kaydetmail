@@ -1,3 +1,5 @@
+import '../l10n/l10n.dart';
+
 class FolderSyncStatus {
   const FolderSyncStatus({
     required this.folderId,
@@ -22,13 +24,13 @@ class FolderSyncStatus {
   String get displayName => friendlyFolderName(folderType, folderName);
 }
 
-const _friendlyFolderNames = {
-  'Inbox': 'Gelen Kutusu',
-  'Sent': 'Gönderilenler',
+final _friendlyFolderNames = {
+  'Inbox': l10nNow.inbox,
+  'Sent': l10nNow.sent,
   'Drafts': 'Taslaklar',
-  'Trash': 'Çöp Kutusu',
+  'Trash': l10nNow.trash,
   'Junk': 'Spam',
-  'Archive': 'Arşiv',
+  'Archive': l10nNow.archive,
 };
 
 String friendlyFolderName(String folderType, String folderName) =>

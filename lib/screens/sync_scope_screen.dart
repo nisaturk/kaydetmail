@@ -8,6 +8,7 @@ import '../models/account_sync_scope.dart';
 import '../models/mail_account.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 class SyncScopeScreen extends StatefulWidget {
   const SyncScopeScreen({super.key, required this.account});
@@ -81,9 +82,8 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
           ..clear()
           ..addAll(updated.folders.where((f) => f.synced).map((f) => f.id));
       });
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Senkronizasyon kapsamı kaydedildi.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.syncScopeSaved)));
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -98,7 +98,7 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
     final colors = AppTheme.colors(context);
     final current = _current;
     return Scaffold(
-      appBar: AppBar(title: const Text('Senkronizasyon kapsamı')),
+      appBar: AppBar(title: Text(l10nNow.syncScope)),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -108,10 +108,7 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
                 children: [
                   Text(friendlyErrorMessage(_error!)),
                   const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: _load,
-                    child: const Text('Tekrar dene'),
-                  ),
+                  TextButton(onPressed: _load, child: Text(l10nNow.tryAgain)),
                 ],
               ),
             )
@@ -126,7 +123,7 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Arka planda güncellenecek klasörleri seçin. Diğer klasörler açıldığında yine yenilenir.',
+                  l10nNow.chooseTheFoldersToUpdate,
                   style: TextStyle(color: colors.secondaryText),
                 ),
                 const SizedBox(height: 20),
@@ -150,7 +147,7 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
                 if (_scope == FolderSyncScope.selectedFolders) ...[
                   const SizedBox(height: 12),
                   Text(
-                    'Klasörler',
+                    l10nNow.folders,
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
@@ -174,7 +171,7 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
                     ),
                   if (_selected.isEmpty)
                     Text(
-                      'En az bir klasör seçin.',
+                      l10nNow.chooseAtLeastOneFolder,
                       style: TextStyle(color: colors.destructive),
                     ),
                 ],
@@ -193,11 +190,16 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
                           height: 20,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Kaydet'),
+                      : Text(l10nNow.save),
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  'Arka planda senkronize edilen klasörler: ${current.folders.where((f) => f.synced).map((f) => f.displayName).join(', ')}',
+                  l10nNow.foldersSyncedInTheBackground(
+                    current.folders
+                        .where((f) => f.synced)
+                        .map((f) => f.displayName)
+                        .join(', '),
+                  ),
                   style: TextStyle(color: colors.secondaryText),
                 ),
               ],

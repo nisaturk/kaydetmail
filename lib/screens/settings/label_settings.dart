@@ -8,6 +8,7 @@ import '../../models/mail_label.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/color_picker_dialog.dart';
+import '../../l10n/l10n.dart';
 
 /// Preset label colours (the picker adds custom ones on top).
 const List<Color> kLabelColors = [
@@ -23,17 +24,17 @@ const List<Color> kLabelColors = [
   Color(0xFF2D3142),
 ];
 
-const List<String> kLabelColorNames = [
-  'Mavi',
+final List<String> kLabelColorNames = [
+  l10nNow.blue,
   'Mor',
-  'Yeşil',
-  'Turuncu',
-  'Koyu kırmızı',
-  'Kırmızı',
-  'Turkuaz',
-  'Menekşe',
-  'Kırmızı-turuncu',
-  'Koyu gri',
+  l10nNow.green,
+  l10nNow.orange,
+  l10nNow.darkRed,
+  l10nNow.red,
+  l10nNow.turquoise,
+  l10nNow.purple,
+  l10nNow.redOrange,
+  l10nNow.darkGray,
 ];
 
 class LabelsSection extends StatefulWidget {
@@ -58,7 +59,7 @@ class _LabelsSectionState extends State<LabelsSection> {
             leading: CircleAvatar(backgroundColor: label.color, radius: 8),
             title: Text(label.name),
             trailing: IconButton(
-              tooltip: 'Düzenle',
+              tooltip: l10nNow.edit,
               icon: const Icon(LucideIcons.pencil, size: 18),
               onPressed: () =>
                   _showLabelEditor(context, accountId: accountId, label: label),
@@ -67,7 +68,7 @@ class _LabelsSectionState extends State<LabelsSection> {
         TextButton.icon(
           onPressed: () => _showLabelEditor(context, accountId: accountId),
           icon: const Icon(LucideIcons.plus, size: 18),
-          label: const Text('Yeni Etiket'),
+          label: Text(l10nNow.newLabel),
         ),
       ],
     );
@@ -162,14 +163,14 @@ class _ColorPalette extends StatelessWidget {
         if (customSelected != null)
           swatch(
             key: const Key('custom-color-current'),
-            label: 'Özel renk ${colorToHex(customSelected)}',
+            label: l10nNow.customColor(colorToHex(customSelected)),
             color: customSelected,
             isSelected: true,
             onTap: () => onSelected(customSelected),
           ),
         swatch(
           key: const Key('custom-color-swatch'),
-          label: 'Özel renk seç',
+          label: l10nNow.chooseCustomColor,
           color: null,
           isSelected: false,
           gradient: const SweepGradient(
@@ -234,7 +235,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
     if (_submitting) return;
     final name = _controller.text.trim();
     if (name.isEmpty) {
-      setState(() => _error = 'Etiket adı boş olamaz.');
+      setState(() => _error = l10nNow.labelNameCantBeEmpty);
       return;
     }
     setState(() {
@@ -276,19 +277,16 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Etiketi sil?'),
-        content: Text(
-          '“${widget.label!.name}” etiketi kaldırılacak. '
-          'E-postalar silinmez, yalnızca bu etiket onlardan çıkarılır.',
-        ),
+        title: Text(l10nNow.deleteLabel),
+        content: Text(l10nNow.theLabelWillBeRemoved(widget.label!.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Evet, sil'),
+            child: Text(l10nNow.yesDelete),
           ),
         ],
       ),
@@ -312,7 +310,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
   Widget build(BuildContext context) {
     return AlertDialog(
       scrollable: true,
-      title: Text(_isEdit ? 'Etiketi Düzenle' : 'Yeni Etiket'),
+      title: Text(_isEdit ? l10nNow.editLabel : l10nNow.newLabel),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -322,7 +320,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
             autofocus: true,
             textInputAction: TextInputAction.done,
             decoration: InputDecoration(
-              labelText: 'Ad',
+              labelText: l10nNow.name,
               errorText: _error,
               errorMaxLines: 2,
             ),
@@ -338,7 +336,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10nNow.cancel2),
         ),
         if (_isEdit)
           TextButton(
@@ -346,11 +344,11 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
             style: TextButton.styleFrom(
               foregroundColor: AppTheme.colors(context).destructive,
             ),
-            child: const Text('Sil'),
+            child: Text(l10nNow.delete),
           ),
         FilledButton(
           onPressed: _save,
-          child: Text(_isEdit ? 'Kaydet' : 'Oluştur'),
+          child: Text(_isEdit ? l10nNow.save : l10nNow.create),
         ),
       ],
     );

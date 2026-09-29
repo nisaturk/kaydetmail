@@ -32,6 +32,7 @@ import 'scheduled_sends_screen.dart';
 import 'search_screen.dart';
 import 'add_account_screen.dart';
 import 'settings_screen.dart';
+import '../l10n/l10n.dart';
 
 /// The main mail interface: a drawer to switch folders plus the mail list.
 ///
@@ -115,14 +116,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _checkingMutationConflicts = false;
     }
     if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Çevrimdışıyken yapılan bir işlem uygulanamadı. '
-          'Son durum sunucudan yüklendi.',
-        ),
-      ),
-    );
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(l10nNow.anActionTakenWhileOffline)));
   }
 
   MailRepository get _repo => AppConfig.mailRepository;
@@ -190,9 +186,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_syncingAccounts) return;
     _syncingAccounts = true;
     final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(
-      const SnackBar(content: Text('Hesaplar eşitleniyor…')),
-    );
+    messenger.showSnackBar(SnackBar(content: Text(l10nNow.syncingAccounts)));
     try {
       await _repo.syncFolder(MailFolder.all);
       await _repo.refreshEmails(MailFolder.all);
@@ -200,11 +194,11 @@ class _HomeScreenState extends State<HomeScreen> {
       if (!messenger.mounted) return;
       messenger
         ..hideCurrentSnackBar()
-        ..showSnackBar(const SnackBar(content: Text('Hesaplar eşitlendi.')));
+        ..showSnackBar(SnackBar(content: Text(l10nNow.accountsSynced)));
     } catch (error) {
       if (!messenger.mounted) return;
       final message = error is ApiException && error.status == 404
-          ? 'Eşitleme durumu bulunamadı. Tekrar deneyin.'
+          ? l10nNow.syncStatusNotFoundTry
           : friendlyErrorMessage(error);
       messenger
         ..hideCurrentSnackBar()
@@ -224,12 +218,12 @@ class _HomeScreenState extends State<HomeScreen> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Padding(
+              Padding(
                 padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
                 child: Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
-                    'Gelen Kutusu',
+                    l10nNow.inbox,
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                 ),
@@ -241,7 +235,7 @@ class _HomeScreenState extends State<HomeScreen> {
                   size: 20,
                   color: AppTheme.colors(ctx).secondaryText,
                 ),
-                title: const Text('Tüm Gelen Kutuları'),
+                title: Text(l10nNow.allInboxes),
                 selected: activeId == null,
                 onTap: () => Navigator.of(ctx).pop(_unifiedScope),
               ),
@@ -333,7 +327,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (_folder == MailFolder.drafts) return _actionDeleteDrafts();
     return _runBulkMove(
       action: (ids) => _repo.moveToTrash(ids),
-      success: (count) => '$count e-posta silindi',
+      success: (count) => l10nNow.emailsDeleted(count),
     );
   }
 
@@ -357,14 +351,14 @@ class _HomeScreenState extends State<HomeScreen> {
         await Future.wait(ids.map(_repo.deleteDraft));
         if (messenger.mounted) {
           messenger.showSnackBar(
-            SnackBar(content: Text('${ids.length} taslak silindi')),
+            SnackBar(content: Text(l10nNow.draftsDeleted(ids.length))),
           );
         }
       } catch (error) {
         if (messenger.mounted) {
           messenger.showSnackBar(
             SnackBar(
-              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+              content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
             ),
           );
         }
@@ -398,7 +392,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (messenger.mounted) {
           messenger.showSnackBar(
             SnackBar(
-              content: Text('${ids.length} e-posta kalıcı olarak silindi'),
+              content: Text(l10nNow.emailsPermanentlyDeleted(ids.length)),
             ),
           );
         }
@@ -406,7 +400,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (messenger.mounted) {
           messenger.showSnackBar(
             SnackBar(
-              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+              content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
             ),
           );
         }
@@ -418,12 +412,12 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _actionArchive() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.archive),
-    success: (count) => '$count e-posta arşivlendi',
+    success: (count) => l10nNow.emailsArchived(count),
   );
 
   Future<void> _actionSpam() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.spam),
-    success: (count) => '$count e-posta spam kutusuna taşındı',
+    success: (count) => l10nNow.emailsMovedToSpam(count),
   );
 
   /// Trash's `moveToFolder(ids, inbox)` is auto-resolved by the repository
@@ -431,19 +425,19 @@ class _HomeScreenState extends State<HomeScreen> {
   /// original pre-trash folder — see `MailRepository.moveToFolder` docs.
   Future<void> _actionRestoreFromTrash() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
-    success: (count) => '$count e-posta geri yüklendi',
+    success: (count) => l10nNow.emailsRestored(count),
     onlyCurrentFolder: true,
   );
 
   Future<void> _actionUnarchive() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
-    success: (count) => '$count e-posta arşivden çıkarıldı',
+    success: (count) => l10nNow.emailsUnarchived(count),
     onlyCurrentFolder: true,
   );
 
   Future<void> _actionMarkNotSpam() => _runBulkMove(
     action: (ids) => _repo.moveToFolder(ids, MailFolder.inbox),
-    success: (count) => '$count e-posta spam olmaktan çıkarıldı',
+    success: (count) => l10nNow.emailsMarkedAsNotSpam(count),
     onlyCurrentFolder: true,
   );
 
@@ -464,7 +458,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
     if (ids.any(_mutatingMailIds.contains)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bu e-postalar zaten işleniyor.')),
+        SnackBar(content: Text(l10nNow.theseEmailsAreAlreadyBeing)),
       );
       return;
     }
@@ -472,10 +466,12 @@ class _HomeScreenState extends State<HomeScreen> {
     final customIds = custom == null
         ? const <String>[]
         : ids
-            .where((id) => _repo
-                .cachedCustomFolderMails(custom.accountId, custom.folderId)
-                .any((email) => email.id == id))
-            .toList();
+              .where(
+                (id) => _repo
+                    .cachedCustomFolderMails(custom.accountId, custom.folderId)
+                    .any((email) => email.id == id),
+              )
+              .toList();
     final previous = previousFoldersOf(_repo, ids)
       ..removeWhere((id, _) => customIds.contains(id));
     _mutatingMailIds.addAll(ids);
@@ -491,14 +487,16 @@ class _HomeScreenState extends State<HomeScreen> {
             persist: false,
             duration: const Duration(seconds: 5),
             action: SnackBarAction(
-              label: 'Geri al',
+              label: l10nNow.undo2,
               onPressed: () {
                 if (custom != null && customIds.isNotEmpty) {
-                  unawaited(_repo.moveToCustomFolder(
-                    customIds,
-                    accountId: custom.accountId,
-                    folderId: custom.folderId,
-                  ));
+                  unawaited(
+                    _repo.moveToCustomFolder(
+                      customIds,
+                      accountId: custom.accountId,
+                      folderId: custom.folderId,
+                    ),
+                  );
                 }
                 restorePreviousFolders(_repo, previous);
               },
@@ -509,7 +507,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (!messenger.mounted) return;
         messenger.showSnackBar(
           SnackBar(
-            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+            content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
           ),
         );
       } finally {
@@ -525,7 +523,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }) {
     if (ids.any(_mutatingMailIds.contains)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Bu e-postalar zaten işleniyor.')),
+        SnackBar(content: Text(l10nNow.theseEmailsAreAlreadyBeing)),
       );
       return;
     }
@@ -542,7 +540,7 @@ class _HomeScreenState extends State<HomeScreen> {
         if (messenger.mounted) {
           messenger.showSnackBar(
             SnackBar(
-              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+              content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
             ),
           );
         }
@@ -633,7 +631,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _runOptimisticAction(
       ids: ids,
       operation: () => _repo.setSnoozed(ids, until),
-      successMessage: '${ids.length} e-posta ertelendi.',
+      successMessage: l10nNow.emailsSnoozed(ids.length),
     );
   }
 
@@ -687,7 +685,7 @@ class _HomeScreenState extends State<HomeScreen> {
         }
         return _repo.moveToFolder(mailIds, targets.folder!);
       },
-      successMessage: '${emails.length} e-posta taşındı.',
+      successMessage: l10nNow.emailsMoved(emails.length),
     );
   }
 
@@ -714,33 +712,35 @@ class _HomeScreenState extends State<HomeScreen> {
           appBar: _selection.isActive
               ? _buildSelectionAppBar()
               : widget.customFolder != null
-                  ? AppBar(title: Text(widget.customFolder!.name))
-                  : _buildNormalAppBar(),
-          drawer: widget.customFolder != null || showRail ? null : drawerContent,
+              ? AppBar(title: Text(widget.customFolder!.name))
+              : _buildNormalAppBar(),
+          drawer: widget.customFolder != null || showRail
+              ? null
+              : drawerContent,
           floatingActionButton: _selection.isActive
               ? null
               : FloatingActionButton(
                   onPressed: _openCompose,
-                  tooltip: 'Yeni E-posta',
+                  tooltip: l10nNow.newEmail,
                   child: const Icon(LucideIcons.mailPlus),
                 ),
           body: widget.customFolder != null
               ? _buildMailArea(showDetailPane: false)
               : showRail
-                  ? Row(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        drawerContent,
-                        VerticalDivider(
-                          width: 1,
-                          color: AppTheme.colors(context).border,
-                        ),
-                        Expanded(
-                          child: _buildMailArea(showDetailPane: showDetailPane),
-                        ),
-                      ],
-                    )
-                  : _buildMailArea(showDetailPane: false),
+              ? Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    drawerContent,
+                    VerticalDivider(
+                      width: 1,
+                      color: AppTheme.colors(context).border,
+                    ),
+                    Expanded(
+                      child: _buildMailArea(showDetailPane: showDetailPane),
+                    ),
+                  ],
+                )
+              : _buildMailArea(showDetailPane: false),
         );
       },
     );
@@ -801,7 +801,7 @@ class _HomeScreenState extends State<HomeScreen> {
     final activeEmail = activeAccountId == null
         ? (accounts.length == 1 ? accounts.single.email : null)
         : _repo.getAccount(activeAccountId)?.email;
-    final scopeLabel = activeEmail ?? 'Tüm Gelen Kutuları';
+    final scopeLabel = activeEmail ?? l10nNow.allInboxes;
 
     final inboxTitle = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
@@ -812,9 +812,9 @@ class _HomeScreenState extends State<HomeScreen> {
           Row(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Flexible(
+              Flexible(
                 child: Text(
-                  'Gelen Kutusu',
+                  l10nNow.inbox,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -861,7 +861,7 @@ class _HomeScreenState extends State<HomeScreen> {
         IconButton(
           onPressed: _openSearch,
           icon: const Icon(LucideIcons.search),
-          tooltip: 'Ara',
+          tooltip: l10nNow.search,
         ),
       ],
     );
@@ -876,27 +876,27 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_showDeleteAction)
         IconButton(
           onPressed: _actionDelete,
-          tooltip: 'Sil',
+          tooltip: l10nNow.delete,
           icon: const Icon(LucideIcons.trash2),
         ),
       if (_showRestoreAction)
         IconButton(
           onPressed: _actionRestoreFromTrash,
-          tooltip: 'Geri Yükle',
+          tooltip: l10nNow.restore,
           icon: const Icon(LucideIcons.rotateCcw),
         ),
       if (_showDeleteForeverAction)
         IconButton(
           onPressed: _actionDeleteForever,
-          tooltip: 'Kalıcı olarak sil',
+          tooltip: l10nNow.deletePermanently,
           icon: const Icon(LucideIcons.trash2),
         ),
       if (_folder != MailFolder.drafts)
         IconButton(
           onPressed: _actionToggleRead,
           tooltip: _selectionAnyUnread
-              ? 'Okundu olarak işaretle'
-              : 'Okunmadı olarak işaretle',
+              ? l10nNow.markAsRead
+              : l10nNow.markAsUnread,
           icon: Icon(
             _selectionAnyUnread ? LucideIcons.mailOpen : LucideIcons.mail,
           ),
@@ -904,13 +904,13 @@ class _HomeScreenState extends State<HomeScreen> {
       if (_showArchiveAction)
         IconButton(
           onPressed: _actionArchive,
-          tooltip: 'Arşivle',
+          tooltip: l10nNow.archive2,
           icon: const Icon(LucideIcons.archive),
         ),
       if (_showUnarchiveAction)
         IconButton(
           onPressed: _actionUnarchive,
-          tooltip: 'Arşivden çıkar',
+          tooltip: l10nNow.unarchive,
           icon: const Icon(LucideIcons.archiveRestore),
         ),
     ];
@@ -918,46 +918,50 @@ class _HomeScreenState extends State<HomeScreen> {
     final overflowItems = <PopupMenuEntry<String>>[
       PopupMenuItem(
         value: 'star',
-        child: Text(_selectionAllStarred ? 'Yıldızı kaldır' : 'Yıldızla'),
+        child: Text(_selectionAllStarred ? l10nNow.removeStar : l10nNow.star),
       ),
       if (_folder != MailFolder.drafts)
         PopupMenuItem(
           value: 'pin',
-          child: Text(_selectionAllPinned ? 'Sabitlemeyi kaldır' : 'Sabitle'),
+          child: Text(_selectionAllPinned ? l10nNow.unpin : l10nNow.pin),
         ),
       if (_folder != MailFolder.drafts)
         PopupMenuItem(
           value: 'snooze',
           child: Text(
-            _folder == MailFolder.snoozed ? 'Ertelemeyi kaldır' : 'Ertele',
+            _folder == MailFolder.snoozed
+                ? l10nNow.removeSnooze
+                : l10nNow.snooze,
           ),
         ),
       if (_showMarkAsSpamAction)
-        const PopupMenuItem(value: 'spam', child: Text('Spam kutusuna gönder')),
+        PopupMenuItem(value: 'spam', child: Text(l10nNow.moveToSpam)),
       if (_showMarkNotSpamAction)
-        const PopupMenuItem(value: 'not_spam', child: Text('Spam değil')),
+        PopupMenuItem(value: 'not_spam', child: Text(l10nNow.notSpam)),
       if (anyLabeled(_repo, expandThreadIds(_repo, _selection.selectedIds)))
-        const PopupMenuItem(value: 'unlabel', child: Text('Etiketi kaldır'))
+        PopupMenuItem(value: 'unlabel', child: Text(l10nNow.removeLabel))
       else
-        const PopupMenuItem(value: 'label', child: Text('Etiketle')),
+        PopupMenuItem(value: 'label', child: Text(l10nNow.label)),
       if (_folder != MailFolder.drafts)
-        const PopupMenuItem(value: 'move', child: Text('Taşı')),
-      const PopupMenuItem(value: 'all', child: Text('Tümünü seç')),
+        PopupMenuItem(value: 'move', child: Text(l10nNow.move)),
+      PopupMenuItem(value: 'all', child: Text(l10nNow.selectAll)),
     ];
 
     return AppBar(
       leading: IconButton(
         onPressed: _selection.exit,
-        tooltip: 'Seçimi iptal et',
+        tooltip: l10nNow.cancelSelection,
         icon: const Icon(LucideIcons.x),
       ),
       title: Text(
-        _selection.count == 1 ? '1 seçili' : '${_selection.count} seçili',
+        _selection.count == 1
+            ? l10nNow.n1Selected
+            : l10nNow.selected(_selection.count),
       ),
       actions: [
         ...inlineActions,
         PopupMenuButton<String>(
-          tooltip: 'Diğer',
+          tooltip: l10nNow.other,
           icon: const Icon(LucideIcons.ellipsisVertical),
           onSelected: (v) {
             switch (v) {
@@ -1005,7 +1009,7 @@ class _DetailPanePlaceholder extends StatelessWidget {
             Icon(LucideIcons.mailOpen, size: 40, color: colors.tertiaryText),
             const SizedBox(height: AppTheme.space3),
             Text(
-              'Görüntülemek için bir e-posta seçin',
+              l10nNow.selectAnEmailToView,
               style: AppTheme.bodyText2.copyWith(color: colors.secondaryText),
             ),
           ],
@@ -1037,7 +1041,7 @@ class _OfflineBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Bağlantı yok. Önbellekteki son postalar gösteriliyor.',
+              l10nNow.noConnectionShowingTheLatest,
               style: TextStyle(
                 fontSize: 12.5,
                 color: AppTheme.colors(context).warning,

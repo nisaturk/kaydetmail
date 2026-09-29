@@ -6,6 +6,7 @@ import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
 import '../theme/app_theme.dart';
+import '../l10n/l10n.dart';
 
 /// Bottom-sheet label picker shared by the detail screen and the bulk action
 /// bar, so assigning labels never forks into two implementations.
@@ -44,8 +45,8 @@ Future<void> showLabelPicker(
                     alignment: Alignment.centerLeft,
                     child: Text(
                       multipleAccounts
-                          ? 'Etiketler hesap bazında uygulanır'
-                          : 'Etiketler',
+                          ? l10nNow.labelsApplyPerAccount
+                          : l10nNow.labels,
                       style: const TextStyle(
                         fontSize: 16,
                         fontWeight: FontWeight.w700,
@@ -58,7 +59,8 @@ Future<void> showLabelPicker(
                     ListTile(
                       dense: true,
                       title: Text(
-                        repo.getAccount(entry.key)?.email ?? 'Posta hesabı',
+                        repo.getAccount(entry.key)?.email ??
+                            l10nNow.mailAccount,
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ),
@@ -71,7 +73,7 @@ Future<void> showLabelPicker(
                       child: Align(
                         alignment: Alignment.centerLeft,
                         child: Text(
-                          'Bu hesapta etiket yok.',
+                          l10nNow.noLabelsInThisAccount,
                           style: TextStyle(
                             fontSize: 14,
                             color: AppTheme.colors(sheetContext).secondaryText,
@@ -192,7 +194,11 @@ class _LabelRowState extends State<_LabelRow> {
       if (!mounted) return;
       setState(() => _applied = before);
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Etiket uygulanamadı: ${friendlyErrorMessage(error)}')),
+        SnackBar(
+          content: Text(
+            l10nNow.couldntApplyTheLabel(friendlyErrorMessage(error)),
+          ),
+        ),
       );
     }
   }

@@ -6,6 +6,7 @@ import '../models/mail_header_entry.dart';
 import '../models/mail_security.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 enum MailInspectionMode { headers, source, signature }
 
@@ -49,9 +50,9 @@ class _MailInspectionScreenState extends State<MailInspectionScreen> {
   }
 
   String get _title => switch (widget.mode) {
-    MailInspectionMode.headers => 'Tüm başlıklar',
-    MailInspectionMode.source => 'Ham MIME',
-    MailInspectionMode.signature => 'İmza doğrulaması',
+    MailInspectionMode.headers => l10nNow.allHeaders,
+    MailInspectionMode.source => l10nNow.rawMime,
+    MailInspectionMode.signature => l10nNow.signatureVerification,
   };
 
   @override
@@ -68,13 +69,15 @@ class _MailInspectionScreenState extends State<MailInspectionScreen> {
                 Padding(
                   padding: const EdgeInsets.all(24),
                   child: Text(
-                    'İleti kaynağı alınamadı: ${friendlyErrorMessage(snapshot.error!)}',
+                    l10nNow.couldntGetTheMessageSource(
+                      friendlyErrorMessage(snapshot.error!),
+                    ),
                     textAlign: TextAlign.center,
                   ),
                 ),
                 TextButton(
                   onPressed: () => setState(_load),
-                  child: const Text('Tekrar dene'),
+                  child: Text(l10nNow.tryAgain),
                 ),
               ],
             ),
@@ -119,10 +122,10 @@ class _MailInspectionScreenState extends State<MailInspectionScreen> {
 
   Widget _signatureView(MailSignatureVerification signature) {
     final status = switch (signature.status) {
-      'Valid' => 'İmza ve sertifika zinciri doğrulandı',
-      'Untrusted' => 'İmza eşleşiyor; sertifika güvenilir değil',
-      'Invalid' => 'İmza geçersiz',
-      _ => 'İmza doğrulanamadı',
+      'Valid' => l10nNow.signatureAndCertificateChainVerified,
+      'Untrusted' => l10nNow.signatureMatchesCertificateIsntTrusted,
+      'Invalid' => l10nNow.signatureIsInvalid,
+      _ => l10nNow.signatureCouldntBeVerified,
     };
     return ListView(
       padding: const EdgeInsets.all(20),
@@ -135,16 +138,20 @@ class _MailInspectionScreenState extends State<MailInspectionScreen> {
         Text(status),
         if (signature.standard == 'OpenPgp') ...[
           const SizedBox(height: 12),
-          const Text('OpenPGP anahtar yönetimi ve doğrulaması desteklenmiyor.'),
+          Text(l10nNow.openpgpKeyManagementAndVerification),
         ],
         for (final signer in signature.signers) ...[
           const Divider(height: 32),
-          Text(signer.name ?? signer.email ?? 'Bilinmeyen imzacı'),
+          Text(signer.name ?? signer.email ?? l10nNow.unknownSigner),
           if (signer.email != null) SelectableText(signer.email!),
           if (signer.signedAt != null)
-            Text('İmza tarihi: ${signer.signedAt!.toLocal()}'),
+            Text(l10nNow.signatureDate(signer.signedAt!.toLocal())),
           if (signer.certificateExpiresAt != null)
-            Text('Sertifika bitişi: ${signer.certificateExpiresAt!.toLocal()}'),
+            Text(
+              l10nNow.certificateExpires(
+                signer.certificateExpiresAt!.toLocal(),
+              ),
+            ),
         ],
       ],
     );

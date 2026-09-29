@@ -1,5 +1,7 @@
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../l10n/l10n.dart';
+
 /// Persists the future HTTP API's base URL.
 ///
 /// UI never touches SharedPreferences directly — it goes through this store.
@@ -25,14 +27,14 @@ class ServerAddressStore {
   static String normalize(String raw) {
     final trimmed = raw.trim();
     if (trimmed.isEmpty) {
-      throw ArgumentError('Sunucu adresi boş olamaz.');
+      throw ArgumentError(l10nNow.theServerAddressCantBe);
     }
     final uri = Uri.tryParse(trimmed);
     if (uri == null ||
         !uri.isAbsolute ||
         (uri.scheme != 'http' && uri.scheme != 'https') ||
         uri.host.isEmpty) {
-      throw ArgumentError('Geçerli bir http/https adresi girin.');
+      throw ArgumentError(l10nNow.enterAValidHttpHttps);
     }
     return trimmed.replaceAll(RegExp(r'/+$'), '');
   }

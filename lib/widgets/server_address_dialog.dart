@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../state/app_settings_controller.dart';
+import '../l10n/l10n.dart';
 
 /// Dialog to view/edit the API base URL, shared by the login screen (so it's
 /// reachable before an account exists) and the settings screen.
@@ -57,14 +58,14 @@ class _ServerAddressDialogState extends State<ServerAddressDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Sunucu adresi'),
+      title: Text(l10nNow.serverAddress),
       content: TextField(
         controller: _controller,
         autofocus: true,
         textInputAction: TextInputAction.done,
         keyboardType: TextInputType.url,
         decoration: InputDecoration(
-          labelText: 'Adres',
+          labelText: l10nNow.address,
           hintText: 'http://192.168.1.100:8080',
           errorText: _error,
           errorMaxLines: 2,
@@ -74,9 +75,9 @@ class _ServerAddressDialogState extends State<ServerAddressDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10nNow.cancel2),
         ),
-        FilledButton(onPressed: _save, child: const Text('Kaydet')),
+        FilledButton(onPressed: _save, child: Text(l10nNow.save)),
       ],
     );
   }

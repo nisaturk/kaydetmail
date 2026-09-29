@@ -1,0 +1,1359 @@
+{
+  "@@locale": "tr",
+  "draftSavedLocallyServerSync": "Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.",
+  "outgoingMessagesAreWaitingFor": "{attention} gönderi Giden Kutusu’nda incelenmeyi bekliyor.",
+  "@outgoingMessagesAreWaitingFor": {
+    "placeholders": {
+      "attention": {
+        "type": "int"
+      }
+    }
+  },
+  "open": "Aç",
+  "couldntOpenTheOutboxTry": "Giden Kutusu açılamadı. Yeniden deneyin.",
+  "full": "Tam",
+  "senderSubjectAndAShort": "Gönderen, konu ve kısa önizleme",
+  "limited": "Sınırlı",
+  "senderAndSubject": "Gönderen ve konu",
+  "private": "Gizli",
+  "onlyNewEmail": "Yalnızca \"Yeni e-posta\"",
+  "inboxSent": "Gelen + Gönderilen",
+  "allFolders": "Tüm klasörler",
+  "selectedFolders": "Seçili klasörler",
+  "thisFileExceedsTheMaximum": "Bu dosya izin verilen maksimum boyutu ({value}) aşıyor.",
+  "@thisFileExceedsTheMaximum": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "theTotalSizeOfAttachments": "Eklerin toplam boyutu izin verilen sınırı ({value}) aşıyor.",
+  "@theTotalSizeOfAttachments": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "attachmentCountLimitExceeded": "Ek dosya sayısı sınırı aşıldı.",
+  "anAttachmentExceedsTheMaximum": "Bir ek izin verilen maksimum boyutu aşıyor.",
+  "file": "Dosya",
+  "sent": "Gönderilenler",
+  "trash": "Çöp Kutusu",
+  "archive": "Arşiv",
+  "other": "Diğer",
+  "inbox": "Gelen Kutusu",
+  "allMail": "Tüm mailler",
+  "outbox": "Giden Kutusu",
+  "starred": "Yıldızlılar",
+  "snoozed": "Ertelenenler",
+  "drafts": "Taslaklar",
+  "enterAValidEmailAddress": "Geçerli bir e-posta adresi girin.",
+  "thisEmailIsAlreadySaved": "Bu e-posta zaten kayıtlı.",
+  "labelNameCantBeEmpty": "Etiket adı boş olamaz.",
+  "theSenderAddressCouldntBe": "Gönderici adresi okunamadı.",
+  "connected": "{email} bağlandı.",
+  "@connected": {
+    "placeholders": {
+      "email": {}
+    }
+  },
+  "addNewAccount": "Yeni hesap ekle",
+  "enterAValidEmailAddress2": "Geçerli bir e-posta adresi girin",
+  "email": "E-posta",
+  "passwordIsRequired": "Şifre zorunludur",
+  "password": "Şifre",
+  "showPassword": "Şifreyi göster",
+  "hidePassword": "Şifreyi gizle",
+  "connect": "Bağla",
+  "downloadCancelled": "İndirme iptal edildi.",
+  "share": "Paylaş",
+  "downloading": "İndiriliyor…",
+  "cancel": "İptal",
+  "thisFileTypeCantBe": "Bu dosya türü uygulama içinde açılamıyor.",
+  "theFileCouldntBePreviewed": "Dosya önizlenemedi.",
+  "openInAnotherApp": "Başka uygulamada aç",
+  "emptyDocument": "(Boş belge)",
+  "chooseASavedTextOr": "Hazır metin veya şablon seç",
+  "close": "Kapat",
+  "tryAgain": "Tekrar dene",
+  "noSavedTextsForThis": "Bu hesapta kayıtlı metin yok.\nAyarlar > Hazır Metinler ve Şablonlar",
+  "downloadAgain": "Tekrar indir",
+  "remove": "Kaldır",
+  "theEmailWillBeSent": "E-posta {_secondsLeft} sn içinde gönderilecek",
+  "@theEmailWillBeSent": {
+    "placeholders": {
+      "_secondsLeft": {}
+    }
+  },
+  "insertLink": "Bağlantı Ekle",
+  "cancel2": "Vazgeç",
+  "add": "Ekle",
+  "image": "Görsel",
+  "embeddedContent": "Gömülü içerik",
+  "addFromContacts": "Kişilerden ekle",
+  "to": "Kime",
+  "searchNameOrEmail": "Ad veya e-posta ara",
+  "noSavedContactsYet": "Henüz kayıtlı kişi yok.",
+  "noMatchingContactsFound": "Eşleşen kişi bulunamadı.",
+  "editDraft": "Taslağı Düzenle",
+  "sendNow": "Şimdi Gönder",
+  "moreOptions": "Diğer seçenekler",
+  "schedule": "Zamanla",
+  "saveDraft": "Taslağı kaydet",
+  "delete": "Sil",
+  "addCcBcc": "Cc / Bcc ekle",
+  "subject": "Konu",
+  "writeYourMessage": "Mesajınızı yazın",
+  "from": "Kimden",
+  "chooseIdentity": "Kimlik seç",
+  "chooseAccount": "Hesap seç",
+  "attachFile": "Dosya ekle",
+  "savedTexts": "Hazır Metinler",
+  "anAttachmentCouldntBeDownloaded": "Bir ek indirilemedi. Tekrar deneyin veya kaldırın.",
+  "attachmentsAreBeingPreparedPlease": "Ekler hazırlanıyor, lütfen bekleyin.",
+  "chooseFile": "Dosya seç",
+  "choosePhoto": "Fotoğraf seç",
+  "camera": "Kamera",
+  "couldntAccessTheCameraCheck": "Kameraya erişilemedi. İzinleri kontrol edin veya dosya seçin.",
+  "couldntAccessPhotosCheckPermissions": "Fotoğraflara erişilemedi. İzinleri kontrol edin veya dosya seçin.",
+  "imageSize": "Görsel boyutu",
+  "original": "Orijinal",
+  "large2048Px": "Büyük (2048 px)",
+  "medium1280Px": "Orta (1280 px)",
+  "small640Px": "Küçük (640 px)",
+  "preparingImages": "Görseller hazırlanıyor… ({completed}/{length})",
+  "@preparingImages": {
+    "placeholders": {
+      "completed": {},
+      "length": {}
+    }
+  },
+  "couldntResizeTheImageThe": "{name}: Görsel küçültülemedi; özgün dosya kullanılacak.",
+  "@couldntResizeTheImageThe": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "couldntSaveTheDraftTry": "Taslak kaydedilemedi. Tekrar deneyin.",
+  "youCanSaveWhatYouve": "Yazdıklarınızı daha sonra tamamlamak için kaydedebilir veya taslağı kalıcı olarak silebilirsiniz.",
+  "couldntSaveTheDraftYour": "Taslak kaydedilemedi. İçeriğiniz ekranda tutuluyor.",
+  "draftSaved": "Taslak kaydedildi.",
+  "saving": "Kaydediliyor…",
+  "saveDraft2": "Taslağı Kaydet",
+  "deleteDraft": "Taslağı Sil",
+  "keepEditing": "Düzenlemeye devam et",
+  "thisActionCantBeUndone": "Bu işlem geri alınamaz.",
+  "couldntDeleteTheDraft": "Taslak silinemedi: {value}",
+  "@couldntDeleteTheDraft": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "draftDeleted": "Taslak silindi.",
+  "youMustEnterAtLeast": "En az bir alıcı yazmalısınız.",
+  "fixTheInvalidEmailAddresses": "Geçersiz e-posta adreslerini düzeltip tekrar deneyin.",
+  "couldntSaveTheMessage": "Gönderi kaydedilemedi: {value}",
+  "@couldntSaveTheMessage": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "undo": "Geri Al",
+  "aReadReceiptWillBe": "Alıcılardan okundu bilgisi istenecek.",
+  "pleaseChooseAFutureDate": "Lütfen ileri bir tarih ve saat seçin.",
+  "theEmailIsScheduledTo": "E-posta {value} tarihinde gönderilmek üzere zamanlandı.",
+  "@theEmailIsScheduledTo": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "couldntSchedule": "Zamanlanamadı: {value}",
+  "@couldntSchedule": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "couldntLoadTheSenderIdentity": "Gönderen kimliği yüklenemedi: {value}",
+  "@couldntLoadTheSenderIdentity": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "replaceTheSubject": "Konuyu değiştir?",
+  "theCurrentSubjectWillBe": "Mevcut konu hazır metindeki konuyla değiştirilecek.",
+  "keepSubject": "Konuyu koru",
+  "replace": "Değiştir",
+  "manageFolders": "Klasörleri yönet",
+  "whichAccountsFoldersDoYou": "Hangi hesabın klasörleri yönetilsin?",
+  "folder": "Klasör",
+  "chooseParentFolder": "Üst klasör seçin",
+  "topLevelFolder": "Bağımsız klasör",
+  "newFolder": "Yeni klasör",
+  "createSubfolder": "Alt klasör oluştur",
+  "folderCreated": "Klasör oluşturuldu.",
+  "rename": "Yeniden adlandır",
+  "folderRenamed": "Klasör yeniden adlandırıldı.",
+  "parentFolderChanged": "Üst klasör değiştirildi.",
+  "folderCantBeDeleted": "Klasör silinemez",
+  "ok": "Tamam",
+  "deleteFolder": "Klasör silinsin mi?",
+  "theFolderWillBePermanently": "\"{name}\" klasörü sunucudan kalıcı olarak silinecek.",
+  "@theFolderWillBePermanently": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "folderDeleted": "Klasör silindi.",
+  "whatShouldBeUsedAs": "\"{name}\" ne olarak kullanılsın?",
+  "@whatShouldBeUsedAs": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "isNowUsedAs": "\"{name}\" artık {value} olarak kullanılıyor.",
+  "@isNowUsedAs": {
+    "placeholders": {
+      "name": {},
+      "value": {}
+    }
+  },
+  "automaticDetectionRestoredFor": "\"{name}\" için otomatik tespit geri yüklendi.",
+  "@automaticDetectionRestoredFor": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "synced": "\"{name}\" eşitlendi.",
+  "@synced": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "willSyncAutomatically": "\"{name}\" otomatik eşitlenecek.",
+  "@willSyncAutomatically": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "willNotSyncAutomatically": "\"{name}\" otomatik eşitlenmeyecek.",
+  "@willNotSyncAutomatically": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "folders": "Klasörler",
+  "rescanFoldersOnTheServer": "Sunucudaki klasörleri yeniden tara",
+  "folderNotFound": "Klasör bulunamadı",
+  "usedAs": "{value} olarak kullanılıyor",
+  "@usedAs": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "standardFolder": "Standart klasör",
+  "unread": "{unreadCount} okunmamış",
+  "@unread": {
+    "placeholders": {
+      "unreadCount": {}
+    }
+  },
+  "syncingAutomatically": "Otomatik eşitleniyor",
+  "changeParentFolder": "Üst klasörü değiştir",
+  "assignFolderRole": "Klasör rolü ata",
+  "revertToAutomatic": "Otomatiğe döndür",
+  "syncNow": "Şimdi eşitle",
+  "turnOffAutomaticSync": "Otomatik eşitlemeyi kapat",
+  "turnOnAutomaticSync": "Otomatik eşitlemeyi aç",
+  "folderName": "Klasör adı",
+  "save": "Kaydet",
+  "anActionTakenWhileOffline": "Çevrimdışıyken yapılan bir işlem uygulanamadı. Son durum sunucudan yüklendi.",
+  "syncingAccounts": "Hesaplar eşitleniyor…",
+  "accountsSynced": "Hesaplar eşitlendi.",
+  "syncStatusNotFoundTry": "Eşitleme durumu bulunamadı. Tekrar deneyin.",
+  "allInboxes": "Tüm Gelen Kutuları",
+  "emailsDeleted": "{count} e-posta silindi",
+  "@emailsDeleted": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "draftsDeleted": "{length} taslak silindi",
+  "@draftsDeleted": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "actionFailed": "İşlem başarısız: {value}",
+  "@actionFailed": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "emailsPermanentlyDeleted": "{length} e-posta kalıcı olarak silindi",
+  "@emailsPermanentlyDeleted": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "emailsArchived": "{count} e-posta arşivlendi",
+  "@emailsArchived": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emailsMovedToSpam": "{count} e-posta spam kutusuna taşındı",
+  "@emailsMovedToSpam": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emailsRestored": "{count} e-posta geri yüklendi",
+  "@emailsRestored": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emailsUnarchived": "{count} e-posta arşivden çıkarıldı",
+  "@emailsUnarchived": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "emailsMarkedAsNotSpam": "{count} e-posta spam olmaktan çıkarıldı",
+  "@emailsMarkedAsNotSpam": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "theseEmailsAreAlreadyBeing": "Bu e-postalar zaten işleniyor.",
+  "undo2": "Geri al",
+  "emailsMoved": "{length} e-posta taşındı.",
+  "@emailsMoved": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "newEmail": "Yeni E-posta",
+  "search": "Ara",
+  "restore": "Geri Yükle",
+  "deletePermanently": "Kalıcı olarak sil",
+  "markAsRead": "Okundu olarak işaretle",
+  "markAsUnread": "Okunmadı olarak işaretle",
+  "archive2": "Arşivle",
+  "unarchive": "Arşivden çıkar",
+  "removeStar": "Yıldızı kaldır",
+  "star": "Yıldızla",
+  "unpin": "Sabitlemeyi kaldır",
+  "pin": "Sabitle",
+  "removeSnooze": "Ertelemeyi kaldır",
+  "snooze": "Ertele",
+  "moveToSpam": "Spam kutusuna gönder",
+  "notSpam": "Spam değil",
+  "removeLabel": "Etiketi kaldır",
+  "label": "Etiketle",
+  "move": "Taşı",
+  "selectAll": "Tümünü seç",
+  "cancelSelection": "Seçimi iptal et",
+  "n1Selected": "1 seçili",
+  "selected": "{count} seçili",
+  "@selected": {
+    "placeholders": {
+      "count": {}
+    }
+  },
+  "selectAnEmailToView": "Görüntülemek için bir e-posta seçin",
+  "noConnectionShowingTheLatest": "Bağlantı yok. Önbellekteki son postalar gösteriliyor.",
+  "restore2": "Geri yükle",
+  "readUnread": "Okundu / okunmadı",
+  "star2": "Yıldız",
+  "justNow": "az önce",
+  "minutesAgo": "{inMinutes} dakika önce",
+  "@minutesAgo": {
+    "placeholders": {
+      "inMinutes": {
+        "type": "int"
+      }
+    }
+  },
+  "hoursAgo": "{inHours} saat önce",
+  "@hoursAgo": {
+    "placeholders": {
+      "inHours": {
+        "type": "int"
+      }
+    }
+  },
+  "daysAgo": "{inDays} gün önce",
+  "@daysAgo": {
+    "placeholders": {
+      "inDays": {
+        "type": "int"
+      }
+    }
+  },
+  "tryLoadingMoreAgain": "Daha fazlasını tekrar yükle",
+  "noMailMatchesThisFilter": "Bu filtreyle eşleşen posta yok",
+  "clearFilter": "Filtreyi temizle",
+  "newEmailsWillAppearHere": "Yeni e-postalar geldiğinde burada görünür.",
+  "emailsFromYourConnectedAccounts": "Bağlı hesaplarınızdaki e-postalar burada görünür.",
+  "emailsYouSendAppearHere": "Gönderdiğiniz e-postalar burada görünür.",
+  "emailsYouStarAppearHere": "Yıldızladığınız e-postalar burada görünür.",
+  "emailsYouSnoozeAppearHere": "Ertelediğiniz e-postalar burada görünür.",
+  "draftsYouSaveAreKept": "Kaydettiğiniz taslaklar burada durur.",
+  "emailsYouDeleteAreKept": "Sildiğiniz e-postalar burada durur.",
+  "unwantedEmailsEndUpHere": "İstenmeyen e-postalar buraya düşer.",
+  "emailsYouArchiveAreKept": "Arşivlediğiniz e-postalar burada durur.",
+  "offline": "Çevrimdışı",
+  "isEmpty": "{label} boş",
+  "@isEmpty": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "noInternetConnectionNewMail": "İnternet bağlantısı yok. Bağlantı sağlanınca yeni postalar görünür.",
+  "refresh": "Yenile",
+  "youreOffline": "Çevrimdışısınız",
+  "yourEmailsCouldntBeLoaded": "E-postalarınız yüklenemedi",
+  "noInternetConnectionItWill": "İnternet bağlantısı yok. Bağlantı sağlanınca otomatik güncellenir.",
+  "accountReconnected": "Hesap yeniden bağlandı.",
+  "signInFailedTryAgain": "Giriş başarısız. Tekrar deneyin.",
+  "serverAddress": "Sunucu adresi",
+  "aSecureAppForYour": "E-postalarınız için güvenli bir uygulama",
+  "continueLabel": "Devam",
+  "back": "Geri",
+  "youAreReconnectingThisAccount": "Şu hesabı yeniden bağlıyorsunuz",
+  "youAreSigningInWith": "Şu hesapla oturum açıyorsunuz",
+  "reconnect": "Yeniden Bağlan",
+  "signIn": "Giriş Yap",
+  "hideQuote": "Alıntıyı gizle",
+  "showQuoteAndSignature": "Alıntı ve imzayı göster",
+  "remoteImagesWereBlockedIn": "Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.",
+  "loadImages": "Görselleri yükle",
+  "cancelDownload": "İndirmeyi iptal et",
+  "ready": "Hazır",
+  "downloadAttachment": "Eki indir",
+  "sendingReply": "Yanıt gönderiliyor",
+  "replySent": "Yanıt gönderildi",
+  "couldntSendTheReply": "Yanıt gönderilemedi: {value}",
+  "@couldntSendTheReply": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "writeAQuickReply": "Hızlı yanıt yaz…",
+  "sendReply": "Yanıtı gönder",
+  "more": "Daha fazla",
+  "replyAll": "Tümünü Yanıtla",
+  "reply": "Yanıtla",
+  "forward": "İlet",
+  "print": "Yazdır",
+  "shareAsPdf": "PDF olarak paylaş",
+  "unsubscribe": "Abonelikten Çık",
+  "showAllHeaders": "Tüm başlıkları göster",
+  "showRawMime": "Ham MIME göster",
+  "thisEmailNoLongerExists": "Bu e-posta artık mevcut değil.",
+  "messageActions": "İleti işlemleri",
+  "from2": "Kimden: ",
+  "to2": "Alıcı: ",
+  "cc": "Cc: ",
+  "bcc": "Bcc: ",
+  "date": "Tarih: ",
+  "signedByNotVerified": "{value} imzalı (doğrulanmadı)",
+  "@signedByNotVerified": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "encryptedByCantBeOpened": "{value} şifreli (açılamıyor)",
+  "@encryptedByCantBeOpened": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "trackingContentBlocked": "Takip içeriği engellendi",
+  "attachments": "Ekler",
+  "replyAll2": "Tümünü yanıtla",
+  "noRecipients": "alıcı yok",
+  "youCanPinAtMost": "En fazla 3 mail sabitlenebilir.",
+  "emailMovedTo": "E-posta {label} klasörüne taşındı.",
+  "@emailMovedTo": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "emailRestored": "E-posta geri yüklendi.",
+  "emailMarkedAsNotSpam": "E-posta spam değil olarak işaretlendi.",
+  "emailUnarchived": "E-posta arşivden çıkarıldı.",
+  "emailPermanentlyDeleted": "E-posta kalıcı olarak silindi.",
+  "unsubscribe2": "Abonelikten çıkılsın mı?",
+  "aRequestWillBeSent": "Bu gönderenden e-posta almayı durdurmak için bir istek gönderilecek. Bu işlem geri alınamaz.",
+  "unsubscribeStarted": "Abonelikten çıkma işlemi açıldı.",
+  "unsubscribingFailed": "Abonelikten çıkma işlemi başarısız oldu.",
+  "printingFailed": "Yazdırma başarısız: {value}",
+  "@printingFailed": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "sharingThePdfFailed": "PDF paylaşma başarısız: {value}",
+  "@sharingThePdfFailed": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "couldntPrepareTheReply": "Yanıt hazırlanamadı: {value}",
+  "@couldntPrepareTheReply": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "forwardedMessageFromSubject": "\n\n--- İletilen mesaj ---\nKimden: {sender}\n{dateLine}Konu: {subject}\n\n{bodyText}",
+  "@forwardedMessageFromSubject": {
+    "placeholders": {
+      "sender": {},
+      "dateLine": {},
+      "subject": {},
+      "bodyText": {}
+    }
+  },
+  "forwardedMessageFromSubject2": "<p><br></p><p>--- İletilen mesaj ---<br><strong>Kimden:</strong> {value}<br>{value2}<strong>Konu:</strong> {value3}</p>{originalHtml}",
+  "@forwardedMessageFromSubject2": {
+    "placeholders": {
+      "value": {},
+      "value2": {},
+      "value3": {},
+      "originalHtml": {}
+    }
+  },
+  "allHeaders": "Tüm başlıklar",
+  "rawMime": "Ham MIME",
+  "signatureVerification": "İmza doğrulaması",
+  "couldntGetTheMessageSource": "İleti kaynağı alınamadı: {value}",
+  "@couldntGetTheMessageSource": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "signatureAndCertificateChainVerified": "İmza ve sertifika zinciri doğrulandı",
+  "signatureMatchesCertificateIsntTrusted": "İmza eşleşiyor; sertifika güvenilir değil",
+  "signatureIsInvalid": "İmza geçersiz",
+  "signatureCouldntBeVerified": "İmza doğrulanamadı",
+  "openpgpKeyManagementAndVerification": "OpenPGP anahtar yönetimi ve doğrulaması desteklenmiyor.",
+  "unknownSigner": "Bilinmeyen imzacı",
+  "signatureDate": "İmza tarihi: {value}",
+  "@signatureDate": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "certificateExpires": "Sertifika bitişi: {value}",
+  "@certificateExpires": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "accountNotifications": "Hesap bildirimleri",
+  "theseSettingsApplyOnEvery": "Bu ayarlar hesabın oturum açık olduğu tüm cihazlarda geçerlidir. Bu cihazdaki bildirimleri Ayarlar > Genel ayarlar > Bildirimler ile kapatabilirsiniz.",
+  "notifications": "Bildirimler",
+  "inboxOnly": "Yalnızca Gelen Kutusu",
+  "whenOffSyncedFoldersOther": "Kapalıyken Gönderilmiş, Taslaklar, Çöp ve Spam dışındaki senkronize klasörler de bildirilir.",
+  "lockScreenPrivacy": "Kilit ekranı gizliliği",
+  "notificationsAreSentAsPrivate": "Sunucu önizlemeleri kapattığı için bildirimler Gizli olarak gönderilir.",
+  "editMessage": "Gönderiyi Düzenle",
+  "newMessage": "Yeni Gönderi",
+  "createANewMessage": "Yeni gönderi oluştur?",
+  "checkSentFirstThisMessage": "Önce Gönderilenler’i kontrol edin. Bu mesaj daha önce teslim edilmiş olabilir; yeniden göndermek alıcıya ikinci bir kopya ulaştırabilir.",
+  "newMessage2": "Yeni gönderi",
+  "deleteMessage": "Gönderiyi sil?",
+  "theDeliveryResultIsUnknown": "Gönderim sonucu bilinmiyor. Önce Gönderilenler’i kontrol edin. Yerel kopya silinsin mi?",
+  "theLocalCopyOfThis": "Bu gönderinin yerel kopyası kalıcı olarak silinecek.",
+  "noPendingMessages": "Bekleyen gönderi yok.",
+  "undoPeriod": "Geri alma süresi",
+  "sending": "Gönderiliyor",
+  "waitingForConnection": "Bağlantı bekleniyor",
+  "couldntSend": "Gönderilemedi",
+  "resultUnknown": "Sonuç belirsiz",
+  "to3": "Kime: {value}",
+  "@to3": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "noInternetConnectionItWillBeSentAutomatically": "İnternet bağlantısı yok. Bağlantı gelince otomatik gönderilecek.",
+  "checkSentBeforeSendingAgain": "Tekrar göndermeden önce Gönderilenler’i kontrol edin.",
+  "tryNow": "Şimdi dene",
+  "edit": "Düzenle",
+  "recreateManually": "Elle yeniden oluştur",
+  "viewContent": "İçeriği görüntüle",
+  "scheduledSends": "Zamanlanmış Gönderimler",
+  "scheduled": "Zamanlandı",
+  "sent2": "Gönderildi",
+  "cancelled": "İptal edildi",
+  "resultUnknownCheckSent": "Sonuç belirsiz — Gönderilenler’i kontrol edin",
+  "cancelScheduledSend": "Zamanlanmış gönderimi iptal et",
+  "cancelTheSendOf": "\"{value}\" gönderimi iptal edilsin mi?",
+  "@cancelTheSendOf": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "cancelSend": "İptal Et",
+  "sendCancelled": "Gönderim iptal edildi.",
+  "chooseAtLeastOneRecipient": "En az bir alıcı ve ileri bir tarih seçin.",
+  "scheduledSendUpdated": "Zamanlanmış gönderim güncellendi.",
+  "sendReQueued": "Gönderim yeniden kuyruğa alındı.",
+  "failedSend": "Başarısız gönderim",
+  "editScheduledSend": "Zamanlanmışı düzenle",
+  "sendFailed": "Gönderim başarısız",
+  "recipients": "Alıcılar",
+  "content": "İçerik",
+  "body": "Gövde",
+  "sendTime": "Gönderim zamanı",
+  "addAttachment": "Ek ekle",
+  "retry": "Yeniden dene",
+  "cancelSend2": "Gönderimi iptal et",
+  "noScheduledSends": "Zamanlanmış gönderim yok",
+  "scheduleASendWithThe": "Yazarken \"Gönder\" yanındaki oktan bir gönderim zamanlayınca burada görünür.",
+  "newEmailsAdded": "Sunucu taraması tamamlandı. {imported} yeni e-posta eklendi.",
+  "@newEmailsAdded": {
+    "placeholders": {
+      "imported": {
+        "type": "int"
+      }
+    }
+  },
+  "scanningTheServer": "Sunucu taranıyor… {imported} yeni e-posta eklendi; {remaining} eşleşme kaldı.",
+  "@scanningTheServer": {
+    "placeholders": {
+      "imported": {
+        "type": "int"
+      },
+      "remaining": {}
+    }
+  },
+  "serverScanStopped": "Sunucu taraması durdu. {imported} yeni e-posta eklendi; {remaining} eşleşme alınamadı. Yeniden deneyin.",
+  "@serverScanStopped": {
+    "placeholders": {
+      "imported": {
+        "type": "int"
+      },
+      "remaining": {}
+    }
+  },
+  "searchEmail": "E-posta ara",
+  "clear": "Temizle",
+  "filters": "Filtreler",
+  "searchingTheServer": "Sunucuda aranıyor…",
+  "startTypingToSearch": "Aramak için yazmaya başlayın.",
+  "noResultsMatchTheSelected": "Seçili filtrelerle eşleşen sonuç yok.",
+  "noResultsFor": "“{value}” için sonuç yok.",
+  "@noResultsFor": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "theMailboxIsStillSyncing": "Posta kutusu hâlâ senkronize ediliyor. Arama sonuçları eksik olabilir.",
+  "folder2": "Klasör: {label}",
+  "@folder2": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "folder3": "Klasör: {name}",
+  "@folder3": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "from3": "Başlangıç: {value}",
+  "@from3": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "to4": "Bitiş: {value}",
+  "@to4": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "read": "Okundu",
+  "unread2": "Okunmadı",
+  "starred2": "Yıldızlı",
+  "clearFilters": "Filtreleri Temizle",
+  "advancedFilters": "Gelişmiş Filtreler",
+  "account": "Hesap",
+  "allAccounts": "Tüm hesaplar",
+  "all": "Tümü",
+  "eGNameCompanyCom": "ör. ad@sirket.com",
+  "dateRange": "Tarih Aralığı",
+  "start": "Başlangıç",
+  "end": "Bitiş",
+  "status": "Durum",
+  "any": "Herhangi",
+  "hasAttachment": "Ek var",
+  "apply": "Uygula",
+  "filtersAreCombinedWithAnd": "Filtreler VE ile birleştirilir.",
+  "startTypingToSearchOr": "Aramak veya filtrelemek için yazmaya başlayın",
+  "searchingTheServerAcrossAll": "Tüm hesaplarda sunucuda aranıyor",
+  "searchingIn": "{accountEmail} hesabında aranıyor",
+  "@searchingIn": {
+    "placeholders": {
+      "accountEmail": {}
+    }
+  },
+  "accountSettings": "Hesap ayarları",
+  "theAccountIsNoLonger": "Hesap artık bağlı değil.",
+  "signatures": "İmzalar",
+  "createEmailSignaturesAndChoose": "E-posta imzalarını oluştur ve varsayılanını seç",
+  "savedTexts2": "Hazır metinler",
+  "reusableSubjectsAndTexts": "Tekrar kullanılan konu ve metinler",
+  "labels": "Etiketler",
+  "createEditAndDeleteLabels": "Etiket oluştur, düzenle, sil",
+  "contacts": "Kişiler",
+  "contactsSuggestedWhileTyping": "Yazarken önerilecek kişiler",
+  "folderTreeRolesAndSync": "Klasör ağacı, roller ve eşitleme",
+  "syncLabel": "Eşitleme",
+  "perFolderStatusAndFolders": "Klasör bazlı durum ve eşitlenecek klasörler",
+  "folderScopeAndLockScreen": "Klasör kapsamı ve kilit ekranı gizliliği",
+  "savedImagePreferences": "Kayıtlı görsel tercihleri",
+  "trustedSendersAndDomains": "Güvenilir gönderici ve alan adları",
+  "security": "Güvenlik",
+  "connectedDevices": "Bağlı cihazlar",
+  "devicesAndSessionsSignedIn": "Bu hesaba giriş yapmış cihazlar ve oturumlar",
+  "disconnected": "Bağlantısı kesildi",
+  "connectionProblem": "Bağlantı sorunu",
+  "disabled": "Devre dışı",
+  "updatePassword": "Şifreyi güncelle",
+  "signOutOnThisDevice": "Bu cihazdan çıkış yap",
+  "theAccountStaysOnThe": "Hesap sunucuda kalır; yalnızca bu cihazdaki oturum ve veriler silinir.",
+  "signOut": "Çıkış yapılsın mı?",
+  "willBeSignedOutOn": "{email} bu cihazdan çıkarılacak. Sunucudaki hesap ve e-postalar silinmez.",
+  "@willBeSignedOutOn": {
+    "placeholders": {
+      "email": {}
+    }
+  },
+  "signOut2": "Çıkış yap",
+  "removeAccount": "Hesabı kaldır",
+  "deletesTheConnectionFromThe": "Bağlantıyı sunucudan siler; e-postalar bu uygulamadan kaldırılır.",
+  "removeAccount2": "Hesap kaldırılsın mı?",
+  "willBeRemovedAndIts": "{email} kaldırılacak ve bu hesaba ait e-postalar uygulamadan silinecek. Emin misiniz?",
+  "@willBeRemovedAndIts": {
+    "placeholders": {
+      "email": {}
+    }
+  },
+  "storage": "Depolama",
+  "ofUsed": "{value} / {value2} kullanılıyor (%{usedPercent})",
+  "@ofUsed": {
+    "placeholders": {
+      "value": {},
+      "value2": {},
+      "usedPercent": {}
+    }
+  },
+  "storageUsage": "Depolama kullanımı",
+  "noContactsAddedYet": "Henüz kişi eklenmedi.",
+  "newContact": "Yeni Kişi",
+  "deleteContact": "Kişiyi sil?",
+  "willBeRemovedFromThe": "“{value}” kişi listesinden kaldırılacak.",
+  "@willBeRemovedFromThe": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "yesDelete": "Evet, sil",
+  "editContact": "Kişiyi Düzenle",
+  "nameOptional": "Ad (isteğe bağlı)",
+  "contactsPermissionWasntGrantedSuggestions": "Kişilere erişim izni verilmedi. Öneriler mail geçmişinden ve eklediğiniz kişilerden gelmeye devam eder.",
+  "suggestDeviceContacts": "Cihaz kişilerini öner",
+  "alsoSuggestsEmailAddressesFrom": "Alıcı yazarken telefon rehberindeki e-posta adreslerini de önerir. Rehber yalnızca bu cihazda okunur, sunucuya gönderilmez.",
+  "showNewEmailNotificationsOn": "Bu cihazda yeni e-posta bildirimlerini göster. Klasör kapsamı ve kilit ekranı gizliliği her hesabın kendi ayarlarındadır.",
+  "followsTheDeviceTheme": "Cihazın temasını izler",
+  "light": "Açık",
+  "dark": "Koyu",
+  "swipeGestures": "Kaydırma hareketleri",
+  "swipeAnEmailRightOr": "Listede e-postayı sağa veya sola kaydırarak aşağıdaki işlemleri yapın. Çöp, Spam ve Arşiv klasörleri kendi işlemlerini kullanır.",
+  "onSwipeRight": "Sağa kaydırınca",
+  "onSwipeLeft": "Sola kaydırınca",
+  "undoSendPeriod": "Göndermeyi geri alma süresi",
+  "blue": "Mavi",
+  "green": "Yeşil",
+  "orange": "Turuncu",
+  "darkRed": "Koyu kırmızı",
+  "red": "Kırmızı",
+  "turquoise": "Turkuaz",
+  "purple": "Menekşe",
+  "redOrange": "Kırmızı-turuncu",
+  "newLabel": "Yeni Etiket",
+  "customColor": "Özel renk {value}",
+  "@customColor": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "chooseCustomColor": "Özel renk seç",
+  "deleteLabel": "Etiketi sil?",
+  "theLabelWillBeRemoved": "“{value}” etiketi kaldırılacak. E-postalar silinmez, yalnızca bu etiket onlardan çıkarılır.",
+  "@theLabelWillBeRemoved": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "editLabel": "Etiketi Düzenle",
+  "name": "Ad",
+  "create": "Oluştur",
+  "apiConnection": "API bağlantısı",
+  "checkingConnection": "Bağlantı kontrol ediliyor…",
+  "serverAndServicesAreReady": "Sunucu ve servisler hazır",
+  "couldntConnect": "Bağlantı kurulamadı",
+  "checkConnectionAgain": "Bağlantıyı yeniden kontrol et",
+  "sync": "Senkronizasyon",
+  "serverConnection": "Sunucu bağlantısı",
+  "thisSettingOnlyControlsHow": "Bu ayar yalnızca uygulama açıkken görünen listeyi ne sıklıkla yenileyeceğinizi belirler. Sunucu, bu ayardan bağımsız olarak e-postalarınızı düzenli aralıklarla arka planda zaten senkronize eder; yeni posta bildirimleri bu ayarı beklemez.",
+  "autoRefreshNetwork": "Otomatik yenileme ağı",
+  "pauseOnBatterySaver": "Pil tasarrufunda duraklat",
+  "whenBatterySaverIsOn": "Pil tasarrufu açıkken otomatik yenileme yapılmaz; aşağı çekerek yenileme ve bildirimler çalışmaya devam eder.",
+  "clearAttachmentCache": "Ek önbelleğini temizle?",
+  "downloadedAttachmentsTakingUpWill": "{_sizeLabel} boyutundaki indirilen ekler silinecek.",
+  "@downloadedAttachmentsTakingUpWill": {
+    "placeholders": {
+      "_sizeLabel": {}
+    }
+  },
+  "attachmentCacheCleared": "Ek önbelleği temizlendi.",
+  "attachmentsAreDownloadedAutomaticallyOnly": "Ekler yalnızca posta açıldığında, seçilen ağda ve boyut sınırının altındaysa otomatik indirilir.",
+  "autoDownloadLimit": "Otomatik indirme sınırı: {label}",
+  "@autoDownloadLimit": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "clearAttachmentCache2": "Ek önbelleğini temizle",
+  "calculatingSize": "Boyut hesaplanıyor…",
+  "removeLinkTrackingParameters": "Bağlantı takip parametrelerini temizle",
+  "removesKnownAdvertisingAndCampaign": "E-postalardaki bağlantıları açmadan önce bilinen reklam ve kampanya takip parametrelerini kaldırır.",
+  "appLock": "Uygulama Kilidi",
+  "asksForFingerprintFaceId": "Uygulamayı açtığınızda ya da seçilen süreden uzun arka planda kaldıktan sonra parmak izi/Face ID veya cihaz şifresi ister.",
+  "lockWhenReturningFromBackground": "Arka plandan dönünce kilitle",
+  "screenProtection": "Ekran Koruması",
+  "hidesMailContentInThe": "Uygulama geçiş ekranında posta içeriğini gizler.",
+  "blocksScreenshotsAndScreenRecording": "Ekran görüntüsü ve ekran kaydını engeller, son kullanılan uygulamalar listesinde içeriği gizler.",
+  "couldntLoadDevices": "Cihazlar yüklenemedi: {value}",
+  "@couldntLoadDevices": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "signOutOfThisSession": "Oturumu kapat?",
+  "theSessionOnThisDevice": "Bu cihazdaki oturum kapatılacak ve bu hesaptan çıkış yapılacak.",
+  "thisDeviceWillNoLonger": "Bu cihaz artık bu hesaba erişemeyecek.",
+  "couldntSignOut": "Oturum kapatılamadı: {value}",
+  "@couldntSignOut": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "noConnectedDevices": "Bağlı cihaz yok.",
+  "lastUsed": "Son kullanım: {value}",
+  "@lastUsed": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "settings": "Ayarlar",
+  "generalSettings": "Genel ayarlar",
+  "appearanceInteractionNotificationsNetworkAnd": "Görüntü, etkileşim, bildirimler, ağ ve gizlilik",
+  "accounts": "Hesaplar",
+  "addAccount": "Hesap ekle",
+  "connectANewMailAccount": "Yeni posta hesabı bağla",
+  "signatureLabelContactFolderAnd": "İmza, etiket, kişi, klasör ve bildirim ayarları",
+  "disconnectedUpdateThePassword": "Bağlantısı kesildi — şifreyi güncelleyin",
+  "appearance": "Görüntü",
+  "lightDarkOrSystemTheme": "Açık, koyu veya sistem teması",
+  "language": "Dil",
+  "tRkEOrEnglish": "Türkçe veya English",
+  "interaction": "Etkileşim",
+  "swipeUndoSendAndDevice": "Kaydırma, göndermeyi geri alma ve cihaz kişileri",
+  "newEmailNotificationsOnThis": "Bu cihazda yeni e-posta bildirimleri",
+  "network": "Ağ",
+  "refreshAttachmentsAndServer": "Yenileme, ekler ve sunucu",
+  "privacy": "Gizlilik",
+  "appLockScreenProtectionAnd": "Uygulama kilidi, ekran koruması ve bağlantılar",
+  "deleteSignature": "İmzayı sil?",
+  "theSignatureWillBePermanently": "“{name}” imzası kalıcı olarak silinecek.",
+  "@theSignatureWillBePermanently": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "none": "Yok",
+  "noConnectedAccountFound": "Bağlı hesap bulunamadı.",
+  "newSignature": "Yeni imza",
+  "newEmail2": "Yeni e-posta",
+  "reply2": "Yanıt",
+  "noSignaturesYet": "Henüz imza yok",
+  "signatureNameMustBe1": "İmza adı 1-100 karakter olmalı.",
+  "enterTheSignatureText": "İmza metni yazın.",
+  "editSignature": "İmzayı düzenle",
+  "signatureText": "İmza metni",
+  "syncScopeSaved": "Senkronizasyon kapsamı kaydedildi.",
+  "syncScope": "Senkronizasyon kapsamı",
+  "chooseTheFoldersToUpdate": "Arka planda güncellenecek klasörleri seçin. Diğer klasörler açıldığında yine yenilenir.",
+  "chooseAtLeastOneFolder": "En az bir klasör seçin.",
+  "foldersSyncedInTheBackground": "Arka planda senkronize edilen klasörler: {value}",
+  "@foldersSyncedInTheBackground": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "syncStatus": "Senkronizasyon Durumu",
+  "noConnectedAccounts": "Bağlı hesap yok.",
+  "noSyncAttemptsYet": "Henüz senkronizasyon denemesi yok.",
+  "actionsAreWaitingForA": "{queued} işlem bağlantı bekliyor",
+  "@actionsAreWaitingForA": {
+    "placeholders": {
+      "queued": {
+        "type": "int"
+      }
+    }
+  },
+  "temporaryProblem": "Geçici sorun",
+  "authenticationProblem": "Kimlik doğrulama sorunu",
+  "configurationProblem": "Yapılandırma sorunu",
+  "permanentProblem": "Kalıcı sorun",
+  "unknownProblem": "Bilinmeyen sorun",
+  "olderMailIsStillBeing": "Geçmiş mailler hâlâ içeri aktarılıyor",
+  "noSuccessfulSyncYet": "Henüz başarılı senkronizasyon yok",
+  "deleteSavedText": "Hazır metni sil?",
+  "theSavedTextWillBe": "“{name}” hazır metni kalıcı olarak silinecek.",
+  "@theSavedTextWillBe": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "noSavedTextsYet": "Henüz hazır metin yok",
+  "noSubject": "Konu yok",
+  "newSavedText": "Yeni hazır metin",
+  "savedTextNameMustBe": "Hazır metin adı 1-100 karakter olmalı.",
+  "subjectMustBeASingle": "Konu tek satır ve en fazla 500 karakter olmalı.",
+  "enterTheSavedTextBody": "Hazır metin gövdesini yazın.",
+  "editSavedText": "Hazır metni düzenle",
+  "textBody": "Metin gövdesi",
+  "savedImagePreferences2": "Kayıtlı Görsel Tercihleri",
+  "noSavedSendersYetRegular": "Henüz kayıtlı gönderici yok.\nNormal görseller, bu listeye ekleme yapılmadan da yüklenir.",
+  "domain": "Alan adı",
+  "sender": "Gönderici",
+  "theServerDidntRespondPlease": "Sunucu yanıt vermedi. Lütfen tekrar deneyin.",
+  "checkYourInternetConnection": "İnternet bağlantınızı kontrol edin.",
+  "wrongPassword": "Şifre yanlış.",
+  "yourSessionExpiredPleaseSign": "Oturum süresi doldu. Lütfen yeniden giriş yapın.",
+  "accessHasntBeenEnabledFor": "Bu e-posta adresi için erişim henüz açılmadı.",
+  "thisMailAccountHasBeen": "Bu posta hesabı devre dışı bırakıldı.",
+  "thisAccountIsAlreadyConnected": "Bu hesap zaten bağlı.",
+  "aTemplateWithThisName": "Bu adla bir şablon zaten var.",
+  "noRegisteredAccountFoundFor": "Bu e-posta için kayıtlı hesap bulunamadı.",
+  "automaticServerDiscoveryFailed": "Otomatik sunucu keşfi başarısız oldu.",
+  "serverDiscoveryTimedOutTry": "Sunucu keşfinin süresi doldu. Tekrar deneyin.",
+  "theServerSettingsArentSecure": "Sunucu ayarları güvenli değil.",
+  "couldntReachTheMailServer": "Posta sunucusuna ulaşılamadı. Tekrar deneyin.",
+  "emailNotFound": "E-posta bulunamadı.",
+  "thisDraftIsNoLonger": "Bu taslak artık geçerli değil.",
+  "theMailFolderIsUnavailable": "Posta klasörü kullanılamıyor.",
+  "thisActionIsntSupportedFor": "Bu işlem bu e-posta için desteklenmiyor.",
+  "theMailboxChangedRefreshAnd": "Posta kutusu değişti. Yenileyip tekrar deneyin.",
+  "couldntMoveTheEmailTry": "E-posta taşınamadı. Tekrar deneyin.",
+  "couldntPermanentlyDeleteTheEmail": "E-posta kalıcı olarak silinemedi. Tekrar deneyin.",
+  "theActionCouldntBeCompleted": "İşlem tamamlanamadı. Tekrar deneyin.",
+  "youCanPinAtMost3EmailsPer": "Bir hesapta en fazla 3 e-posta sabitlenebilir.",
+  "theDraftHasntMatchedOn": "Taslak sunucuda henüz eşleşmedi. Birkaç saniye sonra tekrar deneyin.",
+  "theSendResultIsUnknown": "Gönderim sonucu belirsiz. Gönderilenler’i kontrol edin.",
+  "theMessageIsBeingSent": "Gönderim sürüyor. Kısa süre sonra tekrar deneyin.",
+  "theSendRequestIsInvalid": "Gönderim isteği geçersiz. Yeniden deneyin.",
+  "theSendRequestWasUsed": "Gönderim isteği farklı içerikle daha önce kullanıldı. Yeni gönderim oluşturun.",
+  "theRecipientAddressIsInvalid": "Alıcı adresi geçersiz.",
+  "invalidEmailAddress": "Geçersiz e-posta adresi.",
+  "theEmailHeadersAreInvalid": "E-posta başlıkları geçersiz.",
+  "theEmailCouldntBeCreated": "E-posta oluşturulamadı.",
+  "theServerSettingsAreInvalid": "Sunucu ayarları geçersiz.",
+  "thisSignInMethodIsnt": "Bu giriş yöntemi sunucuda ayarlı değil.",
+  "theRedirectAddressIsInvalid": "Yönlendirme adresi geçersiz.",
+  "sessionVerificationIsInvalidTry": "Oturum doğrulaması geçersiz. Tekrar deneyin.",
+  "theProviderRejectedTheSign": "Sağlayıcı girişi reddetti.",
+  "theServerIsBusyTry": "Sunucu meşgul. Birazdan tekrar deneyin.",
+  "couldntDeleteTheDraftTry": "Taslak silinemedi. Tekrar deneyin.",
+  "aSendCantBeScheduled": "Geçmiş bir zamana gönderim zamanlanamaz.",
+  "thisSendIsNoLonger": "Bu gönderim artık beklemede değil. Listeyi yenileyin.",
+  "theSendWasChangedOn": "Gönderim başka bir cihazda değiştirildi. Yenileyip tekrar deneyin.",
+  "thisSendCanNoLonger": "Bu gönderim artık düzenlenemez. Gönderilenler’i kontrol edin.",
+  "scheduledSendNotFoundRefresh": "Zamanlanmış gönderim bulunamadı. Listeyi yenileyin.",
+  "theHeldAttachmentWasntFound": "Bekletilen ek bulunamadı. Listeyi yenileyin.",
+  "theSelectedIdentityWasntFound": "Seçilen kimlik bulunamadı.",
+  "theSelectedSignatureWasntFound": "Seçilen imza bulunamadı.",
+  "thisAddressIsAlreadyRegistered": "Bu adres zaten bir kimlik olarak kayıtlı.",
+  "thisIdentityIsUsedIn": "Bu kimlik zamanlanmış bir gönderimde kullanılıyor.",
+  "theSessionIsAlreadyClosed": "Oturum zaten kapatılmış.",
+  "theEmailBodyCantBe": "E-posta gövdesi boş olamaz.",
+  "theEmailBodyIsToo": "E-posta gövdesi çok büyük.",
+  "attachmentLimitExceeded": "Ek dosya sınırı aşıldı.",
+  "aFolderWithThisName": "Bu adda bir klasör zaten var.",
+  "theFolderIsntEmptyMove": "Klasör boş değil. Önce içindeki postaları taşıyın veya silin.",
+  "deleteTheSubfoldersFirst": "Önce alt klasörleri silin.",
+  "thisFolderCantBeChanged": "Bu klasör değiştirilemez.",
+  "theFolderNameIsInvalid": "Klasör adı geçersiz.",
+  "theMailServerDidntAccept": "Posta sunucusu bu klasör adını kabul etmedi.",
+  "theFolderWasRemovedFrom": "Klasör sunucudan kaldırılmış.",
+  "theSyncQueueIsFull": "Eşitleme kuyruğu dolu. Birazdan tekrar deneyin.",
+  "syncWasPostponedTryAgain": "Eşitleme ertelendi. Birazdan tekrar deneyin.",
+  "syncWasInterruptedTryAgain": "Eşitleme yarıda kesildi. Tekrar deneyin.",
+  "syncCouldntBeCompletedTry": "Eşitleme tamamlanamadı. Tekrar deneyin.",
+  "theAccountNeedsToBe": "Hesap yeniden bağlanmayı istiyor.",
+  "thisSignInMethodIsntSupported": "Bu giriş yöntemi desteklenmiyor.",
+  "theSmtpPasswordWasRejected": "SMTP şifresi reddedildi.",
+  "thisSignInIsntSupported": "Bu giriş şu an desteklenmiyor.",
+  "anUnexpectedErrorOccurred": "Beklenmeyen bir hata oluştu.",
+  "theRequestCouldntBeCompleted": "İstek tamamlanamadı.",
+  "attachmentNotFound": "Ek bulunamadı.",
+  "theAttachmentCouldntBeDownloaded": "Ek indirilemedi. Tekrar deneyin.",
+  "snoozedEmailIsBack": "Ertelenen e-posta geri döndü",
+  "aSnoozedMessageHasReturned": "Ertelenen bir iletiniz gelen kutusuna döndü.",
+  "couldntDoTryAgain": "\"{label}\" yapılamadı, tekrar deneyin.",
+  "@couldntDoTryAgain": {
+    "placeholders": {
+      "label": {}
+    }
+  },
+  "theServerAddressCantBe": "Sunucu adresi boş olamaz.",
+  "enterAValidHttpHttps": "Geçerli bir http/https adresi girin.",
+  "off": "Kapalı",
+  "wiFiOnly": "Yalnız Wi-Fi",
+  "starRemoveStar": "Yıldızla / yıldızı kaldır",
+  "manual": "Manuel",
+  "immediately": "Hemen",
+  "uploadingAttachment": "Ek yükleniyor: {percent}%",
+  "@uploadingAttachment": {
+    "placeholders": {
+      "percent": {}
+    }
+  },
+  "theMessageMayHaveBeen": "Mesaj gönderilmiş olabilir. Giden Kutusu ve Gönderilenler’i kontrol edin.",
+  "couldntSendTheMessageWas": "Gönderilemedi. Mesaj Giden Kutusu’nda saklandı.",
+  "theMessageMayHaveBeenSentCheckSent": "Mesaj gönderilmiş olabilir. Gönderilenler’i kontrol edin.",
+  "youCanPinAtMostEmailsPerAccount": "Bir hesapta en fazla {maxPinnedMails} e-posta sabitlenebilir. Şu an {pinned} sabitli, {adding} yeni seçildi{value}. Hiçbiri sabitlenmedi.",
+  "@youCanPinAtMostEmailsPerAccount": {
+    "placeholders": {
+      "maxPinnedMails": {},
+      "pinned": {},
+      "adding": {},
+      "value": {}
+    }
+  },
+  "now": "şimdi",
+  "minAgo": "{inMinutes} dk önce",
+  "@minAgo": {
+    "placeholders": {
+      "inMinutes": {}
+    }
+  },
+  "yesterday": "dün",
+  "theSendDidntStartYou": "Gönderim başlamadı. Giden Kutusu’ndan yeniden deneyebilirsiniz.",
+  "theServerReturnedAnUnexpected": "Sunucudan beklenmeyen bir yanıt geldi.",
+  "anUnexpectedErrorOccurredPlease": "Beklenmeyen bir hata oluştu. Lütfen tekrar deneyin.",
+  "standardFoldersCantBeDeleted": "Standart klasörler silinemez.",
+  "deleteOrMoveTheSubfolders": "Önce alt klasörleri silin ya da taşıyın.",
+  "theFolderContainsEmailsMove": "Klasörde e-posta var. Silmeden önce e-postaları başka bir klasöre taşıyın.",
+  "folderNameCantBeEmpty": "Klasör adı boş olamaz.",
+  "folderNameCantContainOr": "Klasör adı * veya % karakteri içeremez.",
+  "folderNameCantContain": "Klasör adı \"{delimiter}\" karakterini içeremez.",
+  "@folderNameCantContain": {
+    "placeholders": {
+      "delimiter": {}
+    }
+  },
+  "thisNameIsReservedChoose": "Bu ad ayrılmış. Başka bir ad seçin.",
+  "attachments2": "Ekler:",
+  "otherFolders": "Diğer Klasörler",
+  "accountAndApp": "Hesap ve uygulama",
+  "syncAccounts": "Hesapları eşitle",
+  "signOut3": "Çıkış Yap",
+  "finishSorting": "Sıralamayı bitir",
+  "sortFolders": "Klasörleri sırala",
+  "moveUp": "Yukarı taşı",
+  "moveDown": "Aşağı taşı",
+  "verifyYourIdentityToAccess": "Postalarınıza erişmek için kimliğinizi doğrulayın",
+  "noFingerprintFaceRecognitionOr": "Cihazınızda parmak izi, yüz tanıma veya ekran kilidi tanımlı değil. Uygulama kilidi bu nedenle doğrulanamıyor.",
+  "verifyYourIdentityWithYour": "Devam etmek için parmak izi, yüz tanıma veya cihaz şifrenizle kimliğinizi doğrulayın.",
+  "continueAnyway": "Yine de devam et",
+  "unlock": "Kilidi Aç",
+  "customColor2": "Özel renk",
+  "hexCode": "Hex kodu",
+  "invalidColor": "Geçersiz renk",
+  "select": "Seç",
+  "hueAndBrightness": "Renk tonu ve parlaklık",
+  "color": "Renk",
+  "labelsApplyPerAccount": "Etiketler hesap bazında uygulanır",
+  "mailAccount": "Posta hesabı",
+  "couldntApplyTheLabel": "Etiket uygulanamadı: {value}",
+  "@couldntApplyTheLabel": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "theseResultsComeFromThe": "Bu sonuçlar {authservId} tarafından eklenen posta başlığından alınmıştır. Yalnızca bilgi amaçlıdır.",
+  "@theseResultsComeFromThe": {
+    "placeholders": {
+      "authservId": {}
+    }
+  },
+  "theseResultsComeFromTheMailHeaderFor": "Bu sonuçlar posta başlığından alınmıştır. Yalnızca bilgi amaçlıdır.",
+  "pass": "geçti",
+  "fail": "başarısız",
+  "partialFail": "kısmen başarısız",
+  "neutral": "nötr",
+  "temporaryError": "geçici hata",
+  "permanentError": "kalıcı hata",
+  "theLinkCouldntBeOpened": "Bağlantı açılamadı.",
+  "theLinkWasntOpenedBecause": "Bu bağlantı güvenli olmayan bir adres türü ({scheme}:) kullandığı için açılmadı.",
+  "@theLinkWasntOpenedBecause": {
+    "placeholders": {
+      "scheme": {}
+    }
+  },
+  "theLinkWasntOpenedBecauseItsAddressIs": "Bağlantı adresi geçersiz olduğu için açılmadı.",
+  "theLinkTextShowsBut": "Bağlantı metni \"{displayedDomain}\" adresini gösteriyor, ancak bağlantı başka bir alan adına gidiyor.",
+  "@theLinkTextShowsBut": {
+    "placeholders": {
+      "displayedDomain": {}
+    }
+  },
+  "theDomainContainsInternationalPunycode": "Alan adı uluslararası (punycode) karakterler içeriyor.",
+  "theDomainMixesCharactersFrom": "Alan adında farklı alfabelerden karakterler bir arada kullanılmış.",
+  "theDomainContainsMisleadingCharacters": "Alan adında Latin harflerine benzeyen yanıltıcı karakterler var.",
+  "theAddressContainsUserInformation": "Adres, gerçek alan adını gizleyebilen kullanıcı bilgisi içeriyor.",
+  "thisLinkLooksSuspicious": "Bu bağlantı şüpheli görünüyor",
+  "actualDestination": "Gerçek hedef",
+  "rawAddressPunycode": "Ham adres (punycode)",
+  "fullLink": "Tam bağlantı",
+  "openAnyway": "Yine de aç",
+  "unread3": "okunmadı",
+  "starred3": "yıldızlı",
+  "pinned": "sabitlenmiş",
+  "replied": "yanıtlandı",
+  "hasAttachments": "ek içeriyor",
+  "messageConversation": "{threadCount} mesajlık konuşma",
+  "@messageConversation": {
+    "placeholders": {
+      "threadCount": {}
+    }
+  },
+  "unread4": "Okunmamış",
+  "attachments3": "Ekli",
+  "newestFirst": "En yeni önce",
+  "oldestFirst": "En eski önce",
+  "unreadFirst": "Okunmamışlar önce",
+  "bySenderAZ": "Gönderene göre (A-Z)",
+  "bySubjectAZ": "Konuya göre (A-Z)",
+  "sort": "Sırala",
+  "enterAValidPort": "Geçerli bir port girin",
+  "manualServerSettings": "Manuel sunucu ayarları",
+  "automaticServerDiscoveryFailedEnter": "Otomatik sunucu keşfi başarısız oldu. IMAP/SMTP sunucu bilgilerini elle girin (993 IMAP ve 587 SMTP için önerilen varsayılan portlardır).",
+  "imapServer": "IMAP sunucu",
+  "imapPort": "IMAP port",
+  "smtpServer": "SMTP sunucu",
+  "smtpPort": "SMTP port",
+  "connect2": "Bağlan",
+  "thereAreNoOtherFolders": "Taşınabilecek başka klasör yok.",
+  "emailsSelectedFromDifferentAccounts": "Farklı hesaplardan seçilen e-postalar yalnızca ortak klasörlere taşınabilir.",
+  "permanentlyDeleteThisEmail": "E-posta kalıcı olarak silinsin mi?",
+  "permanentlyDeleteEmails": "{count} e-posta kalıcı olarak silinsin mi?",
+  "@permanentlyDeleteEmails": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "address": "Adres",
+  "in1Hour": "1 saat sonra",
+  "thisEvening600Pm": "Bu akşam (18:00)",
+  "tomorrowMorning900Am": "Yarın sabah (09:00)",
+  "nextWeekMonday900": "Gelecek hafta (Pazartesi 09:00)",
+  "chooseDateAndTime": "Tarih ve saat seç",
+  "theChosenTimeIsIn": "Seçilen saat geçmişte kalıyor, lütfen ileri bir saat seçin.",
+  "youCanAttachAtMost": "En fazla {maxAttachmentCount} dosya ekleyebilirsiniz.",
+  "@youCanAttachAtMost": {
+    "placeholders": {
+      "maxAttachmentCount": {
+        "type": "int"
+      }
+    }
+  },
+  "aLabelWithThisName": "Bu isimde bir etiket zaten var.",
+  "emailAddressIsRequired": "E-posta adresi zorunludur",
+  "theAttachmentCouldntBeDownloaded2": "Ek indirilemedi.",
+  "add2": "Ekle ({length})",
+  "@add2": {
+    "placeholders": {
+      "length": {}
+    }
+  },
+  "requestReadReceipt": "Okundu bilgisi iste",
+  "whatShouldHappenToThis": "Bu taslak ne olsun?",
+  "deleteEmail": "E-posta silinsin mi?",
+  "deleteDraft2": "Taslak silinsin mi?",
+  "aReadReceiptWontBe": "Okundu bilgisi istenmeyecek.",
+  "emailsSnoozed": "{length} e-posta ertelendi.",
+  "@emailsSnoozed": {
+    "placeholders": {
+      "length": {
+        "type": "int"
+      }
+    }
+  },
+  "lastSync": "Son senkronizasyon: {value}",
+  "@lastSync": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "unsubscribed": "Abonelik iptal edildi.",
+  "newEmailAndSnoozedEmail": "Yeni e-posta ve ertelenen e-posta bildirimleri",
+  "noSubject2": "(Konu yok)",
+  "noSubject3": "(konu yok)",
+  "alsoSearchTheServer": "Sunucuda da ara",
+  "composing": "E-posta yazma",
+  "mailbox": "Posta kutusu",
+  "darkGray": "Koyu gri",
+  "thisDevice": "Bu cihaz",
+  "everythingIsSynced": "Hepsi senkronize",
+  "theAttachmentWasDownloadedIncompletely": "Ek eksik indirildi. Tekrar deneyin.",
+  "theAttachmentCouldntBeSaved": "Ek kaydedilemedi. Tekrar deneyin.",
+  "youHaveANewMessage": "Yeni bir iletiniz var.",
+  "newEmailAndAccountNotifications": "Yeni e-posta ve hesap bildirimleri",
+  "wiFiAndMobileData": "Wi-Fi ve mobil veri",
+  "n1Mb": "1 MB",
+  "n5Mb": "5 MB",
+  "n10Mb": "10 MB",
+  "n5Seconds": "5 saniye",
+  "n10Seconds": "10 saniye",
+  "n20Seconds": "20 saniye",
+  "n30Seconds": "30 saniye",
+  "every5Minutes": "Her 5 dakikada bir",
+  "every15Minutes": "Her 15 dakikada bir",
+  "every30Minutes": "Her 30 dakikada bir",
+  "everyHour": "Her saat",
+  "after1Minute": "1 dakika sonra",
+  "after5Minutes": "5 dakika sonra",
+  "after15Minutes": "15 dakika sonra",
+  "couldntSaveToTheOutbox": "Giden Kutusu kaydedilemedi: {value}",
+  "@couldntSaveToTheOutbox": {
+    "placeholders": {
+      "value": {}
+    }
+  },
+  "youCanPinMore": "; en fazla {free} tane daha sabitleyebilirsiniz",
+  "@youCanPinMore": {
+    "placeholders": {
+      "free": {}
+    }
+  },
+  "appLocked": "Uygulama Kilitli",
+  "noLabelsInThisAccount": "Bu hesapta etiket yok.",
+  "serverAddressIsRequired": "Sunucu adresi zorunludur",
+  "wroteSender": "{sender} yazdı:",
+  "@wroteSender": {
+    "placeholders": {
+      "sender": {}
+    }
+  },
+  "wroteOnDate": "{date} tarihinde {sender} yazdı:",
+  "@wroteOnDate": {
+    "placeholders": {
+      "date": {},
+      "sender": {}
+    }
+  },
+  "forwardDateLine": "Tarih: {date}\n",
+  "@forwardDateLine": {
+    "placeholders": {
+      "date": {}
+    }
+  },
+  "forwardDateLineHtml": "<strong>Tarih:</strong> {date}<br>",
+  "@forwardDateLineHtml": {
+    "placeholders": {
+      "date": {}
+    }
+  },
+  "andMorePeople": "{names} ve {count} kişi daha",
+  "@andMorePeople": {
+    "placeholders": {
+      "names": {},
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "threadParticipantSummary": "{people} · {count} ileti",
+  "@threadParticipantSummary": {
+    "placeholders": {
+      "people": {},
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "recipientToMe": "bana",
+  "recipientToName": "{name}’ye",
+  "@recipientToName": {
+    "placeholders": {
+      "name": {}
+    }
+  },
+  "couldntAddPhoto": "Fotoğraf eklenemedi: {error}",
+  "@couldntAddPhoto": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "couldntAddPhotos": "Fotoğraflar eklenemedi: {error}",
+  "@couldntAddPhotos": {
+    "placeholders": {
+      "error": {}
+    }
+  },
+  "emailCount": "{count} e-posta",
+  "@emailCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "couldntReadSharedFiles": "{count, plural, =1{Paylaşılan dosya okunamadı: {names}} other{Paylaşılan {count} dosya okunamadı: {names}}}",
+  "@couldntReadSharedFiles": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "names": {}
+    }
+  }
+}

@@ -14,6 +14,7 @@ import '../models/attachment_download_state.dart';
 import '../theme/app_theme.dart';
 import '../utils/attachment_preview.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 /// In-app preview of one attachment: images (pinch-zoom), PDFs, .docx text and
 /// plain text. Any other type shows a fallback with the share sheet, which is
@@ -69,7 +70,11 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
         );
         final bytes = await file.readAsBytes();
         if (!mounted) return;
-        if (bytes.isEmpty) return setState(() => _error = 'Ek indirilemedi.');
+        if (bytes.isEmpty) {
+          return setState(
+            () => _error = l10nNow.theAttachmentCouldntBeDownloaded2,
+          );
+        }
         setState(() {
           _file = file;
           _bytes = bytes;
@@ -80,7 +85,11 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
           _attachment,
         );
         if (!mounted) return;
-        if (bytes.isEmpty) return setState(() => _error = 'Ek indirilemedi.');
+        if (bytes.isEmpty) {
+          return setState(
+            () => _error = l10nNow.theAttachmentCouldntBeDownloaded2,
+          );
+        }
         setState(() => _bytes = bytes);
       }
     } catch (error) {
@@ -90,7 +99,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
         _error = state is AttachmentFailed
             ? state.message
             : state is AttachmentCancelled
-            ? 'İndirme iptal edildi.'
+            ? l10nNow.downloadCancelled
             : friendlyErrorMessage(error);
       });
     }
@@ -138,7 +147,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
         title: Text(_attachment.name, overflow: TextOverflow.ellipsis),
         actions: [
           IconButton(
-            tooltip: 'Paylaş',
+            tooltip: l10nNow.share,
             icon: const Icon(LucideIcons.share),
             onPressed: _bytes == null ? null : _share,
           ),
@@ -159,7 +168,7 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
       return _Message(
         icon: LucideIcons.cloudOff,
         text: _error!,
-        actionLabel: 'Tekrar dene',
+        actionLabel: l10nNow.tryAgain,
         onAction: _load,
       );
     }
@@ -176,13 +185,13 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
               const SizedBox(height: 12),
               Text(
                 progress == null
-                    ? 'İndiriliyor…'
+                    ? l10nNow.downloading
                     : '%${(progress * 100).round()}',
               ),
               TextButton.icon(
                 onPressed: _cancel,
                 icon: const Icon(LucideIcons.x),
-                label: const Text('İptal'),
+                label: Text(l10nNow.cancel),
               ),
             ],
           ),
@@ -192,8 +201,8 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
     if (bytes == null && state is AttachmentCancelled) {
       return _Message(
         icon: LucideIcons.cloudOff,
-        text: 'İndirme iptal edildi.',
-        actionLabel: 'Tekrar dene',
+        text: l10nNow.downloadCancelled,
+        actionLabel: l10nNow.tryAgain,
         onAction: _load,
       );
     }
@@ -227,9 +236,9 @@ class _AttachmentPreviewScreenState extends State<AttachmentPreviewScreen> {
   Widget _cannotOpen({bool unsupported = false}) => _Message(
     icon: LucideIcons.fileQuestionMark,
     text: unsupported
-        ? 'Bu dosya türü uygulama içinde açılamıyor.'
-        : 'Dosya önizlenemedi.',
-    actionLabel: 'Başka uygulamada aç',
+        ? l10nNow.thisFileTypeCantBe
+        : l10nNow.theFileCouldntBePreviewed,
+    actionLabel: l10nNow.openInAnotherApp,
     onAction: _share,
   );
 }
@@ -244,7 +253,7 @@ class _TextBody extends StatelessWidget {
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: SelectableText(
-        text.isEmpty ? '(Boş belge)' : text,
+        text.isEmpty ? l10nNow.emptyDocument : text,
         style: TextStyle(
           fontSize: 15,
           height: 1.6,

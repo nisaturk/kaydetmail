@@ -15,6 +15,7 @@ import '../utils/error_messages.dart';
 import '../widgets/mail_list_item.dart';
 import 'compose_screen.dart';
 import 'mail_detail_screen.dart';
+import '../l10n/l10n.dart';
 
 class _AdvancedFilters {
   const _AdvancedFilters({
@@ -263,10 +264,10 @@ class _SearchScreenState extends State<SearchScreen> {
         setState(() {
           _remoteLoading = continuing;
           _remoteMessage = result.complete
-              ? 'Sunucu taraması tamamlandı. $imported yeni e-posta eklendi.'
+              ? l10nNow.newEmailsAdded(imported)
               : continuing
-              ? 'Sunucu taranıyor… $imported yeni e-posta eklendi; ${result.remaining} eşleşme kaldı.'
-              : 'Sunucu taraması durdu. $imported yeni e-posta eklendi; ${result.remaining} eşleşme alınamadı. Yeniden deneyin.';
+              ? l10nNow.scanningTheServer(imported, result.remaining)
+              : l10nNow.serverScanStopped(imported, result.remaining);
         });
         _runSearchNow();
         if (!continuing) break;
@@ -351,7 +352,7 @@ class _SearchScreenState extends State<SearchScreen> {
           textInputAction: TextInputAction.search,
           onChanged: _queryChanged,
           decoration: InputDecoration(
-            hintText: 'E-posta ara',
+            hintText: l10nNow.searchEmail,
             border: InputBorder.none,
             filled: false,
             hintStyle: TextStyle(color: colors.tertiaryText, fontSize: 16),
@@ -364,7 +365,7 @@ class _SearchScreenState extends State<SearchScreen> {
         actions: [
           if (_query.isNotEmpty)
             IconButton(
-              tooltip: 'Temizle',
+              tooltip: l10nNow.clear,
               onPressed: () {
                 _controller.clear();
                 _queryChanged('');
@@ -372,7 +373,7 @@ class _SearchScreenState extends State<SearchScreen> {
               icon: const Icon(LucideIcons.x),
             ),
           IconButton(
-            tooltip: 'Filtreler',
+            tooltip: l10nNow.filters,
             onPressed: _openFilterSheet,
             icon: Badge(
               isLabelVisible: _filters.activeCount > 0,
@@ -421,8 +422,8 @@ class _SearchScreenState extends State<SearchScreen> {
                                 : const Icon(LucideIcons.search, size: 18),
                             label: Text(
                               _remoteLoading
-                                  ? 'Sunucuda aranıyor…'
-                                  : 'Sunucuda da ara',
+                                  ? l10nNow.searchingTheServer
+                                  : l10nNow.alsoSearchTheServer,
                             ),
                           ),
                         ),
@@ -487,13 +488,13 @@ class _SearchScreenState extends State<SearchScreen> {
       return _SearchError(error: _error!, onRetry: _retry);
     }
     if (!_hasActiveSearch) {
-      return const _Hint(message: 'Aramak için yazmaya başlayın.');
+      return _Hint(message: l10nNow.startTypingToSearch);
     }
     if (results.isEmpty) {
       return _Hint(
         message: _query.trim().isEmpty
-            ? 'Seçili filtrelerle eşleşen sonuç yok.'
-            : '“${_query.trim()}” için sonuç yok.',
+            ? l10nNow.noResultsMatchTheSelected
+            : l10nNow.noResultsFor(_query.trim()),
       );
     }
     final showAccount = _repo.accounts.length > 1;
@@ -545,7 +546,7 @@ class _CompletenessBanner extends StatelessWidget {
           const SizedBox(width: 8),
           Expanded(
             child: Text(
-              'Posta kutusu hâlâ senkronize ediliyor. Arama sonuçları eksik olabilir.',
+              l10nNow.theMailboxIsStillSyncing,
               style: TextStyle(fontSize: 12.5, color: colors.warning),
             ),
           ),
@@ -581,12 +582,12 @@ class _ActiveFilterChips extends StatelessWidget {
         ),
       if (filters.folder case final folder?)
         (
-          'Klasör: ${folder.label}',
+          l10nNow.folder2(folder.label),
           () => onClear(filters.copyWith(folder: () => null)),
         ),
       if (filters.customFolder case final folder?)
         (
-          'Klasör: ${folder.name}',
+          l10nNow.folder3(folder.name),
           () => onClear(filters.copyWith(customFolder: () => null)),
         ),
       if (filters.from case final from?)
@@ -595,22 +596,28 @@ class _ActiveFilterChips extends StatelessWidget {
         ('Kime: $to', () => onClear(filters.copyWith(to: () => null))),
       if (filters.fromDate case final date?)
         (
-          'Başlangıç: ${_formatDate(date)}',
+          l10nNow.from3(_formatDate(date)),
           () => onClear(filters.copyWith(fromDate: () => null)),
         ),
       if (filters.toDate case final date?)
         (
-          'Bitiş: ${_formatDate(date)}',
+          l10nNow.to4(_formatDate(date)),
           () => onClear(filters.copyWith(toDate: () => null)),
         ),
       if (filters.isRead == true)
-        ('Okundu', () => onClear(filters.copyWith(isRead: () => null))),
+        (l10nNow.read, () => onClear(filters.copyWith(isRead: () => null))),
       if (filters.isRead == false)
-        ('Okunmadı', () => onClear(filters.copyWith(isRead: () => null))),
+        (l10nNow.unread2, () => onClear(filters.copyWith(isRead: () => null))),
       if (filters.flagged == true)
-        ('Yıldızlı', () => onClear(filters.copyWith(flagged: () => null))),
+        (
+          l10nNow.starred2,
+          () => onClear(filters.copyWith(flagged: () => null)),
+        ),
       if (filters.hasAttachment == true)
-        ('Ek var', () => onClear(filters.copyWith(hasAttachment: () => null))),
+        (
+          l10nNow.hasAttachment,
+          () => onClear(filters.copyWith(hasAttachment: () => null)),
+        ),
     ];
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
@@ -624,7 +631,7 @@ class _ActiveFilterChips extends StatelessWidget {
           if (entries.length > 1)
             TextButton(
               onPressed: onClearAll,
-              child: const Text('Filtreleri Temizle'),
+              child: Text(l10nNow.clearFilters),
             ),
         ],
       ),
@@ -710,25 +717,25 @@ class _FilterSheetState extends State<_FilterSheet> {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Gelişmiş Filtreler',
+                  Text(
+                    l10nNow.advancedFilters,
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   TextButton(
                     onPressed: () =>
                         setState(() => _draft = _AdvancedFilters.empty),
-                    child: const Text('Temizle'),
+                    child: Text(l10nNow.clear),
                   ),
                 ],
               ),
               const SizedBox(height: 8),
               if (widget.accounts.length > 1) ...[
-                _SheetLabel('Hesap'),
+                _SheetLabel(l10nNow.account),
                 Wrap(
                   spacing: 6,
                   children: [
                     ChoiceChip(
-                      label: const Text('Tüm hesaplar'),
+                      label: Text(l10nNow.allAccounts),
                       selected: _draft.accountId == null,
                       onSelected: (_) => setState(
                         () => _draft = _draft.copyWith(accountId: () => null),
@@ -748,12 +755,12 @@ class _FilterSheetState extends State<_FilterSheet> {
                 ),
                 const SizedBox(height: 12),
               ],
-              _SheetLabel('Klasör'),
+              _SheetLabel(l10nNow.folder),
               Wrap(
                 spacing: 6,
                 children: [
                   ChoiceChip(
-                    label: const Text('Tümü'),
+                    label: Text(l10nNow.all),
                     selected:
                         _draft.folder == null && _draft.customFolder == null,
                     onSelected: (_) => setState(
@@ -795,29 +802,25 @@ class _FilterSheetState extends State<_FilterSheet> {
                 ],
               ),
               const SizedBox(height: 12),
-              _SheetLabel('Kimden'),
+              _SheetLabel(l10nNow.from),
               TextField(
                 controller: _from,
-                decoration: const InputDecoration(
-                  hintText: 'ör. ad@sirket.com',
-                ),
+                decoration: InputDecoration(hintText: l10nNow.eGNameCompanyCom),
                 onChanged: (v) => _draft = _draft.copyWith(
                   from: () => v.trim().isEmpty ? null : v.trim(),
                 ),
               ),
               const SizedBox(height: 12),
-              _SheetLabel('Kime'),
+              _SheetLabel(l10nNow.to),
               TextField(
                 controller: _to,
-                decoration: const InputDecoration(
-                  hintText: 'ör. ad@sirket.com',
-                ),
+                decoration: InputDecoration(hintText: l10nNow.eGNameCompanyCom),
                 onChanged: (v) => _draft = _draft.copyWith(
                   to: () => v.trim().isEmpty ? null : v.trim(),
                 ),
               ),
               const SizedBox(height: 12),
-              _SheetLabel('Tarih Aralığı'),
+              _SheetLabel(l10nNow.dateRange),
               Row(
                 children: [
                   Expanded(
@@ -825,7 +828,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                       onPressed: () => _pickDate(isStart: true),
                       child: Text(
                         _draft.fromDate == null
-                            ? 'Başlangıç'
+                            ? l10nNow.start
                             : _ActiveFilterChips._formatDate(_draft.fromDate!),
                       ),
                     ),
@@ -836,7 +839,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                       onPressed: () => _pickDate(isStart: false),
                       child: Text(
                         _draft.toDate == null
-                            ? 'Bitiş'
+                            ? l10nNow.end
                             : _ActiveFilterChips._formatDate(_draft.toDate!),
                       ),
                     ),
@@ -844,26 +847,26 @@ class _FilterSheetState extends State<_FilterSheet> {
                 ],
               ),
               const SizedBox(height: 12),
-              _SheetLabel('Durum'),
+              _SheetLabel(l10nNow.status),
               Wrap(
                 spacing: 6,
                 children: [
                   ChoiceChip(
-                    label: const Text('Herhangi'),
+                    label: Text(l10nNow.any),
                     selected: _draft.isRead == null,
                     onSelected: (_) => setState(
                       () => _draft = _draft.copyWith(isRead: () => null),
                     ),
                   ),
                   ChoiceChip(
-                    label: const Text('Okundu'),
+                    label: Text(l10nNow.read),
                     selected: _draft.isRead == true,
                     onSelected: (_) => setState(
                       () => _draft = _draft.copyWith(isRead: () => true),
                     ),
                   ),
                   ChoiceChip(
-                    label: const Text('Okunmadı'),
+                    label: Text(l10nNow.unread2),
                     selected: _draft.isRead == false,
                     onSelected: (_) => setState(
                       () => _draft = _draft.copyWith(isRead: () => false),
@@ -876,7 +879,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                 spacing: 6,
                 children: [
                   FilterChip(
-                    label: const Text('Yıldızlı'),
+                    label: Text(l10nNow.starred2),
                     selected: _draft.flagged == true,
                     onSelected: (v) => setState(
                       () => _draft = _draft.copyWith(
@@ -885,7 +888,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                     ),
                   ),
                   FilterChip(
-                    label: const Text('Ek var'),
+                    label: Text(l10nNow.hasAttachment),
                     selected: _draft.hasAttachment == true,
                     onSelected: (v) => setState(
                       () => _draft = _draft.copyWith(
@@ -900,12 +903,12 @@ class _FilterSheetState extends State<_FilterSheet> {
                 width: double.infinity,
                 child: FilledButton(
                   onPressed: () => Navigator.of(context).pop(_draft),
-                  child: const Text('Uygula'),
+                  child: Text(l10nNow.apply),
                 ),
               ),
               const SizedBox(height: 4),
               Text(
-                'Filtreler VE ile birleştirilir.',
+                l10nNow.filtersAreCombinedWithAnd,
                 textAlign: TextAlign.center,
                 style: TextStyle(fontSize: 11, color: colors.tertiaryText),
               ),
@@ -964,10 +967,10 @@ class _SearchScopeStatus extends StatelessWidget {
           Expanded(
             child: Text(
               !serverSearch
-                  ? 'Aramak veya filtrelemek için yazmaya başlayın'
+                  ? l10nNow.startTypingToSearchOr
                   : accountEmail == null
-                  ? 'Tüm hesaplarda sunucuda aranıyor'
-                  : '$accountEmail hesabında aranıyor',
+                  ? l10nNow.searchingTheServerAcrossAll
+                  : l10nNow.searchingIn(accountEmail!),
               style: TextStyle(
                 fontSize: 12,
                 color: AppTheme.colors(context).secondaryText,
@@ -1001,7 +1004,7 @@ class _SearchError extends StatelessWidget {
           TextButton.icon(
             onPressed: onRetry,
             icon: const Icon(LucideIcons.refreshCw, size: 18),
-            label: const Text('Tekrar dene'),
+            label: Text(l10nNow.tryAgain),
           ),
         ],
       ),
@@ -1030,7 +1033,7 @@ class _LabelFilter extends StatelessWidget {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 2),
                 child: ChoiceChip(
-                  label: const Text('Tümü'),
+                  label: Text(l10nNow.all),
                   selected: selected == null,
                   onSelected: (_) => onSelected(null),
                 ),

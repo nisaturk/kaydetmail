@@ -9,6 +9,7 @@ import '../services/session_store.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 import '../widgets/manual_mail_setup_dialog.dart';
+import '../l10n/l10n.dart';
 
 /// Account-connection flow: enter the address and password, connect through
 /// [AppConfig.mailRepository].
@@ -58,8 +59,9 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
       _autofillFinished = true;
       TextInput.finishAutofillContext();
       Navigator.of(context).pop();
-      ScaffoldMessenger.of(context)
-          .showSnackBar(SnackBar(content: Text('${account.email} bağlandı.')));
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10nNow.connected(account.email))));
     } on ApiException catch (error) {
       if (!mounted) return;
       if (serverSettings == null &&
@@ -93,7 +95,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Yeni hesap ekle')),
+      appBar: AppBar(title: Text(l10nNow.addNewAccount)),
       body: SingleChildScrollView(
         padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
         child: ConstrainedBox(
@@ -115,14 +117,14 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                     textInputAction: TextInputAction.next,
                     validator: (value) {
                       final text = value?.trim() ?? '';
-                      if (text.isEmpty) return 'E-posta adresi zorunludur';
+                      if (text.isEmpty) return l10nNow.emailAddressIsRequired;
                       if (!_emailPattern.hasMatch(text)) {
-                        return 'Geçerli bir e-posta adresi girin';
+                        return l10nNow.enterAValidEmailAddress2;
                       }
                       return null;
                     },
-                    decoration: const InputDecoration(
-                      labelText: 'E-posta',
+                    decoration: InputDecoration(
+                      labelText: l10nNow.email,
                       prefixIcon: Icon(LucideIcons.mail, size: 20),
                     ),
                   ),
@@ -136,16 +138,16 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                     onFieldSubmitted: (_) => _connect(),
                     validator: (value) {
                       final text = value ?? '';
-                      if (text.isEmpty) return 'Şifre zorunludur';
+                      if (text.isEmpty) return l10nNow.passwordIsRequired;
                       return null;
                     },
                     decoration: InputDecoration(
-                      labelText: 'Şifre',
+                      labelText: l10nNow.password,
                       prefixIcon: const Icon(LucideIcons.lock, size: 20),
                       suffixIcon: IconButton(
                         tooltip: _obscurePassword
-                            ? 'Şifreyi göster'
-                            : 'Şifreyi gizle',
+                            ? l10nNow.showPassword
+                            : l10nNow.hidePassword,
                         onPressed: () => setState(
                           () => _obscurePassword = !_obscurePassword,
                         ),
@@ -181,7 +183,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                               color: Theme.of(context).colorScheme.onPrimary,
                             ),
                           )
-                        : const Text('Bağla'),
+                        : Text(l10nNow.connect),
                   ),
                 ],
               ),

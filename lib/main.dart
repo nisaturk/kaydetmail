@@ -10,6 +10,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await FirebaseMonitoring.initialize();
   await AppSettingsController.instance.loadThemeMode();
+  await AppSettingsController.instance.loadLanguage();
   runApp(const KaydetApp());
   if (!AppConfig.pushEnabled || !PushService.isSupportedPlatform) return;
   // Best-effort: without Firebase config files this no-ops and the app runs

@@ -7,6 +7,7 @@ import '../../config/app_config.dart';
 import '../../utils/error_messages.dart';
 import '../../models/manual_contact.dart';
 import '../../theme/app_theme.dart';
+import '../../l10n/l10n.dart';
 
 class ContactsSection extends StatelessWidget {
   const ContactsSection({super.key, required this.accountId});
@@ -23,7 +24,7 @@ class ContactsSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             child: Text(
-              'Henüz kişi eklenmedi.',
+              l10nNow.noContactsAddedYet,
               style: TextStyle(color: AppTheme.colors(context).secondaryText),
             ),
           ),
@@ -37,7 +38,7 @@ class ContactsSection extends StatelessWidget {
             title: Text(contact.label),
             subtitle: contact.displayName == null ? null : Text(contact.email),
             trailing: IconButton(
-              tooltip: 'Düzenle',
+              tooltip: l10nNow.edit,
               icon: const Icon(LucideIcons.pencil, size: 18),
               onPressed: () => _showContactEditor(context, contact: contact),
             ),
@@ -45,7 +46,7 @@ class ContactsSection extends StatelessWidget {
         TextButton.icon(
           onPressed: () => _showContactEditor(context),
           icon: const Icon(LucideIcons.plus, size: 18),
-          label: const Text('Yeni Kişi'),
+          label: Text(l10nNow.newContact),
         ),
       ],
     );
@@ -145,18 +146,16 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Kişiyi sil?'),
-        content: Text(
-          '“${widget.contact!.label}” kişi listesinden kaldırılacak.',
-        ),
+        title: Text(l10nNow.deleteContact),
+        content: Text(l10nNow.willBeRemovedFromThe(widget.contact!.label)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Evet, sil'),
+            child: Text(l10nNow.yesDelete),
           ),
         ],
       ),
@@ -179,7 +178,7 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(_isEdit ? 'Kişiyi Düzenle' : 'Yeni Kişi'),
+      title: Text(_isEdit ? l10nNow.editContact : l10nNow.newContact),
       content: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -189,7 +188,7 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
             autofocus: true,
             keyboardType: TextInputType.emailAddress,
             decoration: InputDecoration(
-              labelText: 'E-posta',
+              labelText: l10nNow.email,
               errorText: _error,
               errorMaxLines: 2,
             ),
@@ -198,7 +197,7 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
           TextField(
             controller: _nameController,
             textInputAction: TextInputAction.done,
-            decoration: const InputDecoration(labelText: 'Ad (isteğe bağlı)'),
+            decoration: InputDecoration(labelText: l10nNow.nameOptional),
             onSubmitted: (_) => _save(),
           ),
         ],
@@ -206,7 +205,7 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10nNow.cancel2),
         ),
         if (_isEdit)
           TextButton(
@@ -214,11 +213,11 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
             style: TextButton.styleFrom(
               foregroundColor: AppTheme.colors(context).destructive,
             ),
-            child: const Text('Sil'),
+            child: Text(l10nNow.delete),
           ),
         FilledButton(
           onPressed: _save,
-          child: Text(_isEdit ? 'Kaydet' : 'Ekle'),
+          child: Text(_isEdit ? l10nNow.save : l10nNow.add),
         ),
       ],
     );

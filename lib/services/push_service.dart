@@ -305,6 +305,8 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
       defaultTargetPlatform != TargetPlatform.iOS) {
     return;
   }
+  // A fresh background isolate starts with the default language.
+  await AppSettingsController.instance.loadLanguage();
   final plan = backgroundPushPlan(
     message.data.map((key, value) => MapEntry(key, '$value')),
     systemRendered:

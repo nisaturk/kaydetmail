@@ -3,6 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'mail_folder.dart';
 import 'mail_authentication.dart';
 import 'mail_security.dart';
+import '../l10n/l10n.dart';
 
 /// A file attached to an email.
 @immutable
@@ -44,7 +45,7 @@ class Attachment {
     final dot = name.lastIndexOf('.');
     return dot >= 0 && dot < name.length - 1
         ? name.substring(dot + 1).toUpperCase()
-        : 'Dosya';
+        : l10nNow.file;
   }
 
   @override

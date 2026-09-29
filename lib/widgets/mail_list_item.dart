@@ -7,6 +7,7 @@ import '../models/mail_label.dart';
 import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import 'mail_avatar.dart';
+import '../l10n/l10n.dart';
 
 /// One row in the mail list: avatar on the left, sender + subject + preview
 /// on the right.
@@ -69,18 +70,18 @@ class MailListItem extends StatelessWidget {
   String _semanticSummary() {
     final parts = <String>[
       email.senderName,
-      email.subject.isEmpty ? '(konu yok)' : email.subject,
+      email.subject.isEmpty ? l10nNow.noSubject3 : email.subject,
     ];
-    if (!_isDraft) parts.add(_looksRead ? 'okundu' : 'okunmadı');
-    if (email.isStarred) parts.add('yıldızlı');
-    if (email.isPinned) parts.add('sabitlenmiş');
-    if (email.isReplied) parts.add('yanıtlandı');
+    if (!_isDraft) parts.add(_looksRead ? 'okundu' : l10nNow.unread3);
+    if (email.isStarred) parts.add(l10nNow.starred3);
+    if (email.isPinned) parts.add(l10nNow.pinned);
+    if (email.isReplied) parts.add(l10nNow.replied);
     if (email.forwardedFromKaydetMail) parts.add('iletildi');
     if (email.attachments.isNotEmpty || email.hasAttachments) {
-      parts.add('ek içeriyor');
+      parts.add(l10nNow.hasAttachments);
     }
     if (threadCount != null && threadCount! > 1) {
-      parts.add('$threadCount mesajlık konuşma');
+      parts.add(l10nNow.messageConversation(threadCount!));
     }
     if (labels.isNotEmpty) {
       parts.add('etiketler: ${labels.map((l) => l.name).join(', ')}');

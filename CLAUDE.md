@@ -40,6 +40,20 @@ error codes, idempotency rules, enum values). Read it before implementing any
 - `lib/state/` — cross-widget UI state that isn't mail data itself (`MailSelectionController` for multi-select mode, `AppSettingsController` for sync interval/server address settings).
 - `lib/screens/` + `lib/widgets/` — UI. `HomeScreen` hosts the drawer/folder/list/selection-mode shell; other screens (`inbox`, `mail_detail`, `compose`, `search`, `accounts`, `settings`, `login`) are pushed on top.
 
+**Localization:** Turkish (default) and English, chosen in Settings → General
+settings → Language (`AppSettingsController.locale`). User-visible text lives in
+`lib/l10n/app_tr.arb` (template) and `lib/l10n/app_en.arb`; read it as
+`l10nNow.someKey` (`lib/l10n/l10n.dart`) — no `BuildContext` needed, so models,
+controllers and error mappers use the same source as widgets. After editing an
+ARB file run `flutter gen-l10n` and commit the generated `app_localizations*.dart`.
+Both ARB files must define the same keys and placeholders
+(`test/localization_test.dart` enforces it). A language change reassembles the
+widget tree (`_AuthGateState._onSettingsChanged`) so screens that are already
+open re-read their strings. Backend-facing values (enum wire values, JSON keys,
+SQL) stay untranslated. Strings that must not be translated: data seeded into
+the user's mailbox (default labels) and the quoting/forwarding regexes, which
+recognise both languages.
+
 **Multi-account model:** `activeAccountId == null` means the unified mailbox
 (all connected accounts merged); a non-null id scopes every repository read
 to that one account. Search and bulk actions can span accounts; folder state,

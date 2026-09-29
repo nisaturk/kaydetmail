@@ -2,13 +2,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../theme/app_theme.dart';
+import '../l10n/l10n.dart';
 
 /// Opens a colour picker (saturation/brightness pad, hue bar and a hex field)
 /// and resolves to the chosen opaque colour, or null when dismissed.
 Future<Color?> showColorPickerDialog(
   BuildContext context, {
   required Color initial,
-  String title = 'Özel renk',
+  String? title,
 }) => showDialog<Color>(
   context: context,
   builder: (_) => ColorPickerDialog(initial: initial, title: title),
@@ -28,14 +29,10 @@ Color? parseHexColor(String input) {
 }
 
 class ColorPickerDialog extends StatefulWidget {
-  const ColorPickerDialog({
-    super.key,
-    required this.initial,
-    this.title = 'Özel renk',
-  });
+  const ColorPickerDialog({super.key, required this.initial, this.title});
 
   final Color initial;
-  final String title;
+  final String? title;
 
   @override
   State<ColorPickerDialog> createState() => _ColorPickerDialogState();
@@ -80,12 +77,12 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
 
   @override
   Widget build(BuildContext context) {
-    final onColor = ThemeData.estimateBrightnessForColor(_color) ==
-            Brightness.dark
+    final onColor =
+        ThemeData.estimateBrightnessForColor(_color) == Brightness.dark
         ? Colors.white
         : Colors.black;
     return AlertDialog(
-      title: Text(widget.title),
+      title: Text(widget.title ?? l10nNow.customColor2),
       scrollable: true,
       content: SizedBox(
         width: 280,
@@ -139,8 +136,8 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
                       LengthLimitingTextInputFormatter(7),
                     ],
                     decoration: InputDecoration(
-                      labelText: 'Hex kodu',
-                      errorText: _hexInvalid ? 'Geçersiz renk' : null,
+                      labelText: l10nNow.hexCode,
+                      errorText: _hexInvalid ? l10nNow.invalidColor : null,
                     ),
                     onChanged: _onHexChanged,
                   ),
@@ -153,12 +150,14 @@ class _ColorPickerDialogState extends State<ColorPickerDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10nNow.cancel2),
         ),
         FilledButton(
           key: const Key('color-picker-confirm'),
-          onPressed: _hexInvalid ? null : () => Navigator.of(context).pop(_color),
-          child: const Text('Seç'),
+          onPressed: _hexInvalid
+              ? null
+              : () => Navigator.of(context).pop(_color),
+          child: Text(l10nNow.select),
         ),
       ],
     );
@@ -189,7 +188,7 @@ class _SaturationValuePad extends StatelessWidget {
       }
 
       return Semantics(
-        label: 'Renk tonu ve parlaklık',
+        label: l10nNow.hueAndBrightness,
         child: GestureDetector(
           onPanDown: (d) => update(d.localPosition),
           onPanUpdate: (d) => update(d.localPosition),
@@ -272,7 +271,7 @@ class _HueBar extends StatelessWidget {
       }
 
       return Semantics(
-        label: 'Renk',
+        label: l10nNow.color,
         slider: true,
         child: GestureDetector(
           onHorizontalDragDown: (d) => update(d.localPosition.dx),
@@ -305,7 +304,12 @@ class _HuePainter extends CustomPainter {
         ..shader = LinearGradient(
           colors: [
             for (var h = 0; h <= 360; h += 60)
-              HSVColor.fromAHSV(1, h.toDouble().clamp(0, 359.99), 1, 1).toColor(),
+              HSVColor.fromAHSV(
+                1,
+                h.toDouble().clamp(0, 359.99),
+                1,
+                1,
+              ).toColor(),
           ],
         ).createShader(bar.outerRect),
     );

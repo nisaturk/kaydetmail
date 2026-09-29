@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/mail_signature.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 class SignaturesScreen extends StatefulWidget {
   const SignaturesScreen({super.key, required this.accountId});
@@ -74,16 +75,16 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('İmzayı sil?'),
-        content: Text('“${signature.name}” imzası kalıcı olarak silinecek.'),
+        title: Text(l10nNow.deleteSignature),
+        content: Text(l10nNow.theSignatureWillBePermanently(signature.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sil'),
+            child: Text(l10nNow.delete),
           ),
         ],
       ),
@@ -110,7 +111,7 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
           shrinkWrap: true,
           children: [
             ListTile(
-              title: const Text('Yok'),
+              title: Text(l10nNow.none),
               trailing: current == null ? const Icon(LucideIcons.check) : null,
               onTap: () => Navigator.pop(context, _clearDefault),
             ),
@@ -159,13 +160,14 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
   }
 
   String _defaultName(String? id) =>
-      _signatures.where((item) => item.id == id).firstOrNull?.name ?? 'Yok';
+      _signatures.where((item) => item.id == id).firstOrNull?.name ??
+      l10nNow.none;
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('İmzalar')),
+    appBar: AppBar(title: Text(l10nNow.signatures)),
     body: _repo.accounts.isEmpty
-        ? const Center(child: Text('Bağlı hesap bulunamadı.'))
+        ? Center(child: Text(l10nNow.noConnectedAccountFound))
         : _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
@@ -177,7 +179,7 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Text(_error!, textAlign: TextAlign.center),
                 ),
-                TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+                TextButton(onPressed: _load, child: Text(l10nNow.tryAgain)),
               ],
             ),
           )
@@ -193,7 +195,7 @@ class _SignaturesScreenState extends State<SignaturesScreen> {
         ? null
         : FloatingActionButton(
             key: const Key('add-signature-fab'),
-            tooltip: 'Yeni imza',
+            tooltip: l10nNow.newSignature,
             onPressed: _editSignature,
             child: const Icon(LucideIcons.plus),
           ),
@@ -223,25 +225,25 @@ class _SignatureList extends StatelessWidget {
   Widget build(BuildContext context) => ListView(
     children: [
       ListTile(
-        title: const Text('Yeni e-posta'),
+        title: Text(l10nNow.newEmail2),
         subtitle: Text(defaultName(defaults.newMailSignatureId)),
         onTap: () => onDefaults('new', defaults.newMailSignatureId),
       ),
       ListTile(
-        title: const Text('Yanıt'),
+        title: Text(l10nNow.reply2),
         subtitle: Text(defaultName(defaults.replySignatureId)),
         onTap: () => onDefaults('reply', defaults.replySignatureId),
       ),
       ListTile(
-        title: const Text('İlet'),
+        title: Text(l10nNow.forward),
         subtitle: Text(defaultName(defaults.forwardSignatureId)),
         onTap: () => onDefaults('forward', defaults.forwardSignatureId),
       ),
       const Divider(),
       if (signatures.isEmpty)
-        const Padding(
+        Padding(
           padding: EdgeInsets.all(16),
-          child: Text('Henüz imza yok'),
+          child: Text(l10nNow.noSignaturesYet),
         ),
       for (final signature in signatures)
         ListTile(
@@ -255,7 +257,7 @@ class _SignatureList extends StatelessWidget {
           ),
           onTap: () => onEdit(signature),
           trailing: IconButton(
-            tooltip: 'Sil',
+            tooltip: l10nNow.delete,
             icon: const Icon(LucideIcons.trash2),
             onPressed: () => onDelete(signature),
           ),
@@ -304,11 +306,11 @@ class _SignatureEditorState extends State<_SignatureEditor> {
     final name = _name.text.trim();
     final bodyText = _bodyText.text.trim();
     if (name.isEmpty || name.length > 100) {
-      setState(() => _error = 'İmza adı 1-100 karakter olmalı.');
+      setState(() => _error = l10nNow.signatureNameMustBe1);
       return;
     }
     if (bodyText.isEmpty) {
-      setState(() => _error = 'İmza metni yazın.');
+      setState(() => _error = l10nNow.enterTheSignatureText);
       return;
     }
     setState(() {
@@ -355,7 +357,9 @@ class _SignatureEditorState extends State<_SignatureEditor> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            widget.signature == null ? 'Yeni imza' : 'İmzayı düzenle',
+            widget.signature == null
+                ? l10nNow.newSignature
+                : l10nNow.editSignature,
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 16),
@@ -363,14 +367,14 @@ class _SignatureEditorState extends State<_SignatureEditor> {
             key: const Key('signature-name'),
             controller: _name,
             maxLength: 100,
-            decoration: const InputDecoration(labelText: 'Ad'),
+            decoration: InputDecoration(labelText: l10nNow.name),
           ),
           TextField(
             key: const Key('signature-body-text'),
             controller: _bodyText,
             minLines: 4,
             maxLines: 8,
-            decoration: const InputDecoration(labelText: 'İmza metni'),
+            decoration: InputDecoration(labelText: l10nNow.signatureText),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),
@@ -388,7 +392,7 @@ class _SignatureEditorState extends State<_SignatureEditor> {
                     dimension: 20,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : const Text('Kaydet'),
+                : Text(l10nNow.save),
           ),
         ],
       ),

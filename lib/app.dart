@@ -21,6 +21,7 @@ import 'services/push_service.dart';
 import 'services/sync_policy.dart';
 import 'theme/app_theme.dart';
 import 'widgets/biometric_lock_gate.dart';
+import 'l10n/l10n.dart';
 
 /// Root widget of the KAYDET application.
 class KaydetApp extends StatelessWidget {
@@ -37,9 +38,10 @@ class KaydetApp extends StatelessWidget {
         theme: AppTheme.light,
         darkTheme: AppTheme.dark,
         themeMode: AppSettingsController.instance.themeMode,
-        locale: const Locale('tr'),
-        supportedLocales: const [Locale('tr')],
+        locale: AppSettingsController.instance.locale,
+        supportedLocales: AppLocalizations.supportedLocales,
         localizationsDelegates: const [
+          AppLocalizations.delegate,
           GlobalMaterialLocalizations.delegate,
           GlobalWidgetsLocalizations.delegate,
           GlobalCupertinoLocalizations.delegate,
@@ -125,11 +127,7 @@ class _AuthGateState extends State<_AuthGate> {
       return;
     }
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.',
-        ),
-      ),
+      SnackBar(content: Text(l10nNow.draftSavedLocallyServerSync)),
     );
     try {
       await navigator.push(
@@ -275,11 +273,9 @@ class _AuthGateState extends State<_AuthGate> {
       if (context == null || !context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text(
-            '$attention gönderi Giden Kutusu’nda incelenmeyi bekliyor.',
-          ),
+          content: Text(l10nNow.outgoingMessagesAreWaitingFor(attention)),
           action: SnackBarAction(
-            label: 'Aç',
+            label: l10nNow.open,
             onPressed: () => _navigatorKey.currentState?.push(
               MaterialPageRoute(builder: (_) => const OutboxScreen()),
             ),
@@ -290,9 +286,7 @@ class _AuthGateState extends State<_AuthGate> {
       final context = _navigatorKey.currentContext;
       if (context != null && context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Giden Kutusu açılamadı. Yeniden deneyin.'),
-          ),
+          SnackBar(content: Text(l10nNow.couldntOpenTheOutboxTry)),
         );
       }
     }
@@ -322,7 +316,19 @@ class _AuthGateState extends State<_AuthGate> {
   /// reschedules — it never needs to start a session on its own.
   void _onSettingsChanged() {
     if (_loggedIn == true) _rescheduleSync();
+    final locale = AppSettingsController.instance.locale;
+    if (locale != _shownLocale) {
+      _shownLocale = locale;
+      // Strings are looked up through [l10nNow] rather than a per-widget
+      // dependency, so a language switch has to rebuild every widget (state
+      // and navigation stack are kept) instead of only the MaterialApp.
+      WidgetsBinding.instance.addPostFrameCallback(
+        (_) => WidgetsBinding.instance.reassembleApplication(),
+      );
+    }
   }
+
+  Locale _shownLocale = AppSettingsController.instance.locale;
 
   /// (Re)starts the background mailbox refresh at the configured interval.
   /// `manual` cancels any running timer instead — pull-to-refresh, push

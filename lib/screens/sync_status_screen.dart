@@ -11,6 +11,7 @@ import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 
 import 'sync_scope_screen.dart';
+import '../l10n/l10n.dart';
 
 class SyncStatusScreen extends StatefulWidget {
   const SyncStatusScreen({super.key, this.accountId});
@@ -79,9 +80,9 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
   Widget build(BuildContext context) {
     final accounts = _accounts;
     return Scaffold(
-      appBar: AppBar(title: const Text('Senkronizasyon Durumu')),
+      appBar: AppBar(title: Text(l10nNow.syncStatus)),
       body: accounts.isEmpty
-          ? const Center(child: Text('Bağlı hesap yok.'))
+          ? Center(child: Text(l10nNow.noConnectedAccounts))
           : RefreshIndicator(
               onRefresh: _loadAll,
               child: ListView.builder(
@@ -143,7 +144,7 @@ class _AccountSyncCard extends StatelessWidget {
                 key: Key('sync-scope-${account.id}'),
                 onPressed: onConfigure,
                 icon: const Icon(LucideIcons.settings2, size: 18),
-                label: const Text('Senkronizasyon kapsamı'),
+                label: Text(l10nNow.syncScope),
               ),
             ),
             _buildBody(context, colors),
@@ -173,7 +174,7 @@ class _AccountSyncCard extends StatelessWidget {
           TextButton.icon(
             onPressed: onRetry,
             icon: const Icon(LucideIcons.refreshCw, size: 18),
-            label: const Text('Tekrar dene'),
+            label: Text(l10nNow.tryAgain),
           ),
         ],
       );
@@ -185,14 +186,16 @@ class _AccountSyncCard extends StatelessWidget {
       children: [
         if (folders.isEmpty)
           Text(
-            'Henüz senkronizasyon denemesi yok.',
+            l10nNow.noSyncAttemptsYet,
             style: TextStyle(color: colors.secondaryText),
           )
         else
           for (final folder in folders) _FolderRow(folder: folder),
         const SizedBox(height: 8),
         Text(
-          queued > 0 ? '$queued işlem bağlantı bekliyor' : 'Hepsi senkronize',
+          queued > 0
+              ? l10nNow.actionsAreWaitingForA(queued)
+              : l10nNow.everythingIsSynced,
           style: TextStyle(
             color: queued > 0 ? colors.warning : colors.success,
             fontWeight: FontWeight.w600,
@@ -209,11 +212,11 @@ class _FolderRow extends StatelessWidget {
   final FolderSyncStatus folder;
 
   String _failureCategoryLabel(String? category) => switch (category) {
-    'Transient' => 'Geçici sorun',
-    'Authentication' => 'Kimlik doğrulama sorunu',
-    'Configuration' => 'Yapılandırma sorunu',
-    'Permanent' => 'Kalıcı sorun',
-    _ => 'Bilinmeyen sorun',
+    'Transient' => l10nNow.temporaryProblem,
+    'Authentication' => l10nNow.authenticationProblem,
+    'Configuration' => l10nNow.configurationProblem,
+    'Permanent' => l10nNow.permanentProblem,
+    _ => l10nNow.unknownProblem,
   };
 
   @override
@@ -250,7 +253,7 @@ class _FolderRow extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.only(left: 24, top: 2),
               child: Text(
-                'Geçmiş mailler hâlâ içeri aktarılıyor',
+                l10nNow.olderMailIsStillBeing,
                 style: TextStyle(fontSize: 12.5, color: colors.warning),
               ),
             ),
@@ -258,8 +261,8 @@ class _FolderRow extends StatelessWidget {
             padding: const EdgeInsets.only(left: 24, top: 2),
             child: Text(
               lastSuccessfulSyncAt != null
-                  ? 'Son senkronizasyon: ${formatMailDateFull(lastSuccessfulSyncAt)}'
-                  : 'Henüz başarılı senkronizasyon yok',
+                  ? l10nNow.lastSync(formatMailDateFull(lastSuccessfulSyncAt))
+                  : l10nNow.noSuccessfulSyncYet,
               style: TextStyle(fontSize: 12.5, color: colors.secondaryText),
             ),
           ),

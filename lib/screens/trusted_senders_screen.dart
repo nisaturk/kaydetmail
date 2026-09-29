@@ -5,6 +5,7 @@ import '../config/app_config.dart';
 import '../models/trusted_sender.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 class TrustedSendersScreen extends StatefulWidget {
   const TrustedSendersScreen({super.key, required this.accountId});
@@ -68,7 +69,7 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(title: const Text('Kayıtlı Görsel Tercihleri')),
+    appBar: AppBar(title: Text(l10nNow.savedImagePreferences2)),
     body: _loading
         ? const Center(child: CircularProgressIndicator())
         : _error != null
@@ -80,17 +81,16 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
                   padding: const EdgeInsets.all(16),
                   child: Text(_error!, textAlign: TextAlign.center),
                 ),
-                TextButton(onPressed: _load, child: const Text('Tekrar dene')),
+                TextButton(onPressed: _load, child: Text(l10nNow.tryAgain)),
               ],
             ),
           )
         : _items.isEmpty
-        ? const Center(
+        ? Center(
             child: Padding(
               padding: EdgeInsets.all(24),
               child: Text(
-                'Henüz kayıtlı gönderici yok.\n'
-                'Normal görseller, bu listeye ekleme yapılmadan da yüklenir.',
+                l10nNow.noSavedSendersYetRegular,
                 textAlign: TextAlign.center,
               ),
             ),
@@ -105,9 +105,9 @@ class _TrustedSendersScreenState extends State<TrustedSendersScreen> {
                 key: ValueKey('trusted-${item.id}'),
                 leading: Icon(domain ? LucideIcons.globe : LucideIcons.user),
                 title: Text(item.value),
-                subtitle: Text(domain ? 'Alan adı' : 'Gönderici'),
+                subtitle: Text(domain ? l10nNow.domain : l10nNow.sender),
                 trailing: IconButton(
-                  tooltip: 'Kaldır',
+                  tooltip: l10nNow.remove,
                   icon: const Icon(LucideIcons.trash2),
                   onPressed: () => _remove(item),
                 ),

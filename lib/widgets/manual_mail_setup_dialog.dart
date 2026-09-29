@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../repositories/mail_repository.dart';
+import '../l10n/l10n.dart';
 
 /// Collects IMAP/SMTP host+port when automatic server discovery fails
 /// (`mail_discovery_failed`, `manualSetupAvailable: true`). Pops the entered
@@ -72,13 +73,13 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
 
   String? _requiredHost(String? value) =>
       (value == null || value.trim().isEmpty)
-      ? 'Sunucu adresi zorunludur'
+      ? l10nNow.serverAddressIsRequired
       : null;
 
   String? _validPort(String? value) {
     final port = int.tryParse(value?.trim() ?? '');
     if (port == null || port <= 0 || port > 65535) {
-      return 'Geçerli bir port girin';
+      return l10nNow.enterAValidPort;
     }
     return null;
   }
@@ -86,43 +87,41 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Manuel sunucu ayarları'),
+      title: Text(l10nNow.manualServerSettings),
       content: Form(
         key: _formKey,
         child: SingleChildScrollView(
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              const Text(
-                'Otomatik sunucu keşfi başarısız oldu. IMAP/SMTP sunucu '
-                'bilgilerini elle girin (993 IMAP ve 587 SMTP için önerilen '
-                'varsayılan portlardır).',
+              Text(
+                l10nNow.automaticServerDiscoveryFailedEnter,
                 style: TextStyle(fontSize: 12),
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _imapHost,
-                decoration: const InputDecoration(labelText: 'IMAP sunucu'),
+                decoration: InputDecoration(labelText: l10nNow.imapServer),
                 validator: _requiredHost,
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _imapPort,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'IMAP port'),
+                decoration: InputDecoration(labelText: l10nNow.imapPort),
                 validator: _validPort,
               ),
               const SizedBox(height: 16),
               TextFormField(
                 controller: _smtpHost,
-                decoration: const InputDecoration(labelText: 'SMTP sunucu'),
+                decoration: InputDecoration(labelText: l10nNow.smtpServer),
                 validator: _requiredHost,
               ),
               const SizedBox(height: 8),
               TextFormField(
                 controller: _smtpPort,
                 keyboardType: TextInputType.number,
-                decoration: const InputDecoration(labelText: 'SMTP port'),
+                decoration: InputDecoration(labelText: l10nNow.smtpPort),
                 validator: _validPort,
               ),
             ],
@@ -132,9 +131,9 @@ class _ManualMailSetupDialogState extends State<ManualMailSetupDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10nNow.cancel2),
         ),
-        FilledButton(onPressed: _submit, child: const Text('Bağlan')),
+        FilledButton(onPressed: _submit, child: Text(l10nNow.connect2)),
       ],
     );
   }

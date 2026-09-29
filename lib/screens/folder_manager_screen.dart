@@ -14,10 +14,11 @@ import '../utils/error_messages.dart';
 import '../utils/folder_rules.dart';
 import '../utils/folder_tree.dart';
 import 'custom_folder_mail_screen.dart';
+import '../l10n/l10n.dart';
 
 IconData _iconFor(FolderKind kind) => kind.logical?.icon ?? LucideIcons.folder;
 
-String _roleLabel(FolderKind kind) => kind.logical?.label ?? 'Klasör';
+String _roleLabel(FolderKind kind) => kind.logical?.label ?? l10nNow.folder;
 
 /// One account's complete folder tree — the standard folders (Gelen Kutusu,
 /// Giden, Taslaklar, …) and the user's own — with counts, roles and the
@@ -136,7 +137,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     return showDialog<(String?,)>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: const Text('Üst klasör seçin'),
+        title: Text(l10nNow.chooseParentFolder),
         children: [
           SimpleDialogOption(
             onPressed: () => Navigator.pop(context, (null,)),
@@ -147,7 +148,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
                 else
                   const SizedBox(width: 18),
                 const SizedBox(width: 8),
-                const Text('Bağımsız klasör'),
+                Text(l10nNow.topLevelFolder),
               ],
             ),
           ),
@@ -188,7 +189,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     }
     final parent = parentId == null ? null : _find(parentId);
     final name = await _askName(
-      title: parentId == null ? 'Yeni klasör' : 'Alt klasör oluştur',
+      title: parentId == null ? l10nNow.newFolder : l10nNow.createSubfolder,
       initial: '',
       delimiter: parent?.delimiter ?? all.firstOrNull?.delimiter,
       siblings: all.where((f) => f.parentFolderId == parentId),
@@ -200,13 +201,13 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         name: name,
         parentFolderId: parentId,
       ),
-      success: 'Klasör oluşturuldu.',
+      success: l10nNow.folderCreated,
     );
   }
 
   Future<void> _rename(MailFolderInfo folder) async {
     final name = await _askName(
-      title: 'Yeniden adlandır',
+      title: l10nNow.rename,
       initial: folder.name,
       delimiter: folder.delimiter,
       siblings: _folders.where(
@@ -221,7 +222,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         folderId: folder.folderId,
         name: name,
       ),
-      success: 'Klasör yeniden adlandırıldı.',
+      success: l10nNow.folderRenamed,
     );
   }
 
@@ -239,7 +240,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         folderId: folder.folderId,
         parentFolderId: choice.$1,
       ),
-      success: 'Üst klasör değiştirildi.',
+      success: l10nNow.parentFolderChanged,
     );
   }
 
@@ -249,12 +250,12 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
       await showDialog<void>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Klasör silinemez'),
+          title: Text(l10nNow.folderCantBeDeleted),
           content: Text(blocker),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context),
-              child: const Text('Tamam'),
+              child: Text(l10nNow.ok),
             ),
           ],
         ),
@@ -264,18 +265,16 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Klasör silinsin mi?'),
-        content: Text(
-          '"${folder.name}" klasörü sunucudan kalıcı olarak silinecek.',
-        ),
+        title: Text(l10nNow.deleteFolder),
+        content: Text(l10nNow.theFolderWillBePermanently(folder.name)),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Sil'),
+            child: Text(l10nNow.delete),
           ),
         ],
       ),
@@ -286,7 +285,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         accountId: widget.accountId,
         folderId: folder.folderId,
       ),
-      success: 'Klasör silindi.',
+      success: l10nNow.folderDeleted,
     );
   }
 
@@ -294,7 +293,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     final role = await showDialog<FolderKind>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: Text('"${folder.name}" ne olarak kullanılsın?'),
+        title: Text(l10nNow.whatShouldBeUsedAs(folder.name)),
         children: [
           for (final role in FolderRules.assignableRoles)
             SimpleDialogOption(
@@ -317,8 +316,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         folderId: folder.folderId,
         role: role.logical,
       ),
-      success:
-          '"${folder.name}" artık ${_roleLabel(role)} olarak kullanılıyor.',
+      success: l10nNow.isNowUsedAs(folder.name, _roleLabel(role)),
     );
   }
 
@@ -328,7 +326,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
       folderId: folder.folderId,
       role: null,
     ),
-    success: '"${folder.name}" için otomatik tespit geri yüklendi.',
+    success: l10nNow.automaticDetectionRestoredFor(folder.name),
   );
 
   Future<void> _syncNow(MailFolderInfo folder) => _perform(() async {
@@ -337,7 +335,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
       folderId: folder.folderId,
     );
     await _repo.refreshCustomFolders(accountId: widget.accountId);
-  }, success: '"${folder.name}" eşitlendi.');
+  }, success: l10nNow.synced(folder.name));
 
   int get _syncedCount => _scope?.folders.where((f) => f.synced).length ?? 0;
 
@@ -373,8 +371,8 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         if (mounted) setState(() => _scope = updated);
       },
       success: synced.contains(folder.folderId)
-          ? '"${folder.name}" otomatik eşitlenecek.'
-          : '"${folder.name}" otomatik eşitlenmeyecek.',
+          ? l10nNow.willSyncAutomatically(folder.name)
+          : l10nNow.willNotSyncAutomatically(folder.name),
     );
   }
 
@@ -395,10 +393,10 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     final account = _repo.getAccount(widget.accountId);
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Klasörler'),
+        title: Text(l10nNow.folders),
         actions: [
           IconButton(
-            tooltip: 'Sunucudaki klasörleri yeniden tara',
+            tooltip: l10nNow.rescanFoldersOnTheServer,
             onPressed: _busy || _loading ? null : () => _load(rediscover: true),
             icon: const Icon(LucideIcons.refreshCw),
           ),
@@ -414,7 +412,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         key: const Key('new-folder'),
         onPressed: _busy || _loading ? null : () => _create(),
         icon: const Icon(LucideIcons.folderPlus),
-        label: const Text('Yeni klasör'),
+        label: Text(l10nNow.newFolder),
       ),
       body: ListenableBuilder(
         listenable: _repo,
@@ -447,9 +445,9 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
                     ),
                   ),
                 if (rows.isEmpty)
-                  const Padding(
+                  Padding(
                     padding: EdgeInsets.all(32),
-                    child: Center(child: Text('Klasör bulunamadı')),
+                    child: Center(child: Text(l10nNow.folderNotFound)),
                   ),
                 for (final row in rows) _row(row),
               ],
@@ -465,11 +463,11 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     final colors = AppTheme.colors(context);
     final parts = <String>[
       if (folder.hasUserRole)
-        '${_roleLabel(folder.kind)} olarak kullanılıyor'
+        l10nNow.usedAs(_roleLabel(folder.kind))
       else if (folder.isStandard && folder.kind != FolderKind.inbox)
-        'Standart klasör',
-      if ((folder.unreadCount ?? 0) > 0) '${folder.unreadCount} okunmamış',
-      if (folder.totalCount != null) '${folder.totalCount} e-posta',
+        l10nNow.standardFolder,
+      if ((folder.unreadCount ?? 0) > 0) l10nNow.unread(folder.unreadCount!),
+      if (folder.totalCount != null) l10nNow.emailCount(folder.totalCount!),
     ];
     final synced = _isSynced(folder);
     return ListTile(
@@ -483,7 +481,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         children: [
           if (synced)
             Tooltip(
-              message: 'Otomatik eşitleniyor',
+              message: l10nNow.syncingAutomatically,
               child: Icon(
                 LucideIcons.refreshCw,
                 size: 14,
@@ -506,48 +504,42 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
               _ => null,
             },
             itemBuilder: (_) => [
-              const PopupMenuItem(value: 'open', child: Text('Aç')),
+              PopupMenuItem(value: 'open', child: Text(l10nNow.open)),
               if (FolderRules.canHaveChildren(folder))
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'child',
-                  child: Text('Alt klasör oluştur'),
+                  child: Text(l10nNow.createSubfolder),
                 ),
               if (FolderRules.canRename(folder))
-                const PopupMenuItem(
-                  value: 'rename',
-                  child: Text('Yeniden adlandır'),
-                ),
+                PopupMenuItem(value: 'rename', child: Text(l10nNow.rename)),
               if (FolderRules.canMove(folder))
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'parent',
-                  child: Text('Üst klasörü değiştir'),
+                  child: Text(l10nNow.changeParentFolder),
                 ),
               if (folder.kind == FolderKind.custom)
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'role',
-                  child: Text('Klasör rolü ata'),
+                  child: Text(l10nNow.assignFolderRole),
                 ),
               if (folder.hasUserRole)
-                const PopupMenuItem(
+                PopupMenuItem(
                   value: 'reset-role',
-                  child: Text('Otomatiğe döndür'),
+                  child: Text(l10nNow.revertToAutomatic),
                 ),
-              const PopupMenuItem(
-                value: 'sync-now',
-                child: Text('Şimdi eşitle'),
-              ),
+              PopupMenuItem(value: 'sync-now', child: Text(l10nNow.syncNow)),
               if (_scope != null)
                 PopupMenuItem(
                   value: 'sync-toggle',
                   enabled: !(synced && _syncedCount == 1),
                   child: Text(
                     synced
-                        ? 'Otomatik eşitlemeyi kapat'
-                        : 'Otomatik eşitlemeyi aç',
+                        ? l10nNow.turnOffAutomaticSync
+                        : l10nNow.turnOnAutomaticSync,
                   ),
                 ),
               if (FolderRules.canDelete(folder))
-                const PopupMenuItem(value: 'delete', child: Text('Sil')),
+                PopupMenuItem(value: 'delete', child: Text(l10nNow.delete)),
             ],
           ),
         ],
@@ -606,7 +598,7 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
       controller: _controller,
       autofocus: true,
       decoration: InputDecoration(
-        labelText: 'Klasör adı',
+        labelText: l10nNow.folderName,
         errorText: _error,
         errorMaxLines: 2,
       ),
@@ -615,9 +607,9 @@ class _FolderNameDialogState extends State<_FolderNameDialog> {
     actions: [
       TextButton(
         onPressed: () => Navigator.of(context).pop(),
-        child: const Text('Vazgeç'),
+        child: Text(l10nNow.cancel2),
       ),
-      FilledButton(onPressed: _submit, child: const Text('Kaydet')),
+      FilledButton(onPressed: _submit, child: Text(l10nNow.save)),
     ],
   );
 }
@@ -635,7 +627,7 @@ class _ErrorState extends StatelessWidget {
       children: [
         Text(message, textAlign: TextAlign.center),
         const SizedBox(height: 12),
-        FilledButton(onPressed: onRetry, child: const Text('Tekrar dene')),
+        FilledButton(onPressed: onRetry, child: Text(l10nNow.tryAgain)),
       ],
     ),
   );

@@ -1,14 +1,20 @@
 import 'folder_sync_status.dart';
+import '../l10n/l10n.dart';
 
 enum FolderSyncScope {
-  inboxAndSent('InboxAndSent', 'Gelen + Gönderilen'),
-  allFolders('AllFolders', 'Tüm klasörler'),
-  selectedFolders('SelectedFolders', 'Seçili klasörler');
+  inboxAndSent('InboxAndSent'),
+  allFolders('AllFolders'),
+  selectedFolders('SelectedFolders');
 
-  const FolderSyncScope(this.backendValue, this.label);
+  const FolderSyncScope(this.backendValue);
 
   final String backendValue;
-  final String label;
+
+  String get label => switch (this) {
+    FolderSyncScope.inboxAndSent => l10nNow.inboxSent,
+    FolderSyncScope.allFolders => l10nNow.allFolders,
+    FolderSyncScope.selectedFolders => l10nNow.selectedFolders,
+  };
 
   static FolderSyncScope fromBackend(String? value) => values.firstWhere(
     (scope) => scope.backendValue == value,

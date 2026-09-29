@@ -1,7 +1,8 @@
+import '../l10n/l10n.dart';
 import '../models/email.dart';
 
 final _quoteHeader = RegExp(
-  r'^(on .+ wrote:|.+ tarihinde .+ yazdı:?|-{2,}\s*original message\s*-{2,}|-{3}\s*iletilen mesaj\s*-{3})',
+  r'^(on .+ wrote:|.+ tarihinde .+ yazdı:?|-{2,}\s*original message\s*-{2,}|-{3}\s*(?:iletilen mesaj|forwarded message)\s*-{3})',
   caseSensitive: false,
 );
 
@@ -57,6 +58,6 @@ String threadParticipantSummary(List<Email> messages) {
   }
   final people = names.length <= 3
       ? names.join(', ')
-      : '${names.take(2).join(', ')} ve ${names.length - 2} kişi daha';
-  return '$people · ${messages.length} ileti';
+      : l10nNow.andMorePeople(names.take(2).join(', '), names.length - 2);
+  return l10nNow.threadParticipantSummary(people, messages.length);
 }

@@ -14,6 +14,7 @@ import '../../state/pending_send_queue.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/mail_avatar.dart';
+import '../../l10n/l10n.dart';
 
 class TemplatePicker extends StatefulWidget {
   const TemplatePicker({
@@ -65,12 +66,12 @@ class _TemplatePickerState extends State<TemplatePicker> {
               children: [
                 Expanded(
                   child: Text(
-                    'Hazır metin veya şablon seç',
+                    l10nNow.chooseASavedTextOr,
                     style: Theme.of(context).textTheme.titleLarge,
                   ),
                 ),
                 IconButton(
-                  tooltip: 'Kapat',
+                  tooltip: l10nNow.close,
                   icon: const Icon(LucideIcons.x),
                   onPressed: () => Navigator.pop(context),
                 ),
@@ -89,7 +90,7 @@ class _TemplatePickerState extends State<TemplatePicker> {
                         ),
                         TextButton(
                           onPressed: _load,
-                          child: const Text('Tekrar dene'),
+                          child: Text(l10nNow.tryAgain),
                         ),
                       ],
                     ),
@@ -97,9 +98,9 @@ class _TemplatePickerState extends State<TemplatePicker> {
                 : _templates == null
                 ? const Center(child: CircularProgressIndicator())
                 : _templates!.isEmpty
-                ? const Center(
+                ? Center(
                     child: Text(
-                      'Bu hesapta kayıtlı metin yok.\nAyarlar > Hazır Metinler ve Şablonlar',
+                      l10nNow.noSavedTextsForThis,
                       textAlign: TextAlign.center,
                     ),
                   )
@@ -222,14 +223,14 @@ class AttachmentRow extends StatelessWidget {
                   ),
                   if (failed)
                     Text(
-                      error ?? 'Ek indirilemedi.',
+                      error ?? l10nNow.theAttachmentCouldntBeDownloaded2,
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: TextStyle(fontSize: 11, color: colors.destructive),
                     )
                   else if (downloading)
                     Text(
-                      'İndiriliyor…',
+                      l10nNow.downloading,
                       style: TextStyle(
                         fontSize: 11,
                         color: colors.secondaryText,
@@ -254,7 +255,7 @@ class AttachmentRow extends StatelessWidget {
               IconButton(
                 onPressed: enabled ? onRetry : null,
                 icon: const Icon(LucideIcons.refreshCw, size: 16),
-                tooltip: 'Tekrar indir',
+                tooltip: l10nNow.downloadAgain,
                 visualDensity: VisualDensity.compact,
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
@@ -262,7 +263,7 @@ class AttachmentRow extends StatelessWidget {
             IconButton(
               onPressed: enabled ? onRemove : null,
               icon: const Icon(LucideIcons.x, size: 16),
-              tooltip: 'Kaldır',
+              tooltip: l10nNow.remove,
               visualDensity: VisualDensity.compact,
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(minWidth: 28, minHeight: 28),
@@ -313,7 +314,7 @@ class _UndoSendSnackContentState extends State<UndoSendSnackContent> {
 
   @override
   Widget build(BuildContext context) {
-    return Text('E-posta $_secondsLeft sn içinde gönderilecek');
+    return Text(l10nNow.theEmailWillBeSent(_secondsLeft));
   }
 }
 
@@ -394,7 +395,7 @@ class _LinkUrlDialogState extends State<LinkUrlDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Bağlantı Ekle'),
+      title: Text(l10nNow.insertLink),
       content: TextField(
         controller: _controller,
         autofocus: true,
@@ -406,11 +407,11 @@ class _LinkUrlDialogState extends State<LinkUrlDialog> {
       actions: [
         TextButton(
           onPressed: () => Navigator.of(context).pop(),
-          child: const Text('Vazgeç'),
+          child: Text(l10nNow.cancel2),
         ),
         FilledButton(
           onPressed: () => Navigator.of(context).pop(_controller.text.trim()),
-          child: const Text('Ekle'),
+          child: Text(l10nNow.add),
         ),
       ],
     );
@@ -450,7 +451,7 @@ class EmbedPlaceholder extends quill.EmbedBuilder {
           ),
           const SizedBox(width: 6),
           Text(
-            isImage ? 'Görsel' : 'Gömülü içerik',
+            isImage ? l10nNow.image : l10nNow.embeddedContent,
             style: TextStyle(fontSize: 13, color: colors.secondaryText),
           ),
         ],
@@ -514,15 +515,18 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                 AppTheme.space5,
                 AppTheme.space2,
               ),
-              child: Text('Kişilerden ekle', style: AppTheme.titleText),
+              child: Text(l10nNow.addFromContacts, style: AppTheme.titleText),
             ),
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: AppTheme.space5),
               child: SegmentedButton<RecipientField>(
                 key: const Key('contact-picker-field'),
                 showSelectedIcon: false,
-                segments: const [
-                  ButtonSegment(value: RecipientField.to, label: Text('Kime')),
+                segments: [
+                  ButtonSegment(
+                    value: RecipientField.to,
+                    label: Text(l10nNow.to),
+                  ),
                   ButtonSegment(value: RecipientField.cc, label: Text('Cc')),
                   ButtonSegment(value: RecipientField.bcc, label: Text('Bcc')),
                 ],
@@ -542,8 +546,8 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                 key: const Key('contact-picker-search'),
                 controller: _query,
                 textInputAction: TextInputAction.search,
-                decoration: const InputDecoration(
-                  hintText: 'Ad veya e-posta ara',
+                decoration: InputDecoration(
+                  hintText: l10nNow.searchNameOrEmail,
                   prefixIcon: Icon(LucideIcons.search, size: 18),
                   isDense: true,
                 ),
@@ -556,8 +560,8 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                       padding: const EdgeInsets.all(AppTheme.space6),
                       child: Text(
                         widget.contacts.isEmpty
-                            ? 'Henüz kayıtlı kişi yok.'
-                            : 'Eşleşen kişi bulunamadı.',
+                            ? l10nNow.noSavedContactsYet
+                            : l10nNow.noMatchingContactsFound,
                         textAlign: TextAlign.center,
                         style: TextStyle(color: colors.secondaryText),
                       ),
@@ -619,7 +623,9 @@ class _ContactPickerSheetState extends State<ContactPickerSheet> {
                           contacts: _picked.values.toList(),
                         )),
                   child: Text(
-                    _picked.isEmpty ? 'Ekle' : 'Ekle (${_picked.length})',
+                    _picked.isEmpty
+                        ? l10nNow.add
+                        : l10nNow.add2(_picked.length),
                   ),
                 ),
               ),

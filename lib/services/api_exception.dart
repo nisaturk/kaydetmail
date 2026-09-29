@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import '../l10n/l10n.dart';
+
 enum ApiErrorCategory {
   authentication,
   request,
@@ -69,100 +71,89 @@ class ApiException implements Exception {
       category == ApiErrorCategory.server;
 
   String get userMessage => switch (code) {
-    'request_timeout' => 'Sunucu yanıt vermedi. Lütfen tekrar deneyin.',
-    'network_unavailable' => 'İnternet bağlantınızı kontrol edin.',
-    'mail_authentication_failed' => 'Şifre yanlış.',
-    'invalid_refresh_token' =>
-      'Oturum süresi doldu. Lütfen yeniden giriş yapın.',
-    'email_not_allowlisted' => 'Bu e-posta adresi için erişim henüz açılmadı.',
-    'mail_account_disabled' => 'Bu posta hesabı devre dışı bırakıldı.',
-    'mail_account_already_exists' => 'Bu hesap zaten bağlı.',
-    'template_name_taken' => 'Bu adla bir şablon zaten var.',
-    'mail_account_not_found' => 'Bu e-posta için kayıtlı hesap bulunamadı.',
-    'mail_discovery_failed' => 'Otomatik sunucu keşfi başarısız oldu.',
-    'discovery_expired' => 'Sunucu keşfinin süresi doldu. Tekrar deneyin.',
-    'mail_server_unsafe' => 'Sunucu ayarları güvenli değil.',
+    'request_timeout' => l10nNow.theServerDidntRespondPlease,
+    'network_unavailable' => l10nNow.checkYourInternetConnection,
+    'mail_authentication_failed' => l10nNow.wrongPassword,
+    'invalid_refresh_token' => l10nNow.yourSessionExpiredPleaseSign,
+    'email_not_allowlisted' => l10nNow.accessHasntBeenEnabledFor,
+    'mail_account_disabled' => l10nNow.thisMailAccountHasBeen,
+    'mail_account_already_exists' => l10nNow.thisAccountIsAlreadyConnected,
+    'template_name_taken' => l10nNow.aTemplateWithThisName,
+    'mail_account_not_found' => l10nNow.noRegisteredAccountFoundFor,
+    'mail_discovery_failed' => l10nNow.automaticServerDiscoveryFailed,
+    'discovery_expired' => l10nNow.serverDiscoveryTimedOutTry,
+    'mail_server_unsafe' => l10nNow.theServerSettingsArentSecure,
     'mail_provider_unavailable' ||
     'mail_tls_failed' ||
-    'mail_server_unreachable' =>
-      'Posta sunucusuna ulaşılamadı. Tekrar deneyin.',
-    'mail_not_found' || 'draft_not_found' => 'E-posta bulunamadı.',
-    'mail_not_draft' => 'Bu taslak artık geçerli değil.',
+    'mail_server_unreachable' => l10nNow.couldntReachTheMailServer,
+    'mail_not_found' || 'draft_not_found' => l10nNow.emailNotFound,
+    'mail_not_draft' => l10nNow.thisDraftIsNoLonger,
     'drafts_folder_unavailable' ||
     'trash_folder_unavailable' ||
-    'mail_folder_not_found' => 'Posta klasörü kullanılamıyor.',
-    'mail_operation_not_supported' =>
-      'Bu işlem bu e-posta için desteklenmiyor.',
+    'mail_folder_not_found' => l10nNow.theMailFolderIsUnavailable,
+    'mail_operation_not_supported' => l10nNow.thisActionIsntSupportedFor,
     'mail_operation_conflict' ||
-    'mailbox_changed' => 'Posta kutusu değişti. Yenileyip tekrar deneyin.',
-    'mail_move_failed' => 'E-posta taşınamadı. Tekrar deneyin.',
-    'mail_delete_failed' => 'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
-    'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
-    'pinned_limit_reached' => 'Bir hesapta en fazla 3 e-posta sabitlenebilir.',
-    'draft_not_reconciled' =>
-      'Taslak sunucuda henüz eşleşmedi. Birkaç saniye sonra tekrar deneyin.',
-    'delivery_unknown' =>
-      'Gönderim sonucu belirsiz. Gönderilenler\u2019i kontrol edin.',
-    'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',
+    'mailbox_changed' => l10nNow.theMailboxChangedRefreshAnd,
+    'mail_move_failed' => l10nNow.couldntMoveTheEmailTry,
+    'mail_delete_failed' => l10nNow.couldntPermanentlyDeleteTheEmail,
+    'mail_operation_failed' => l10nNow.theActionCouldntBeCompleted,
+    'pinned_limit_reached' => l10nNow.youCanPinAtMost3EmailsPer,
+    'draft_not_reconciled' => l10nNow.theDraftHasntMatchedOn,
+    'delivery_unknown' => l10nNow.theSendResultIsUnknown,
+    'send_in_progress' => l10nNow.theMessageIsBeingSent,
     'idempotency_key_required' ||
-    'idempotency_key_too_long' => 'Gönderim isteği geçersiz. Yeniden deneyin.',
-    'idempotency_conflict' => 'Gönderim isteği farklı içerikle daha önce kullanıldı. Yeni gönderim oluşturun.',
-    'recipient_required' => 'En az bir alıcı yazmalısınız.',
-    'invalid_recipient' => 'Alıcı adresi geçersiz.',
-    'invalid_email' => 'Geçersiz e-posta adresi.',
-    'invalid_mail_header' => 'E-posta başlıkları geçersiz.',
-    'message_not_constructible' => 'E-posta oluşturulamadı.',
-    'manual_setup_invalid' => 'Sunucu ayarları geçersiz.',
-    'oauth_provider_not_configured' =>
-      'Bu giriş yöntemi sunucuda ayarlı değil.',
-    'oauth_redirect_uri_invalid' => 'Yönlendirme adresi geçersiz.',
-    'oauth_state_invalid' => 'Oturum doğrulaması geçersiz. Tekrar deneyin.',
-    'oauth_code_exchange_failed' => 'Sağlayıcı girişi reddetti.',
-    'oauth_refresh_lock_unavailable' =>
-      'Sunucu meşgul. Birazdan tekrar deneyin.',
-    'draft_delete_failed' => 'Taslak silinemedi. Tekrar deneyin.',
-    'scheduled_send_in_past' => 'Geçmiş bir zamana gönderim zamanlanamaz.',
-    'scheduled_send_not_pending' =>
-      'Bu gönderim artık beklemede değil. Listeyi yenileyin.',
-    'scheduled_send_modified' =>
-      'Gönderim başka bir cihazda değiştirildi. Yenileyip tekrar deneyin.',
-    'scheduled_send_already_sent' =>
-      'Bu gönderim artık düzenlenemez. Gönderilenler\u2019i kontrol edin.',
-    'scheduled_send_not_found' =>
-      'Zamanlanmış gönderim bulunamadı. Listeyi yenileyin.',
+    'idempotency_key_too_long' => l10nNow.theSendRequestIsInvalid,
+    'idempotency_conflict' => l10nNow.theSendRequestWasUsed,
+    'recipient_required' => l10nNow.youMustEnterAtLeast,
+    'invalid_recipient' => l10nNow.theRecipientAddressIsInvalid,
+    'invalid_email' => l10nNow.invalidEmailAddress,
+    'invalid_mail_header' => l10nNow.theEmailHeadersAreInvalid,
+    'message_not_constructible' => l10nNow.theEmailCouldntBeCreated,
+    'manual_setup_invalid' => l10nNow.theServerSettingsAreInvalid,
+    'oauth_provider_not_configured' => l10nNow.thisSignInMethodIsnt,
+    'oauth_redirect_uri_invalid' => l10nNow.theRedirectAddressIsInvalid,
+    'oauth_state_invalid' => l10nNow.sessionVerificationIsInvalidTry,
+    'oauth_code_exchange_failed' => l10nNow.theProviderRejectedTheSign,
+    'oauth_refresh_lock_unavailable' => l10nNow.theServerIsBusyTry,
+    'draft_delete_failed' => l10nNow.couldntDeleteTheDraftTry,
+    'scheduled_send_in_past' => l10nNow.aSendCantBeScheduled,
+    'scheduled_send_not_pending' => l10nNow.thisSendIsNoLonger,
+    'scheduled_send_modified' => l10nNow.theSendWasChangedOn,
+    'scheduled_send_already_sent' => l10nNow.thisSendCanNoLonger,
+    'scheduled_send_not_found' => l10nNow.scheduledSendNotFoundRefresh,
     'scheduled_send_attachment_not_found' =>
-      'Bekletilen ek bulunamadı. Listeyi yenileyin.',
-    'identity_not_found' => 'Seçilen kimlik bulunamadı.',
-    'signature_not_found' => 'Seçilen imza bulunamadı.',
-    'identity_already_exists' => 'Bu adres zaten bir kimlik olarak kayıtlı.',
-    'identity_in_use' => 'Bu kimlik zamanlanmış bir gönderimde kullanılıyor.',
-    'session_revoked' => 'Oturum zaten kapatılmış.',
-    'body_required' => 'E-posta gövdesi boş olamaz.',
-    'body_too_large' => 'E-posta gövdesi çok büyük.',
+      l10nNow.theHeldAttachmentWasntFound,
+    'identity_not_found' => l10nNow.theSelectedIdentityWasntFound,
+    'signature_not_found' => l10nNow.theSelectedSignatureWasntFound,
+    'identity_already_exists' => l10nNow.thisAddressIsAlreadyRegistered,
+    'identity_in_use' => l10nNow.thisIdentityIsUsedIn,
+    'session_revoked' => l10nNow.theSessionIsAlreadyClosed,
+    'body_required' => l10nNow.theEmailBodyCantBe,
+    'body_too_large' => l10nNow.theEmailBodyIsToo,
     'attachment_too_large' ||
-    'too_many_attachments' => 'Ek dosya sınırı aşıldı.',
-    'mail_folder_exists' => 'Bu adda bir klasör zaten var.',
-    'mail_folder_not_empty' =>
-      'Klasör boş değil. Önce içindeki postaları taşıyın veya silin.',
-    'mail_folder_has_children' => 'Önce alt klasörleri silin.',
-    'mail_folder_protected' => 'Bu klasör değiştirilemez.',
-    'invalid_folder_name' => 'Klasör adı geçersiz.',
-    'mail_folder_rejected' => 'Posta sunucusu bu klasör adını kabul etmedi.',
-    'mail_folder_unavailable' => 'Klasör sunucudan kaldırılmış.',
-    'sync_queue_full' => 'Eşitleme kuyruğu dolu. Birazdan tekrar deneyin.',
-    'sync_retry_deferred' => 'Eşitleme ertelendi. Birazdan tekrar deneyin.',
-    'sync_interrupted' => 'Eşitleme yarıda kesildi. Tekrar deneyin.',
-    'sync_failed' => 'Eşitleme tamamlanamadı. Tekrar deneyin.',
+    'too_many_attachments' => l10nNow.attachmentLimitExceeded,
+    'mail_folder_exists' => l10nNow.aFolderWithThisName,
+    'mail_folder_not_empty' => l10nNow.theFolderIsntEmptyMove,
+    'mail_folder_has_children' => l10nNow.deleteTheSubfoldersFirst,
+    'mail_folder_protected' => l10nNow.thisFolderCantBeChanged,
+    'invalid_folder_name' => l10nNow.theFolderNameIsInvalid,
+    'mail_folder_rejected' => l10nNow.theMailServerDidntAccept,
+    'mail_folder_unavailable' => l10nNow.theFolderWasRemovedFrom,
+    'sync_queue_full' => l10nNow.theSyncQueueIsFull,
+    'sync_retry_deferred' => l10nNow.syncWasPostponedTryAgain,
+    'sync_interrupted' => l10nNow.syncWasInterruptedTryAgain,
+    'sync_failed' => l10nNow.syncCouldntBeCompletedTry,
     'mail_account_needs_reauthentication' ||
-    'credential_missing' => 'Hesap yeniden bağlanmayı istiyor.',
-    'unsupported_authentication_method' => 'Bu giriş yöntemi desteklenmiyor.',
-    'mail_smtp_authentication_failed' => 'SMTP şifresi reddedildi.',
+    'credential_missing' => l10nNow.theAccountNeedsToBe,
+    'unsupported_authentication_method' =>
+      l10nNow.thisSignInMethodIsntSupported,
+    'mail_smtp_authentication_failed' => l10nNow.theSmtpPasswordWasRejected,
     'provider_disabled' ||
     'provider_new_accounts_disabled' ||
     'provider_existing_accounts_disabled' ||
-    'authentication_method_disabled' => 'Bu giriş şu an desteklenmiyor.',
-    'unexpected_error' => 'Beklenmeyen bir hata oluştu.',
-    _ => title ?? 'İstek tamamlanamadı.',
+    'authentication_method_disabled' => l10nNow.thisSignInIsntSupported,
+    'unexpected_error' => l10nNow.anUnexpectedErrorOccurred,
+    _ => title ?? l10nNow.theRequestCouldntBeCompleted,
   };
 
   @override

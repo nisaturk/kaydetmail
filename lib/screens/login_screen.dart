@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../widgets/mail_avatar.dart';
 import '../widgets/manual_mail_setup_dialog.dart';
 import '../widgets/server_address_dialog.dart';
+import '../l10n/l10n.dart';
 
 /// Two-step login: an email step that slides horizontally into a password
 /// step and back. Step 1 shows branding plus only the email field; step 2
@@ -139,9 +140,8 @@ class _LoginScreenState extends State<LoginScreen> {
         _autofillFinished = true;
         TextInput.finishAutofillContext();
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Hesap yeniden bağlandı.')),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(l10nNow.accountReconnected)));
         widget.onAuthenticated?.call();
         return;
       }
@@ -161,9 +161,9 @@ class _LoginScreenState extends State<LoginScreen> {
         widget.onAuthenticated?.call();
       } else {
         setState(() => _loading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Giriş başarısız. Tekrar deneyin.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l10nNow.signInFailedTryAgain)));
       }
     } on ApiException catch (e) {
       if (!mounted) return;
@@ -201,9 +201,8 @@ class _LoginScreenState extends State<LoginScreen> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _loading = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Giriş başarısız. Tekrar deneyin.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.signInFailedTryAgain)));
     }
   }
 
@@ -244,7 +243,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: IconButton(
                   key: const Key('server-address-button'),
                   onPressed: () => ServerAddressDialog.show(context),
-                  tooltip: 'Sunucu adresi',
+                  tooltip: l10nNow.serverAddress,
                   icon: const Icon(LucideIcons.settings, size: 20),
                 ),
               ),
@@ -268,7 +267,7 @@ class _LoginScreenState extends State<LoginScreen> {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'E-postalarınız için güvenli bir uygulama',
+                      l10nNow.aSecureAppForYour,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
@@ -294,14 +293,14 @@ class _LoginScreenState extends State<LoginScreen> {
                   onFieldSubmitted: (_) => _continue(),
                   validator: (value) {
                     final text = value?.trim() ?? '';
-                    if (text.isEmpty) return 'E-posta adresi zorunludur';
+                    if (text.isEmpty) return l10nNow.emailAddressIsRequired;
                     if (!_emailPattern.hasMatch(text)) {
-                      return 'Geçerli bir e-posta adresi girin';
+                      return l10nNow.enterAValidEmailAddress2;
                     }
                     return null;
                   },
-                  decoration: const InputDecoration(
-                    labelText: 'E-posta',
+                  decoration: InputDecoration(
+                    labelText: l10nNow.email,
                     prefixIcon: Icon(LucideIcons.mail, size: 20),
                   ),
                 ),
@@ -310,7 +309,7 @@ class _LoginScreenState extends State<LoginScreen> {
               FilledButton(
                 key: const Key('continue-button'),
                 onPressed: _continue,
-                child: const Text('Devam'),
+                child: Text(l10nNow.continueLabel),
               ),
             ],
           ),
@@ -333,7 +332,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 child: IconButton(
                   key: const Key('back-button'),
                   onPressed: _loading ? null : _back,
-                  tooltip: 'Geri',
+                  tooltip: l10nNow.back,
                   icon: const Icon(LucideIcons.arrowLeft, size: 22),
                 ),
               ),
@@ -347,8 +346,8 @@ class _LoginScreenState extends State<LoginScreen> {
                     children: [
                       Text(
                         _reconnect
-                            ? 'Şu hesabı yeniden bağlıyorsunuz'
-                            : 'Şu hesapla oturum açıyorsunuz',
+                            ? l10nNow.youAreReconnectingThisAccount
+                            : l10nNow.youAreSigningInWith,
                         textAlign: TextAlign.center,
                         style: TextStyle(
                           fontSize: 13,
@@ -383,17 +382,17 @@ class _LoginScreenState extends State<LoginScreen> {
                   onFieldSubmitted: (_) => _loading ? null : _login(),
                   validator: (value) {
                     if (value == null || value.isEmpty) {
-                      return 'Şifre zorunludur';
+                      return l10nNow.passwordIsRequired;
                     }
                     return null;
                   },
                   decoration: InputDecoration(
-                    labelText: 'Şifre',
+                    labelText: l10nNow.password,
                     prefixIcon: const Icon(LucideIcons.lock, size: 20),
                     suffixIcon: IconButton(
                       tooltip: _obscurePassword
-                          ? 'Şifreyi göster'
-                          : 'Şifreyi gizle',
+                          ? l10nNow.showPassword
+                          : l10nNow.hidePassword,
                       onPressed: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
                       icon: Icon(
@@ -417,7 +416,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           color: Theme.of(context).colorScheme.onPrimary,
                         ),
                       )
-                    : Text(_reconnect ? 'Yeniden Bağlan' : 'Giriş Yap'),
+                    : Text(_reconnect ? l10nNow.reconnect : l10nNow.signIn),
               ),
             ],
           ),

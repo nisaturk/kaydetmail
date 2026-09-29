@@ -8,6 +8,7 @@ import '../repositories/mail_repository.dart';
 import '../state/custom_folder_order_controller.dart';
 import '../theme/app_theme.dart';
 import 'mail_avatar.dart';
+import '../l10n/l10n.dart';
 
 /// Drawer'dan açılabilen uygulama hedefleri. Klasörler ayrı seçilir
 /// ([onSelectFolder]); bu liste menüdeki alt bölümü tek tablodan üretir.
@@ -23,10 +24,10 @@ extension DrawerDestinationMeta on DrawerDestination {
   };
 
   String get label => switch (this) {
-    DrawerDestination.scheduled => 'Zamanlanmış Gönderimler',
-    DrawerDestination.outbox => 'Giden Kutusu',
-    DrawerDestination.customFolders => 'Diğer Klasörler',
-    DrawerDestination.settings => 'Ayarlar',
+    DrawerDestination.scheduled => l10nNow.scheduledSends,
+    DrawerDestination.outbox => l10nNow.outbox,
+    DrawerDestination.customFolders => l10nNow.otherFolders,
+    DrawerDestination.settings => l10nNow.settings,
   };
 }
 
@@ -119,8 +120,10 @@ class AppDrawer extends StatelessWidget {
                             },
                             standardParents: {
                               for (final account in repo.accounts)
-                                account.id:
-                                    repo.standardFolderIds(account.id).values.toSet(),
+                                account.id: repo
+                                    .standardFolderIds(account.id)
+                                    .values
+                                    .toSet(),
                             },
                             order: CustomFolderOrderController.instance,
                             onSelect: onSelectCustomFolder,
@@ -131,10 +134,10 @@ class AppDrawer extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           const Divider(height: 12),
-                          const _MenuHeading('Hesap ve uygulama'),
+                          _MenuHeading(l10nNow.accountAndApp),
                           _SectionTile(
                             icon: LucideIcons.refreshCw,
-                            label: 'Hesapları eşitle',
+                            label: l10nNow.syncAccounts,
                             onTap: onSyncAccounts,
                           ),
                           for (final destination in [
@@ -145,7 +148,7 @@ class AppDrawer extends StatelessWidget {
                               icon: destination.icon,
                               label:
                                   destination == DrawerDestination.customFolders
-                                  ? 'Klasörleri yönet'
+                                  ? l10nNow.manageFolders
                                   : destination.label,
                               onTap: () => onOpenDestination(destination),
                             ),
@@ -154,7 +157,7 @@ class AppDrawer extends StatelessWidget {
                             padding: const EdgeInsets.only(bottom: 8),
                             child: _SectionTile(
                               icon: LucideIcons.logOut,
-                              label: 'Çıkış Yap',
+                              label: l10nNow.signOut3,
                               onTap: onLogout,
                             ),
                           ),
@@ -232,7 +235,7 @@ class _DrawerHeader extends StatelessWidget {
           ),
           IconButton(
             onPressed: onAddAccount,
-            tooltip: 'Yeni hesap ekle',
+            tooltip: l10nNow.addNewAccount,
             icon: const Icon(LucideIcons.plus),
           ),
         ],
@@ -321,9 +324,11 @@ class _CustomFolderSectionState extends State<_CustomFolderSection> {
     final rows = <_DrawerFolderRow>[];
     void visit(List<MailCustomFolderNode> siblings, int depth) {
       for (final (index, node) in siblings.indexed) {
-        final actualDepth = depth == 0 &&
-                (widget.standardParents[accountId] ?? const {})
-                    .contains(node.folder.parentFolderId)
+        final actualDepth =
+            depth == 0 &&
+                (widget.standardParents[accountId] ?? const {}).contains(
+                  node.folder.parentFolderId,
+                )
             ? 1
             : depth;
         rows.add((
@@ -366,15 +371,15 @@ class _CustomFolderSectionState extends State<_CustomFolderSection> {
             const Divider(height: 12),
             Row(
               children: [
-                const Expanded(child: _MenuHeading('Klasörler')),
+                Expanded(child: _MenuHeading(l10nNow.folders)),
                 Padding(
                   padding: const EdgeInsets.only(right: 12),
                   child: IconButton(
                     visualDensity: VisualDensity.compact,
                     iconSize: 18,
                     tooltip: _reordering
-                        ? 'Sıralamayı bitir'
-                        : 'Klasörleri sırala',
+                        ? l10nNow.finishSorting
+                        : l10nNow.sortFolders,
                     icon: Icon(
                       _reordering ? LucideIcons.check : LucideIcons.arrowUpDown,
                     ),
@@ -471,14 +476,14 @@ class _CustomFolderTile extends StatelessWidget {
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     iconSize: 18,
-                    tooltip: 'Yukarı taşı',
+                    tooltip: l10nNow.moveUp,
                     icon: const Icon(LucideIcons.chevronUp),
                     onPressed: row.canMoveUp ? () => onMove(-1) : null,
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     iconSize: 18,
-                    tooltip: 'Aşağı taşı',
+                    tooltip: l10nNow.moveDown,
                     icon: const Icon(LucideIcons.chevronDown),
                     onPressed: row.canMoveDown ? () => onMove(1) : null,
                   ),

@@ -1,5 +1,6 @@
 import '../models/email.dart';
 import '../repositories/mail_repository.dart';
+import '../l10n/l10n.dart';
 
 String? bulkPinLimitError(Iterable<Email> all, Iterable<String> selectedIds) {
   final selected = selectedIds.toSet();
@@ -19,10 +20,12 @@ String? bulkPinLimitError(Iterable<Email> all, Iterable<String> selectedIds) {
     final pinned = pinnedPerAccount[account] ?? 0;
     if (pinned + adding > MailRepository.maxPinnedMails) {
       final free = MailRepository.maxPinnedMails - pinned;
-      return 'Bir hesapta en fazla ${MailRepository.maxPinnedMails} e-posta '
-          'sabitlenebilir. Şu an $pinned sabitli, $adding yeni seçildi'
-          '${free > 0 ? '; en fazla $free tane daha sabitleyebilirsiniz' : ''}.'
-          ' Hiçbiri sabitlenmedi.';
+      return l10nNow.youCanPinAtMostEmailsPerAccount(
+        MailRepository.maxPinnedMails,
+        pinned,
+        adding,
+        free > 0 ? l10nNow.youCanPinMore(free) : '',
+      );
     }
   }
   return null;
