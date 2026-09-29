@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
@@ -63,6 +64,33 @@ void main() {
         expect(repo.hasMoreCustomFolderMails('account-1', 'f-1'), isFalse);
       },
     );
+
+    test('custom-folder mail read state rolls back rejected bulk action', () async {
+      final service = _FakeMailService(
+        folders: [_folder('f-1', 'Projeler', 'Projeler', type: 'Custom')],
+        pagesByFolderId: {
+          'f-1': [_page([_mail('m1'), _mail('m2')], page: 1, total: 2)],
+        },
+      );
+      final repo = await _repository(service);
+      await repo.getCustomFolderMails(accountId: 'account-1', folderId: 'f-1');
+      final pageResponse = Completer<void>();
+      service.pageResponse = pageResponse;
+      final response = Completer<List<BulkActionResult>>();
+      service.bulkResponse = response;
+      final operation = repo.markAsRead(['m1', 'm2']);
+      Future<List<Email>> mails() => repo.getCustomFolderMails(
+        accountId: 'account-1', folderId: 'f-1',
+      );
+      expect((await mails()).map((mail) => mail.isRead), [true, true]);
+      response.complete([
+        BulkActionResult(mailId: 'm1', success: true),
+        BulkActionResult(mailId: 'm2', success: false, code: 'mail_operation_conflict'),
+      ]);
+      await expectLater(operation, throwsException);
+      expect((await mails()).map((mail) => mail.isRead), [true, false]);
+      pageResponse.complete();
+    });
 
     test(
       'syncCustomFolder forwards the raw folder id; unknown accounts throw',
@@ -148,6 +176,8 @@ class _FakeMailService extends ApiMailService {
   final List<ApiMailFolder> folders;
   final Map<String, List<MailListPage>> pagesByFolderId;
   final List<String> syncedFolderIds = [];
+  Completer<List<BulkActionResult>>? bulkResponse;
+  Completer<void>? pageResponse;
 
   @override
   Future<List<ApiMailFolder>> getFolders() async => folders;
@@ -165,6 +195,7 @@ class _FakeMailService extends ApiMailService {
     bool? hasAttachments,
     String? search,
   }) async {
+    if (pageResponse case final response?) await response.future;
     final pages = pagesByFolderId[folderId];
     if (pages == null || pages.isEmpty) {
       return MailListPage(
@@ -177,6 +208,13 @@ class _FakeMailService extends ApiMailService {
     final index = (page - 1).clamp(0, pages.length - 1);
     return pages[index];
   }
+
+  @override
+  Future<List<BulkActionResult>> bulkAction(
+    String action,
+    List<String> mailIds, {
+    String? folderId,
+  }) => bulkResponse!.future;
 
   @override
   Future<void> syncFolderId(String folderId) async {

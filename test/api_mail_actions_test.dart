@@ -337,6 +337,52 @@ void main() {
       ]);
     });
 
+    test('permanent delete keeps cached mail visible until server confirms', () async {
+      final mailService = _RecordingMailService(
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-trash', 'Trash'),
+        ],
+        pagesByFolderId: {
+          'folder-trash': _page([_mailJson('mail-1', 'folder-trash')]),
+        },
+      );
+      final repo = await _repositoryWithLoadedFolder(mailService, MailFolder.trash);
+      final response = Completer<List<BulkActionResult>>();
+      mailService.bulkActionCompleter = response;
+
+      final deletion = repo.deletePermanently(['mail-1']);
+      expect(mailService.bulkActionCalls, ['delete:mail-1:null']);
+      expect(repo.getEmailsInFolder(MailFolder.trash).map((mail) => mail.id),
+          ['mail-1']);
+      response.complete([BulkActionResult(mailId: 'mail-1', success: true)]);
+      await deletion;
+      expect(repo.getEmailsInFolder(MailFolder.trash), isEmpty);
+    });
+
+    test('failed permanent delete leaves cached mail in Trash', () async {
+      final mailService = _RecordingMailService(
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-trash', 'Trash'),
+        ],
+        pagesByFolderId: {
+          'folder-trash': _page([_mailJson('mail-1', 'folder-trash')]),
+        },
+      );
+      final repo = await _repositoryWithLoadedFolder(mailService, MailFolder.trash);
+      final response = Completer<List<BulkActionResult>>();
+      mailService.bulkActionCompleter = response;
+
+      final deletion = repo.deletePermanently(['mail-1']);
+      expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+      response.complete([
+        BulkActionResult(mailId: 'mail-1', success: false, code: 'mail_delete_failed'),
+      ]);
+      await expectLater(deletion, throwsA(isA<ApiException>()));
+      expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+    });
+
     test(
       'setStarred uses one bulk star request and updates the cache',
       () async {

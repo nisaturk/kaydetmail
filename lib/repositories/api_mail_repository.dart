@@ -1313,6 +1313,12 @@ class ApiMailRepository extends MailRepository {
           idSet.contains(email.id) ? update(email) : email,
       ];
     }
+    for (final folderId in session.customFolderEmails.keys.toList()) {
+      session.customFolderEmails[folderId] = [
+        for (final email in session.customFolderEmails[folderId]!)
+          idSet.contains(email.id) ? update(email) : email,
+      ];
+    }
   }
 
   /// Re-derives every loaded mail's flags (backend-backed pin/labels,
@@ -1325,6 +1331,12 @@ class ApiMailRepository extends MailRepository {
     for (final folder in session.emails.keys.toList()) {
       session.emails[folder] = [
         for (final email in session.emails[folder]!)
+          session.stampLocalFlags(email),
+      ];
+    }
+    for (final folderId in session.customFolderEmails.keys.toList()) {
+      session.customFolderEmails[folderId] = [
+        for (final email in session.customFolderEmails[folderId]!)
           session.stampLocalFlags(email),
       ];
     }
@@ -1341,8 +1353,12 @@ class ApiMailRepository extends MailRepository {
     final idSet = ids.toSet();
     if (idSet.isEmpty) return;
     _touch();
+    final moved = <Email>[
+      for (final list in session.customFolderEmails.values)
+        for (final email in list)
+          if (idSet.contains(email.id)) email.copyWith(folder: targetFolder),
+    ];
     _dropFromCustomFolderMails(session, idSet);
-    final moved = <Email>[];
     for (final folder in session.emails.keys.toList()) {
       if (folder == targetFolder) continue;
       final list = session.emails[folder]!;
@@ -1848,6 +1864,9 @@ class ApiMailRepository extends MailRepository {
       for (final list in s.emails.values) {
         if (list.any((e) => e.id == id)) return s;
       }
+      for (final list in s.customFolderEmails.values) {
+        if (list.any((e) => e.id == id)) return s;
+      }
     }
     return null;
   }
@@ -1961,14 +1980,26 @@ class ApiMailRepository extends MailRepository {
     return until.isAfter(DateTime.now()) ? until : null;
   }
 
+  Iterable<Email> _allCachedEmails(_Session session) sync* {
+    final seen = <String>{};
+    for (final list in session.emails.values) {
+      for (final email in list) {
+        if (seen.add(email.id)) yield email;
+      }
+    }
+    for (final list in session.customFolderEmails.values) {
+      for (final email in list) {
+        if (seen.add(email.id)) yield email;
+      }
+    }
+  }
+
   @override
   List<Email> getAllEmails() {
     const key = 'all:global';
     return _viewCache.putIfAbsent(
       key,
-      () => [
-        for (final s in _sessions.values) ...s.emails.values.expand((l) => l),
-      ],
+      () => [for (final s in _sessions.values) ..._allCachedEmails(s)],
     );
   }
 
@@ -1977,9 +2008,7 @@ class ApiMailRepository extends MailRepository {
     final key = 'all:${_activeAccountId ?? ''}';
     return _viewCache.putIfAbsent(
       key,
-      () => [
-        for (final s in _scopedSessions) ...s.emails.values.expand((l) => l),
-      ],
+      () => [for (final s in _scopedSessions) ..._allCachedEmails(s)],
     );
   }
 
@@ -2414,6 +2443,15 @@ class ApiMailRepository extends MailRepository {
       if (index >= 0) {
         final wasUnread = !list[index].isRead && email.isRead;
         session.emails[folder] = [...list]..[index] = email;
+        return wasUnread;
+      }
+    }
+    for (final folderId in session.customFolderEmails.keys.toList()) {
+      final list = session.customFolderEmails[folderId]!;
+      final index = list.indexWhere((e) => e.id == email.id);
+      if (index >= 0) {
+        final wasUnread = !list[index].isRead && email.isRead;
+        session.customFolderEmails[folderId] = [...list]..[index] = email;
         return wasUnread;
       }
     }
@@ -4033,36 +4071,20 @@ class ApiMailRepository extends MailRepository {
     }
   }
 
-  /// Bulk `delete` (IMAP expunge) per owning account. Only ids the server
-  /// confirmed leave the cache; any per-item failure is surfaced afterwards
-  /// so the UI never claims a mail is gone when it isn't.
+  /// Expunge is irreversible: retain cached messages until server confirmation.
   @override
   Future<void> deletePermanently(List<String> ids) async {
     final failures = <String>[];
     await Future.wait(
       _groupBySession(ids).entries.map((entry) async {
         final session = entry.key;
-        final snapshots = _snapshotMailLocations(session, entry.value);
-        _removeMany(session, entry.value);
-        notifyListeners();
-        late final List<BulkActionResult> results;
-        try {
-          results = await session.mailService.bulkAction('delete', entry.value);
-        } catch (_) {
-          _restoreMailLocations(session, snapshots);
-          notifyListeners();
-          rethrow;
-        }
+        final results = await session.mailService.bulkAction('delete', entry.value);
         final successfulIds = results
             .where((result) => result.success)
             .map((result) => result.mailId)
-            .toSet();
-        final failedSnapshots = _selectMailLocations(
-          snapshots,
-          entry.value.where((id) => !successfulIds.contains(id)),
-        );
-        if (failedSnapshots.isNotEmpty) {
-          _restoreMailLocations(session, failedSnapshots);
+            .toList();
+        if (successfulIds.isNotEmpty) {
+          _removeMany(session, successfulIds);
           notifyListeners();
         }
         failures.addAll([
@@ -4700,7 +4722,20 @@ class ApiMailRepository extends MailRepository {
   Future<void> addLabelsToEmails(
     List<String> emailIds,
     List<String> labelIds,
-  ) async {
+  ) => _changeEmailLabels(emailIds, labelIds, add: true);
+
+  @override
+  Future<void> removeLabelsFromEmails(
+    List<String> emailIds,
+    List<String> labelIds,
+  ) => _changeEmailLabels(emailIds, labelIds, add: false);
+
+  Future<void> _changeEmailLabels(
+    List<String> emailIds,
+    List<String> labelIds, {
+    required bool add,
+  }) async {
+    Object? firstError;
     for (final entry in _groupBySession(emailIds).entries) {
       final session = entry.key;
       final ownedLabelIds = {
@@ -4708,52 +4743,41 @@ class ApiMailRepository extends MailRepository {
           if (labelIds.contains(label.id)) label.id,
       };
       if (ownedLabelIds.isEmpty) continue;
-      try {
-        await session.mailService.assignLabels(
-          entry.value,
-          ownedLabelIds.toList(),
-        );
-        await _clearQueuedLabels(session, entry.value, ownedLabelIds);
-      } catch (error) {
-        if (!_isOfflineFailure(error)) rethrow;
-        await _queueLabels(session, entry.value, ownedLabelIds, 'label_add');
-      }
+      final previous = {
+        for (final id in entry.value)
+          id: List<String>.of(session.labelMap[id] ?? const []),
+      };
       for (final id in entry.value) {
-        final cur = session.labelMap[id] ?? const <String>[];
-        session.labelMap[id] = [
-          ...cur,
-          ...ownedLabelIds.where((labelId) => !cur.contains(labelId)),
-        ];
+        final current = session.labelMap[id] ?? const <String>[];
+        session.labelMap[id] = add
+            ? [...current, ...ownedLabelIds.where((label) => !current.contains(label))]
+            : current.where((label) => !ownedLabelIds.contains(label)).toList();
       }
-      await _persistLabels(session);
       _restampLabels(session, entry.value);
-    }
-    notifyListeners();
-  }
-
-  @override
-  Future<void> removeLabelsFromEmails(
-    List<String> emailIds,
-    List<String> labelIds,
-  ) async {
-    for (final entry in _groupBySession(emailIds).entries) {
-      final session = entry.key;
+      notifyListeners();
       try {
-        await session.mailService.unassignLabels(entry.value, labelIds);
-        await _clearQueuedLabels(session, entry.value, labelIds);
+        try {
+          if (add) {
+            await session.mailService.assignLabels(entry.value, ownedLabelIds.toList());
+          } else {
+            await session.mailService.unassignLabels(entry.value, ownedLabelIds.toList());
+          }
+          await _clearQueuedLabels(session, entry.value, ownedLabelIds);
+        } catch (error) {
+          if (!_isOfflineFailure(error)) rethrow;
+          await _queueLabels(session, entry.value, ownedLabelIds, add ? 'label_add' : 'label_remove');
+        }
+        await _persistLabels(session);
       } catch (error) {
-        if (!_isOfflineFailure(error)) rethrow;
-        await _queueLabels(session, entry.value, labelIds, 'label_remove');
+        for (final previousEntry in previous.entries) {
+          session.labelMap[previousEntry.key] = previousEntry.value;
+        }
+        _restampLabels(session, entry.value);
+        notifyListeners();
+        firstError ??= error;
       }
-      for (final id in entry.value) {
-        session.labelMap[id] = (session.labelMap[id] ?? const <String>[])
-            .where((l) => !labelIds.contains(l))
-            .toList();
-      }
-      await _persistLabels(session);
-      _restampLabels(session, entry.value);
     }
-    notifyListeners();
+    if (firstError != null) throw firstError;
   }
 
   void _assertContactEmailIsValid(

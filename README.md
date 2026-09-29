@@ -14,10 +14,14 @@ one unified inbox.
   Kutusu, Spam, Arşiv) plus a virtual **Yıldızlılar** (pinned) folder that groups pinned
   mail across real folders, user-defined colored labels, and a **Diğer Klasörler**
   screen for custom IMAP folders, including nested browsing, create/rename/delete and
-  move.
+  moving mail. The detail move sheet shows nested folders only from the mail's account;
+  mixed-account selections can move only to shared standard folder types.
 - **Reading, threading & actions.** Conversations render as collapsible cards;
   read/unread, star/pin (capped at 3 concurrent pins), trash/restore,
   archive, spam, move, and multi-select bulk actions.
+  Mail move and label edits update loaded lists immediately and restore rejected changes
+  if the server refuses them. Permanent deletion keeps mail visible in Trash until the
+  server confirms removal; partial failures leave rejected messages visible.
 - **Compose.** Attachments (files, camera and gallery), drafts,
   reply/reply-all/forward with quoted history, templates, snippets, multiple
   signatures, sender identities and OS share-sheet intake. Draft changes are persisted

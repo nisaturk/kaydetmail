@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:kaydetmail/services/api_exception.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -244,6 +245,39 @@ void main() {
       await repo.removeLabelsFromEmails(['mail-1'], [labels.first.id]);
       expect(mail().labelIds, isEmpty);
     });
+    test('label add appears before response and rolls back on failure', () async {
+      final service = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {'folder-inbox': _page([_mailJson('mail-1')])},
+      );
+      final repo = await _repositoryWithLoadedInbox(service);
+      final label = repo.getLabelsForAccount('account-1').first.id;
+      final response = Completer<void>();
+      service.assignResponse = response;
+      final operation = repo.addLabelsToEmails(['mail-1'], [label]);
+      expect(repo.getAllEmails().single.labelIds, contains(label));
+      response.completeError(StateError('assignment rejected'));
+      await expectLater(operation, throwsStateError);
+      expect(repo.getAllEmails().single.labelIds, isNot(contains(label)));
+    });
+
+    test('label removal appears before response and rolls back on failure', () async {
+      final service = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {'folder-inbox': _page([_mailJson('mail-1')])},
+      );
+      final repo = await _repositoryWithLoadedInbox(service);
+      final label = repo.getLabelsForAccount('account-1').first.id;
+      await repo.addLabelsToEmails(['mail-1'], [label]);
+      final response = Completer<void>();
+      service.unassignResponse = response;
+      final operation = repo.removeLabelsFromEmails(['mail-1'], [label]);
+      expect(repo.getAllEmails().single.labelIds, isNot(contains(label)));
+      response.completeError(StateError('removal rejected'));
+      await expectLater(operation, throwsStateError);
+      expect(repo.getAllEmails().single.labelIds, contains(label));
+    });
+
   });
 
   group('lastSyncedAt', () {
@@ -362,6 +396,8 @@ class _RecordingMailService extends ApiMailService {
   final Map<String, DateTime> snoozedMailIds = {};
   final List<Map<String, dynamic>> labelDefs = [];
   final Map<String, List<String>> labelAssignments = {};
+  Completer<void>? assignResponse;
+  Completer<void>? unassignResponse;
   int _labelSeq = 0;
 
   @override
@@ -513,6 +549,7 @@ class _RecordingMailService extends ApiMailService {
 
   @override
   Future<void> assignLabels(List<String> mailIds, List<String> labelIds) async {
+    if (assignResponse case final response?) await response.future;
     for (final id in mailIds) {
       final cur = labelAssignments.putIfAbsent(id, () => []);
       for (final labelId in labelIds) {
@@ -526,6 +563,7 @@ class _RecordingMailService extends ApiMailService {
     List<String> mailIds,
     List<String> labelIds,
   ) async {
+    if (unassignResponse case final response?) await response.future;
     for (final id in mailIds) {
       labelAssignments[id]?.removeWhere(labelIds.contains);
     }

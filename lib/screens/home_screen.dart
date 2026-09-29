@@ -628,8 +628,10 @@ class _HomeScreenState extends State<HomeScreen> {
   Future<void> _actionUnlabel() async {
     final ids = expandThreadIds(_repo, _selection.selectedIds);
     if (ids.isEmpty) return;
-    await removeAllLabels(_repo, ids);
-    _selection.exit();
+    _runOptimisticAction(
+      ids: ids,
+      operation: () => removeAllLabels(_repo, ids),
+    );
   }
 
   Future<void> _actionMove() async {
