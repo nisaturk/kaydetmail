@@ -115,7 +115,9 @@ class _AuthGateState extends State<_AuthGate> {
   }
 
   Future<void> _openFailedDraft(Email draft) async {
-    if (!mounted || _loggedIn != true || !_routingDraftIds.add(draft.id)) return;
+    if (!mounted || _loggedIn != true || !_routingDraftIds.add(draft.id)) {
+      return;
+    }
     final navigator = _navigatorKey.currentState;
     final context = _navigatorKey.currentContext;
     if (navigator == null || context == null) {
@@ -124,7 +126,9 @@ class _AuthGateState extends State<_AuthGate> {
     }
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.'),
+        content: Text(
+          'Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.',
+        ),
       ),
     );
     try {
@@ -152,6 +156,7 @@ class _AuthGateState extends State<_AuthGate> {
       _routingDraftIds.remove(draft.id);
     }
   }
+
   void _openTappedMail(({String mailId, bool reply}) tap) {
     if (_loggedIn != true ||
         (AppSettingsController.instance.biometricLockEnabled &&
@@ -197,7 +202,6 @@ class _AuthGateState extends State<_AuthGate> {
       AppSettingsController.instance.loadSyncPolicy(),
       AppSettingsController.instance.loadSwipeGestures(),
       AppSettingsController.instance.loadDeviceContactsEnabled(),
-      AppSettingsController.instance.loadUnansweredReminderEnabled(),
     ]);
     if (!mounted) return;
     final emails = await SessionStore.loadEmails();

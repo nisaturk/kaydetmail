@@ -1,10 +1,7 @@
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
-import 'package:kaydetmail/state/app_settings_controller.dart';
 
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
@@ -15,7 +12,6 @@ import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/mail_cache.dart';
 import 'package:kaydetmail/services/token_store.dart';
-import 'package:kaydetmail/widgets/mail_list_item.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -86,171 +82,6 @@ void main() {
         'mail-1',
       ]);
       expect(repo.getEmailsInFolder(MailFolder.inbox), isEmpty);
-    });
-  });
-
-  group('Sent thread answered tracking', () {
-    test(
-      'a Sent mail is marked answered once a matching inbound reply arrives, '
-      'and stays unanswered until then',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [
-            _folder('folder-inbox', 'Inbox'),
-            _folder('folder-sent', 'Sent'),
-          ],
-          pagesByFolderId: {
-            'folder-inbox': _page(const []),
-            'folder-sent': _page([_mailJson('sent-1', threadId: 'thread-1')]),
-          },
-        );
-        final repo = await _repositoryWithLoadedInbox(mailService);
-        await repo.loadMoreEmails(MailFolder.sent);
-
-        final beforeReply = repo.getEmailsInFolder(MailFolder.sent).single;
-        expect(beforeReply.threadReceivedReply, isFalse);
-
-        // The reply lands in Inbox, sharing the sent message's threadId.
-        mailService.pagesByFolderId['folder-inbox'] = _page([
-          _mailJson(
-            'reply-1',
-            threadId: 'thread-1',
-            receivedAt: '2026-09-20T00:00:00Z',
-          ),
-        ]);
-        await repo.refreshEmails(MailFolder.inbox);
-
-        final afterReply = repo.getEmailsInFolder(MailFolder.sent).single;
-        expect(afterReply.threadReceivedReply, isTrue);
-      },
-    );
-
-    test('an unrelated inbound mail (different thread) never marks a Sent '
-        'thread answered', () async {
-      final mailService = _RecordingMailService(
-        folders: [
-          _folder('folder-inbox', 'Inbox'),
-          _folder('folder-sent', 'Sent'),
-        ],
-        pagesByFolderId: {
-          'folder-inbox': _page(const []),
-          'folder-sent': _page([_mailJson('sent-1', threadId: 'thread-1')]),
-        },
-      );
-      final repo = await _repositoryWithLoadedInbox(mailService);
-      await repo.loadMoreEmails(MailFolder.sent);
-
-      mailService.pagesByFolderId['folder-inbox'] = _page([
-        _mailJson('unrelated-1', threadId: 'thread-2'),
-      ]);
-      await repo.refreshEmails(MailFolder.inbox);
-
-      expect(
-        repo.getEmailsInFolder(MailFolder.sent).single.threadReceivedReply,
-        isFalse,
-      );
-    });
-
-    test(
-      'answered state survives a fresh repository instance (persisted)',
-      () async {
-        final mailService = _RecordingMailService(
-          folders: [
-            _folder('folder-inbox', 'Inbox'),
-            _folder('folder-sent', 'Sent'),
-          ],
-          pagesByFolderId: {
-            'folder-inbox': _page(const []),
-            'folder-sent': _page([_mailJson('sent-1', threadId: 'thread-1')]),
-          },
-        );
-        final db = MailCache.inMemory();
-        final repo1 = await _repositoryWithLoadedInbox(mailService, cache: db);
-        await repo1.loadMoreEmails(MailFolder.sent);
-        mailService.pagesByFolderId['folder-inbox'] = _page([
-          _mailJson('reply-1', threadId: 'thread-1'),
-        ]);
-        await repo1.refreshEmails(MailFolder.inbox);
-        expect(
-          repo1.getEmailsInFolder(MailFolder.sent).single.threadReceivedReply,
-          isTrue,
-        );
-
-        final repo2 = await _repositoryWithLoadedInbox(mailService, cache: db);
-        await repo2.loadMoreEmails(MailFolder.sent);
-        expect(
-          repo2.getEmailsInFolder(MailFolder.sent).single.threadReceivedReply,
-          isTrue,
-        );
-      },
-    );
-  });
-
-  group('MailListItem Sent-folder "Yanıt bekliyor" badge', () {
-    Email sentEmail({required bool answered, required DateTime timestamp}) =>
-        Email(
-          id: 's1',
-          senderName: 'Ben',
-          senderEmail: 'me@example.com',
-          recipients: const ['other@example.com'],
-          subject: 'Konu',
-          bodyText: 'Gövde',
-          timestamp: timestamp,
-          folder: MailFolder.sent,
-          threadReceivedReply: answered,
-        );
-
-    Widget harness(Email email) => MaterialApp(
-      home: Scaffold(body: MailListItem(email: email)),
-    );
-
-    final old = DateTime.now().subtract(const Duration(days: 5));
-    final recent = DateTime.now().subtract(const Duration(hours: 1));
-
-    setUp(() {
-      SharedPreferences.setMockInitialValues({});
-      AppSettingsController.resetForTest();
-    });
-
-    testWidgets(
-      'hides the badge by default when the setting is off',
-      (tester) async {
-        await tester.pumpWidget(
-          harness(sentEmail(answered: false, timestamp: old)),
-        );
-        expect(find.text('Yanıt bekliyor'), findsNothing);
-      },
-    );
-
-    testWidgets(
-      'shows the badge for an old, unanswered Sent mail once enabled',
-      (tester) async {
-        AppSettingsController.instance.unansweredReminderEnabled = true;
-        await tester.pumpWidget(
-          harness(sentEmail(answered: false, timestamp: old)),
-        );
-        expect(find.text('Yanıt bekliyor'), findsOneWidget);
-      },
-    );
-
-    testWidgets('hides the badge once the Sent mail is answered', (
-      tester,
-    ) async {
-      AppSettingsController.instance.unansweredReminderEnabled = true;
-      await tester.pumpWidget(
-        harness(sentEmail(answered: true, timestamp: old)),
-      );
-      expect(find.text('Yanıt bekliyor'), findsNothing);
-    });
-
-    testWidgets('hides the badge for a recent, unanswered Sent mail', (
-      tester,
-    ) async {
-      AppSettingsController.instance.unansweredReminderEnabled = true;
-      await tester.pumpWidget(
-        harness(sentEmail(answered: false, timestamp: recent)),
-      );
-      expect(find.text('Yanıt bekliyor'), findsNothing);
     });
   });
 }

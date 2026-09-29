@@ -249,7 +249,6 @@ void main() {
       expect(find.text(label), findsOneWidget);
     }
     expect(find.text('Ertelenenler'), findsNothing);
-    expect(find.text('Yanıt Takibi'), findsNothing);
     expect(find.text('Zamanlanmış Gönderimler'), findsNothing);
   });
 }

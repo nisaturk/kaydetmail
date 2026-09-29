@@ -124,7 +124,6 @@ class AppSettingsController extends ChangeNotifier {
   bool _pauseSyncOnBatterySaver = true;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
       AttachmentAutoDownloadLimit.fiveMb;
-  bool _unansweredReminderEnabled = false;
   bool get notificationsEnabled => _notificationsEnabled;
   SyncInterval get syncInterval => _syncInterval;
 
@@ -156,15 +155,6 @@ class AppSettingsController extends ChangeNotifier {
   SwipeGesture get swipeRight => _swipeRight;
 
   bool get deviceContactsEnabled => _deviceContactsEnabled;
-
-  bool get unansweredReminderEnabled => _unansweredReminderEnabled;
-
-  set unansweredReminderEnabled(bool value) {
-    if (_unansweredReminderEnabled == value) return;
-    _unansweredReminderEnabled = value;
-    notifyListeners();
-    unawaited(AppPreferencesStore.saveUnansweredReminderEnabled(value));
-  }
 
   set deviceContactsEnabled(bool value) {
     if (_deviceContactsEnabled == value) return;
@@ -367,12 +357,6 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> loadUnansweredReminderEnabled() async {
-    _unansweredReminderEnabled =
-        await AppPreferencesStore.loadUnansweredReminderEnabled();
-    notifyListeners();
-  }
-
   /// Loads the persisted theme mode. Awaited before `runApp` in `main()` so
   /// the very first frame already uses the right mode — no light-then-dark
   /// flash.
@@ -415,7 +399,6 @@ class AppSettingsController extends ChangeNotifier {
       .._pauseSyncOnBatterySaver = true
       .._swipeRight = SwipeGesture.archive
       .._deviceContactsEnabled = false
-      .._unansweredReminderEnabled = false
       .._swipeLeft = SwipeGesture.trash
       ..notifyListeners();
   }

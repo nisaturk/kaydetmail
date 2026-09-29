@@ -30,7 +30,6 @@ import '../widgets/mail_link_handler.dart';
 import '../widgets/mail_authentication_row.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
-import '../widgets/reply_reminder_picker.dart';
 import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 import 'mail_inspection_screen.dart';
@@ -312,50 +311,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     unawaited(Navigator.of(context).maybePop().then<void>((_) {}));
   }
 
-  Future<void> _toggleWatchReply() async {
-    final email = _email;
-    if (email == null) return;
-    if (_repo.getReplyReminders().any((r) => r.mailId == email.id)) {
-      try {
-        await _repo.cancelReplyReminder(email.id);
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Yanıt takibi kaldırıldı.')),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Kaldırılamadı: ${friendlyErrorMessage(e)}'),
-            ),
-          );
-        }
-      }
-      return;
-    }
-    final dueAt = await showReplyReminderPicker(context);
-    if (dueAt == null || !mounted) return;
-    try {
-      await _repo.setReplyReminder(email.id, dueAt);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Yanıt gelmezse ${formatMailDateFull(dueAt)} tarihinde hatırlatılacak.',
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Kurulamadı: ${friendlyErrorMessage(e)}')),
-        );
-      }
-    }
-  }
-
   Future<void> _moveMail() async {
     final email = _email;
     if (email == null) return;
@@ -610,15 +565,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               value: 'read',
               child: Text('Okundu olarak işaretle'),
             ),
-          if (email.folder == MailFolder.sent)
-            PopupMenuItem(
-              value: 'watch_reply',
-              child: Text(
-                _repo.getReplyReminders().any((r) => r.mailId == email.id)
-                    ? 'Yanıt takibini kaldır'
-                    : 'Yanıt gelmezse hatırlat',
-              ),
-            ),
           PopupMenuItem(
             value: 'snooze',
             child: Text(
@@ -682,8 +628,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
       await _toggleStar();
     } else if (action == 'snooze') {
       await _toggleSnooze();
-    } else if (action == 'watch_reply') {
-      await _toggleWatchReply();
     } else if (action == 'label') {
       await showLabelPicker(context, emailIds: _conversationIds);
     } else if (action == 'unlabel') {
@@ -1480,9 +1424,8 @@ class _AttachmentTile extends StatelessWidget {
       await AppConfig.mailRepository.ensureAttachmentFile(mailId, attachment);
     } catch (error) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(friendlyErrorMessage(error))),
-        );
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
       }
     }
   }

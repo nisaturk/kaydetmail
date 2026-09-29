@@ -7,7 +7,6 @@ import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/models/mail_signature.dart';
 import 'package:kaydetmail/models/mail_security.dart';
-import 'package:kaydetmail/models/reply_reminder.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/mail_detail_screen.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
@@ -94,9 +93,6 @@ class _ThreadRepo extends MailRepository {
 
   @override
   List<MailLabel> getLabels() => const [];
-
-  @override
-  List<ReplyReminder> getReplyReminders() => const [];
 
   @override
   Future<void> markAsRead(List<String> ids) async {
@@ -257,18 +253,19 @@ void main() {
       expect(repo.prefillSources, ['reply:m1']);
     });
 
-    testWidgets('a send echo replaced by the real Sent copy is not duplicated', (
-      tester,
-    ) async {
-      await open(tester, 'm2');
-      repo.replaceCached([_message('sent-1', 'Ben', 'Yanıtım', 22)]);
-      await tester.pumpAndSettle();
-      expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
+    testWidgets(
+      'a send echo replaced by the real Sent copy is not duplicated',
+      (tester) async {
+        await open(tester, 'm2');
+        repo.replaceCached([_message('sent-1', 'Ben', 'Yanıtım', 22)]);
+        await tester.pumpAndSettle();
+        expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
 
-      repo.replaceCached([_message('m3', 'Ben', 'Yanıtım', 22)]);
-      await tester.pumpAndSettle();
-      expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
-    });
+        repo.replaceCached([_message('m3', 'Ben', 'Yanıtım', 22)]);
+        await tester.pumpAndSettle();
+        expect(find.text('Ayse, Mehmet, Ben · 3 ileti'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'tracking remains blocked after loading images; signed mail is unverified',

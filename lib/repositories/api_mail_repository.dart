@@ -25,7 +25,6 @@ import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
-import '../models/reply_reminder.dart';
 import '../models/trusted_sender.dart';
 import '../services/api_auth_service.dart';
 import '../services/api_client.dart';
@@ -92,11 +91,6 @@ class _Session {
   Set<String> repliedFromKaydetMailThreadIds = {};
   Set<String> forwardedFromKaydetMailThreadIds = {};
 
-  /// ThreadId-keyed: Sent-folder conversations that have received an
-  /// inbound reply — the mirror direction of [repliedFromKaydetMailThreadIds]. See
-  /// [ApiMailRepository._markSentThreadsAnswered].
-  Set<String> threadsReceivedReplyIds = {};
-
   List<MailLabel> labels = [];
   Map<String, List<String>> labelMap = {};
   List<ManualContact> manualContacts = [];
@@ -114,7 +108,6 @@ class _Session {
   List<MailSignature>? signatures;
   SignatureDefaults? signatureDefaults;
   List<MailIdentity>? identities;
-  List<ReplyReminder> replyReminders = [];
 
   /// Non-standard IMAP folders reported for this account by the last
   /// [ApiMailRepository.refreshCustomFolders]. Populated on demand, not on
@@ -175,9 +168,6 @@ class _Session {
         forwardedFromKaydetMailIds.contains(email.id) ||
         (email.threadId.isNotEmpty &&
             forwardedFromKaydetMailThreadIds.contains(email.threadId)),
-    threadReceivedReply:
-        email.threadId.isNotEmpty &&
-        threadsReceivedReplyIds.contains(email.threadId),
     labelIds: labelMap[email.id] ?? const [],
   );
 }
@@ -731,7 +721,6 @@ class ApiMailRepository extends MailRepository {
         .readRepliedFromKaydetMailThreads();
     session.forwardedFromKaydetMailThreadIds = await flags
         .readForwardedFromKaydetMailThreads();
-    session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
     session.labels = [
       for (final label in await flags.readLabelDefs())
         MailLabel(
@@ -765,7 +754,6 @@ class ApiMailRepository extends MailRepository {
         .readRepliedFromKaydetMailThreads();
     session.forwardedFromKaydetMailThreadIds = await flags
         .readForwardedFromKaydetMailThreads();
-    session.threadsReceivedReplyIds = await flags.readThreadsReceivedReply();
     await _loadLabels(session, flags);
     await _loadManualContacts(session, flags);
     session.snoozedUntil = await _loadSnoozedUntil(session, flags);
@@ -1008,12 +996,14 @@ class ApiMailRepository extends MailRepository {
   Future<bool> _hydrateFromCache(_Session session) async {
     try {
       session.persisted = {};
-      final queued = _cache?.loadDraftQueue(session.account.id) ?? const <Email>[];
+      final queued =
+          _cache?.loadDraftQueue(session.account.id) ?? const <Email>[];
       final queuedIds = queued.map((e) => e.id).toSet();
       final cached = [
         ...queued,
-        ...(_cache?.load(session.account.id) ?? const <Email>[])
-            .where((e) => !queuedIds.contains(e.id)),
+        ...(_cache?.load(session.account.id) ?? const <Email>[]).where(
+          (e) => !queuedIds.contains(e.id),
+        ),
       ];
       if (cached.isEmpty) return false;
       session.emails.clear();
@@ -1786,7 +1776,6 @@ class ApiMailRepository extends MailRepository {
     notifyListeners();
   }
 
-
   /// Sessions the public read/write methods operate on: just the active one
   /// when scoped, every connected session when unified (`null`).
   Iterable<_Session> get _scopedSessions {
@@ -2105,7 +2094,8 @@ class ApiMailRepository extends MailRepository {
         .map(session.stampLocalFlags);
     if (folder == MailFolder.drafts) {
       _resolveDraftsFrom(refreshed);
-      final queued = _cache?.loadDraftQueue(session.account.id) ?? const <Email>[];
+      final queued =
+          _cache?.loadDraftQueue(session.account.id) ?? const <Email>[];
       final queuedIds = queued.map((e) => e.id).toSet();
       session.emails[folder] = [
         ...queued,
@@ -2120,47 +2110,7 @@ class ApiMailRepository extends MailRepository {
     session.hasMore[folder] =
         (session.emails[folder]?.length ?? 0) < result.total;
     session.lastSynced[folder] = DateTime.now();
-    if (folder == MailFolder.inbox) {
-      final newlyArrived = [
-        for (final e in result.items)
-          if (old[e.id] == null) e,
-      ];
-      if (newlyArrived.isNotEmpty) {
-        await _markSentThreadsAnswered(session, newlyArrived);
-      }
-    }
     notifyListeners();
-  }
-
-  /// A reply landing in Inbox for a thread the user has mail in Sent marks
-  /// that Sent-folder conversation "answered" — the mirror direction of
-  /// [markAsReplied] (replying to something in Inbox marks it via
-  /// [_Session.repliedFromKaydetMailThreadIds]; here, receiving a reply marks the Sent
-  /// thread via [_Session.threadsReceivedReplyIds]). Threads whose Sent message
-  /// hasn't been loaded into memory this session simply can't be detected
-  /// yet — it catches up once Sent is opened and a further reply arrives,
-  /// same best-effort tradeoff as [stampLocalFlags]'s thread-level sets.
-  Future<void> _markSentThreadsAnswered(
-    _Session session,
-    Iterable<Email> newlyArrived,
-  ) async {
-    final sentThreadIds = {
-      for (final e in session.emails[MailFolder.sent] ?? const <Email>[])
-        if (e.threadId.isNotEmpty) e.threadId,
-    };
-    if (sentThreadIds.isEmpty) return;
-    var changed = false;
-    for (final email in newlyArrived) {
-      if (email.threadId.isEmpty) continue;
-      if (!sentThreadIds.contains(email.threadId)) continue;
-      if (session.threadsReceivedReplyIds.add(email.threadId)) changed = true;
-    }
-    if (!changed) return;
-    final store = session.flagsStore;
-    if (store != null) {
-      await store.writeThreadsReceivedReply(session.threadsReceivedReplyIds);
-    }
-    _restampFlags(session);
   }
 
   /// Copies cached mails into [folder] server-side, then reloads that folder
@@ -2748,68 +2698,6 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<ReplyReminder> setReplyReminder(
-    String mailId,
-    DateTime dueAtUtc,
-  ) async {
-    final session = _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
-    if (session == null) throw StateError('No mail session');
-    final created = (await session.mailService.setReplyReminder(
-      mailId,
-      dueAtUtc,
-    )).copyWith(accountId: session.account.id);
-    final items = [
-      for (final item in session.replyReminders)
-        if (item.mailId != mailId) item,
-      created,
-    ]..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
-    session.replyReminders = items;
-    notifyListeners();
-    return created;
-  }
-
-  @override
-  Future<void> cancelReplyReminder(String mailId) async {
-    final session = _sessionOwning(mailId) ?? _sessions.values.firstOrNull;
-    if (session == null) return;
-    await session.mailService.cancelReplyReminder(mailId);
-    session.replyReminders = [
-      for (final item in session.replyReminders)
-        if (item.mailId != mailId) item,
-    ];
-    notifyListeners();
-  }
-
-  @override
-  List<ReplyReminder> getReplyReminders() {
-    final result = [for (final s in _scopedSessions) ...s.replyReminders]
-      ..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
-    return List.unmodifiable(result);
-  }
-
-  @override
-  Future<void> refreshReplyReminders() async {
-    // Tek hesap patlayınca diğer hesapların listesi korunur; hatalı hesap
-    // sessizce eski verisini tutar, hata ekrana olduğu gibi çıkar.
-    final errors = <Object>[];
-    await Future.wait(
-      _scopedSessions.map((session) async {
-        try {
-          final items = await session.mailService.listReplyReminders();
-          session.replyReminders = [
-            for (final item in items)
-              item.copyWith(accountId: session.account.id),
-          ]..sort((a, b) => a.dueAtUtc.compareTo(b.dueAtUtc));
-        } catch (e) {
-          errors.add(e);
-        }
-      }),
-    );
-    notifyListeners();
-    if (errors.isNotEmpty) throw errors.first;
-  }
-
-  @override
   Future<void> refreshScheduledSends() async {
     await Future.wait(
       _scopedSessions.map((session) async {
@@ -3214,17 +3102,19 @@ class ApiMailRepository extends MailRepository {
       return;
     }
     _draftSyncScheduled = true;
-    unawaited(Future<void>.delayed(Duration.zero, () async {
-      try {
-        await _syncQueuedDrafts();
-      } finally {
-        _draftSyncScheduled = false;
-        if (_draftSyncRequested) {
-          _draftSyncRequested = false;
-          _scheduleDraftSync();
+    unawaited(
+      Future<void>.delayed(Duration.zero, () async {
+        try {
+          await _syncQueuedDrafts();
+        } finally {
+          _draftSyncScheduled = false;
+          if (_draftSyncRequested) {
+            _draftSyncRequested = false;
+            _scheduleDraftSync();
+          }
         }
-      }
-    }));
+      }),
+    );
   }
 
   Future<void> _syncQueuedDrafts() async {
@@ -3250,9 +3140,12 @@ class ApiMailRepository extends MailRepository {
               draftId: local.id.startsWith('local-draft-') ? null : local.id,
             ),
           );
-          final latest = session.emails[MailFolder.drafts]
-              ?.firstWhere((e) => e.id == local.id, orElse: () => local);
-          if (latest != null && !cache.queuedDraftMatches(session.account.id, latest)) {
+          final latest = session.emails[MailFolder.drafts]?.firstWhere(
+            (e) => e.id == local.id,
+            orElse: () => local,
+          );
+          if (latest != null &&
+              !cache.queuedDraftMatches(session.account.id, latest)) {
             _scheduleDraftSync();
             continue;
           }
@@ -3268,7 +3161,8 @@ class ApiMailRepository extends MailRepository {
           notifyListeners();
         } catch (_) {
           final latest = session.findLoaded(local.id);
-          if (latest != null && !cache.queuedDraftMatches(session.account.id, latest)) {
+          if (latest != null &&
+              !cache.queuedDraftMatches(session.account.id, latest)) {
             _scheduleDraftSync();
             continue;
           }
@@ -3286,6 +3180,7 @@ class ApiMailRepository extends MailRepository {
       }
     }
   }
+
   /// Old draft id -> the id `PUT /drafts/{id}` replaced it with.
   final Map<String, String> _draftIdSuccessor = {};
 
@@ -3410,19 +3305,33 @@ class ApiMailRepository extends MailRepository {
               _sessionForCompose(from: from, fromAccountId: fromAccountId))
         : _sessionForCompose(from: from, fromAccountId: fromAccountId);
     draftId = resolvedDraftId;
-    final id = draftId ?? 'local-draft-${DateTime.now().microsecondsSinceEpoch}';
-    final drafts = session.emails.putIfAbsent(MailFolder.drafts, () => <Email>[]);
+    final id =
+        draftId ?? 'local-draft-${DateTime.now().microsecondsSinceEpoch}';
+    final drafts = session.emails.putIfAbsent(
+      MailFolder.drafts,
+      () => <Email>[],
+    );
     final oldIndex = drafts.indexWhere((e) => e.id == id);
     final previous = oldIndex < 0 ? null : drafts[oldIndex];
     final local = Email(
       id: id,
       senderName: session.account.displayName ?? session.account.email,
       senderEmail: from ?? session.account.email,
-      recipients: to, cc: cc, bcc: bcc, subject: subject, bodyText: body,
-      bodyHtml: bodyHtml, timestamp: DateTime.now(), isRead: true,
-      folder: MailFolder.drafts, attachments: attachments, accountId: session.account.id,
+      recipients: to,
+      cc: cc,
+      bcc: bcc,
+      subject: subject,
+      bodyText: body,
+      bodyHtml: bodyHtml,
+      timestamp: DateTime.now(),
+      isRead: true,
+      folder: MailFolder.drafts,
+      attachments: attachments,
+      accountId: session.account.id,
       threadId: (threadId == null || threadId.isEmpty)
-          ? (previous?.threadId.isNotEmpty == true ? previous!.threadId : 't-$id')
+          ? (previous?.threadId.isNotEmpty == true
+                ? previous!.threadId
+                : 't-$id')
           : threadId,
       inReplyToId: inReplyToId ?? previous?.inReplyToId,
       headers: {

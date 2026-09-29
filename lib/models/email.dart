@@ -74,7 +74,6 @@ class Email {
     this.imapAnswered = false,
     this.repliedFromKaydetMail = false,
     this.forwardedFromKaydetMail = false,
-    this.threadReceivedReply = false,
     this.folder = MailFolder.inbox,
     this.labelIds = const [],
     this.attachments = const [],
@@ -122,11 +121,6 @@ class Email {
 
   bool get isReplied => imapAnswered || repliedFromKaydetMail;
 
-  /// Sent-folder-only: whether this conversation has received an inbound
-  /// reply back from the recipient (client-only tracking, mirror of
-  /// [repliedFromKaydetMail] — see `ApiMailRepository._markSentThreadsAnswered`).
-  /// Meaningless outside Sent; always false on mail from other folders.
-  final bool threadReceivedReply;
   final MailFolder folder;
 
   /// Ids of the labels attached to this mail (see `MailLabel`).
@@ -209,7 +203,6 @@ class Email {
     bool? imapAnswered,
     bool? repliedFromKaydetMail,
     bool? forwardedFromKaydetMail,
-    bool? threadReceivedReply,
     MailFolder? folder,
     List<String>? labelIds,
     List<Attachment>? attachments,
@@ -244,7 +237,6 @@ class Email {
           repliedFromKaydetMail ?? this.repliedFromKaydetMail,
       forwardedFromKaydetMail:
           forwardedFromKaydetMail ?? this.forwardedFromKaydetMail,
-      threadReceivedReply: threadReceivedReply ?? this.threadReceivedReply,
       folder: folder ?? this.folder,
       labelIds: labelIds ?? this.labelIds,
       attachments: attachments ?? this.attachments,

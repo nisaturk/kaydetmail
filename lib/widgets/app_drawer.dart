@@ -9,13 +9,12 @@ import 'mail_avatar.dart';
 
 /// Drawer'dan açılabilen uygulama hedefleri. Klasörler ayrı seçilir
 /// ([onSelectFolder]); bu liste menüdeki alt bölümü tek tablodan üretir.
-enum DrawerDestination { scheduled, reminders, outbox, customFolders, settings }
+enum DrawerDestination { scheduled, outbox, customFolders, settings }
 
 /// Hedefin menüdeki karşılığı: ikon + Türkçe etiket tek tabloda.
 extension DrawerDestinationMeta on DrawerDestination {
   IconData get icon => switch (this) {
     DrawerDestination.scheduled => LucideIcons.calendarClock,
-    DrawerDestination.reminders => LucideIcons.bellRing,
     DrawerDestination.outbox => LucideIcons.send,
     DrawerDestination.customFolders => LucideIcons.folder,
     DrawerDestination.settings => LucideIcons.settings,
@@ -23,7 +22,6 @@ extension DrawerDestinationMeta on DrawerDestination {
 
   String get label => switch (this) {
     DrawerDestination.scheduled => 'Zamanlanmış Gönderimler',
-    DrawerDestination.reminders => 'Yanıt Takibi',
     DrawerDestination.outbox => 'Giden Kutusu',
     DrawerDestination.customFolders => 'Diğer Klasörler',
     DrawerDestination.settings => 'Ayarlar',

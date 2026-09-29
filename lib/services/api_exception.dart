@@ -94,10 +94,6 @@ class ApiException implements Exception {
     'mail_delete_failed' => 'E-posta kalıcı olarak silinemedi. Tekrar deneyin.',
     'mail_operation_failed' => 'İşlem tamamlanamadı. Tekrar deneyin.',
     'pinned_limit_reached' => 'Bir hesapta en fazla 3 e-posta sabitlenebilir.',
-    'reply_reminder_in_past' => 'Hatırlatma zamanı gelecekte olmalı.',
-    'reply_reminder_already_replied' => 'Bu e-posta zaten yanıtlanmış.',
-    'reply_reminder_requires_sent_mail' =>
-      'Hatırlatma yalnızca gönderilen e-postalar için kurulabilir.',
     'draft_not_reconciled' =>
       'Taslak sunucuda henüz eşleşmedi. Birkaç saniye sonra tekrar deneyin.',
     'delivery_unknown' =>
@@ -105,8 +101,7 @@ class ApiException implements Exception {
     'send_in_progress' => 'Gönderim sürüyor. Kısa süre sonra tekrar deneyin.',
     'idempotency_key_required' ||
     'idempotency_key_too_long' => 'Gönderim isteği geçersiz. Yeniden deneyin.',
-    'idempotency_conflict' =>
-      'Gönderim isteği farklı içerikle daha önce kullanıldı. Yeni gönderim oluşturun.',
+    'idempotency_conflict' => 'Gönderim isteği farklı içerikle daha önce kullanıldı. Yeni gönderim oluşturun.',
     'recipient_required' => 'En az bir alıcı yazmalısınız.',
     'invalid_recipient' => 'Alıcı adresi geçersiz.',
     'invalid_email' => 'Geçersiz e-posta adresi.',
