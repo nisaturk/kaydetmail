@@ -9,6 +9,7 @@ import '../theme/app_theme.dart';
 import '../state/app_settings_controller.dart';
 import '../utils/link_safety.dart';
 import '../utils/query_parameter_cleaner.dart';
+import '../l10n/l10n.dart';
 
 typedef MailLinkLauncher = Future<bool> Function(Uri uri);
 
@@ -56,16 +57,15 @@ class MailLinkOpener {
       opened = false;
     }
     if (!opened && context.mounted) {
-      _showMessage(context, 'Bağlantı açılamadı.');
+      _showMessage(context, l10nNow.theLinkCouldntBeOpened);
     }
   }
 
   static String _blockedMessage(LinkAssessment assessment) {
     if (assessment.blockReason == LinkBlockReason.unsupportedScheme) {
-      return 'Bu bağlantı güvenli olmayan bir adres türü '
-          '(${assessment.scheme}:) kullandığı için açılmadı.';
+      return l10nNow.theLinkWasntOpenedBecause(assessment.scheme);
     }
-    return 'Bağlantı adresi geçersiz olduğu için açılmadı.';
+    return l10nNow.theLinkWasntOpenedBecauseItsAddressIs;
   }
 
   static void _showMessage(BuildContext context, String message) {
@@ -82,19 +82,15 @@ class SuspiciousLinkDialog extends StatelessWidget {
   static String warningText(LinkAssessment assessment, LinkWarning warning) {
     switch (warning) {
       case LinkWarning.displayMismatch:
-        return 'Bağlantı metni "${assessment.displayedDomain}" adresini '
-            'gösteriyor, ancak bağlantı başka bir alan adına gidiyor.';
+        return l10nNow.theLinkTextShowsBut(assessment.displayedDomain!);
       case LinkWarning.punycodeHost:
-        return 'Alan adı uluslararası (punycode) karakterler içeriyor.';
+        return l10nNow.theDomainContainsInternationalPunycode;
       case LinkWarning.mixedScripts:
-        return 'Alan adında farklı alfabelerden karakterler bir arada '
-            'kullanılmış.';
+        return l10nNow.theDomainMixesCharactersFrom;
       case LinkWarning.confusableCharacters:
-        return 'Alan adında Latin harflerine benzeyen yanıltıcı karakterler '
-            'var.';
+        return l10nNow.theDomainContainsMisleadingCharacters;
       case LinkWarning.embeddedCredentials:
-        return 'Adres, gerçek alan adını gizleyebilen kullanıcı bilgisi '
-            'içeriyor.';
+        return l10nNow.theAddressContainsUserInformation;
     }
   }
 
@@ -110,7 +106,7 @@ class SuspiciousLinkDialog extends StatelessWidget {
     );
     final valueStyle = TextStyle(fontSize: 15, color: colors.bodyText);
     return AlertDialog(
-      title: const Text('Bu bağlantı şüpheli görünüyor'),
+      title: Text(l10nNow.thisLinkLooksSuspicious),
       content: SingleChildScrollView(
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -123,15 +119,15 @@ class SuspiciousLinkDialog extends StatelessWidget {
                   child: Text(warningText(assessment, warning)),
                 ),
             const SizedBox(height: AppTheme.space2),
-            Text('Gerçek hedef', style: labelStyle),
+            Text(l10nNow.actualDestination, style: labelStyle),
             SelectableText(unicodeHost, style: valueStyle),
             if (asciiHost.isNotEmpty && asciiHost != unicodeHost) ...[
               const SizedBox(height: AppTheme.space2),
-              Text('Ham adres (punycode)', style: labelStyle),
+              Text(l10nNow.rawAddressPunycode, style: labelStyle),
               SelectableText(asciiHost, style: valueStyle),
             ],
             const SizedBox(height: AppTheme.space2),
-            Text('Tam bağlantı', style: labelStyle),
+            Text(l10nNow.fullLink, style: labelStyle),
             SelectableText(
               assessment.uri.toString(),
               style: TextStyle(fontSize: 13, color: colors.secondaryText),
@@ -143,14 +139,14 @@ class SuspiciousLinkDialog extends StatelessWidget {
         TextButton(
           onPressed: () => Navigator.of(context).pop(true),
           child: Text(
-            'Yine de aç',
+            l10nNow.openAnyway,
             style: TextStyle(color: colors.destructive),
           ),
         ),
         FilledButton(
           autofocus: true,
           onPressed: () => Navigator.of(context).pop(false),
-          child: const Text('İptal'),
+          child: Text(l10nNow.cancel),
         ),
       ],
     );

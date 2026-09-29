@@ -11,6 +11,7 @@ import '../../state/app_settings_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/date_format.dart';
 import '../../utils/error_messages.dart';
+import '../../l10n/l10n.dart';
 
 class CleanTrackingQueriesSection extends StatelessWidget {
   const CleanTrackingQueriesSection({super.key});
@@ -21,11 +22,8 @@ class CleanTrackingQueriesSection extends StatelessWidget {
     return SwitchListTile(
       key: const Key('clean-tracking-queries-toggle'),
       dense: true,
-      title: const Text('Bağlantı takip parametrelerini temizle'),
-      subtitle: const Text(
-        'E-postalardaki bağlantıları açmadan önce bilinen reklam ve kampanya '
-        'takip parametrelerini kaldırır.',
-      ),
+      title: Text(l10nNow.removeLinkTrackingParameters),
+      subtitle: Text(l10nNow.removesKnownAdvertisingAndCampaign),
       value: settings.cleanTrackingQueries,
       onChanged: (value) => settings.cleanTrackingQueries = value,
     );
@@ -45,19 +43,16 @@ class BiometricLockSection extends StatelessWidget {
       children: [
         SwitchListTile(
           dense: true,
-          title: const Text('Uygulama Kilidi'),
-          subtitle: const Text(
-            'Uygulamayı açtığınızda ya da seçilen süreden uzun arka planda '
-            'kaldıktan sonra parmak izi/Face ID veya cihaz şifresi ister.',
-          ),
+          title: Text(l10nNow.appLock),
+          subtitle: Text(l10nNow.asksForFingerprintFaceId),
           value: settings.biometricLockEnabled,
           onChanged: (v) => settings.biometricLockEnabled = v,
         ),
         if (settings.biometricLockEnabled) ...[
-          const Padding(
+          Padding(
             padding: EdgeInsets.fromLTRB(16, 8, 16, 4),
             child: Text(
-              'Arka plandan dönünce kilitle',
+              l10nNow.lockWhenReturningFromBackground,
               style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
@@ -93,12 +88,11 @@ class ScreenProtectionSection extends StatelessWidget {
     return SwitchListTile(
       key: const ValueKey('screen-protection-switch'),
       dense: true,
-      title: const Text('Ekran Koruması'),
+      title: Text(l10nNow.screenProtection),
       subtitle: Text(
         platform == TargetPlatform.iOS
-            ? 'Uygulama geçiş ekranında posta içeriğini gizler.'
-            : 'Ekran görüntüsü ve ekran kaydını engeller, son kullanılan '
-                  'uygulamalar listesinde içeriği gizler.',
+            ? l10nNow.hidesMailContentInThe
+            : l10nNow.blocksScreenshotsAndScreenRecording,
       ),
       value: settings.screenProtectionEnabled,
       onChanged: (value) => settings.screenProtectionEnabled = value,
@@ -140,7 +134,7 @@ class _SessionsSectionState extends State<SessionsSection> {
     } catch (e) {
       if (!mounted) return;
       setState(
-        () => _error = 'Cihazlar yüklenemedi: ${friendlyErrorMessage(e)}',
+        () => _error = l10nNow.couldntLoadDevices(friendlyErrorMessage(e)),
       );
     }
   }
@@ -149,20 +143,20 @@ class _SessionsSectionState extends State<SessionsSection> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Oturumu kapat?'),
+        title: Text(l10nNow.signOutOfThisSession),
         content: Text(
           session.isCurrentDevice
-              ? 'Bu cihazdaki oturum kapatılacak ve bu hesaptan çıkış yapılacak.'
-              : 'Bu cihaz artık bu hesaba erişemeyecek.',
+              ? l10nNow.theSessionOnThisDevice
+              : l10nNow.thisDeviceWillNoLonger,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('Kapat'),
+            child: Text(l10nNow.close),
           ),
         ],
       ),
@@ -190,7 +184,7 @@ class _SessionsSectionState extends State<SessionsSection> {
       setState(() => _revokingId = null);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Oturum kapatılamadı: ${friendlyErrorMessage(error)}'),
+          content: Text(l10nNow.couldntSignOut(friendlyErrorMessage(error))),
         ),
       );
     }
@@ -234,7 +228,7 @@ class _SessionsSectionState extends State<SessionsSection> {
               alignment: Alignment.centerRight,
               child: TextButton(
                 onPressed: _load,
-                child: const Text('Tekrar dene'),
+                child: Text(l10nNow.tryAgain),
               ),
             ),
           ],
@@ -257,7 +251,7 @@ class _SessionsSectionState extends State<SessionsSection> {
       return Padding(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         child: Text(
-          'Bağlı cihaz yok.',
+          l10nNow.noConnectedDevices,
           style: TextStyle(
             fontSize: 14,
             color: AppTheme.colors(context).secondaryText,
@@ -298,7 +292,7 @@ class _SessionsSectionState extends State<SessionsSection> {
                       ),
                     ),
                     child: Text(
-                      'Bu cihaz',
+                      l10nNow.thisDevice,
                       style: TextStyle(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -310,7 +304,7 @@ class _SessionsSectionState extends State<SessionsSection> {
               ],
             ),
             subtitle: Text(
-              'Son kullanım: ${formatMailTime(session.lastUsedAt)}',
+              l10nNow.lastUsed(formatMailTime(session.lastUsedAt)),
             ),
             trailing: _revokingId == session.id
                 ? const SizedBox(
@@ -323,7 +317,7 @@ class _SessionsSectionState extends State<SessionsSection> {
                     style: TextButton.styleFrom(
                       foregroundColor: AppTheme.colors(context).destructive,
                     ),
-                    child: const Text('Kapat'),
+                    child: Text(l10nNow.close),
                   ),
           ),
       ],

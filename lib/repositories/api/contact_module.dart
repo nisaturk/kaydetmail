@@ -5,6 +5,7 @@ import '../../services/api_exception.dart';
 import '../../utils/idempotency_key.dart';
 import 'account_session.dart';
 import 'repository_context.dart';
+import '../../l10n/l10n.dart';
 
 /// Manually-added contacts: backend-owned, cached on the device and queued
 /// while offline (locally created ones carry [localIdPrefix] ids until the
@@ -22,13 +23,13 @@ class ContactModule {
     String? selfId,
   }) {
     if (email.isEmpty || !email.contains('@')) {
-      throw ArgumentError('Geçerli bir e-posta adresi girin.');
+      throw ArgumentError(l10nNow.enterAValidEmailAddress);
     }
     final canonical = email.toLowerCase();
     if (session.manualContacts.any(
       (c) => c.id != selfId && c.email.toLowerCase() == canonical,
     )) {
-      throw ArgumentError('Bu e-posta zaten kayıtlı.');
+      throw ArgumentError(l10nNow.thisEmailIsAlreadySaved);
     }
   }
 
@@ -88,7 +89,7 @@ class ContactModule {
       created = await session.mailService.createContact(trimmedEmail, name);
     } on ApiException catch (e) {
       if (e.code == 'contact_already_exists') {
-        throw ArgumentError('Bu e-posta zaten kayıtlı.');
+        throw ArgumentError(l10nNow.thisEmailIsAlreadySaved);
       }
       if (!_ctx.isOfflineFailure(e)) rethrow;
       _ctx.markOffline(session);
@@ -144,7 +145,7 @@ class ContactModule {
         await session.flagsStore?.clearQueuedMutation(id, 'contact');
       } on ApiException catch (e) {
         if (e.code == 'contact_already_exists') {
-          throw ArgumentError('Bu e-posta zaten kayıtlı.');
+          throw ArgumentError(l10nNow.thisEmailIsAlreadySaved);
         }
         if (!_ctx.isOfflineFailure(e)) rethrow;
         _ctx.markOffline(session);

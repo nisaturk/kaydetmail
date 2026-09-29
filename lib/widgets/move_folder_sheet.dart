@@ -5,6 +5,7 @@ import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 class MoveFolderTarget {
   const MoveFolderTarget.logical(this.folder)
@@ -152,9 +153,9 @@ class _MoveFolderSheetState extends State<_MoveFolderSheet> {
                 padding: const EdgeInsets.fromLTRB(20, 16, 12, 8),
                 child: Row(
                   children: [
-                    const Expanded(
+                    Expanded(
                       child: Text(
-                        'Taşı',
+                        l10nNow.move,
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.w700,
@@ -163,7 +164,7 @@ class _MoveFolderSheetState extends State<_MoveFolderSheet> {
                     ),
                     IconButton(
                       onPressed: () => Navigator.of(context).pop(),
-                      tooltip: 'Kapat',
+                      tooltip: l10nNow.close,
                       icon: const Icon(LucideIcons.x),
                     ),
                   ],
@@ -184,7 +185,7 @@ class _MoveFolderSheetState extends State<_MoveFolderSheet> {
                             Text(friendlyErrorMessage(_error!)),
                             TextButton(
                               onPressed: _refresh,
-                              child: const Text('Tekrar dene'),
+                              child: Text(l10nNow.tryAgain),
                             ),
                           ],
                         ),
@@ -197,10 +198,10 @@ class _MoveFolderSheetState extends State<_MoveFolderSheet> {
                           onTap: () => Navigator.of(context).pop(target),
                         ),
                     if (customTargets.isNotEmpty)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.fromLTRB(20, 12, 20, 4),
                         child: Text(
-                          'Diğer Klasörler',
+                          l10nNow.otherFolders,
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -217,15 +218,15 @@ class _MoveFolderSheetState extends State<_MoveFolderSheet> {
                         onTap: () => Navigator.of(context).pop(target),
                       ),
                     if (targets.isEmpty && !_loading && _error == null)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.all(24),
-                        child: Text('Taşınabilecek başka klasör yok.'),
+                        child: Text(l10nNow.thereAreNoOtherFolders),
                       ),
                     if (widget.accountIds.length > 1)
-                      const Padding(
+                      Padding(
                         padding: EdgeInsets.all(16),
                         child: Text(
-                          'Farklı hesaplardan seçilen e-postalar yalnızca ortak klasörlere taşınabilir.',
+                          l10nNow.emailsSelectedFromDifferentAccounts,
                         ),
                       ),
                   ],

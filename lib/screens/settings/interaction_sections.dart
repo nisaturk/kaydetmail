@@ -5,6 +5,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../../services/device_contacts.dart';
 import '../../state/app_settings_controller.dart';
+import '../../l10n/l10n.dart';
 
 /// Manually-added contacts — people the user wants suggested in compose
 /// before ever exchanging mail with them. Synced through the backend (see
@@ -33,11 +34,8 @@ class _DeviceContactsSectionState extends State<DeviceContactsSection> {
     setState(() => _busy = false);
     if (!granted) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Kişilere erişim izni verilmedi. Öneriler mail geçmişinden '
-            've eklediğiniz kişilerden gelmeye devam eder.',
-          ),
+        SnackBar(
+          content: Text(l10nNow.contactsPermissionWasntGrantedSuggestions),
         ),
       );
       return;
@@ -50,11 +48,8 @@ class _DeviceContactsSectionState extends State<DeviceContactsSection> {
   Widget build(BuildContext context) => SwitchListTile(
     key: const Key('device-contacts-toggle'),
     dense: true,
-    title: const Text('Cihaz kişilerini öner'),
-    subtitle: const Text(
-      'Alıcı yazarken telefon rehberindeki e-posta adreslerini de önerir. '
-      'Rehber yalnızca bu cihazda okunur, sunucuya gönderilmez.',
-    ),
+    title: Text(l10nNow.suggestDeviceContacts),
+    subtitle: Text(l10nNow.alsoSuggestsEmailAddressesFrom),
     value: AppSettingsController.instance.deviceContactsEnabled,
     onChanged: _busy ? null : _toggle,
   );
@@ -70,11 +65,8 @@ class NotificationsSection extends StatelessWidget {
       children: [
         SwitchListTile(
           dense: true,
-          title: const Text('Bildirimler'),
-          subtitle: const Text(
-            'Bu cihazda yeni e-posta bildirimlerini göster. Klasör kapsamı ve kilit '
-            'ekranı gizliliği her hesabın kendi ayarlarındadır.',
-          ),
+          title: Text(l10nNow.notifications),
+          subtitle: Text(l10nNow.showNewEmailNotificationsOn),
           value: settings.notificationsEnabled,
           onChanged: (v) => settings.notificationsEnabled = v,
         ),
@@ -89,10 +81,10 @@ class NotificationsSection extends StatelessWidget {
 class AppearanceSection extends StatelessWidget {
   const AppearanceSection({super.key});
 
-  static const _options = [
-    (ThemeMode.system, 'Sistem', 'Cihazın temasını izler'),
-    (ThemeMode.light, 'Açık', null),
-    (ThemeMode.dark, 'Koyu', null),
+  static final _options = [
+    (ThemeMode.system, 'Sistem', l10nNow.followsTheDeviceTheme),
+    (ThemeMode.light, l10nNow.light, null),
+    (ThemeMode.dark, l10nNow.dark, null),
   ];
 
   @override
@@ -115,6 +107,37 @@ class AppearanceSection extends StatelessWidget {
   }
 }
 
+/// Turkish/English picker; Turkish stays the default.
+class LanguageSection extends StatelessWidget {
+  const LanguageSection({super.key});
+
+  static const _options = [(Locale('tr'), 'Türkçe'), (Locale('en'), 'English')];
+
+  @override
+  Widget build(BuildContext context) {
+    final settings = AppSettingsController.instance;
+    return Column(
+      children: [
+        for (final (locale, label) in _options)
+          ListTile(
+            key: Key('language-${locale.languageCode}'),
+            dense: true,
+            title: Text(label),
+            trailing: locale == settings.locale
+                ? const Icon(LucideIcons.check, size: 20)
+                : null,
+            onTap: () {
+              settings.locale = locale;
+              // The page's own title was built in the previous language, so
+              // go back to the list, which is rebuilt in the new one.
+              Navigator.of(context).maybePop();
+            },
+          ),
+      ],
+    );
+  }
+}
+
 class SwipeSection extends StatelessWidget {
   const SwipeSection({super.key});
 
@@ -126,25 +149,21 @@ class SwipeSection extends StatelessWidget {
       children: [
         SwitchListTile(
           dense: true,
-          title: const Text('Kaydırma hareketleri'),
-          subtitle: const Text(
-            'Listede e-postayı sağa veya sola kaydırarak aşağıdaki '
-            'işlemleri yapın. Çöp, Spam ve Arşiv klasörleri kendi '
-            'işlemlerini kullanır.',
-          ),
+          title: Text(l10nNow.swipeGestures),
+          subtitle: Text(l10nNow.swipeAnEmailRightOr),
           value: settings.swipeDeleteEnabled,
           onChanged: (v) => settings.swipeDeleteEnabled = v,
         ),
         if (settings.swipeDeleteEnabled) ...[
           _SwipeGestureTile(
             key: const Key('swipe-right-setting'),
-            title: 'Sağa kaydırınca',
+            title: l10nNow.onSwipeRight,
             value: settings.swipeRight,
             onChanged: (v) => settings.swipeRight = v,
           ),
           _SwipeGestureTile(
             key: const Key('swipe-left-setting'),
-            title: 'Sola kaydırınca',
+            title: l10nNow.onSwipeLeft,
             value: settings.swipeLeft,
             onChanged: (v) => settings.swipeLeft = v,
           ),
@@ -220,10 +239,10 @@ class UndoSendSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const Divider(height: 1),
-        const Padding(
+        Padding(
           padding: EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Text(
-            'Göndermeyi geri alma süresi',
+            l10nNow.undoSendPeriod,
             style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
           ),
         ),

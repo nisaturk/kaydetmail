@@ -16,7 +16,7 @@ mixin _ThreadLoadMixin on _MailDetailStateBase, _ReplyMixin {
         if (messenger.mounted) {
           messenger.showSnackBar(
             SnackBar(
-              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+              content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
             ),
           );
         }

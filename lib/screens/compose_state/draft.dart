@@ -10,9 +10,9 @@ mixin _DraftMixin
       final saved = await _saveDraft();
       if (!mounted) return false;
       if (saved) return true;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Taslak kaydedilemedi. Tekrar deneyin.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10nNow.couldntSaveTheDraftTry)));
       return false;
     }
     if (!_hasContent) return true;
@@ -63,15 +63,14 @@ mixin _DraftMixin
                     ),
                     const SizedBox(height: AppTheme.space4),
                     Text(
-                      'Bu taslak ne olsun?',
+                      l10nNow.whatShouldHappenToThis,
                       style: AppTheme.titleText.copyWith(
                         color: Theme.of(sheetContext).colorScheme.onSurface,
                       ),
                     ),
                     const SizedBox(height: AppTheme.space2),
                     Text(
-                      'Yazdıklarınızı daha sonra tamamlamak için kaydedebilir '
-                      'veya taslağı kalıcı olarak silebilirsiniz.',
+                      l10nNow.youCanSaveWhatYouve,
                       style: AppTheme.bodyText2.copyWith(
                         color: AppTheme.colors(sheetContext).secondaryText,
                       ),
@@ -88,10 +87,9 @@ mixin _DraftMixin
                               if (!saved) {
                                 setSheetState(() => saving = false);
                                 ScaffoldMessenger.of(context).showSnackBar(
-                                  const SnackBar(
+                                  SnackBar(
                                     content: Text(
-                                      'Taslak kaydedilemedi. İçeriğiniz '
-                                      'ekranda tutuluyor.',
+                                      l10nNow.couldntSaveTheDraftYour,
                                     ),
                                   ),
                                 );
@@ -99,9 +97,7 @@ mixin _DraftMixin
                               }
                               Navigator.of(sheetContext).pop(true);
                               ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content: Text('Taslak kaydedildi.'),
-                                ),
+                                SnackBar(content: Text(l10nNow.draftSaved)),
                               );
                             },
                       icon: saving
@@ -110,7 +106,7 @@ mixin _DraftMixin
                               child: CircularProgressIndicator(strokeWidth: 2),
                             )
                           : const Icon(LucideIcons.save, size: 19),
-                      label: Text(saving ? 'Kaydediliyor…' : 'Taslağı Kaydet'),
+                      label: Text(saving ? l10nNow.saving : l10nNow.saveDraft2),
                     ),
                     const SizedBox(height: AppTheme.space2),
                     SizedBox(
@@ -134,7 +130,7 @@ mixin _DraftMixin
                           ),
                         ),
                         icon: const Icon(LucideIcons.trash2, size: 19),
-                        label: const Text('Taslağı Sil'),
+                        label: Text(l10nNow.deleteDraft),
                       ),
                     ),
                     const SizedBox(height: AppTheme.space1),
@@ -144,7 +140,7 @@ mixin _DraftMixin
                         onPressed: saving
                             ? null
                             : () => Navigator.of(sheetContext).pop(false),
-                        child: const Text('Düzenlemeye devam et'),
+                        child: Text(l10nNow.keepEditing),
                       ),
                     ),
                   ],
@@ -171,19 +167,19 @@ mixin _DraftMixin
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(
-          draftId == null ? 'E-posta silinsin mi?' : 'Taslak silinsin mi?',
+          draftId == null ? l10nNow.deleteEmail : l10nNow.deleteDraft2,
         ),
-        content: const Text('Bu işlem geri alınamaz.'),
+        content: Text(l10nNow.thisActionCantBeUndone),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           TextButton(
             key: const Key('confirm-discard'),
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(
-              'Sil',
+              l10nNow.delete,
               style: TextStyle(
                 color: AppTheme.colors(dialogContext).destructive,
               ),
@@ -206,12 +202,14 @@ mixin _DraftMixin
       setState(() => _sending = false);
       messenger.showSnackBar(
         SnackBar(
-          content: Text('Taslak silinemedi: ${friendlyErrorMessage(error)}'),
+          content: Text(
+            l10nNow.couldntDeleteTheDraft(friendlyErrorMessage(error)),
+          ),
         ),
       );
       return;
     }
-    messenger.showSnackBar(const SnackBar(content: Text('Taslak silindi.')));
+    messenger.showSnackBar(SnackBar(content: Text(l10nNow.draftDeleted)));
     navigator.pop();
   }
 
@@ -223,9 +221,7 @@ mixin _DraftMixin
     messenger.showSnackBar(
       SnackBar(
         content: Text(
-          saved
-              ? 'Taslak kaydedildi.'
-              : 'Taslak kaydedilemedi. Tekrar deneyin.',
+          saved ? l10nNow.draftSaved : l10nNow.couldntSaveTheDraftTry,
         ),
       ),
     );
@@ -261,11 +257,7 @@ mixin _DraftMixin
         onSyncFailure: (_) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text(
-                'Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.',
-              ),
-            ),
+            SnackBar(content: Text(l10nNow.draftSavedLocallyServerSync)),
           );
         },
       );

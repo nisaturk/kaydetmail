@@ -63,19 +63,16 @@ mixin _MenuMixin
       final confirmed = await showDialog<bool>(
         context: context,
         builder: (ctx) => AlertDialog(
-          title: const Text('Abonelikten çıkılsın mı?'),
-          content: const Text(
-            'Bu gönderenden e-posta almayı durdurmak için bir istek '
-            'gönderilecek. Bu işlem geri alınamaz.',
-          ),
+          title: Text(l10nNow.unsubscribe2),
+          content: Text(l10nNow.aRequestWillBeSent),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Vazgeç'),
+              child: Text(l10nNow.cancel2),
             ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Abonelikten Çık'),
+              child: Text(l10nNow.unsubscribe),
             ),
           ],
         ),
@@ -92,9 +89,9 @@ mixin _MenuMixin
           content: Text(
             success
                 ? (info.oneClick
-                      ? 'Abonelik iptal edildi.'
-                      : 'Abonelikten çıkma işlemi açıldı.')
-                : 'Abonelikten çıkma işlemi başarısız oldu.',
+                      ? l10nNow.unsubscribed
+                      : l10nNow.unsubscribeStarted)
+                : l10nNow.unsubscribingFailed,
           ),
         ),
       );
@@ -102,7 +99,7 @@ mixin _MenuMixin
       if (!mounted) return;
       messenger.showSnackBar(
         SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+          content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
         ),
       );
     }
@@ -118,7 +115,7 @@ mixin _MenuMixin
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Yazdırma başarısız: ${friendlyErrorMessage(error)}'),
+          content: Text(l10nNow.printingFailed(friendlyErrorMessage(error))),
         ),
       );
     }
@@ -135,7 +132,7 @@ mixin _MenuMixin
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'PDF paylaşma başarısız: ${friendlyErrorMessage(error)}',
+            l10nNow.sharingThePdfFailed(friendlyErrorMessage(error)),
           ),
         ),
       );

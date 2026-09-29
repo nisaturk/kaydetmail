@@ -30,7 +30,7 @@ mixin _ReplyMixin on _MailDetailStateBase {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              'Yanıt hazırlanamadı: ${friendlyErrorMessage(error)}',
+              l10nNow.couldntPrepareTheReply(friendlyErrorMessage(error)),
             ),
           ),
         );
@@ -53,24 +53,28 @@ mixin _ReplyMixin on _MailDetailStateBase {
     String? initialBodyHtml;
     var initialAttachments = const <Attachment>[];
     if (isForward) {
-      final dateLine = formattedDate == null ? '' : 'Tarih: $formattedDate\n';
-      initialBody =
-          '\n\n--- İletilen mesaj ---\n'
-          'Kimden: $sender\n'
-          '$dateLine'
-          'Konu: $subject\n\n'
-          '${email.bodyText}';
-      initialBodyHtml =
-          '<p><br></p><p>--- İletilen mesaj ---<br>'
-          '<strong>Kimden:</strong> ${htmlEscape.convert(sender)}<br>'
-          '${formattedDate == null ? '' : '<strong>Tarih:</strong> ${htmlEscape.convert(formattedDate)}<br>'}'
-          '<strong>Konu:</strong> ${htmlEscape.convert(subject)}</p>'
-          '$originalHtml';
+      final dateLine = formattedDate == null
+          ? ''
+          : l10nNow.forwardDateLine(formattedDate);
+      initialBody = l10nNow.forwardedMessageFromSubject(
+        sender,
+        dateLine,
+        subject,
+        email.bodyText,
+      );
+      initialBodyHtml = l10nNow.forwardedMessageFromSubject2(
+        htmlEscape.convert(sender),
+        formattedDate == null
+            ? ''
+            : l10nNow.forwardDateLineHtml(htmlEscape.convert(formattedDate)),
+        htmlEscape.convert(subject),
+        originalHtml,
+      );
       initialAttachments = prefill.attachments;
     } else {
-      final attribution =
-          '${formattedDate == null ? '' : '$formattedDate tarihinde '}'
-          '$sender yazdı:';
+      final attribution = formattedDate == null
+          ? l10nNow.wroteSender(sender)
+          : l10nNow.wroteOnDate(formattedDate, sender);
       initialBody =
           '\n\n$attribution\n> ${email.bodyText.replaceAll('\n', '\n> ')}';
       initialBodyHtml =
@@ -103,10 +107,11 @@ mixin _ReplyMixin on _MailDetailStateBase {
     }
   }
 
-  Future<void> _reply() => _openComposePrefill('reply', title: 'Yanıtla');
+  Future<void> _reply() => _openComposePrefill('reply', title: l10nNow.reply);
 
   Future<void> _replyAll() =>
-      _openComposePrefill('reply-all', title: 'Tümünü Yanıtla');
+      _openComposePrefill('reply-all', title: l10nNow.replyAll);
 
-  Future<void> _forward() => _openComposePrefill('forward', title: 'İlet');
+  Future<void> _forward() =>
+      _openComposePrefill('forward', title: l10nNow.forward);
 }

@@ -5,6 +5,7 @@ import '../state/outbox_store.dart';
 import '../state/pending_send_queue.dart';
 import '../utils/error_messages.dart';
 import 'compose_screen.dart';
+import '../l10n/l10n.dart';
 
 class OutboxScreen extends StatefulWidget {
   const OutboxScreen({super.key});
@@ -80,7 +81,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ComposeScreen(
-          composeTitle: replacing ? 'Gönderiyi Düzenle' : 'Yeni Gönderi',
+          composeTitle: replacing ? l10nNow.editMessage : l10nNow.newMessage,
           replacesOutboxId: replacing ? send.id : null,
           initialFrom: send.from,
           initialTo: send.to.join(', '),
@@ -104,19 +105,16 @@ class _OutboxScreenState extends State<OutboxScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Yeni gönderi oluştur?'),
-        content: const Text(
-          'Önce Gönderilenler’i kontrol edin. Bu mesaj daha önce teslim edilmiş '
-          'olabilir; yeniden göndermek alıcıya ikinci bir kopya ulaştırabilir.',
-        ),
+        title: Text(l10nNow.createANewMessage),
+        content: Text(l10nNow.checkSentFirstThisMessage),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Yeni gönderi'),
+            child: Text(l10nNow.newMessage2),
           ),
         ],
       ),
@@ -130,20 +128,20 @@ class _OutboxScreenState extends State<OutboxScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Gönderiyi sil?'),
+        title: Text(l10nNow.deleteMessage),
         content: Text(
           item.status == OutboxStatus.uncertain
-              ? 'Gönderim sonucu bilinmiyor. Önce Gönderilenler’i kontrol edin. Yerel kopya silinsin mi?'
-              : 'Bu gönderinin yerel kopyası kalıcı olarak silinecek.',
+              ? l10nNow.theDeliveryResultIsUnknown
+              : l10nNow.theLocalCopyOfThis,
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           TextButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Sil'),
+            child: Text(l10nNow.delete),
           ),
         ],
       ),
@@ -168,7 +166,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
     final items = _items;
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Giden Kutusu'),
+        title: Text(l10nNow.outbox),
         actions: [
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],
@@ -178,7 +176,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
           : items == null
           ? const Center(child: CircularProgressIndicator())
           : items.isEmpty
-          ? const Center(child: Text('Bekleyen gönderi yok.'))
+          ? Center(child: Text(l10nNow.noPendingMessages))
           : ListView.builder(
               itemCount: items.length,
               itemBuilder: (context, index) {
@@ -189,11 +187,12 @@ class _OutboxScreenState extends State<OutboxScreen> {
                 final waitingForNetwork =
                     item.status == OutboxStatus.waitingForNetwork;
                 final status = switch (item.status) {
-                  OutboxStatus.pending => 'Geri alma süresi',
-                  OutboxStatus.sending => 'Gönderiliyor',
-                  OutboxStatus.waitingForNetwork => 'Bağlantı bekleniyor',
-                  OutboxStatus.failed => 'Gönderilemedi',
-                  OutboxStatus.uncertain => 'Sonuç belirsiz',
+                  OutboxStatus.pending => l10nNow.undoPeriod,
+                  OutboxStatus.sending => l10nNow.sending,
+                  OutboxStatus.waitingForNetwork =>
+                    l10nNow.waitingForConnection,
+                  OutboxStatus.failed => l10nNow.couldntSend,
+                  OutboxStatus.uncertain => l10nNow.resultUnknown,
                 };
                 return Card(
                   child: Padding(
@@ -202,10 +201,12 @@ class _OutboxScreenState extends State<OutboxScreen> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          send.subject.isEmpty ? '(Konu yok)' : send.subject,
+                          send.subject.isEmpty
+                              ? l10nNow.noSubject2
+                              : send.subject,
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
-                        Text('Kime: ${send.to.join(', ')}'),
+                        Text(l10nNow.to3(send.to.join(', '))),
                         Text(status),
                         if (item.status == OutboxStatus.sending &&
                             send.attachments.isNotEmpty)
@@ -234,7 +235,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
                                             PendingSendQueue.instance
                                                 .cancelUpload(send.id);
                                           },
-                                          child: const Text('İptal'),
+                                          child: Text(l10nNow.cancel),
                                         ),
                                     ],
                                   ),
@@ -244,13 +245,12 @@ class _OutboxScreenState extends State<OutboxScreen> {
                           ),
                         if (item.error != null) Text(item.error!),
                         if (waitingForNetwork)
-                          const Text(
-                            'İnternet bağlantısı yok. Bağlantı gelince otomatik gönderilecek.',
+                          Text(
+                            l10nNow
+                                .noInternetConnectionItWillBeSentAutomatically,
                           ),
                         if (uncertain)
-                          const Text(
-                            'Tekrar göndermeden önce Gönderilenler’i kontrol edin.',
-                          ),
+                          Text(l10nNow.checkSentBeforeSendingAgain),
                         if (failed || uncertain || waitingForNetwork)
                           Row(
                             children: [
@@ -259,8 +259,8 @@ class _OutboxScreenState extends State<OutboxScreen> {
                                   onPressed: _busy ? null : () => _retry(item),
                                   child: Text(
                                     waitingForNetwork
-                                        ? 'Şimdi dene'
-                                        : 'Tekrar dene',
+                                        ? l10nNow.tryNow
+                                        : l10nNow.tryAgain,
                                   ),
                                 ),
                               ],
@@ -270,18 +270,18 @@ class _OutboxScreenState extends State<OutboxScreen> {
                                       ? null
                                       : () =>
                                             _openCompose(item, replacing: true),
-                                  child: const Text('Düzenle'),
+                                  child: Text(l10nNow.edit),
                                 ),
                               TextButton(
                                 onPressed: _busy ? null : () => _discard(item),
-                                child: const Text('Sil'),
+                                child: Text(l10nNow.delete),
                               ),
                             ],
                           ),
                         if (uncertain)
                           TextButton(
                             onPressed: _busy ? null : () => _manualResend(item),
-                            child: const Text('Elle yeniden oluştur'),
+                            child: Text(l10nNow.recreateManually),
                           ),
                         if (uncertain)
                           TextButton(
@@ -290,7 +290,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
                               builder: (context) => AlertDialog(
                                 title: Text(
                                   send.subject.isEmpty
-                                      ? '(Konu yok)'
+                                      ? l10nNow.noSubject2
                                       : send.subject,
                                 ),
                                 content: SingleChildScrollView(
@@ -301,12 +301,12 @@ class _OutboxScreenState extends State<OutboxScreen> {
                                 actions: [
                                   TextButton(
                                     onPressed: () => Navigator.pop(context),
-                                    child: const Text('Kapat'),
+                                    child: Text(l10nNow.close),
                                   ),
                                 ],
                               ),
                             ),
-                            child: const Text('İçeriği görüntüle'),
+                            child: Text(l10nNow.viewContent),
                           ),
                       ],
                     ),

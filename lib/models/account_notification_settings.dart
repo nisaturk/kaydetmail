@@ -1,13 +1,25 @@
-enum NotificationPrivacy {
-  full('Full', 'Tam', 'Gönderen, konu ve kısa önizleme'),
-  limited('Limited', 'Sınırlı', 'Gönderen ve konu'),
-  private('Private', 'Gizli', 'Yalnızca "Yeni e-posta"');
+import '../l10n/l10n.dart';
 
-  const NotificationPrivacy(this.backendValue, this.label, this.description);
+enum NotificationPrivacy {
+  full('Full'),
+  limited('Limited'),
+  private('Private');
+
+  const NotificationPrivacy(this.backendValue);
 
   final String backendValue;
-  final String label;
-  final String description;
+
+  String get label => switch (this) {
+    NotificationPrivacy.full => l10nNow.full,
+    NotificationPrivacy.limited => l10nNow.limited,
+    NotificationPrivacy.private => l10nNow.private,
+  };
+
+  String get description => switch (this) {
+    NotificationPrivacy.full => l10nNow.senderSubjectAndAShort,
+    NotificationPrivacy.limited => l10nNow.senderAndSubject,
+    NotificationPrivacy.private => l10nNow.onlyNewEmail,
+  };
 
   static NotificationPrivacy fromBackend(String? value) =>
       NotificationPrivacy.values.firstWhere(

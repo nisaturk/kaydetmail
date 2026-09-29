@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/mail_authentication.dart';
+import '../l10n/l10n.dart';
 
 class MailAuthenticationRow extends StatelessWidget {
   const MailAuthenticationRow({super.key, required this.authentication});
@@ -28,8 +29,8 @@ class MailAuthenticationRow extends StatelessWidget {
           alignment: Alignment.centerLeft,
           child: Text(
             authentication.authservId?.trim().isNotEmpty == true
-                ? 'Bu sonuçlar ${authentication.authservId} tarafından eklenen posta başlığından alınmıştır. Yalnızca bilgi amaçlıdır.'
-                : 'Bu sonuçlar posta başlığından alınmıştır. Yalnızca bilgi amaçlıdır.',
+                ? l10nNow.theseResultsComeFromThe(authentication.authservId!)
+                : l10nNow.theseResultsComeFromTheMailHeaderFor,
             style: TextStyle(fontSize: 12, color: secondary),
           ),
         ),
@@ -38,13 +39,13 @@ class MailAuthenticationRow extends StatelessWidget {
   }
 
   static String _label(String result) => switch (result) {
-    'pass' => 'geçti',
-    'fail' => 'başarısız',
-    'softfail' => 'kısmen başarısız',
-    'neutral' => 'nötr',
+    'pass' => l10nNow.pass,
+    'fail' => l10nNow.fail,
+    'softfail' => l10nNow.partialFail,
+    'neutral' => l10nNow.neutral,
     'none' => 'yok',
-    'temperror' => 'geçici hata',
-    'permerror' => 'kalıcı hata',
+    'temperror' => l10nNow.temporaryError,
+    'permerror' => l10nNow.permanentError,
     'policy' => 'politika',
     _ => result,
   };

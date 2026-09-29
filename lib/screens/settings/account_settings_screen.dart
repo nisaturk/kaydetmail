@@ -21,6 +21,7 @@ import 'contact_settings.dart';
 import 'label_settings.dart';
 import 'privacy_sections.dart';
 import 'settings_widgets.dart';
+import '../../l10n/l10n.dart';
 
 /// Everything that belongs to one mailbox, in one place: identity and
 /// status, storage, writing (signatures, reusable texts, labels, contacts),
@@ -44,8 +45,8 @@ class AccountSettingsScreen extends StatelessWidget {
         if (account == null) {
           // Removed or signed out while this page was open.
           return Scaffold(
-            appBar: AppBar(title: const Text('Hesap ayarları')),
-            body: const Center(child: Text('Hesap artık bağlı değil.')),
+            appBar: AppBar(title: Text(l10nNow.accountSettings)),
+            body: Center(child: Text(l10nNow.theAccountIsNoLonger)),
           );
         }
         return Scaffold(
@@ -58,38 +59,38 @@ class AccountSettingsScreen extends StatelessWidget {
             children: [
               _AccountHeader(account: account),
               AccountQuotaSection(accountId: accountId),
-              const SettingsSectionHeader('E-posta yazma'),
+              SettingsSectionHeader(l10nNow.composing),
               SettingsCategoryTile(
                 icon: LucideIcons.penLine,
-                title: 'İmzalar',
-                subtitle: 'E-posta imzalarını oluştur ve varsayılanını seç',
+                title: l10nNow.signatures,
+                subtitle: l10nNow.createEmailSignaturesAndChoose,
                 onTap: (ctx) =>
                     _push(ctx, (_) => SignaturesScreen(accountId: accountId)),
               ),
               SettingsCategoryTile(
                 icon: LucideIcons.text,
-                title: 'Hazır metinler',
-                subtitle: 'Tekrar kullanılan konu ve metinler',
+                title: l10nNow.savedTexts2,
+                subtitle: l10nNow.reusableSubjectsAndTexts,
                 onTap: (ctx) =>
                     _push(ctx, (_) => TemplatesScreen(accountId: accountId)),
               ),
               SettingsCategoryTile(
                 icon: LucideIcons.tag,
-                title: 'Etiketler',
-                subtitle: 'Etiket oluştur, düzenle, sil',
+                title: l10nNow.labels,
+                subtitle: l10nNow.createEditAndDeleteLabels,
                 page: (_) => [LabelsSection(accountId: accountId)],
               ),
               SettingsCategoryTile(
                 icon: LucideIcons.bookUser,
-                title: 'Kişiler',
-                subtitle: 'Yazarken önerilecek kişiler',
+                title: l10nNow.contacts,
+                subtitle: l10nNow.contactsSuggestedWhileTyping,
                 page: (_) => [ContactsSection(accountId: accountId)],
               ),
-              const SettingsSectionHeader('Posta kutusu'),
+              SettingsSectionHeader(l10nNow.mailbox),
               SettingsCategoryTile(
                 icon: LucideIcons.folder,
-                title: 'Klasörler',
-                subtitle: 'Klasör ağacı, roller ve eşitleme',
+                title: l10nNow.folders,
+                subtitle: l10nNow.folderTreeRolesAndSync,
                 onTap: (ctx) => _push(
                   ctx,
                   (_) => FolderManagerScreen(accountId: accountId),
@@ -97,15 +98,15 @@ class AccountSettingsScreen extends StatelessWidget {
               ),
               SettingsCategoryTile(
                 icon: LucideIcons.refreshCw,
-                title: 'Eşitleme',
-                subtitle: 'Klasör bazlı durum ve eşitlenecek klasörler',
+                title: l10nNow.syncLabel,
+                subtitle: l10nNow.perFolderStatusAndFolders,
                 onTap: (ctx) =>
                     _push(ctx, (_) => SyncStatusScreen(accountId: accountId)),
               ),
               SettingsCategoryTile(
                 icon: LucideIcons.bellRing,
-                title: 'Bildirimler',
-                subtitle: 'Klasör kapsamı ve kilit ekranı gizliliği',
+                title: l10nNow.notifications,
+                subtitle: l10nNow.folderScopeAndLockScreen,
                 onTap: (ctx) => _push(
                   ctx,
                   (_) => NotificationSettingsScreen(accountId: accountId),
@@ -113,21 +114,21 @@ class AccountSettingsScreen extends StatelessWidget {
               ),
               SettingsCategoryTile(
                 icon: LucideIcons.image,
-                title: 'Kayıtlı görsel tercihleri',
-                subtitle: 'Güvenilir gönderici ve alan adları',
+                title: l10nNow.savedImagePreferences,
+                subtitle: l10nNow.trustedSendersAndDomains,
                 onTap: (ctx) => _push(
                   ctx,
                   (_) => TrustedSendersScreen(accountId: accountId),
                 ),
               ),
-              const SettingsSectionHeader('Güvenlik'),
+              SettingsSectionHeader(l10nNow.security),
               SettingsCategoryTile(
                 icon: LucideIcons.smartphone,
-                title: 'Bağlı cihazlar',
-                subtitle: 'Bu hesaba giriş yapmış cihazlar ve oturumlar',
+                title: l10nNow.connectedDevices,
+                subtitle: l10nNow.devicesAndSessionsSignedIn,
                 page: (_) => [SessionsSection(accountId: accountId)],
               ),
-              const SettingsSectionHeader('Hesap'),
+              SettingsSectionHeader(l10nNow.account),
               _AccountActions(account: account),
             ],
           ),
@@ -144,9 +145,9 @@ class _AccountHeader extends StatelessWidget {
 
   static String? statusLabel(MailAccountStatus status) => switch (status) {
     MailAccountStatus.active => null,
-    MailAccountStatus.needsReauthentication => 'Bağlantısı kesildi',
-    MailAccountStatus.connectionError => 'Bağlantı sorunu',
-    MailAccountStatus.disabled => 'Devre dışı',
+    MailAccountStatus.needsReauthentication => l10nNow.disconnected,
+    MailAccountStatus.connectionError => l10nNow.connectionProblem,
+    MailAccountStatus.disabled => l10nNow.disabled,
   };
 
   Future<void> _reconnect(BuildContext context) async {
@@ -206,7 +207,7 @@ class _AccountHeader extends StatelessWidget {
             FilledButton.tonal(
               key: const Key('reconnect-account'),
               onPressed: () => _reconnect(context),
-              child: const Text('Şifreyi güncelle'),
+              child: Text(l10nNow.updatePassword),
             ),
         ],
       ),
@@ -236,7 +237,7 @@ class _AccountActions extends StatelessWidget {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Vazgeç'),
+              child: Text(l10nNow.cancel2),
             ),
             FilledButton(
               onPressed: () => Navigator.of(ctx).pop(true),
@@ -271,17 +272,14 @@ class _AccountActions extends StatelessWidget {
         ListTile(
           key: const Key('sign-out-account'),
           leading: Icon(LucideIcons.logOut, size: 22, color: destructive),
-          title: const Text('Bu cihazdan çıkış yap'),
-          subtitle: const Text(
-            'Hesap sunucuda kalır; yalnızca bu cihazdaki oturum ve veriler silinir.',
-          ),
+          title: Text(l10nNow.signOutOnThisDevice),
+          subtitle: Text(l10nNow.theAccountStaysOnThe),
           onTap: () async {
             if (!await _confirm(
               context,
-              title: 'Çıkış yapılsın mı?',
-              message:
-                  '${account.email} bu cihazdan çıkarılacak. Sunucudaki hesap ve e-postalar silinmez.',
-              action: 'Çıkış yap',
+              title: l10nNow.signOut,
+              message: l10nNow.willBeSignedOutOn(account.email),
+              action: l10nNow.signOut2,
             )) {
               return;
             }
@@ -297,18 +295,14 @@ class _AccountActions extends StatelessWidget {
           ListTile(
             key: const Key('remove-account'),
             leading: Icon(LucideIcons.trash2, size: 22, color: destructive),
-            title: const Text('Hesabı kaldır'),
-            subtitle: const Text(
-              'Bağlantıyı sunucudan siler; e-postalar bu uygulamadan kaldırılır.',
-            ),
+            title: Text(l10nNow.removeAccount),
+            subtitle: Text(l10nNow.deletesTheConnectionFromThe),
             onTap: () async {
               if (!await _confirm(
                 context,
-                title: 'Hesap kaldırılsın mı?',
-                message:
-                    '${account.email} kaldırılacak ve bu hesaba ait e-postalar '
-                    'uygulamadan silinecek. Emin misiniz?',
-                action: 'Kaldır',
+                title: l10nNow.removeAccount2,
+                message: l10nNow.willBeRemovedAndIts(account.email),
+                action: l10nNow.remove,
               )) {
                 return;
               }
@@ -362,19 +356,21 @@ class _AccountQuotaSectionState extends State<AccountQuotaSection> {
             size: 22,
             color: colors.secondaryText,
           ),
-          title: const Text('Depolama'),
+          title: Text(l10nNow.storage),
           subtitle: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                '${formatStorageSize(quota.usedBytes)} / '
-                '${formatStorageSize(quota.limitBytes)} kullanılıyor '
-                '(%${quota.usedPercent})',
+                l10nNow.ofUsed(
+                  formatStorageSize(quota.usedBytes),
+                  formatStorageSize(quota.limitBytes),
+                  quota.usedPercent,
+                ),
               ),
               const SizedBox(height: 6),
               LinearProgressIndicator(
                 value: quota.usedFraction,
-                semanticsLabel: 'Depolama kullanımı',
+                semanticsLabel: l10nNow.storageUsage,
                 semanticsValue: '${quota.usedPercent}',
               ),
             ],

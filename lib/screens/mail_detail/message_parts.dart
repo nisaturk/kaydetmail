@@ -11,6 +11,7 @@ import '../../services/attachment_auto_download_policy.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../attachment_preview_screen.dart';
+import '../../l10n/l10n.dart';
 
 class RecipientLine extends StatelessWidget {
   const RecipientLine({
@@ -178,18 +179,20 @@ class AttachmentTile extends StatelessWidget {
             LinearProgressIndicator(value: percent),
             const SizedBox(height: 4),
             Text(
-              percent == null ? 'İndiriliyor…' : '%${(percent * 100).round()}',
+              percent == null
+                  ? l10nNow.downloading
+                  : '%${(percent * 100).round()}',
             ),
           ],
         );
         action = IconButton(
-          tooltip: 'İndirmeyi iptal et',
+          tooltip: l10nNow.cancelDownload,
           onPressed: () =>
               repository.cancelAttachmentDownload(mailId, attachment),
           icon: const Icon(LucideIcons.x, size: 18),
         );
       } else if (state is AttachmentCompleted) {
-        status = const Text('Hazır');
+        status = Text(l10nNow.ready);
       } else if (state is AttachmentFailed) {
         status = Text(
           state.message,
@@ -197,21 +200,21 @@ class AttachmentTile extends StatelessWidget {
         );
         if (state.retryable) {
           action = IconButton(
-            tooltip: 'Tekrar dene',
+            tooltip: l10nNow.tryAgain,
             onPressed: () => _download(context),
             icon: const Icon(LucideIcons.rotateCw, size: 18),
           );
         }
       } else if (state is AttachmentCancelled) {
-        status = const Text('İndirme iptal edildi.');
+        status = Text(l10nNow.downloadCancelled);
         action = IconButton(
-          tooltip: 'Tekrar dene',
+          tooltip: l10nNow.tryAgain,
           onPressed: () => _download(context),
           icon: const Icon(LucideIcons.download, size: 18),
         );
       } else {
         action = IconButton(
-          tooltip: 'Eki indir',
+          tooltip: l10nNow.downloadAttachment,
           onPressed: () => _download(context),
           icon: const Icon(LucideIcons.download, size: 18),
         );

@@ -5,20 +5,28 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import '../models/account_notification_settings.dart';
 import 'api_client.dart';
 import 'api_exception.dart';
+import '../state/app_settings_controller.dart';
 import 'api_mail_service.dart';
 import 'token_store.dart';
+import '../l10n/l10n.dart';
 
 enum MailNotificationAction {
-  read('read', 'Okundu', 'read'),
-  archive('archive', 'Arşivle', 'archive'),
-  trash('trash', 'Sil', 'trash'),
-  reply('reply', 'Yanıtla', null);
+  read('read', 'read'),
+  archive('archive', 'archive'),
+  trash('trash', 'trash'),
+  reply('reply', null);
 
-  const MailNotificationAction(this.id, this.label, this.apiAction);
+  const MailNotificationAction(this.id, this.apiAction);
 
   final String id;
-  final String label;
   final String? apiAction;
+
+  String get label => switch (this) {
+    MailNotificationAction.read => l10nNow.read,
+    MailNotificationAction.archive => l10nNow.archive2,
+    MailNotificationAction.trash => l10nNow.delete,
+    MailNotificationAction.reply => l10nNow.reply,
+  };
 
   static MailNotificationAction? fromId(String? id) {
     for (final action in values) {
@@ -68,20 +76,20 @@ class MailNotification {
       return MailNotification(
         accountId: accountId,
         mailId: mailId,
-        title: snooze ? 'Ertelenen e-posta geri döndü' : 'Yeni e-posta',
+        title: snooze ? l10nNow.snoozedEmailIsBack : l10nNow.newEmail2,
         body: snooze
-            ? 'Ertelenen bir iletiniz gelen kutusuna döndü.'
-            : 'Yeni bir iletiniz var.',
+            ? l10nNow.aSnoozedMessageHasReturned
+            : l10nNow.youHaveANewMessage,
       );
     }
-    final subjectLine = subject ?? '(Konu yok)';
+    final subjectLine = subject ?? l10nNow.noSubject2;
     final details = privacy == NotificationPrivacy.full && preview != null
         ? '$subjectLine\n$preview'
         : subjectLine;
     return MailNotification(
       accountId: accountId,
       mailId: mailId,
-      title: snooze ? 'Ertelenen e-posta geri döndü' : sender ?? 'Yeni e-posta',
+      title: snooze ? l10nNow.snoozedEmailIsBack : sender ?? l10nNow.newEmail2,
       body: snooze && sender != null ? '$sender: $details' : details,
     );
   }
@@ -179,10 +187,10 @@ class MailNotifications {
     ],
   );
 
-  static const AndroidNotificationChannel channel = AndroidNotificationChannel(
+  static final AndroidNotificationChannel channel = AndroidNotificationChannel(
     'mail',
     'E-postalar',
-    description: 'Yeni e-posta ve hesap bildirimleri',
+    description: l10nNow.newEmailAndAccountNotifications,
     importance: Importance.high,
   );
 
@@ -277,7 +285,7 @@ class MailNotifications {
     MailNotificationDisplay display,
   ) => display.show(
     notification,
-    notice: '"${action.label}" yapılamadı, tekrar deneyin.',
+    notice: l10nNow.couldntDoTryAgain(action.label),
   );
 }
 
@@ -290,6 +298,8 @@ Future<void> mailNotificationActionHandler(
   if (notification == null || action == null || action.apiAction == null) {
     return;
   }
+  // This can run in a fresh background isolate with the default language.
+  await AppSettingsController.instance.loadLanguage();
   final plugin = FlutterLocalNotificationsPlugin();
   await MailNotifications.initialize(plugin);
   await MailNotifications.runAction(

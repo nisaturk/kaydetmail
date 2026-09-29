@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../theme/app_theme.dart';
+import '../l10n/l10n.dart';
 
 /// Asks before permanently deleting [count] mails — the server expunges
 /// them, so unlike moving to Trash there is no Undo afterwards.
@@ -12,19 +13,19 @@ Future<bool> confirmPermanentDelete(BuildContext context, int count) async {
           scrollable: true,
           title: Text(
             count == 1
-                ? 'E-posta kalıcı olarak silinsin mi?'
-                : '$count e-posta kalıcı olarak silinsin mi?',
+                ? l10nNow.permanentlyDeleteThisEmail
+                : l10nNow.permanentlyDeleteEmails(count),
           ),
-          content: const Text('Bu işlem geri alınamaz.'),
+          content: Text(l10nNow.thisActionCantBeUndone),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Vazgeç'),
+              child: Text(l10nNow.cancel2),
             ),
             TextButton(
               onPressed: () => Navigator.of(ctx).pop(true),
               child: Text(
-                'Kalıcı olarak sil',
+                l10nNow.deletePermanently,
                 style: TextStyle(color: AppTheme.colors(ctx).destructive),
               ),
             ),

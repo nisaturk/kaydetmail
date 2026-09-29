@@ -56,6 +56,7 @@ import 'api/session_registry.dart';
 import 'api/signature_module.dart';
 import 'api/template_module.dart';
 import 'mail_repository.dart';
+import '../l10n/l10n.dart';
 
 const _allMailSourceFolders = [
   MailFolder.inbox,
@@ -1550,7 +1551,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     final sender = current?.senderEmail.trim() ?? '';
     final at = sender.lastIndexOf('@');
     if (at <= 0 || at == sender.length - 1) {
-      throw ArgumentError('Gönderici adresi okunamadı.');
+      throw ArgumentError(l10nNow.theSenderAddressCouldntBe);
     }
     await session.mailService.addTrustedSender(
       kind,

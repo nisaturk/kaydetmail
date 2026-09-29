@@ -5,6 +5,7 @@ import '../../services/api_exception.dart';
 import '../../services/local_mail_flags_store.dart';
 import 'account_session.dart';
 import 'repository_context.dart';
+import '../../l10n/l10n.dart';
 
 /// Backend-owned labels with an offline queue: label CRUD per account and
 /// assigning labels to mails, optimistic with rollback.
@@ -28,11 +29,11 @@ class LabelModule {
     String? selfId,
   }) {
     final canonical = _canonicalName(name);
-    if (canonical.isEmpty) throw ArgumentError('Etiket adı boş olamaz.');
+    if (canonical.isEmpty) throw ArgumentError(l10nNow.labelNameCantBeEmpty);
     if (session.labels.any(
       (l) => l.id != selfId && _canonicalName(l.name) == canonical,
     )) {
-      throw ArgumentError('Bu isimde bir etiket zaten var.');
+      throw ArgumentError(l10nNow.aLabelWithThisName);
     }
   }
 
@@ -123,7 +124,7 @@ class LabelModule {
       );
     } on ApiException catch (e) {
       if (e.code == 'label_name_taken') {
-        throw ArgumentError('Bu isimde bir etiket zaten var.');
+        throw ArgumentError(l10nNow.aLabelWithThisName);
       }
       rethrow;
     }
@@ -157,7 +158,7 @@ class LabelModule {
       );
     } on ApiException catch (e) {
       if (e.code == 'label_name_taken') {
-        throw ArgumentError('Bu isimde bir etiket zaten var.');
+        throw ArgumentError(l10nNow.aLabelWithThisName);
       }
       rethrow;
     }

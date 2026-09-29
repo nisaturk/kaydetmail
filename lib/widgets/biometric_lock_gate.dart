@@ -7,6 +7,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 import '../state/app_settings_controller.dart';
 import '../theme/app_theme.dart';
 import '../utils/biometric_lock_policy.dart';
+import '../l10n/l10n.dart';
 
 /// Gates [child] behind a biometric/device-credential check when
 /// [AppSettingsController.biometricLockEnabled] is on — re-checked on cold
@@ -144,7 +145,7 @@ class _BiometricLockGateState extends State<BiometricLockGate>
         return;
       }
       final didAuthenticate = await _auth.authenticate(
-        localizedReason: 'Postalarınıza erişmek için kimliğinizi doğrulayın',
+        localizedReason: l10nNow.verifyYourIdentityToAccess,
         // Device passcode/pattern/PIN is an accepted fallback, not just
         // biometrics — a user without enrolled biometrics still has a way in.
         biometricOnly: false,
@@ -229,17 +230,14 @@ class _LockScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: AppTheme.space4),
                 Text(
-                  'Uygulama Kilitli',
+                  l10nNow.appLocked,
                   style: AppTheme.titleText.copyWith(color: colors.bodyText),
                 ),
                 const SizedBox(height: AppTheme.space2),
                 Text(
                   deviceUnsupported
-                      ? 'Cihazınızda parmak izi, yüz tanıma veya ekran kilidi '
-                            'tanımlı değil. Uygulama kilidi bu nedenle '
-                            'doğrulanamıyor.'
-                      : 'Devam etmek için parmak izi, yüz tanıma veya cihaz '
-                            'şifrenizle kimliğinizi doğrulayın.',
+                      ? l10nNow.noFingerprintFaceRecognitionOr
+                      : l10nNow.verifyYourIdentityWithYour,
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 14, color: colors.secondaryText),
                 ),
@@ -247,7 +245,7 @@ class _LockScreen extends StatelessWidget {
                 if (deviceUnsupported)
                   TextButton(
                     onPressed: onProceedAnyway,
-                    child: const Text('Yine de devam et'),
+                    child: Text(l10nNow.continueAnyway),
                   )
                 else
                   FilledButton.icon(
@@ -262,7 +260,7 @@ class _LockScreen extends StatelessWidget {
                             ),
                           )
                         : const Icon(LucideIcons.fingerprint, size: 18),
-                    label: const Text('Kilidi Aç'),
+                    label: Text(l10nNow.unlock),
                   ),
               ],
             ),

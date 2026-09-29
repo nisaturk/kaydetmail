@@ -37,7 +37,7 @@ mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Gönderen kimliği yüklenemedi: ${friendlyErrorMessage(error)}',
+            l10nNow.couldntLoadTheSenderIdentity(friendlyErrorMessage(error)),
           ),
         ),
       );
@@ -108,18 +108,16 @@ mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
       final replace = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Konuyu değiştir?'),
-          content: const Text(
-            'Mevcut konu hazır metindeki konuyla değiştirilecek.',
-          ),
+          title: Text(l10nNow.replaceTheSubject),
+          content: Text(l10nNow.theCurrentSubjectWillBe),
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(context, false),
-              child: const Text('Konuyu koru'),
+              child: Text(l10nNow.keepSubject),
             ),
             FilledButton(
               onPressed: () => Navigator.pop(context, true),
-              child: const Text('Değiştir'),
+              child: Text(l10nNow.replace),
             ),
           ],
         ),

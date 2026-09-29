@@ -10,6 +10,7 @@ import 'share_intake_io.dart'
 
 import '../models/email.dart';
 import '../screens/compose_screen.dart';
+import '../l10n/l10n.dart';
 
 /// Opens the compose screen for content shared into the app from the OS share
 /// sheet (files/images become attachments, text/links become the body).
@@ -67,8 +68,7 @@ class ShareIntake {
   }
 
   static String _failureMessage(List<String> names) =>
-      'Paylaşılan ${names.length == 1 ? 'dosya' : '${names.length} dosya'} '
-      'okunamadı: ${names.join(', ')}';
+      l10nNow.couldntReadSharedFiles(names.length, names.join(', '));
 }
 
 typedef ShareDraft = ({

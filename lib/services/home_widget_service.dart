@@ -4,6 +4,7 @@ import 'package:home_widget/home_widget.dart';
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../repositories/mail_repository.dart';
+import '../l10n/l10n.dart';
 
 /// Pushes inbox data to the native home-screen widgets: Android's
 /// `MailWidgetProvider` (`android/app/src/main/kotlin/.../MailWidgetProvider.kt`)
@@ -144,7 +145,7 @@ class HomeWidgetService {
         ? email.senderName
         : email.senderEmail;
     final subject = email.subject.trim().isEmpty
-        ? '(Konu yok)'
+        ? l10nNow.noSubject2
         : email.subject.trim();
     final line = '$sender — $subject';
     return line.length > 60 ? '${line.substring(0, 60).trimRight()}…' : line;

@@ -16,8 +16,8 @@ mixin _AttachmentsMixin on _ComposeStateBase {
       SnackBar(
         content: Text(
           failed
-              ? 'Bir ek indirilemedi. Tekrar deneyin veya kaldırın.'
-              : 'Ekler hazırlanıyor, lütfen bekleyin.',
+              ? l10nNow.anAttachmentCouldntBeDownloaded
+              : l10nNow.attachmentsAreBeingPreparedPlease,
         ),
       ),
     );
@@ -41,19 +41,19 @@ mixin _AttachmentsMixin on _ComposeStateBase {
             ListTile(
               key: const Key('attach-source-file'),
               leading: const Icon(LucideIcons.file),
-              title: const Text('Dosya seç'),
+              title: Text(l10nNow.chooseFile),
               onTap: () => Navigator.pop(ctx, AttachmentSource.file),
             ),
             ListTile(
               key: const Key('attach-source-gallery'),
               leading: const Icon(LucideIcons.image),
-              title: const Text('Fotoğraf seç'),
+              title: Text(l10nNow.choosePhoto),
               onTap: () => Navigator.pop(ctx, AttachmentSource.gallery),
             ),
             ListTile(
               key: const Key('attach-source-camera'),
               leading: const Icon(LucideIcons.camera),
-              title: const Text('Kamera'),
+              title: Text(l10nNow.camera),
               onTap: () => Navigator.pop(ctx, AttachmentSource.camera),
             ),
           ],
@@ -81,8 +81,8 @@ mixin _AttachmentsMixin on _ComposeStateBase {
           SnackBar(
             content: Text(
               source == AttachmentSource.camera
-                  ? 'Kameraya erişilemedi. İzinleri kontrol edin veya dosya seçin.'
-                  : 'Fotoğraflara erişilemedi. İzinleri kontrol edin veya dosya seçin.',
+                  ? l10nNow.couldntAccessTheCameraCheck
+                  : l10nNow.couldntAccessPhotosCheckPermissions,
             ),
           ),
         );
@@ -93,8 +93,9 @@ mixin _AttachmentsMixin on _ComposeStateBase {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              '${source == AttachmentSource.camera ? 'Fotoğraf eklenemedi' : 'Fotoğraflar eklenemedi'}: '
-              '${friendlyErrorMessage(error)}',
+              source == AttachmentSource.camera
+                  ? l10nNow.couldntAddPhoto(friendlyErrorMessage(error))
+                  : l10nNow.couldntAddPhotos(friendlyErrorMessage(error)),
             ),
           ),
         );
@@ -141,16 +142,16 @@ mixin _AttachmentsMixin on _ComposeStateBase {
   Future<ImageResizeChoice?> _chooseResize() => showDialog<ImageResizeChoice>(
     context: context,
     builder: (context) => SimpleDialog(
-      title: const Text('Görsel boyutu'),
+      title: Text(l10nNow.imageSize),
       children: [
         for (final choice in ImageResizeChoice.values)
           SimpleDialogOption(
             onPressed: () => Navigator.pop(context, choice),
             child: Text(switch (choice) {
-              ImageResizeChoice.original => 'Orijinal',
-              ImageResizeChoice.large => 'Büyük (2048 px)',
-              ImageResizeChoice.medium => 'Orta (1280 px)',
-              ImageResizeChoice.small => 'Küçük (640 px)',
+              ImageResizeChoice.original => l10nNow.original,
+              ImageResizeChoice.large => l10nNow.large2048Px,
+              ImageResizeChoice.medium => l10nNow.medium1280Px,
+              ImageResizeChoice.small => l10nNow.small640Px,
             }),
           ),
       ],
@@ -193,7 +194,7 @@ mixin _AttachmentsMixin on _ComposeStateBase {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Görseller hazırlanıyor… ($completed/${images.length})',
+                    l10nNow.preparingImages(completed, images.length),
                   ),
                   duration: const Duration(minutes: 1),
                 ),
@@ -204,7 +205,7 @@ mixin _AttachmentsMixin on _ComposeStateBase {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    '${attachment.name}: Görsel küçültülemedi; özgün dosya kullanılacak.',
+                    l10nNow.couldntResizeTheImageThe(attachment.name),
                   ),
                 ),
               );
@@ -256,7 +257,7 @@ mixin _AttachmentsMixin on _ComposeStateBase {
         setState(() {
           _attachmentIssues[attachment] = (
             status: AttachmentIssue.failed,
-            error: 'Ek indirilemedi.',
+            error: l10nNow.theAttachmentCouldntBeDownloaded2,
           );
         });
       }

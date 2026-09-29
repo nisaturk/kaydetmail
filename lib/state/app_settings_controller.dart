@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' show Locale;
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show ThemeMode;
@@ -7,92 +8,124 @@ import '../services/app_preferences_store.dart';
 import '../services/notification_settings_store.dart';
 import '../services/screen_protection_service.dart';
 import '../services/server_address_store.dart';
+import '../l10n/l10n.dart';
 
 /// How often the mailbox refreshes itself in the background while the app
 /// is open. `manual` ([duration] null) means only pull-to-refresh, push
 /// notifications and app-open trigger a refresh.
 enum AttachmentAutoDownloadMode {
-  off('Kapalı'),
-  wifiOnly('Yalnız Wi-Fi'),
-  wifiAndMobile('Wi-Fi ve mobil veri');
+  off,
+  wifiOnly,
+  wifiAndMobile;
 
-  const AttachmentAutoDownloadMode(this.label);
-
-  final String label;
+  String get label => switch (this) {
+    AttachmentAutoDownloadMode.off => l10nNow.off,
+    AttachmentAutoDownloadMode.wifiOnly => l10nNow.wiFiOnly,
+    AttachmentAutoDownloadMode.wifiAndMobile => l10nNow.wiFiAndMobileData,
+  };
 }
 
 enum AttachmentAutoDownloadLimit {
-  oneMb('1 MB', 1024 * 1024),
-  fiveMb('5 MB', 5 * 1024 * 1024),
-  tenMb('10 MB', 10 * 1024 * 1024);
+  oneMb(1024 * 1024),
+  fiveMb(5 * 1024 * 1024),
+  tenMb(10 * 1024 * 1024);
 
-  const AttachmentAutoDownloadLimit(this.label, this.bytes);
+  const AttachmentAutoDownloadLimit(this.bytes);
 
-  final String label;
   final int bytes;
+
+  String get label => switch (this) {
+    AttachmentAutoDownloadLimit.oneMb => l10nNow.n1Mb,
+    AttachmentAutoDownloadLimit.fiveMb => l10nNow.n5Mb,
+    AttachmentAutoDownloadLimit.tenMb => l10nNow.n10Mb,
+  };
 }
 
 enum UndoSendDelay {
-  off('Kapalı', null),
-  seconds5('5 saniye', Duration(seconds: 5)),
-  seconds10('10 saniye', Duration(seconds: 10)),
-  seconds20('20 saniye', Duration(seconds: 20)),
-  seconds30('30 saniye', Duration(seconds: 30));
+  off(null),
+  seconds5(Duration(seconds: 5)),
+  seconds10(Duration(seconds: 10)),
+  seconds20(Duration(seconds: 20)),
+  seconds30(Duration(seconds: 30));
 
-  const UndoSendDelay(this.label, this.duration);
-
-  final String label;
+  const UndoSendDelay(this.duration);
 
   final Duration? duration;
+
+  String get label => switch (this) {
+    UndoSendDelay.off => l10nNow.off,
+    UndoSendDelay.seconds5 => l10nNow.n5Seconds,
+    UndoSendDelay.seconds10 => l10nNow.n10Seconds,
+    UndoSendDelay.seconds20 => l10nNow.n20Seconds,
+    UndoSendDelay.seconds30 => l10nNow.n30Seconds,
+  };
 }
 
 enum SwipeGesture {
-  archive('Arşivle'),
-  trash('Sil'),
-  toggleRead('Okundu / okunmadı'),
-  star('Yıldızla / yıldızı kaldır'),
-  snooze('Ertele'),
-  none('Kapalı');
+  archive,
+  trash,
+  toggleRead,
+  star,
+  snooze,
+  none;
 
-  const SwipeGesture(this.label);
-
-  final String label;
+  String get label => switch (this) {
+    SwipeGesture.archive => l10nNow.archive2,
+    SwipeGesture.trash => l10nNow.delete,
+    SwipeGesture.toggleRead => l10nNow.readUnread,
+    SwipeGesture.star => l10nNow.starRemoveStar,
+    SwipeGesture.snooze => l10nNow.snooze,
+    SwipeGesture.none => l10nNow.off,
+  };
 }
 
 enum SyncNetworkPolicy {
-  wifiAndMobile('Wi-Fi ve mobil veri'),
-  wifiOnly('Yalnız Wi-Fi');
+  wifiAndMobile,
+  wifiOnly;
 
-  const SyncNetworkPolicy(this.label);
-
-  final String label;
+  String get label => switch (this) {
+    SyncNetworkPolicy.wifiAndMobile => l10nNow.wiFiAndMobileData,
+    SyncNetworkPolicy.wifiOnly => l10nNow.wiFiOnly,
+  };
 }
 
 enum SyncInterval {
-  manual('Manuel', null),
-  every5Minutes('Her 5 dakikada bir', Duration(minutes: 5)),
-  every15Minutes('Her 15 dakikada bir', Duration(minutes: 15)),
-  every30Minutes('Her 30 dakikada bir', Duration(minutes: 30)),
-  everyHour('Her saat', Duration(hours: 1));
+  manual(null),
+  every5Minutes(Duration(minutes: 5)),
+  every15Minutes(Duration(minutes: 15)),
+  every30Minutes(Duration(minutes: 30)),
+  everyHour(Duration(hours: 1));
 
-  const SyncInterval(this.label, this.duration);
-
-  final String label;
+  const SyncInterval(this.duration);
 
   /// Background refresh period, or null for [manual].
   final Duration? duration;
+
+  String get label => switch (this) {
+    SyncInterval.manual => l10nNow.manual,
+    SyncInterval.every5Minutes => l10nNow.every5Minutes,
+    SyncInterval.every15Minutes => l10nNow.every15Minutes,
+    SyncInterval.every30Minutes => l10nNow.every30Minutes,
+    SyncInterval.everyHour => l10nNow.everyHour,
+  };
 }
 
 enum BiometricLockTimeout {
-  immediately('Hemen', Duration.zero),
-  oneMinute('1 dakika sonra', Duration(minutes: 1)),
-  fiveMinutes('5 dakika sonra', Duration(minutes: 5)),
-  fifteenMinutes('15 dakika sonra', Duration(minutes: 15));
+  immediately(Duration.zero),
+  oneMinute(Duration(minutes: 1)),
+  fiveMinutes(Duration(minutes: 5)),
+  fifteenMinutes(Duration(minutes: 15));
 
-  const BiometricLockTimeout(this.label, this.duration);
+  const BiometricLockTimeout(this.duration);
 
-  final String label;
   final Duration duration;
+
+  String get label => switch (this) {
+    BiometricLockTimeout.immediately => l10nNow.immediately,
+    BiometricLockTimeout.oneMinute => l10nNow.after1Minute,
+    BiometricLockTimeout.fiveMinutes => l10nNow.after5Minutes,
+    BiometricLockTimeout.fifteenMinutes => l10nNow.after15Minutes,
+  };
 }
 
 /// App-level settings state.
@@ -113,6 +146,7 @@ class AppSettingsController extends ChangeNotifier {
   bool _swipeDeleteEnabled = true;
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
+  Locale _locale = defaultLocale;
   bool _biometricLockEnabled = false;
   bool _screenProtectionEnabled = false;
   BiometricLockTimeout _biometricLockTimeout = BiometricLockTimeout.immediately;
@@ -152,6 +186,13 @@ class AppSettingsController extends ChangeNotifier {
   /// override it. Defaults to `system` — the palette itself never changes
   /// (grayscale by design), only which end of it is the background.
   ThemeMode get themeMode => _themeMode;
+
+  /// Turkish is the default; English is the only other supported language.
+  static const defaultLocale = Locale('tr');
+  static const supportedLocales = [Locale('tr'), Locale('en')];
+
+  /// The app's display language, chosen in Settings → Language.
+  Locale get locale => _locale;
 
   AttachmentAutoDownloadMode get attachmentAutoDownloadMode =>
       _attachmentAutoDownloadMode;
@@ -275,6 +316,13 @@ class AppSettingsController extends ChangeNotifier {
     _biometricLockTimeout = value;
     notifyListeners();
     unawaited(AppPreferencesStore.saveBiometricLockTimeout(value.name));
+  }
+
+  set locale(Locale value) {
+    if (_locale == value || !supportedLocales.contains(value)) return;
+    _locale = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveLanguage(value.languageCode));
   }
 
   set themeMode(ThemeMode value) {
@@ -410,6 +458,18 @@ class AppSettingsController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Loads the persisted language. Awaited before `runApp` like the theme so
+  /// the first frame is already in the right language.
+  Future<void> loadLanguage() async {
+    final saved = await AppPreferencesStore.loadLanguage();
+    final loaded = supportedLocales
+        .where((locale) => locale.languageCode == saved)
+        .firstOrNull;
+    if (loaded == null || loaded == _locale) return;
+    _locale = loaded;
+    notifyListeners();
+  }
+
   /// Validates, normalizes and persists a new server base URL. Throws
   /// [ArgumentError] (Turkish message) when [raw] is not a usable absolute
   /// http/https URL.
@@ -432,6 +492,7 @@ class AppSettingsController extends ChangeNotifier {
       .._swipeDeleteEnabled = true
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
+      .._locale = defaultLocale
       .._biometricLockEnabled = false
       .._screenProtectionEnabled = false
       .._biometricLockTimeout = BiometricLockTimeout.immediately

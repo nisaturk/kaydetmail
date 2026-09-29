@@ -10,9 +10,8 @@ mixin _MailActionsMixin on _MailDetailStateBase, _ThreadLoadMixin, _ReplyMixin {
         .where((email) => email.isPinned && email.accountId == accountId)
         .length;
     if (pinnedInAccount >= MailRepository.maxPinnedMails) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('En fazla 3 mail sabitlenebilir.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.youCanPinAtMost)));
       return false;
     }
     return true;
@@ -74,7 +73,7 @@ mixin _MailActionsMixin on _MailDetailStateBase, _ThreadLoadMixin, _ReplyMixin {
         : _repo.moveToFolder([email.id], target.folder!);
     _watchBackgroundMutation(
       operation,
-      successMessage: 'E-posta ${target.label} klasörüne taşındı.',
+      successMessage: l10nNow.emailMovedTo(target.label),
     );
     unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
   }
@@ -106,21 +105,20 @@ mixin _MailActionsMixin on _MailDetailStateBase, _ThreadLoadMixin, _ReplyMixin {
     switch (email.folder) {
       case MailFolder.trash:
         return IconButton(
-          onPressed: () => _moveToInbox('E-posta geri yüklendi.'),
-          tooltip: 'Geri yükle',
+          onPressed: () => _moveToInbox(l10nNow.emailRestored),
+          tooltip: l10nNow.restore2,
           icon: const Icon(LucideIcons.rotateCcw),
         );
       case MailFolder.spam:
         return IconButton(
-          onPressed: () =>
-              _moveToInbox('E-posta spam değil olarak işaretlendi.'),
-          tooltip: 'Spam değil',
+          onPressed: () => _moveToInbox(l10nNow.emailMarkedAsNotSpam),
+          tooltip: l10nNow.notSpam,
           icon: const Icon(LucideIcons.shieldOff),
         );
       case MailFolder.archive:
         return IconButton(
-          onPressed: () => _moveToInbox('E-posta arşivden çıkarıldı.'),
-          tooltip: 'Arşivden çıkar',
+          onPressed: () => _moveToInbox(l10nNow.emailUnarchived),
+          tooltip: l10nNow.unarchive,
           icon: const Icon(LucideIcons.archiveRestore),
         );
       default:
@@ -139,14 +137,14 @@ mixin _MailActionsMixin on _MailDetailStateBase, _ThreadLoadMixin, _ReplyMixin {
       await _repo.deletePermanently(ids);
       if (!mounted) return;
       messenger.showSnackBar(
-        const SnackBar(content: Text('E-posta kalıcı olarak silindi.')),
+        SnackBar(content: Text(l10nNow.emailPermanentlyDeleted)),
       );
       await Navigator.of(context).maybePop();
     } catch (error) {
       if (messenger.mounted) {
         messenger.showSnackBar(
           SnackBar(
-            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
+            content: Text(l10nNow.actionFailed(friendlyErrorMessage(error))),
           ),
         );
       }

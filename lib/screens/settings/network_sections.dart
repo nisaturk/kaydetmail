@@ -11,6 +11,7 @@ import '../../state/app_settings_controller.dart';
 import '../../theme/app_theme.dart';
 import '../../utils/error_messages.dart';
 import '../../widgets/server_address_dialog.dart';
+import '../../l10n/l10n.dart';
 
 enum _ApiHealthStatus { checking, healthy, unhealthy }
 
@@ -80,7 +81,7 @@ class _ServerSectionState extends State<ServerSection> {
             size: 20,
             color: AppTheme.colors(context).secondaryText,
           ),
-          title: const Text('Sunucu adresi'),
+          title: Text(l10nNow.serverAddress),
           subtitle: Text(
             settings.serverBaseUrl,
             maxLines: 1,
@@ -105,18 +106,18 @@ class _ServerSectionState extends State<ServerSection> {
                       ? AppTheme.colors(context).success
                       : Theme.of(context).colorScheme.error,
                 ),
-          title: const Text('API bağlantısı'),
+          title: Text(l10nNow.apiConnection),
           subtitle: Text(
             checking
-                ? 'Bağlantı kontrol ediliyor…'
+                ? l10nNow.checkingConnection
                 : healthy
-                ? 'Sunucu ve servisler hazır'
-                : 'Bağlantı kurulamadı',
+                ? l10nNow.serverAndServicesAreReady
+                : l10nNow.couldntConnect,
           ),
           trailing: checking
               ? null
               : IconButton(
-                  tooltip: 'Bağlantıyı yeniden kontrol et',
+                  tooltip: l10nNow.checkConnectionAgain,
                   onPressed: _checkHealth,
                   icon: const Icon(LucideIcons.refreshCw, size: 18),
                 ),
@@ -133,18 +134,18 @@ class NetworkSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      const SettingsGroup(
-        title: 'Senkronizasyon',
+      SettingsGroup(
+        title: l10nNow.sync,
         icon: LucideIcons.refreshCw,
         child: SyncSection(),
       ),
       SettingsGroup(
-        title: 'Ekler',
+        title: l10nNow.attachments,
         icon: LucideIcons.paperclip,
         child: const AttachmentSettingsSection(),
       ),
-      const SettingsGroup(
-        title: 'Sunucu bağlantısı',
+      SettingsGroup(
+        title: l10nNow.serverConnection,
         icon: LucideIcons.server,
         child: ServerSection(),
       ),
@@ -165,10 +166,7 @@ class SyncSection extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: Text(
-            'Bu ayar yalnızca uygulama açıkken görünen listeyi ne sıklıkla '
-            'yenileyeceğinizi belirler. Sunucu, bu ayardan bağımsız olarak '
-            'e-postalarınızı düzenli aralıklarla arka planda zaten '
-            'senkronize eder; yeni posta bildirimleri bu ayarı beklemez.',
+            l10nNow.thisSettingOnlyControlsHow,
             style: TextStyle(fontSize: 12.5, color: secondaryText),
           ),
         ),
@@ -185,7 +183,7 @@ class SyncSection extends StatelessWidget {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Text(
-            'Otomatik yenileme ağı',
+            l10nNow.autoRefreshNetwork,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -205,11 +203,8 @@ class SyncSection extends StatelessWidget {
           ),
         SwitchListTile(
           dense: true,
-          title: const Text('Pil tasarrufunda duraklat'),
-          subtitle: const Text(
-            'Pil tasarrufu açıkken otomatik yenileme yapılmaz; aşağı çekerek '
-            'yenileme ve bildirimler çalışmaya devam eder.',
-          ),
+          title: Text(l10nNow.pauseOnBatterySaver),
+          subtitle: Text(l10nNow.whenBatterySaverIsOn),
           value: settings.pauseSyncOnBatterySaver,
           onChanged: (v) => settings.pauseSyncOnBatterySaver = v,
         ),
@@ -255,16 +250,16 @@ class _AttachmentSettingsSectionState extends State<AttachmentSettingsSection> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Ek önbelleğini temizle?'),
-        content: Text('$_sizeLabel boyutundaki indirilen ekler silinecek.'),
+        title: Text(l10nNow.clearAttachmentCache),
+        content: Text(l10nNow.downloadedAttachmentsTakingUpWill(_sizeLabel)),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(context, false),
-            child: const Text('Vazgeç'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.pop(context, true),
-            child: const Text('Temizle'),
+            child: Text(l10nNow.clear),
           ),
         ],
       ),
@@ -275,9 +270,9 @@ class _AttachmentSettingsSectionState extends State<AttachmentSettingsSection> {
       await AppConfig.mailRepository.clearAttachmentCache();
       await _loadSize();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Ek önbelleği temizlendi.')),
-        );
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(l10nNow.attachmentCacheCleared)));
       }
     } catch (error) {
       if (mounted) setState(() => _error = friendlyErrorMessage(error));
@@ -301,7 +296,7 @@ class _AttachmentSettingsSectionState extends State<AttachmentSettingsSection> {
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
           child: Text(
-            'Ekler yalnızca posta açıldığında, seçilen ağda ve boyut sınırının altındaysa otomatik indirilir.',
+            l10nNow.attachmentsAreDownloadedAutomaticallyOnly,
             style: TextStyle(fontSize: 12.5, color: secondary),
           ),
         ),
@@ -318,7 +313,7 @@ class _AttachmentSettingsSectionState extends State<AttachmentSettingsSection> {
         for (final limit in AttachmentAutoDownloadLimit.values)
           ListTile(
             dense: true,
-            title: Text('Otomatik indirme sınırı: ${limit.label}'),
+            title: Text(l10nNow.autoDownloadLimit(limit.label)),
             trailing: limit == settings.attachmentAutoDownloadLimit
                 ? const Icon(LucideIcons.check, size: 20)
                 : null,
@@ -328,18 +323,20 @@ class _AttachmentSettingsSectionState extends State<AttachmentSettingsSection> {
         ListTile(
           key: const Key('clear-attachment-cache'),
           leading: Icon(LucideIcons.trash2, size: 20, color: secondary),
-          title: const Text('Ek önbelleğini temizle'),
+          title: Text(l10nNow.clearAttachmentCache2),
           subtitle: _error != null
               ? Row(
                   children: [
                     Expanded(child: Text(_error!)),
                     TextButton(
                       onPressed: _loadSize,
-                      child: const Text('Tekrar dene'),
+                      child: Text(l10nNow.tryAgain),
                     ),
                   ],
                 )
-              : Text(_cacheBytes == null ? 'Boyut hesaplanıyor…' : _sizeLabel),
+              : Text(
+                  _cacheBytes == null ? l10nNow.calculatingSize : _sizeLabel,
+                ),
           trailing: _busy || _cacheBytes == null
               ? const SizedBox.square(
                   dimension: 18,

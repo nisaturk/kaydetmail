@@ -1,5 +1,7 @@
 import 'package:flutter/foundation.dart';
 
+import '../l10n/l10n.dart';
+
 /// Which provider a connected account belongs to.
 ///
 /// Set from the backend when known ([fromBackend]); otherwise inferred from
@@ -15,7 +17,7 @@ enum AccountProvider {
   String get label => switch (this) {
     AccountProvider.google => 'Google',
     AccountProvider.microsoft => 'Microsoft',
-    AccountProvider.other => 'Diğer',
+    AccountProvider.other => l10nNow.other,
   };
 
   /// Infers the provider from an email address. Pure function so tests and

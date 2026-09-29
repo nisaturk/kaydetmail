@@ -9,6 +9,7 @@ import 'package:printing/printing.dart';
 
 import '../models/email.dart';
 import 'date_format.dart';
+import '../l10n/l10n.dart';
 
 /// Renders [email] (subject, from, to/cc, date, body, attachment list) as a
 /// PDF document — a utility export, not a branded one: system (base14)
@@ -37,18 +38,23 @@ Future<Uint8List> buildMailPdf(Email email) async {
       margin: const pw.EdgeInsets.all(36),
       build: (context) => [
         pw.Text(
-          email.subject.trim().isEmpty ? '(Konu yok)' : email.subject,
+          email.subject.trim().isEmpty ? l10nNow.noSubject2 : email.subject,
           style: pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
         ),
         pw.SizedBox(height: 14),
         _field(
-          'Kimden',
+          l10nNow.from,
           '${email.senderName} <${email.senderEmail}>',
           labelStyle,
           valueStyle,
         ),
         if (email.recipients.isNotEmpty)
-          _field('Kime', email.recipients.join(', '), labelStyle, valueStyle),
+          _field(
+            l10nNow.to,
+            email.recipients.join(', '),
+            labelStyle,
+            valueStyle,
+          ),
         if (email.cc.isNotEmpty)
           _field('Cc', email.cc.join(', '), labelStyle, valueStyle),
         _field(
@@ -100,7 +106,7 @@ List<pw.Widget> _buildAttachmentsSection(Email email, pw.TextStyle labelStyle) {
     pw.SizedBox(height: 16),
     pw.Divider(color: PdfColors.grey400),
     pw.SizedBox(height: 12),
-    pw.Text('Ekler:', style: labelStyle),
+    pw.Text(l10nNow.attachments2, style: labelStyle),
     pw.SizedBox(height: 6),
     for (final attachment in email.attachments)
       pw.Padding(

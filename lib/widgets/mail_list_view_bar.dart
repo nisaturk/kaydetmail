@@ -3,6 +3,7 @@ import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../models/mail_list_view.dart';
 import '../theme/app_theme.dart';
+import '../l10n/l10n.dart';
 
 /// Filter chips plus a sort menu shown above a mail list.
 class MailListViewBar extends StatelessWidget {
@@ -20,18 +21,18 @@ class MailListViewBar extends StatelessWidget {
   final ValueChanged<MailListSort> onSortChanged;
 
   static String filterLabel(MailListFilter filter) => switch (filter) {
-    MailListFilter.all => 'Tümü',
-    MailListFilter.unread => 'Okunmamış',
-    MailListFilter.starred => 'Yıldızlı',
-    MailListFilter.attachments => 'Ekli',
+    MailListFilter.all => l10nNow.all,
+    MailListFilter.unread => l10nNow.unread4,
+    MailListFilter.starred => l10nNow.starred2,
+    MailListFilter.attachments => l10nNow.attachments3,
   };
 
   static String sortLabel(MailListSort sort) => switch (sort) {
-    MailListSort.newest => 'En yeni önce',
-    MailListSort.oldest => 'En eski önce',
-    MailListSort.unreadFirst => 'Okunmamışlar önce',
-    MailListSort.sender => 'Gönderene göre (A-Z)',
-    MailListSort.subject => 'Konuya göre (A-Z)',
+    MailListSort.newest => l10nNow.newestFirst,
+    MailListSort.oldest => l10nNow.oldestFirst,
+    MailListSort.unreadFirst => l10nNow.unreadFirst,
+    MailListSort.sender => l10nNow.bySenderAZ,
+    MailListSort.subject => l10nNow.bySubjectAZ,
   };
 
   @override
@@ -66,7 +67,7 @@ class MailListViewBar extends StatelessWidget {
           ),
           PopupMenuButton<MailListSort>(
             key: const Key('mail-sort-menu'),
-            tooltip: 'Sırala',
+            tooltip: l10nNow.sort,
             icon: Icon(
               LucideIcons.arrowUpDown,
               size: 20,

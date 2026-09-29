@@ -13,6 +13,7 @@ import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../utils/error_messages.dart';
 import 'outbox_store.dart';
+import '../l10n/l10n.dart';
 
 @immutable
 class SendProgress {
@@ -294,7 +295,7 @@ class PendingSendQueue with WidgetsBindingObserver {
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              'Giden Kutusu kaydedilemedi: ${friendlyErrorMessage(error)}',
+              l10nNow.couldntSaveToTheOutbox(friendlyErrorMessage(error)),
             ),
           ),
         );
@@ -337,7 +338,7 @@ class PendingSendQueue with WidgetsBindingObserver {
                 ..removeCurrentSnackBar()
                 ..showSnackBar(
                   SnackBar(
-                    content: Text('Ek yükleniyor: $percent%'),
+                    content: Text(l10nNow.uploadingAttachment(percent)),
                     duration: const Duration(seconds: 3),
                   ),
                 );
@@ -387,7 +388,7 @@ class PendingSendQueue with WidgetsBindingObserver {
         send.id,
         status,
         error: uploadCancelled
-            ? 'Gönderim iptal edildi.'
+            ? l10nNow.sendCancelled
             : friendlyErrorMessage(error),
       );
       if (networkUnavailable) _scheduleNetworkRetry();
@@ -396,12 +397,12 @@ class PendingSendQueue with WidgetsBindingObserver {
           SnackBar(
             content: Text(
               uploadCancelled
-                  ? 'Gönderim iptal edildi.'
+                  ? l10nNow.sendCancelled
                   : networkUnavailable
-                  ? 'İnternet bağlantısı yok. Bağlantı gelince otomatik gönderilecek.'
+                  ? l10nNow.noInternetConnectionItWillBeSentAutomatically
                   : uncertain
-                  ? 'Mesaj gönderilmiş olabilir. Giden Kutusu ve Gönderilenler’i kontrol edin.'
-                  : 'Gönderilemedi. Mesaj Giden Kutusu’nda saklandı.',
+                  ? l10nNow.theMessageMayHaveBeen
+                  : l10nNow.couldntSendTheMessageWas,
             ),
           ),
         );
@@ -561,7 +562,7 @@ class PendingSendQueue with WidgetsBindingObserver {
         store.updateStatus(
           item.send.id,
           OutboxStatus.uncertain,
-          error: 'Mesaj gönderilmiş olabilir. Gönderilenler’i kontrol edin.',
+          error: l10nNow.theMessageMayHaveBeenSentCheckSent,
         );
       } else if (item.status == OutboxStatus.pending) {
         final remaining = item.undoUntil.difference(DateTime.now());

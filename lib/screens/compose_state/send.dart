@@ -17,9 +17,8 @@ mixin _SendMixin
       _commitPendingRecipient(_bccRecipients, _bccInputController);
     });
     if (_toRecipients.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('En az bir alıcı yazmalısınız.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.youMustEnterAtLeast)));
       _toFocus.requestFocus();
       return false;
     }
@@ -30,11 +29,7 @@ mixin _SendMixin
     ];
     if (allRecipients.any((r) => !r.valid)) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Geçersiz e-posta adreslerini düzeltip tekrar deneyin.',
-          ),
-        ),
+        SnackBar(content: Text(l10nNow.fixTheInvalidEmailAddresses)),
       );
       _toFocus.requestFocus();
       return false;
@@ -98,7 +93,7 @@ mixin _SendMixin
         messenger.showSnackBar(
           SnackBar(
             content: Text(
-              'Gönderi kaydedilemedi: ${friendlyErrorMessage(error)}',
+              l10nNow.couldntSaveTheMessage(friendlyErrorMessage(error)),
             ),
           ),
         );
@@ -115,7 +110,7 @@ mixin _SendMixin
           duration: undoWindow,
           content: UndoSendSnackContent(duration: undoWindow),
           action: SnackBarAction(
-            label: 'Geri Al',
+            label: l10nNow.undo,
             onPressed: () {
               if (!PendingSendQueue.instance.cancel(pending.id)) return;
               navigator.push(
@@ -164,8 +159,8 @@ mixin _SendMixin
         SnackBar(
           content: Text(
             _requestReadReceipt
-                ? 'Alıcılardan okundu bilgisi istenecek.'
-                : 'Okundu bilgisi istenmeyecek.',
+                ? l10nNow.aReadReceiptWillBe
+                : l10nNow.aReadReceiptWontBe,
           ),
         ),
       );
@@ -234,9 +229,9 @@ mixin _SendMixin
       time.minute,
     );
     if (!sendAt.isAfter(DateTime.now())) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Lütfen ileri bir tarih ve saat seçin.')),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(l10nNow.pleaseChooseAFutureDate)));
       return;
     }
 
@@ -270,7 +265,7 @@ mixin _SendMixin
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'E-posta ${formatMailDateFull(sendAt)} tarihinde gönderilmek üzere zamanlandı.',
+            l10nNow.theEmailIsScheduledTo(formatMailDateFull(sendAt)),
           ),
         ),
       );
@@ -278,7 +273,9 @@ mixin _SendMixin
       if (mounted) {
         setState(() => _sending = false);
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Zamanlanamadı: ${friendlyErrorMessage(e)}')),
+          SnackBar(
+            content: Text(l10nNow.couldntSchedule(friendlyErrorMessage(e))),
+          ),
         );
       }
     }

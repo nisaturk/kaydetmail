@@ -15,6 +15,7 @@ import '../utils/attachment_mime.dart';
 import '../utils/html_to_text.dart';
 import '../utils/error_messages.dart';
 import '../utils/markdown_lite_to_html.dart';
+import '../l10n/l10n.dart';
 
 /// Lists every mail queued via Compose's "Zamanla" (send later): pending
 /// ones can be cancelled here, past ones show their outcome. The backend
@@ -63,7 +64,7 @@ class _ScheduledSendsScreenState extends State<ScheduledSendsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Zamanlanmış Gönderimler')),
+      appBar: AppBar(title: Text(l10nNow.scheduledSends)),
       body: RefreshIndicator(
         onRefresh: _load,
         child: ListenableBuilder(
@@ -107,27 +108,27 @@ class _ScheduledRow extends StatelessWidget {
     final colors = AppTheme.colors(context);
     final status = switch (item.status) {
       ScheduledSendStatus.pending => (
-        label: 'Zamanlandı',
+        label: l10nNow.scheduled,
         color: Theme.of(context).colorScheme.primary,
         icon: LucideIcons.clock,
       ),
       ScheduledSendStatus.sent => (
-        label: 'Gönderildi',
+        label: l10nNow.sent2,
         color: colors.secondaryText,
         icon: LucideIcons.check,
       ),
       ScheduledSendStatus.cancelled => (
-        label: 'İptal edildi',
+        label: l10nNow.cancelled,
         color: colors.secondaryText,
         icon: LucideIcons.x,
       ),
       ScheduledSendStatus.failed => (
-        label: item.failureReason ?? 'Gönderilemedi',
+        label: item.failureReason ?? l10nNow.couldntSend,
         color: colors.destructive,
         icon: LucideIcons.triangleAlert,
       ),
       ScheduledSendStatus.deliveryUnknown => (
-        label: 'Sonuç belirsiz — Gönderilenler’i kontrol edin',
+        label: l10nNow.resultUnknownCheckSent,
         color: colors.destructive,
         icon: LucideIcons.circleHelp,
       ),
@@ -138,7 +139,7 @@ class _ScheduledRow extends StatelessWidget {
     return ListTile(
       leading: Icon(status.icon, color: status.color, size: 22),
       title: Text(
-        item.subject.isEmpty ? '(konu yok)' : item.subject,
+        item.subject.isEmpty ? l10nNow.noSubject3 : item.subject,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
       ),
@@ -314,19 +315,22 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Zamanlanm\u0131\u015f g\u00f6nderimi iptal et'),
+        title: Text(l10nNow.cancelScheduledSend),
         content: Text(
-          '"${widget.item.subject.isEmpty ? '(konu yok)' : widget.item.subject}" '
-          'g\u00f6nderimi iptal edilsin mi?',
+          l10nNow.cancelTheSendOf(
+            widget.item.subject.isEmpty
+                ? l10nNow.noSubject3
+                : widget.item.subject,
+          ),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.of(ctx).pop(false),
-            child: const Text('Vazge\u00e7'),
+            child: Text(l10nNow.cancel2),
           ),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('\u0130ptal Et'),
+            child: Text(l10nNow.cancelSend),
           ),
         ],
       ),
@@ -336,9 +340,8 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       await _repo.cancelScheduledSend(widget.item.id);
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('G\u00f6nderim iptal edildi.')),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.sendCancelled)));
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context)
@@ -350,11 +353,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     final to = _parse(_toController.text);
     if (to.isEmpty || !_sendAt.isAfter(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'En az bir al\u0131c\u0131 ve ileri bir tarih se\u00e7in.',
-          ),
-        ),
+        SnackBar(content: Text(l10nNow.chooseAtLeastOneRecipient)),
       );
       return;
     }
@@ -377,13 +376,8 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Zamanlanm\u0131\u015f g\u00f6nderim g\u00fcncellendi.',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.scheduledSendUpdated)));
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -396,11 +390,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     final to = _parse(_toController.text);
     if (to.isEmpty || !_sendAt.isAfter(DateTime.now())) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'En az bir al\u0131c\u0131 ve ileri bir tarih se\u00e7in.',
-          ),
-        ),
+        SnackBar(content: Text(l10nNow.chooseAtLeastOneRecipient)),
       );
       return;
     }
@@ -422,11 +412,8 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       );
       if (!mounted) return;
       Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('G\u00f6nderim yeniden kuyru\u011fa al\u0131nd\u0131.'),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.sendReQueued)));
     } catch (e) {
       if (!mounted) return;
       setState(() => _saving = false);
@@ -442,11 +429,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          _failed
-              ? 'Ba\u015far\u0131s\u0131z g\u00f6nderim'
-              : 'Zamanlanm\u0131\u015f\u0131 d\u00fczenle',
-        ),
+        title: Text(_failed ? l10nNow.failedSend : l10nNow.editScheduledSend),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -467,18 +450,18 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                         LucideIcons.triangleAlert,
                         color: Theme.of(context).colorScheme.error,
                       ),
-                      title: const Text('Gönderim başarısız'),
+                      title: Text(l10nNow.sendFailed),
                       subtitle: Text(widget.item.failureReason!),
                     ),
                   ),
                   const SizedBox(height: 16),
                 ],
-                const _FormHeading('Alıcılar'),
+                _FormHeading(l10nNow.recipients),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _toController,
-                  decoration: const InputDecoration(
-                    labelText: 'Kime',
+                  decoration: InputDecoration(
+                    labelText: l10nNow.to,
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -499,12 +482,12 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                   ),
                 ),
                 const SizedBox(height: 16),
-                const _FormHeading('İçerik'),
+                _FormHeading(l10nNow.content),
                 const SizedBox(height: 8),
                 TextField(
                   controller: _subjectController,
-                  decoration: const InputDecoration(
-                    labelText: 'Konu',
+                  decoration: InputDecoration(
+                    labelText: l10nNow.subject,
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -512,8 +495,8 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                 TextField(
                   controller: _bodyController,
                   maxLines: 8,
-                  decoration: const InputDecoration(
-                    labelText: 'Gövde',
+                  decoration: InputDecoration(
+                    labelText: l10nNow.body,
                     border: OutlineInputBorder(),
                     alignLabelWithHint: true,
                   ),
@@ -523,16 +506,16 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                   margin: EdgeInsets.zero,
                   child: ListTile(
                     leading: const Icon(LucideIcons.calendarClock),
-                    title: const Text('Gönderim zamanı'),
+                    title: Text(l10nNow.sendTime),
                     subtitle: Text(_formatDateTime(_sendAt)),
                     trailing: TextButton(
                       onPressed: _saving ? null : _pickSendAt,
-                      child: const Text('Değiştir'),
+                      child: Text(l10nNow.replace),
                     ),
                   ),
                 ),
                 const SizedBox(height: 16),
-                const _FormHeading('Ekler'),
+                _FormHeading(l10nNow.attachments),
                 for (final kept in _keptAttachments)
                   ListTile(
                     contentPadding: EdgeInsets.zero,
@@ -565,7 +548,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                     child: TextButton.icon(
                       onPressed: _saving ? null : _pickAttachments,
                       icon: const Icon(LucideIcons.plus, size: 18),
-                      label: const Text('Ek ekle'),
+                      label: Text(l10nNow.addAttachment),
                     ),
                   ),
                 const SizedBox(height: 12),
@@ -573,12 +556,12 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                   FilledButton.icon(
                     onPressed: _saving ? null : _retryFailed,
                     icon: const Icon(LucideIcons.refreshCw, size: 18),
-                    label: const Text('Yeniden dene'),
+                    label: Text(l10nNow.retry),
                   )
                 else
                   FilledButton(
                     onPressed: _saving ? null : _savePending,
-                    child: const Text('Kaydet'),
+                    child: Text(l10nNow.save),
                   ),
                 const SizedBox(height: 8),
                 OutlinedButton(
@@ -586,7 +569,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
                   style: OutlinedButton.styleFrom(
                     foregroundColor: Theme.of(context).colorScheme.error,
                   ),
-                  child: const Text('Gönderimi iptal et'),
+                  child: Text(l10nNow.cancelSend2),
                 ),
               ],
             ),
@@ -644,7 +627,7 @@ class _EmptyState extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
                     Text(
-                      'Zamanlanmış gönderim yok',
+                      l10nNow.noScheduledSends,
                       style: TextStyle(
                         fontWeight: FontWeight.w700,
                         color: Theme.of(context).colorScheme.onSurface,
@@ -652,8 +635,7 @@ class _EmptyState extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'Yazarken "Gönder" yanındaki oktan bir gönderim '
-                      'zamanlayınca burada görünür.',
+                      l10nNow.scheduleASendWithThe,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 13,
@@ -701,7 +683,7 @@ class _ErrorState extends StatelessWidget {
                     OutlinedButton.icon(
                       onPressed: onRetry,
                       icon: const Icon(LucideIcons.refreshCw, size: 18),
-                      label: const Text('Yenile'),
+                      label: Text(l10nNow.refresh),
                     ),
                   ],
                 ),

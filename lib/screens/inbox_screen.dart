@@ -25,6 +25,7 @@ import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
 import 'compose_screen.dart';
 import 'mail_detail_screen.dart';
+import '../l10n/l10n.dart';
 
 /// What each swipe direction does for a given [MailFolder]. `none` disables
 /// that direction when the operation needs a dedicated endpoint a generic
@@ -79,55 +80,56 @@ _SwipeAction _swipeEndAction(MailFolder folder) => switch (folder) {
 /// Label + icon for a swipe background, reused verbatim as the label of the
 /// matching screen-reader custom action. Never called with [_SwipeAction.none]
 /// — callers filter that out first.
-({String label, IconData icon}) _swipeActionMeta(_SwipeAction action) =>
-    switch (action) {
-      _SwipeAction.trash => (label: 'Sil', icon: LucideIcons.trash2),
-      _SwipeAction.deleteForever => (
-        label: 'Kalıcı olarak sil',
-        icon: LucideIcons.trash2,
-      ),
-      _SwipeAction.archive => (label: 'Arşivle', icon: LucideIcons.archive),
-      _SwipeAction.restore => (label: 'Geri yükle', icon: LucideIcons.undo2),
-      _SwipeAction.unspam => (label: 'Spam değil', icon: LucideIcons.shieldOff),
-      _SwipeAction.unarchive => (
-        label: 'Arşivden çıkar',
-        icon: LucideIcons.archiveRestore,
-      ),
-      _SwipeAction.toggleRead => (
-        label: 'Okundu / okunmadı',
-        icon: LucideIcons.mailOpen,
-      ),
-      _SwipeAction.star => (label: 'Yıldız', icon: LucideIcons.star),
-      _SwipeAction.snooze => (label: 'Ertele', icon: LucideIcons.clock),
-      _SwipeAction.none => throw UnsupportedError(
-        '_SwipeAction.none has no swipe metadata; callers must filter it out.',
-      ),
-    };
+({String label, IconData icon}) _swipeActionMeta(
+  _SwipeAction action,
+) => switch (action) {
+  _SwipeAction.trash => (label: l10nNow.delete, icon: LucideIcons.trash2),
+  _SwipeAction.deleteForever => (
+    label: l10nNow.deletePermanently,
+    icon: LucideIcons.trash2,
+  ),
+  _SwipeAction.archive => (label: l10nNow.archive2, icon: LucideIcons.archive),
+  _SwipeAction.restore => (label: l10nNow.restore2, icon: LucideIcons.undo2),
+  _SwipeAction.unspam => (label: l10nNow.notSpam, icon: LucideIcons.shieldOff),
+  _SwipeAction.unarchive => (
+    label: l10nNow.unarchive,
+    icon: LucideIcons.archiveRestore,
+  ),
+  _SwipeAction.toggleRead => (
+    label: l10nNow.readUnread,
+    icon: LucideIcons.mailOpen,
+  ),
+  _SwipeAction.star => (label: l10nNow.star2, icon: LucideIcons.star),
+  _SwipeAction.snooze => (label: l10nNow.snooze, icon: LucideIcons.clock),
+  _SwipeAction.none => throw UnsupportedError(
+    '_SwipeAction.none has no swipe metadata; callers must filter it out.',
+  ),
+};
 
 /// Past-tense confirmation shown in the success snackbar after [action]
-/// completes.
-String _swipeActionDone(_SwipeAction action) => switch (action) {
-  _SwipeAction.trash => 'silindi',
-  _SwipeAction.deleteForever => 'kalıcı olarak silindi',
-  _SwipeAction.archive => 'arşivlendi',
-  _SwipeAction.restore => 'geri yüklendi',
-  _SwipeAction.unspam => 'spam değil olarak işaretlendi',
-  _SwipeAction.unarchive => 'arşivden çıkarıldı',
+/// completes for [count] mails.
+String _swipeActionDone(_SwipeAction action, int count) => switch (action) {
+  _SwipeAction.trash => l10nNow.emailsDeleted(count),
+  _SwipeAction.deleteForever => l10nNow.emailsPermanentlyDeleted(count),
+  _SwipeAction.archive => l10nNow.emailsArchived(count),
+  _SwipeAction.restore => l10nNow.emailsRestored(count),
+  _SwipeAction.unspam => l10nNow.emailsMarkedAsNotSpam(count),
+  _SwipeAction.unarchive => l10nNow.emailsUnarchived(count),
   _SwipeAction.toggleRead ||
   _SwipeAction.star ||
   _SwipeAction.snooze ||
   _SwipeAction.none => throw UnsupportedError('unreachable'),
 };
 
-/// Coarse Turkish relative time for the "Son senkronizasyon" hint on the
+/// Coarse relative time for the "Son senkronizasyon" hint on the
 /// empty/error states — deliberately coarser than the mail-row timestamp
 /// since only a rough sense of staleness matters here.
 String _relativeSyncLabel(DateTime time, {DateTime? now}) {
   final diff = (now ?? DateTime.now()).difference(time);
-  if (diff.inMinutes < 1) return 'az önce';
-  if (diff.inMinutes < 60) return '${diff.inMinutes} dakika önce';
-  if (diff.inHours < 24) return '${diff.inHours} saat önce';
-  return '${diff.inDays} gün önce';
+  if (diff.inMinutes < 1) return l10nNow.justNow;
+  if (diff.inMinutes < 60) return l10nNow.minutesAgo(diff.inMinutes);
+  if (diff.inHours < 24) return l10nNow.hoursAgo(diff.inHours);
+  return l10nNow.daysAgo(diff.inDays);
 }
 
 /// Mail list for a single folder with infinite scrolling.
@@ -358,7 +360,7 @@ class _InboxScreenState extends State<InboxScreen>
     } catch (error) {
       if (!mounted) return;
       final message = error is ApiException && error.status == 404
-          ? 'Eşitleme durumu bulunamadı. Tekrar deneyin.'
+          ? l10nNow.syncStatusNotFoundTry
           : friendlyErrorMessage(error);
       ScaffoldMessenger.of(context)
           .showSnackBar(SnackBar(content: Text(message)));
@@ -510,21 +512,19 @@ class _InboxScreenState extends State<InboxScreen>
       if (action == _SwipeAction.deleteForever) {
         // Expunged server-side: nothing to undo.
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${ids.length} e-posta ${_swipeActionDone(action)}'),
-          ),
+          SnackBar(content: Text(_swipeActionDone(action, ids.length))),
         );
         return;
       }
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('${ids.length} e-posta ${_swipeActionDone(action)}'),
+          content: Text(_swipeActionDone(action, ids.length)),
           // A SnackBar with an action persists by default; Undo is only
           // offered for a short window.
           persist: false,
           duration: const Duration(seconds: 5),
           action: SnackBarAction(
-            label: 'Geri al',
+            label: l10nNow.undo2,
             onPressed: () {
               if (custom != null && customIds.isNotEmpty) {
                 unawaited(
@@ -640,7 +640,7 @@ class _InboxScreenState extends State<InboxScreen>
                         child: TextButton.icon(
                           onPressed: _loadMore,
                           icon: const Icon(LucideIcons.refreshCw, size: 18),
-                          label: const Text('Daha fazlasını tekrar yükle'),
+                          label: Text(l10nNow.tryLoadingMoreAgain),
                         ),
                       ),
                     );
@@ -945,12 +945,12 @@ class _NoMatches extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Bu filtreyle eşleşen posta yok'),
+          Text(l10nNow.noMailMatchesThisFilter),
           const SizedBox(height: 8),
           TextButton(
             key: const Key('mail-filter-clear'),
             onPressed: onClear,
-            child: const Text('Filtreyi temizle'),
+            child: Text(l10nNow.clearFilter),
           ),
         ],
       ),
@@ -997,15 +997,15 @@ class _EmptyState extends StatelessWidget {
   final Future<void> Function() onRefresh;
 
   String get _subtitle => switch (folder) {
-    MailFolder.inbox => 'Yeni e-postalar geldiğinde burada görünür.',
-    MailFolder.all => 'Bağlı hesaplarınızdaki e-postalar burada görünür.',
-    MailFolder.sent => 'Gönderdiğiniz e-postalar burada görünür.',
-    MailFolder.starred => 'Yıldızladığınız e-postalar burada görünür.',
-    MailFolder.snoozed => 'Ertelediğiniz e-postalar burada görünür.',
-    MailFolder.drafts => 'Kaydettiğiniz taslaklar burada durur.',
-    MailFolder.trash => 'Sildiğiniz e-postalar burada durur.',
-    MailFolder.spam => 'İstenmeyen e-postalar buraya düşer.',
-    MailFolder.archive => 'Arşivlediğiniz e-postalar burada durur.',
+    MailFolder.inbox => l10nNow.newEmailsWillAppearHere,
+    MailFolder.all => l10nNow.emailsFromYourConnectedAccounts,
+    MailFolder.sent => l10nNow.emailsYouSendAppearHere,
+    MailFolder.starred => l10nNow.emailsYouStarAppearHere,
+    MailFolder.snoozed => l10nNow.emailsYouSnoozeAppearHere,
+    MailFolder.drafts => l10nNow.draftsYouSaveAreKept,
+    MailFolder.trash => l10nNow.emailsYouDeleteAreKept,
+    MailFolder.spam => l10nNow.unwantedEmailsEndUpHere,
+    MailFolder.archive => l10nNow.emailsYouArchiveAreKept,
   };
 
   @override
@@ -1025,7 +1025,7 @@ class _EmptyState extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           Text(
-            offline ? 'Çevrimdışı' : '${folder.label} boş',
+            offline ? l10nNow.offline : l10nNow.isEmpty(folder.label),
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -1036,9 +1036,7 @@ class _EmptyState extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 32),
             child: Text(
-              offline
-                  ? 'İnternet bağlantısı yok. Bağlantı sağlanınca yeni postalar görünür.'
-                  : _subtitle,
+              offline ? l10nNow.noInternetConnectionNewMail : _subtitle,
               textAlign: TextAlign.center,
               style: TextStyle(fontSize: 14, color: colors.secondaryText),
             ),
@@ -1046,7 +1044,7 @@ class _EmptyState extends StatelessWidget {
           if (lastSynced != null) ...[
             const SizedBox(height: 8),
             Text(
-              'Son senkronizasyon: ${_relativeSyncLabel(lastSynced)}',
+              l10nNow.lastSync(_relativeSyncLabel(lastSynced)),
               style: TextStyle(fontSize: 12, color: colors.tertiaryText),
             ),
           ],
@@ -1054,7 +1052,7 @@ class _EmptyState extends StatelessWidget {
           TextButton.icon(
             onPressed: onRefresh,
             icon: const Icon(LucideIcons.refreshCw, size: 18),
-            label: const Text('Yenile'),
+            label: Text(l10nNow.refresh),
           ),
         ],
       ),
@@ -1091,7 +1089,9 @@ class _ErrorState extends StatelessWidget {
                 ),
                 const SizedBox(height: 12),
                 Text(
-                  offline ? 'Çevrimdışısınız' : 'E-postalarınız yüklenemedi',
+                  offline
+                      ? l10nNow.youreOffline
+                      : l10nNow.yourEmailsCouldntBeLoaded,
                   style: TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -1103,7 +1103,7 @@ class _ErrorState extends StatelessWidget {
                   Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 32),
                     child: Text(
-                      'İnternet bağlantısı yok. Bağlantı sağlanınca otomatik güncellenir.',
+                      l10nNow.noInternetConnectionItWill,
                       textAlign: TextAlign.center,
                       style: TextStyle(
                         fontSize: 14,
@@ -1116,12 +1116,12 @@ class _ErrorState extends StatelessWidget {
                 TextButton.icon(
                   onPressed: onRetry,
                   icon: const Icon(LucideIcons.refreshCw, size: 18),
-                  label: const Text('Tekrar dene'),
+                  label: Text(l10nNow.tryAgain),
                 ),
                 if (lastSynced != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    'Son senkronizasyon: ${_relativeSyncLabel(lastSynced)}',
+                    l10nNow.lastSync(_relativeSyncLabel(lastSynced)),
                     style: TextStyle(fontSize: 12, color: colors.tertiaryText),
                   ),
                 ],

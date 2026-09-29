@@ -8,6 +8,7 @@ import 'package:flutter/services.dart' show MissingPluginException;
 
 import '../models/attachment_download_state.dart';
 import '../services/api_exception.dart';
+import '../l10n/l10n.dart';
 
 @immutable
 class AttachmentDownloadKey {
@@ -254,8 +255,8 @@ class AttachmentDownloadManager {
         try {
           await for (final chunk in result.stream) {
             if (job.cancelled) {
-              throw const AttachmentDownloadException(
-                'İndirme iptal edildi.',
+              throw AttachmentDownloadException(
+                l10nNow.downloadCancelled,
                 cancelled: true,
               );
             }
@@ -279,18 +280,18 @@ class AttachmentDownloadManager {
                 : null);
         final bodyBytes = received - (append ? rangeStart : 0);
         if (expectedBytes != null && bodyBytes != expectedBytes) {
-          throw const AttachmentDownloadException(
-            'Ek eksik indirildi. Tekrar deneyin.',
+          throw AttachmentDownloadException(
+            l10nNow.theAttachmentWasDownloadedIncompletely,
           );
         }
         if (total != null && received != total) {
-          throw const AttachmentDownloadException(
-            'Ek eksik indirildi. Tekrar deneyin.',
+          throw AttachmentDownloadException(
+            l10nNow.theAttachmentWasDownloadedIncompletely,
           );
         }
         if (await partFile.length() != received) {
-          throw const AttachmentDownloadException(
-            'Ek kaydedilemedi. Tekrar deneyin.',
+          throw AttachmentDownloadException(
+            l10nNow.theAttachmentCouldntBeSaved,
           );
         }
         await partFile.rename(finalFile.path);
@@ -299,15 +300,15 @@ class AttachmentDownloadManager {
         await _evict(keep: finalFile);
         return finalFile;
       }
-      throw const AttachmentDownloadException(
-        'Ek indirilemedi. Tekrar deneyin.',
+      throw AttachmentDownloadException(
+        l10nNow.theAttachmentCouldntBeDownloaded,
       );
     } catch (error) {
       if (job.cancelled ||
           error is AttachmentDownloadException && error.cancelled) {
         stateFor(key).value = const AttachmentCancelled();
-        throw const AttachmentDownloadException(
-          'İndirme iptal edildi.',
+        throw AttachmentDownloadException(
+          l10nNow.downloadCancelled,
           cancelled: true,
         );
       }
@@ -322,9 +323,9 @@ class AttachmentDownloadManager {
 
   String _message(Object error) => switch (error) {
     AttachmentDownloadException e => e.message,
-    ApiException e when e.status == 404 => 'Ek bulunamadı.',
+    ApiException e when e.status == 404 => l10nNow.attachmentNotFound,
     ApiException e => e.userMessage,
-    _ => 'Ek indirilemedi. Tekrar deneyin.',
+    _ => l10nNow.theAttachmentCouldntBeDownloaded,
   };
 
   bool _retryable(Object error) => switch (error) {

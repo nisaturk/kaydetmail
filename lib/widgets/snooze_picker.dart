@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../theme/app_theme.dart';
+import '../l10n/l10n.dart';
 
 /// Bottom sheet offering quick snooze presets plus a custom date/time
 /// picker. Returns the chosen deadline (local time), or null if the user
@@ -21,13 +22,13 @@ class _SnoozePickerSheet extends StatelessWidget {
     final now = DateTime.now();
     final colors = AppTheme.colors(context);
     final presets = <({String label, DateTime value})>[
-      (label: '1 saat sonra', value: now.add(const Duration(hours: 1))),
-      (label: 'Bu akşam (18:00)', value: _todayAt(now, 18)),
+      (label: l10nNow.in1Hour, value: now.add(const Duration(hours: 1))),
+      (label: l10nNow.thisEvening600Pm, value: _todayAt(now, 18)),
       (
-        label: 'Yarın sabah (09:00)',
+        label: l10nNow.tomorrowMorning900Am,
         value: _todayAt(now, 9).add(const Duration(days: 1)),
       ),
-      (label: 'Gelecek hafta (Pazartesi 09:00)', value: _nextMonday9am(now)),
+      (label: l10nNow.nextWeekMonday900, value: _nextMonday9am(now)),
     ];
     // Short landscape + large text can exceed the sheet height — scroll
     // instead of overflowing (probe: 640x320 @ 1.3x).
@@ -36,12 +37,12 @@ class _SnoozePickerSheet extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Padding(
+            Padding(
               padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
               child: Align(
                 alignment: Alignment.centerLeft,
                 child: Text(
-                  'Ertele',
+                  l10nNow.snooze,
                   style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                 ),
               ),
@@ -58,7 +59,7 @@ class _SnoozePickerSheet extends StatelessWidget {
                 LucideIcons.calendarClock,
                 color: colors.secondaryText,
               ),
-              title: const Text('Tarih ve saat seç'),
+              title: Text(l10nNow.chooseDateAndTime),
               onTap: () async {
                 final picked = await _pickCustom(context, now);
                 if (picked != null && context.mounted) {
@@ -97,13 +98,8 @@ class _SnoozePickerSheet extends StatelessWidget {
       );
       if (candidate != null) return candidate;
       if (!context.mounted) return null;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Seçilen saat geçmişte kalıyor, lütfen ileri bir saat seçin.',
-          ),
-        ),
-      );
+      ScaffoldMessenger.of(context)
+          .showSnackBar(SnackBar(content: Text(l10nNow.theChosenTimeIsIn)));
     }
   }
 }

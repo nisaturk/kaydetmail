@@ -6,6 +6,7 @@ import '../models/account_notification_settings.dart';
 import '../models/mail_account.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
+import '../l10n/l10n.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
   const NotificationSettingsScreen({super.key, this.accountId});
@@ -84,14 +85,12 @@ class _NotificationSettingsScreenState
   Widget build(BuildContext context) {
     final colors = AppTheme.colors(context);
     return Scaffold(
-      appBar: AppBar(title: const Text('Hesap bildirimleri')),
+      appBar: AppBar(title: Text(l10nNow.accountNotifications)),
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
           Text(
-            'Bu ayarlar hesabın oturum açık olduğu tüm cihazlarda geçerlidir. '
-            'Bu cihazdaki bildirimleri Ayarlar > Genel ayarlar > Bildirimler '
-            'ile kapatabilirsiniz.',
+            l10nNow.theseSettingsApplyOnEvery,
             style: TextStyle(color: colors.secondaryText),
           ),
           const SizedBox(height: 16),
@@ -138,16 +137,14 @@ class _NotificationSettingsScreenState
                 trailing: TextButton(
                   key: Key('notification-retry-${account.id}'),
                   onPressed: () => _load(account.id),
-                  child: const Text('Tekrar dene'),
+                  child: Text(l10nNow.tryAgain),
                 ),
               )
             else if (settings != null) ...[
               SwitchListTile(
                 key: Key('notification-enabled-${account.id}'),
-                title: const Text('Bildirimler'),
-                subtitle: const Text(
-                  'Yeni e-posta ve ertelenen e-posta bildirimleri',
-                ),
+                title: Text(l10nNow.notifications),
+                subtitle: Text(l10nNow.newEmailAndSnoozedEmail),
                 value: settings.enabled,
                 onChanged: saving
                     ? null
@@ -156,11 +153,8 @@ class _NotificationSettingsScreenState
               ),
               SwitchListTile(
                 key: Key('notification-inbox-only-${account.id}'),
-                title: const Text('Yalnızca Gelen Kutusu'),
-                subtitle: const Text(
-                  'Kapalıyken Gönderilmiş, Taslaklar, Çöp ve Spam dışındaki '
-                  'senkronize klasörler de bildirilir.',
-                ),
+                title: Text(l10nNow.inboxOnly),
+                subtitle: Text(l10nNow.whenOffSyncedFoldersOther),
                 value: settings.inboxOnly,
                 onChanged: saving || !settings.enabled
                     ? null
@@ -172,7 +166,7 @@ class _NotificationSettingsScreenState
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
                 child: Text(
-                  'Kilit ekranı gizliliği',
+                  l10nNow.lockScreenPrivacy,
                   style: Theme.of(context).textTheme.titleSmall,
                 ),
               ),
@@ -197,8 +191,7 @@ class _NotificationSettingsScreenState
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
                   child: Text(
-                    'Sunucu önizlemeleri kapattığı için bildirimler Gizli '
-                    'olarak gönderilir.',
+                    l10nNow.notificationsAreSentAsPrivate,
                     style: TextStyle(color: colors.secondaryText),
                   ),
                 ),

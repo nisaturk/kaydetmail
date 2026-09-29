@@ -29,6 +29,7 @@ import '../utils/attachment_mime.dart';
 import '../utils/image_resize.dart';
 import 'compose/compose_models.dart';
 import 'compose/compose_widgets.dart';
+import '../l10n/l10n.dart';
 part 'compose_state/recipients.dart';
 part 'compose_state/attachments.dart';
 part 'compose_state/signature.dart';
@@ -56,7 +57,7 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
   await Navigator.of(context).push(
     MaterialPageRoute(
       builder: (_) => ComposeScreen(
-        composeTitle: 'Taslağı Düzenle',
+        composeTitle: l10nNow.editDraft,
         editingDraftId: full.id,
         initialFrom: full.senderEmail,
         initialFromAccountId: full.accountId,
@@ -274,7 +275,7 @@ class _ComposeScreenState extends _ComposeStateBase
         appBar: AppBar(
           leading: IconButton(
             icon: const Icon(LucideIcons.x),
-            tooltip: 'Kapat',
+            tooltip: l10nNow.close,
             onPressed: _sending
                 ? null
                 : () async {
@@ -286,8 +287,8 @@ class _ComposeScreenState extends _ComposeStateBase
           title: Text(
             widget.composeTitle ??
                 (widget.editingDraftId != null
-                    ? 'Taslağı Düzenle'
-                    : 'Yeni E-posta'),
+                    ? l10nNow.editDraft
+                    : l10nNow.newEmail),
           ),
           actions: [
             if (_sending)
@@ -303,12 +304,12 @@ class _ComposeScreenState extends _ComposeStateBase
               IconButton(
                 key: const Key('send-button'),
                 icon: const Icon(LucideIcons.send),
-                tooltip: 'Şimdi Gönder',
+                tooltip: l10nNow.sendNow,
                 onPressed: _send,
               ),
               PopupMenuButton<ComposeMenuAction>(
                 key: const Key('send-options-menu'),
-                tooltip: 'Diğer seçenekler',
+                tooltip: l10nNow.moreOptions,
                 position: PopupMenuPosition.under,
                 icon: const Icon(LucideIcons.ellipsisVertical),
                 onSelected: (action) {
@@ -353,29 +354,29 @@ class _ComposeScreenState extends _ComposeStateBase
                     item(
                       ComposeMenuAction.schedule,
                       LucideIcons.calendarClock,
-                      'Zamanla',
+                      l10nNow.schedule,
                     ),
                     item(
                       ComposeMenuAction.contacts,
                       LucideIcons.bookUser,
-                      'Kişilerden ekle',
+                      l10nNow.addFromContacts,
                     ),
                     item(
                       ComposeMenuAction.saveDraft,
                       LucideIcons.save,
-                      'Taslağı kaydet',
+                      l10nNow.saveDraft,
                       enabled: hasContent,
                     ),
                     item(
                       ComposeMenuAction.discard,
                       LucideIcons.trash2,
-                      'Sil',
+                      l10nNow.delete,
                       color: colors.destructive,
                     ),
                     item(
                       ComposeMenuAction.readReceipt,
                       LucideIcons.mailCheck,
-                      'Okundu bilgisi iste',
+                      l10nNow.requestReadReceipt,
                       trailing: _requestReadReceipt
                           ? const Icon(
                               LucideIcons.check,
@@ -409,7 +410,7 @@ class _ComposeScreenState extends _ComposeStateBase
                       // revealing a field never erases its content. Once
                       // both are visible the chevron disappears.
                       _recipientFieldRow(
-                        label: 'Kime',
+                        label: l10nNow.to,
                         recipients: _toRecipients,
                         inputController: _toInputController,
                         focusNode: _toFocus,
@@ -441,7 +442,7 @@ class _ComposeScreenState extends _ComposeStateBase
                         trailing: (!_ccExpanded || !_bccExpanded)
                             ? PopupMenuButton<String>(
                                 key: const Key('cc-bcc-menu'),
-                                tooltip: 'Cc / Bcc ekle',
+                                tooltip: l10nNow.addCcBcc,
                                 padding: EdgeInsets.zero,
                                 enabled: !_sending,
                                 style: IconButton.styleFrom(
@@ -542,7 +543,7 @@ class _ComposeScreenState extends _ComposeStateBase
                         ),
                       const Divider(indent: 0, endIndent: 0),
                       _fieldRow(
-                        label: 'Konu',
+                        label: l10nNow.subject,
                         controller: _subjectController,
                         fieldKey: const Key('subject-field'),
                         enabled: !_sending,
@@ -582,12 +583,12 @@ class _ComposeScreenState extends _ComposeStateBase
                               key: const Key('body-field'),
                               controller: _bodyController,
                               focusNode: _bodyFocus,
-                              config: const quill.QuillEditorConfig(
+                              config: quill.QuillEditorConfig(
                                 unknownEmbedBuilder: EmbedPlaceholder(),
                                 scrollable: false,
                                 minHeight: 180,
                                 padding: EdgeInsets.symmetric(vertical: 10),
-                                placeholder: 'Mesajınızı yazın',
+                                placeholder: l10nNow.writeYourMessage,
                                 textCapitalization:
                                     TextCapitalization.sentences,
                               ),
@@ -795,7 +796,7 @@ class _ComposeScreenState extends _ComposeStateBase
           SizedBox(
             width: _labelWidth,
             child: Text(
-              'Kimden',
+              l10nNow.from,
               maxLines: 1,
               overflow: TextOverflow.clip,
               style: _labelStyle(colors),
@@ -814,7 +815,7 @@ class _ComposeScreenState extends _ComposeStateBase
           if (_identities.isNotEmpty)
             PopupMenuButton<String>(
               key: const Key('from-identity-menu'),
-              tooltip: 'Kimlik seç',
+              tooltip: l10nNow.chooseIdentity,
               padding: EdgeInsets.zero,
               enabled: !_sending,
               icon: Icon(
@@ -862,7 +863,7 @@ class _ComposeScreenState extends _ComposeStateBase
           if (accounts.length > 1)
             PopupMenuButton<String>(
               key: const Key('from-account-menu'),
-              tooltip: 'Hesap seç',
+              tooltip: l10nNow.chooseAccount,
               padding: EdgeInsets.zero,
               enabled: !_sending,
               icon: Icon(
@@ -930,13 +931,13 @@ class _ComposeScreenState extends _ComposeStateBase
             key: const Key('attach-button'),
             onPressed: _sending || _resizingImages ? null : _attach,
             icon: const Icon(LucideIcons.paperclip, size: 22),
-            tooltip: 'Dosya ekle',
+            tooltip: l10nNow.attachFile,
           ),
           TextButton.icon(
             key: const Key('template-button'),
             onPressed: _sending ? null : _pickTemplate,
             icon: const Icon(LucideIcons.layoutTemplate, size: 20),
-            label: const Text('Hazır Metinler'),
+            label: Text(l10nNow.savedTexts),
           ),
         ],
       ),
