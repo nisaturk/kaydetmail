@@ -11,7 +11,10 @@ import '../utils/error_messages.dart';
 import 'sync_scope_screen.dart';
 
 class SyncStatusScreen extends StatefulWidget {
-  const SyncStatusScreen({super.key});
+  const SyncStatusScreen({super.key, this.accountId});
+
+  /// Limits the screen to one account; null shows every connected account.
+  final String? accountId;
 
   @override
   State<SyncStatusScreen> createState() => _SyncStatusScreenState();
@@ -41,8 +44,13 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
     _loadAll();
   }
 
+  List<MailAccount> get _accounts => [
+    for (final account in AppConfig.mailRepository.accounts)
+      if (widget.accountId == null || account.id == widget.accountId) account,
+  ];
+
   Future<void> _loadAll() async {
-    final accounts = AppConfig.mailRepository.accounts;
+    final accounts = _accounts;
     await Future.wait(accounts.map((account) => _loadAccount(account.id)));
   }
 
@@ -67,7 +75,7 @@ class _SyncStatusScreenState extends State<SyncStatusScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final accounts = AppConfig.mailRepository.accounts;
+    final accounts = _accounts;
     return Scaffold(
       appBar: AppBar(title: const Text('Senkronizasyon Durumu')),
       body: accounts.isEmpty

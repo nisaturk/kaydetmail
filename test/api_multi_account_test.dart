@@ -131,6 +131,54 @@ void main() {
       },
     );
 
+    test('signing one account out keeps the others and never deletes it on the server', () async {
+      final one = _fakeAccount(
+        accountId: 'account-1',
+        email: 'one@example.com',
+        folderId: 'folder-1',
+        mailIds: ['mail-1a'],
+      );
+      await one.authService.tokenStore.save(
+        accountId: 'account-1',
+        accessToken: 'access-1',
+        refreshToken: 'refresh-1',
+      );
+      final two = _fakeAccount(
+        accountId: 'account-2',
+        email: 'two@example.com',
+        folderId: 'folder-2',
+        mailIds: ['mail-2a'],
+      );
+      final repo = ApiMailRepository(
+        authService: one.authService,
+        mailService: one.mailService,
+        sessionFactory: () =>
+            (authService: two.authService, mailService: two.mailService),
+      );
+      await repo.restoreSession('one@example.com');
+      await repo.connectAccount(email: 'two@example.com', password: 'pw');
+      await repo.setActiveAccount('account-2');
+
+      await repo.signOutAccount('account-2');
+
+      expect(repo.accounts.map((a) => a.id), ['account-1']);
+      expect(repo.isLoggedIn, isTrue);
+      expect(repo.activeAccountId, isNull);
+      expect(two.mailService.deleteAccountCalled, isFalse);
+      expect(
+        await two.authService.tokenStore.readAccessToken('account-2'),
+        isNull,
+      );
+      expect(
+        await one.authService.tokenStore.readAccessToken('account-1'),
+        'access-1',
+      );
+
+      // The last account signs out for real.
+      await repo.signOutAccount('account-1');
+      expect(repo.isLoggedIn, isFalse);
+    });
+
     test(
       'bulk actions route each id to its own account, never crossing wires',
       () async {

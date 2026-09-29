@@ -8,7 +8,11 @@ import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
 
 class NotificationSettingsScreen extends StatefulWidget {
-  const NotificationSettingsScreen({super.key});
+  const NotificationSettingsScreen({super.key, this.accountId});
+
+  /// Limits the screen to one account (opened from that account's settings);
+  /// null lists every connected account.
+  final String? accountId;
 
   @override
   State<NotificationSettingsScreen> createState() =>
@@ -22,7 +26,10 @@ class _NotificationSettingsScreenState
   final Set<String> _loading = {};
   final Set<String> _saving = {};
 
-  List<MailAccount> get _accounts => AppConfig.mailRepository.accounts;
+  List<MailAccount> get _accounts => [
+    for (final account in AppConfig.mailRepository.accounts)
+      if (widget.accountId == null || account.id == widget.accountId) account,
+  ];
 
   @override
   void initState() {
@@ -83,7 +90,8 @@ class _NotificationSettingsScreenState
         children: [
           Text(
             'Bu ayarlar hesabın oturum açık olduğu tüm cihazlarda geçerlidir. '
-            'Bu cihazdaki bildirimleri Ayarlar > Bildirimler ile kapatabilirsiniz.',
+            'Bu cihazdaki bildirimleri Ayarlar > Genel ayarlar > Bildirimler '
+            'ile kapatabilirsiniz.',
             style: TextStyle(color: colors.secondaryText),
           ),
           const SizedBox(height: 16),

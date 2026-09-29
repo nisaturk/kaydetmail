@@ -179,6 +179,10 @@ class _SettingsRepo extends MailRepository {
   ];
 
   @override
+  MailAccount? getAccount(String accountId) =>
+      accounts.where((a) => a.id == accountId).firstOrNull;
+
+  @override
   Future<void> refreshQuota(String accountId) async => refreshed.add(accountId);
 
   @override

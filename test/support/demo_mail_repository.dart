@@ -72,6 +72,9 @@ class DemoMailRepository extends MailRepository {
   Future<void> logout() async {}
 
   @override
+  Future<void> signOutAccount(String accountId) async {}
+
+  @override
   Future<void> reconnect({required String password}) async {}
 
   @override
@@ -102,7 +105,7 @@ class DemoMailRepository extends MailRepository {
   Future<void> restoreSession(String email) async {}
 
   @override
-  Future<List<MailSession>> getSessions() async => [
+  Future<List<MailSession>> getSessions({String? accountId}) async => [
     MailSession(
       id: 's1',
       deviceIdentifier: 'Pixel 8 · Android 15 uzun cihaz adı örneği',
@@ -121,7 +124,7 @@ class DemoMailRepository extends MailRepository {
   ];
 
   @override
-  Future<void> revokeSession(String sessionId) async {}
+  Future<void> revokeSession(String sessionId, {String? accountId}) async {}
 
   // --- Reading ---------------------------------------------------------
 
@@ -361,7 +364,7 @@ class DemoMailRepository extends MailRepository {
   List<ManualContact> getManualContactsForAccount(String accountId) => const [];
 
   @override
-  Future<ManualContact> addManualContact({required String email, String? displayName}) async =>
+  Future<ManualContact> addManualContact({required String email, String? displayName, String? accountId}) async =>
       ManualContact(id: 'c1', accountId: 'acc-1', email: email, displayName: displayName);
 
   @override

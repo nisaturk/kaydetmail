@@ -10,7 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeRepo extends MailRepository {
   @override
-  Future<List<MailSession>> getSessions() async => const [];
+  Future<List<MailSession>> getSessions({String? accountId}) async => const [];
 
   @override
   Never noSuchMethod(Invocation invocation) => throw UnimplementedError();

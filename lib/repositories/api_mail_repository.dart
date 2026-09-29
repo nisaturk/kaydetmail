@@ -228,24 +228,42 @@ class ApiMailRepository extends MailRepository {
   @override
   Future<void> logout() async {
     for (final session in _sessions.values.toList()) {
-      try {
-        await _unregisterDeviceFor(session);
-        await session.authService.logout();
-      } catch (_) {
-        // Logout is local-first: remote revocation may fail while offline.
-      } finally {
-        await session.authService.tokenStore.clear(session.account.id);
-        session.persistTimer?.cancel();
-        _cancelReconnectRetry(session);
-        await _purgeLocalData(session);
-        _sessions.remove(session.account.id);
-      }
+      await _signOutSession(session);
     }
     _activeAccountId = null;
     _stopSnoozeExpiryTimer();
     await SessionStore.clear();
     _touch();
     notifyListeners();
+  }
+
+  @override
+  Future<void> signOutAccount(String accountId) async {
+    final session = _sessions[accountId];
+    if (session == null) return;
+    if (_sessions.length == 1) return logout();
+    await _signOutSession(session);
+    await SessionStore.removeEmail(session.account.email);
+    if (_activeAccountId == accountId) _activeAccountId = null;
+    _touch();
+    notifyListeners();
+  }
+
+  /// Local-first sign-out of one account: remote revocation may fail while
+  /// offline, but tokens and every on-device trace are always removed.
+  Future<void> _signOutSession(AccountSession session) async {
+    try {
+      await _unregisterDeviceFor(session);
+      await session.authService.logout();
+    } catch (_) {
+      // Logout is local-first: remote revocation may fail while offline.
+    } finally {
+      await session.authService.tokenStore.clear(session.account.id);
+      session.persistTimer?.cancel();
+      _cancelReconnectRetry(session);
+      await _purgeLocalData(session);
+      _sessions.remove(session.account.id);
+    }
   }
 
   /// Wipes every on-device trace of [session]'s account (see
@@ -1029,9 +1047,15 @@ class ApiMailRepository extends MailRepository {
 
   /// Device sessions of whichever account is currently active (falling back
   /// to the first connected account).
+  /// The session an account-level call targets: [accountId] when given,
+  /// otherwise the active account, otherwise the first connected one.
+  AccountSession? _sessionForSettings(String? accountId) => accountId != null
+      ? _sessions[accountId]
+      : _sessions[_activeAccountId] ?? _sessions.values.firstOrNull;
+
   @override
-  Future<List<MailSession>> getSessions() async {
-    final session = _sessions[_activeAccountId] ?? _sessions.values.firstOrNull;
+  Future<List<MailSession>> getSessions({String? accountId}) async {
+    final session = _sessionForSettings(accountId);
     if (session == null) return const [];
     final sessions = await session.mailService.getSessions();
     final myDeviceId = await session.authService.deviceIdentifierProvider
@@ -1044,8 +1068,8 @@ class ApiMailRepository extends MailRepository {
   }
 
   @override
-  Future<void> revokeSession(String sessionId) async {
-    final session = _sessions[_activeAccountId] ?? _sessions.values.firstOrNull;
+  Future<void> revokeSession(String sessionId, {String? accountId}) async {
+    final session = _sessionForSettings(accountId);
     if (session == null) return;
     await session.mailService.deleteSession(sessionId);
   }
@@ -4487,8 +4511,11 @@ class ApiMailRepository extends MailRepository {
   Future<ManualContact> addManualContact({
     required String email,
     String? displayName,
+    String? accountId,
   }) async {
-    final session = _primarySession;
+    final session = accountId != null
+        ? _sessionForAccountId(accountId)
+        : _primarySession;
     final trimmedEmail = email.trim();
     final trimmedName = displayName?.trim();
     final name = (trimmedName == null || trimmedName.isEmpty)
