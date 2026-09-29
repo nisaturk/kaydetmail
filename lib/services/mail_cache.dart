@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:sqlite3/common.dart';
 
 import 'mail_cache_io.dart'
@@ -254,21 +255,47 @@ class MailCache {
   void clear(String accountId) =>
       _db.execute('DELETE FROM mails WHERE account_id = ?', [accountId]);
 
-  /// Removes everything stored for a deleted account, user state included.
+  /// Removes everything stored for a deleted account, user state included:
+  /// every account-scoped table above plus the account's send journal
+  /// (`outbox` / `outbox_attachments`, owned by `OutboxStore`, which shares
+  /// this database and may not have created its tables yet).
   void forgetAccount(String accountId) {
-    for (final table in [
-      'mails',
-      'flags',
-      'labels',
-      'mail_labels',
-      'folders',
-      'manual_contacts',
-      'offline_mutations',
-      'draft_queue',
-    ]) {
+    for (final table in _accountScopedTables) {
       _db.execute('DELETE FROM $table WHERE account_id = ?', [accountId]);
     }
+    if (_hasTable('outbox') && _hasTable('outbox_attachments')) {
+      _db.execute(
+        'DELETE FROM outbox_attachments WHERE send_id IN '
+        '(SELECT id FROM outbox WHERE account_id = ?)',
+        [accountId],
+      );
+      _db.execute('DELETE FROM outbox WHERE account_id = ?', [accountId]);
+    }
   }
+
+  /// Every table above keyed by `account_id`. Adding a table to the schema
+  /// without listing it here would leave a deleted account's data behind,
+  /// which is why `mail_cache_test.dart` checks this list against the
+  /// schema.
+  @visibleForTesting
+  static const accountScopedTables = _accountScopedTables;
+
+  static const _accountScopedTables = [
+    'mails',
+    'flags',
+    'labels',
+    'mail_labels',
+    'snoozes',
+    'folders',
+    'manual_contacts',
+    'offline_mutations',
+    'draft_queue',
+  ];
+
+  bool _hasTable(String name) => _db.select(
+    "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+    [name],
+  ).isNotEmpty;
 
   /// Replaces the stored folder map for [accountId] with [idToType]
   /// (server folder id -> [MailFolder.name]).

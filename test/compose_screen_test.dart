@@ -60,6 +60,9 @@ class _FakeMailRepository extends MailRepository {
   Future<void> logout() async {}
 
   @override
+  Future<void> signOutAccount(String accountId) async {}
+
+  @override
   Future<void> reconnect({required String password}) async {}
 
   @override
@@ -97,10 +100,10 @@ class _FakeMailRepository extends MailRepository {
   Future<void> restoreSession(String email) async {}
 
   @override
-  Future<List<MailSession>> getSessions() async => const [];
+  Future<List<MailSession>> getSessions({String? accountId}) async => const [];
 
   @override
-  Future<void> revokeSession(String sessionId) async {}
+  Future<void> revokeSession(String sessionId, {String? accountId}) async {}
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) =>
@@ -309,6 +312,7 @@ class _FakeMailRepository extends MailRepository {
   Future<ManualContact> addManualContact({
     required String email,
     String? displayName,
+    String? accountId,
   }) async => throw UnimplementedError();
 
   @override

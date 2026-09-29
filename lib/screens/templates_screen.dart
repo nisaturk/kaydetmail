@@ -170,7 +170,6 @@ class _TemplateEditorState extends State<_TemplateEditor> {
   late final TextEditingController _name;
   late final TextEditingController _subject;
   late final TextEditingController _bodyText;
-  late final TextEditingController _bodyHtml;
   bool _saving = false;
   String? _error;
 
@@ -180,7 +179,6 @@ class _TemplateEditorState extends State<_TemplateEditor> {
     _name = TextEditingController(text: widget.template?.name ?? '');
     _subject = TextEditingController(text: widget.template?.subject ?? '');
     _bodyText = TextEditingController(text: widget.template?.bodyText ?? '');
-    _bodyHtml = TextEditingController(text: widget.template?.bodyHtml ?? '');
   }
 
   @override
@@ -188,7 +186,6 @@ class _TemplateEditorState extends State<_TemplateEditor> {
     _name.dispose();
     _subject.dispose();
     _bodyText.dispose();
-    _bodyHtml.dispose();
     super.dispose();
   }
 
@@ -197,7 +194,6 @@ class _TemplateEditorState extends State<_TemplateEditor> {
     final name = _name.text.trim();
     final subject = _subject.text.trim();
     final bodyText = _bodyText.text.trim();
-    final bodyHtml = _bodyHtml.text.trim();
     if (name.isEmpty || name.length > 100) {
       setState(() => _error = 'Hazır metin adı 1-100 karakter olmalı.');
       return;
@@ -208,8 +204,8 @@ class _TemplateEditorState extends State<_TemplateEditor> {
       );
       return;
     }
-    if (bodyText.isEmpty && bodyHtml.isEmpty) {
-      setState(() => _error = 'Metin veya HTML gövdesi yazın.');
+    if (bodyText.isEmpty) {
+      setState(() => _error = 'Hazır metin gövdesini yazın.');
       return;
     }
     setState(() {
@@ -222,8 +218,7 @@ class _TemplateEditorState extends State<_TemplateEditor> {
       accountId: widget.accountId,
       name: name,
       subject: subject,
-      bodyText: bodyText.isEmpty ? null : bodyText,
-      bodyHtml: bodyHtml.isEmpty ? null : bodyHtml,
+      bodyText: bodyText,
       createdAt: widget.template?.createdAt ?? now,
       updatedAt: now,
     );
@@ -282,17 +277,7 @@ class _TemplateEditorState extends State<_TemplateEditor> {
             controller: _bodyText,
             minLines: 4,
             maxLines: 8,
-            decoration: const InputDecoration(labelText: 'Düz metin gövdesi'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('template-body-html'),
-            controller: _bodyHtml,
-            minLines: 3,
-            maxLines: 6,
-            decoration: const InputDecoration(
-              labelText: 'HTML gövdesi (isteğe bağlı)',
-            ),
+            decoration: const InputDecoration(labelText: 'Metin gövdesi'),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),

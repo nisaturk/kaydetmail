@@ -1,8 +1,9 @@
+import '../utils/insets.dart';
+
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
-import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -11,12 +12,7 @@ import '../models/email.dart';
 import '../models/mail_folder.dart';
 import '../models/mail_label.dart';
 import '../repositories/mail_repository.dart';
-import '../models/attachment_download_state.dart';
-import '../services/attachment_auto_download_policy.dart';
-import '../state/pending_send_queue.dart';
 import '../theme/app_theme.dart';
-import '../utils/compose_signature.dart';
-import '../utils/conversation_text.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/mail_pdf_export.dart';
@@ -25,13 +21,19 @@ import '../utils/mail_unsubscribe.dart';
 import '../widgets/move_folder_sheet.dart';
 import '../widgets/label_picker_sheet.dart';
 import '../widgets/mail_avatar.dart';
-import '../widgets/mail_link_handler.dart';
 import '../widgets/mail_authentication_row.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
-import 'attachment_preview_screen.dart';
 import 'compose_screen.dart';
 import 'mail_inspection_screen.dart';
+import 'mail_detail/message_body.dart';
+import 'mail_detail/quick_reply.dart';
+import 'mail_detail/message_parts.dart';
+part 'mail_detail_state/reply.dart';
+part 'mail_detail_state/thread_load.dart';
+part 'mail_detail_state/mail_actions.dart';
+part 'mail_detail_state/menu.dart';
+part 'mail_detail_state/base_state.dart';
 
 /// Full view of the opened mail followed by older messages in its conversation.
 /// Opening marks the selected mail as read; enrichment appends older history
@@ -61,60 +63,8 @@ class MailDetailScreen extends StatefulWidget {
   State<MailDetailScreen> createState() => _MailDetailScreenState();
 }
 
-class _MailDetailScreenState extends State<MailDetailScreen> {
-  MailRepository get _repo => AppConfig.mailRepository;
-
-  Email? _email;
-  List<Email> _thread = const [];
-
-  /// Last server conversation fetch. Kept apart from [_thread] so a reload
-  /// rebuilds from server + current cache: a local send echo the cache has
-  /// since replaced with the real Sent copy must not linger as a duplicate.
-  List<Email> _fetchedThread = const [];
-  final _scroll = ScrollController();
-
-  /// Enrichment adds history below the opened mail; never reset scroll.
-  bool _loading = true;
-  bool _opened = false;
-
-  /// Set while a reply/reply-all/forward compose context request is in
-  /// flight — disables the triggering action so a slow/offline fetch
-  /// can't be tapped twice or race a second mode's response into the
-  /// wrong `ComposeScreen`.
-  bool _composeActionBusy = false;
-
-  /// Why the main mail load failed, when it did and nothing is shown yet.
-  /// Null means "not found" rather than a transport error.
-  Object? _loadError;
-
-  /// Guards thread enrichment: `<mailId>@<threadId>` currently loading vs.
-  /// already loaded, so listener re-runs never stack or repeat fetches.
-  String? _enrichingKey;
-  String? _enrichedKey;
-
-  void _watchBackgroundMutation(
-    Future<void> operation, {
-    String? successMessage,
-  }) {
-    final messenger = ScaffoldMessenger.of(context);
-    unawaited(() async {
-      try {
-        await operation;
-        if (successMessage != null && messenger.mounted) {
-          messenger.showSnackBar(SnackBar(content: Text(successMessage)));
-        }
-      } catch (error) {
-        if (messenger.mounted) {
-          messenger.showSnackBar(
-            SnackBar(
-              content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-            ),
-          );
-        }
-      }
-    }());
-  }
-
+class _MailDetailScreenState extends _MailDetailStateBase
+    with _ReplyMixin, _ThreadLoadMixin, _MailActionsMixin, _MenuMixin {
   @override
   void initState() {
     super.initState();
@@ -134,389 +84,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     _scroll.dispose();
     super.dispose();
   }
-
-  /// Repository notifications already carry local optimistic state; fetching
-  /// detail on every flag change would trigger an avoidable IMAP round trip.
-  void _syncCachedMail() {
-    if (!mounted || _email == null) return;
-    for (final email in _repo.getAllEmails()) {
-      if (email.id != widget.emailId) continue;
-      // Other messages may have changed star/read state even if opened mail
-      // itself is identical; rebuild history from the repository snapshot.
-      setState(() {
-        _email = email;
-        _thread = _mergeThread(email, [
-          ..._fetchedThread.where((e) => e.threadId == email.threadId),
-          ..._repo.getThreadEmails(email.threadId),
-        ]);
-      });
-      return;
-    }
-  }
-
-  /// Mail-first loading: the opened mail renders as soon as its own detail
-  /// response arrives. Thread enrichment follows asynchronously and can only
-  /// *add* messages — it never replaces or blanks the loaded mail.
-  ///
-  /// Listener-safe: a failed refresh keeps the already-shown mail instead
-  /// of clearing it; the spinner only shows on the very first load and on
-  /// explicit retry.
-  Future<void> _reload() async {
-    Email? email;
-    Object? error;
-    try {
-      email = await _repo.getEmail(widget.emailId);
-    } catch (e) {
-      error = e;
-    }
-    if (!mounted) return;
-    if (email != null) {
-      final loaded = email;
-      final first = !_opened;
-      setState(() {
-        _email = loaded;
-        _thread = _mergeThread(loaded, [
-          ..._fetchedThread.where((e) => e.threadId == loaded.threadId),
-          ..._repo.getThreadEmails(loaded.threadId),
-        ]);
-        _loading = false;
-        _loadError = null;
-      });
-
-      // A freshly opened mail becomes read — but only on the very first
-      // load. Later reloads (pin, mark-as-unread) must not silently flip
-      // it back.
-      if (first) {
-        _opened = true;
-        if (widget.openReplyOnLoad) unawaited(_reply());
-        if (!loaded.isRead) {
-          _watchBackgroundMutation(_repo.markAsRead([loaded.id]));
-        }
-      }
-      _maybeEnrichThread(loaded);
-    } else if (_email == null) {
-      // Nothing shown yet: surface not-found vs. transport error.
-      if (error != null) debugPrint('Mail detail load failed: $error');
-      setState(() {
-        _loading = false;
-        _loadError = error;
-      });
-    } else if (error != null) {
-      // Refresh failed but the loaded mail stays on screen.
-      debugPrint('Mail detail refresh failed: $error');
-    }
-  }
-
-  /// Server conversation order breaks timestamp ties; until enrichment,
-  /// equal-time cache entries cannot safely be identified as older.
-  List<Email> _mergeThread(Email email, List<Email> others) {
-    final positions = <String, int>{
-      for (var i = 0; i < _fetchedThread.length; i++) _fetchedThread[i].id: i,
-    };
-    final openedIndex = positions[email.id];
-    final byId = {for (final message in others) message.id: message}
-      ..remove(email.id);
-    final older =
-        byId.values.where((message) {
-          final index = positions[message.id];
-          if (openedIndex != null && index != null) return index < openedIndex;
-          return message.timestamp.isBefore(email.timestamp);
-        }).toList()..sort((a, b) {
-          final byDate = b.timestamp.compareTo(a.timestamp);
-          if (byDate != 0) return byDate;
-          return (positions[b.id] ?? -1).compareTo(positions[a.id] ?? -1);
-        });
-    return List.unmodifiable([email, ...older]);
-  }
-
-  static bool _sameIds(List<Email> a, List<Email> b) {
-    if (a.length != b.length) return false;
-    for (var i = 0; i < a.length; i++) {
-      if (a[i].id != b[i].id) return false;
-    }
-    return true;
-  }
-
-  /// Kicks off conversation enrichment once per mail+thread. A failure only
-  /// keeps the already-rendered single mail — the screen never blanks and
-  /// the spinner never returns.
-  void _maybeEnrichThread(Email email) {
-    if (email.threadId.isEmpty) return;
-    final key = '${email.id}@${email.threadId}';
-    if (key == _enrichedKey || key == _enrichingKey) return;
-    _enrichingKey = key;
-    unawaited(_enrichThread(email, key));
-  }
-
-  Future<void> _enrichThread(Email email, String key) async {
-    try {
-      final fetched = await _repo.fetchThreadEmails(email.threadId);
-      if (!mounted) return;
-      // The user may have navigated to another mail meanwhile — only merge
-      // into the mail this fetch started for.
-      if (_email?.id != email.id) return;
-      // The server conversation can lag behind replies sent from this app
-      // (only a local copy exists until the next sync), so keep those too.
-      _fetchedThread = fetched;
-      final merged = _mergeThread(email, [
-        ...fetched,
-        ..._repo.getThreadEmails(email.threadId),
-      ]);
-      debugPrint('Thread ${email.threadId}: ${merged.length} messages');
-      if (!_sameIds(merged, _thread)) {
-        setState(() => _thread = merged);
-      }
-      _enrichedKey = key;
-    } catch (e) {
-      debugPrint('Thread enrichment failed for ${email.threadId}: $e');
-    } finally {
-      if (_enrichingKey == key) _enrichingKey = null;
-    }
-  }
-
-  Future<void> _retry() async {
-    setState(() {
-      _loading = true;
-      _loadError = null;
-    });
-    await _reload();
-  }
-
-  /// Shows the pin-limit notice when no slot is left in [accountId]'s own
-  /// cap (each account gets its own 3 slots — matches the backend's
-  /// per-account enforcement). Returns true when the caller may proceed.
-  bool _ensurePinSlot(String accountId) {
-    final pinnedInAccount = _repo
-        .getAllEmails()
-        .where((email) => email.isPinned && email.accountId == accountId)
-        .length;
-    if (pinnedInAccount >= MailRepository.maxPinnedMails) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('En fazla 3 mail sabitlenebilir.')),
-      );
-      return false;
-    }
-    return true;
-  }
-
-  Future<void> _togglePin() async {
-    final email = _email;
-    if (email == null) return;
-    if (!email.isPinned && !_ensurePinSlot(email.accountId)) return;
-    _watchBackgroundMutation(_repo.setPinned([email.id], !email.isPinned));
-  }
-
-  Future<void> _toggleStar() async {
-    final email = _email;
-    if (email == null) return;
-    // Star and pin are independent flags: starring never pins, unstarring
-    // never unpins. Starring consumes no pin slot.
-    _watchBackgroundMutation(_repo.setStarred([email.id], !email.isStarred));
-  }
-
-  /// Snoozed mail is hidden from normal folder views until its backend-owned
-  /// deadline. State changes locally immediately while the backend request
-  /// continues in the background.
-  Future<void> _toggleSnooze() async {
-    final email = _email;
-    if (email == null) return;
-    if (_repo.snoozedUntilOf(email.id) != null) {
-      _watchBackgroundMutation(_repo.setSnoozed([email.id], null));
-      return;
-    }
-    final until = await showSnoozePicker(context);
-    if (until == null || !mounted) return;
-    _watchBackgroundMutation(_repo.setSnoozed([email.id], until));
-    unawaited(Navigator.of(context).maybePop().then<void>((_) {}));
-  }
-
-  Future<void> _moveMail() async {
-    final email = _email;
-    if (email == null) return;
-    final target = await showMoveFolderSheet(
-      context,
-      repository: _repo,
-      accountIds: {email.accountId},
-      currentFolders: widget.currentCustomFolderId == null
-          ? {email.folder}
-          : const {},
-      currentCustomFolderId: widget.currentCustomFolderId,
-    );
-    if (target == null || !mounted) return;
-    final custom = target.customFolder;
-    final operation = custom != null
-        ? _repo.moveToCustomFolder(
-            [email.id],
-            accountId: custom.accountId,
-            folderId: custom.folderId,
-          )
-        : target.folder == MailFolder.trash
-        ? _repo.moveToTrash([email.id])
-        : _repo.moveToFolder([email.id], target.folder!);
-    _watchBackgroundMutation(
-      operation,
-      successMessage: 'E-posta ${target.label} klasörüne taşındı.',
-    );
-    unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
-  }
-
-  /// Moves the open mail back to the inbox. For a mail whose current
-  /// folder is Trash or Spam, `MailRepository.moveToFolder` resolves this
-  /// to the backend's restore action (the mail's original pre-trash/spam
-  /// folder), not a literal move to Inbox — see the repository doc
-  /// comment. Restore / "Spam değil" / "Arşivden çıkar" all reduce to
-  /// this one call.
-  Future<void> _moveToInbox(String successMessage) async {
-    final email = _email;
-    if (email == null) return;
-    _watchBackgroundMutation(
-      _repo.moveToFolder([email.id], MailFolder.inbox),
-      successMessage: successMessage,
-    );
-    unawaited(Navigator.of(context).maybePop(true).then<void>((_) {}));
-  }
-
-  /// Folder-specific primary action for the open mail, when its current
-  /// folder has one: Trash → restore, Spam → not spam, Archive →
-  /// unarchive. Drafts open `ComposeScreen` instead of this screen (see
-  /// `_onMailTap` in inbox/search screens), so `MailFolder.drafts` is not
-  /// expected here — the `default` branch still returns null instead of
-  /// assuming, so a draft opened by some future path degrades gracefully
-  /// rather than crashing.
-  IconButton? _folderAction(Email email) {
-    switch (email.folder) {
-      case MailFolder.trash:
-        return IconButton(
-          onPressed: () => _moveToInbox('E-posta geri yüklendi.'),
-          tooltip: 'Geri yükle',
-          icon: const Icon(LucideIcons.rotateCcw),
-        );
-      case MailFolder.spam:
-        return IconButton(
-          onPressed: () =>
-              _moveToInbox('E-posta spam değil olarak işaretlendi.'),
-          tooltip: 'Spam değil',
-          icon: const Icon(LucideIcons.shieldOff),
-        );
-      case MailFolder.archive:
-        return IconButton(
-          onPressed: () => _moveToInbox('E-posta arşivden çıkarıldı.'),
-          tooltip: 'Arşivden çıkar',
-          icon: const Icon(LucideIcons.archiveRestore),
-        );
-      default:
-        return null;
-    }
-  }
-
-  /// The address a reply/forward is sent from: the originating account, so a
-  /// mail received on account B is never answered from account A.
-  String? _originatingFrom([Email? target]) {
-    final email = target ?? _email;
-    if (email == null || email.accountId.isEmpty) return null;
-    return _repo.getAccount(email.accountId)?.email;
-  }
-
-  /// Opens `ComposeScreen` prefilled from the backend's compose context
-  /// (`GET /api/mails/{id}/compose/{mode}`) instead of recomputing
-  /// recipients/subject/threading client-side — see docs-dev spec §4.
-  /// [mode] is `'reply'`, `'reply-all'` or `'forward'`.
-  Future<void> _openComposePrefill(
-    String mode, {
-    required String title,
-    Email? target,
-  }) async {
-    final email = target ?? _email;
-    if (email == null || _composeActionBusy) return;
-    setState(() => _composeActionBusy = true);
-    final ComposePrefill prefill;
-    try {
-      prefill = await _repo.getComposePrefill(email.id, mode);
-    } catch (error) {
-      if (mounted) {
-        setState(() => _composeActionBusy = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Yanıt hazırlanamadı: ${friendlyErrorMessage(error)}',
-            ),
-          ),
-        );
-      }
-      return;
-    }
-    if (!mounted) return;
-    setState(() => _composeActionBusy = false);
-
-    final isForward = mode == 'forward';
-    final sender = prefill.originalFrom ?? email.senderEmail;
-    final subject = prefill.originalSubject ?? email.subject;
-    final formattedDate = prefill.originalDate == null
-        ? null
-        : formatMailDateFull(prefill.originalDate!);
-    final originalHtml = email.bodyHtml?.trim().isNotEmpty == true
-        ? email.bodyHtml!
-        : htmlEscape.convert(email.bodyText).replaceAll('\n', '<br>');
-    var initialBody = '';
-    String? initialBodyHtml;
-    var initialAttachments = const <Attachment>[];
-    if (isForward) {
-      final dateLine = formattedDate == null ? '' : 'Tarih: $formattedDate\n';
-      initialBody =
-          '\n\n--- İletilen mesaj ---\n'
-          'Kimden: $sender\n'
-          '$dateLine'
-          'Konu: $subject\n\n'
-          '${email.bodyText}';
-      initialBodyHtml =
-          '<p><br></p><p>--- İletilen mesaj ---<br>'
-          '<strong>Kimden:</strong> ${htmlEscape.convert(sender)}<br>'
-          '${formattedDate == null ? '' : '<strong>Tarih:</strong> ${htmlEscape.convert(formattedDate)}<br>'}'
-          '<strong>Konu:</strong> ${htmlEscape.convert(subject)}</p>'
-          '$originalHtml';
-      initialAttachments = prefill.attachments;
-    } else {
-      final attribution =
-          '${formattedDate == null ? '' : '$formattedDate tarihinde '}'
-          '$sender yazdı:';
-      initialBody =
-          '\n\n$attribution\n> ${email.bodyText.replaceAll('\n', '\n> ')}';
-      initialBodyHtml =
-          '<p><br></p><p>${htmlEscape.convert(attribution)}</p>'
-          '<blockquote>$originalHtml</blockquote>';
-    }
-
-    final sent = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
-        builder: (_) => ComposeScreen(
-          composeTitle: title,
-          initialFrom: _originatingFrom(email),
-          initialTo: prefill.to.join(', '),
-          initialCc: prefill.cc.join(', '),
-          initialSubject: prefill.suggestedSubject,
-          initialBody: initialBody,
-          initialBodyHtml: initialBodyHtml,
-          initialAttachments: initialAttachments,
-          attachmentSourceMailId: isForward ? email.id : null,
-          initialThreadId: isForward ? null : email.threadId,
-          inReplyToId: isForward ? null : email.id,
-        ),
-      ),
-    );
-    if (sent != true || !mounted) return;
-    if (isForward) {
-      await _repo.markAsForwarded([email.id]);
-    } else {
-      await _repo.markAsReplied([email.id]);
-    }
-  }
-
-  Future<void> _reply() => _openComposePrefill('reply', title: 'Yanıtla');
-
-  Future<void> _replyAll() =>
-      _openComposePrefill('reply-all', title: 'Tümünü Yanıtla');
-
-  Future<void> _forward() => _openComposePrefill('forward', title: 'İlet');
 
   @override
   Widget build(BuildContext context) {
@@ -649,179 +216,6 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
     ];
   }
 
-  /// Labels apply to the whole conversation, the same unit a list row and
-  /// the bulk "Etiketle" act on — labeling only the opened message would
-  /// leave the row's representative (often another message) unchanged.
-  List<String> get _conversationIds {
-    final ids = expandThreadIds(_repo, [widget.emailId]);
-    return ids.isEmpty ? [widget.emailId] : ids;
-  }
-
-  Future<void> _handleMenu(String action) async {
-    if (action == 'reply') {
-      await _reply();
-    } else if (action == 'forward') {
-      await _forward();
-    } else if (action == 'reply_all') {
-      await _replyAll();
-    } else if (action == 'read') {
-      _watchBackgroundMutation(_repo.markAsRead([widget.emailId]));
-    } else if (action == 'unread') {
-      _watchBackgroundMutation(_repo.markAsUnread([widget.emailId]));
-    } else if (action == 'pin') {
-      await _togglePin();
-    } else if (action == 'star') {
-      await _toggleStar();
-    } else if (action == 'snooze') {
-      await _toggleSnooze();
-    } else if (action == 'label') {
-      await showLabelPicker(context, emailIds: _conversationIds);
-    } else if (action == 'unlabel') {
-      _watchBackgroundMutation(removeAllLabels(_repo, _conversationIds));
-    } else if (action == 'delete_forever') {
-      await _deleteForever();
-    } else if (action == 'move') {
-      await _moveMail();
-    } else if (action == 'print') {
-      await _printMail();
-    } else if (action == 'share_pdf') {
-      await _sharePdf();
-    } else if (action == 'unsubscribe') {
-      await _unsubscribe();
-    } else if (action == 'all_headers' || action == 'raw_mime') {
-      await Navigator.of(context).push(
-        MaterialPageRoute<void>(
-          builder: (_) => MailInspectionScreen(
-            mailId: widget.emailId,
-            mode: action == 'all_headers'
-                ? MailInspectionMode.headers
-                : MailInspectionMode.source,
-            repository: _repo,
-          ),
-        ),
-      );
-    }
-  }
-
-  /// Expunge stays visible until server confirms deletion.
-  Future<void> _deleteForever() async {
-    final ids = idsInFolder(_repo, _conversationIds, MailFolder.trash);
-    if (ids.isEmpty) return;
-    final confirmed = await confirmPermanentDelete(context, ids.length);
-    if (!confirmed || !mounted) return;
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      await _repo.deletePermanently(ids);
-      if (!mounted) return;
-      messenger.showSnackBar(
-        const SnackBar(content: Text('E-posta kalıcı olarak silindi.')),
-      );
-      await Navigator.of(context).maybePop();
-    } catch (error) {
-      if (messenger.mounted) {
-        messenger.showSnackBar(
-          SnackBar(
-            content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-          ),
-        );
-      }
-    }
-  }
-
-  /// Fires the header-driven unsubscribe action for the open mail. A
-  /// one-click (RFC 8058) request asks for confirmation first — it's a
-  /// real POST to the sender's server and, unlike opening a browser tab,
-  /// can't be walked back by just closing the page.
-
-  Future<void> _unsubscribe() async {
-    final email = _email;
-    if (email == null) return;
-    final info = parseUnsubscribeHeaders(email.headers);
-    if (info == null || !info.hasAction) return;
-
-    if (info.oneClick) {
-      final confirmed = await showDialog<bool>(
-        context: context,
-        builder: (ctx) => AlertDialog(
-          title: const Text('Abonelikten çıkılsın mı?'),
-          content: const Text(
-            'Bu gönderenden e-posta almayı durdurmak için bir istek '
-            'gönderilecek. Bu işlem geri alınamaz.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(false),
-              child: const Text('Vazgeç'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(ctx).pop(true),
-              child: const Text('Abonelikten Çık'),
-            ),
-          ],
-        ),
-      );
-      if (confirmed != true || !mounted) return;
-    }
-
-    final messenger = ScaffoldMessenger.of(context);
-    try {
-      final success = await performUnsubscribe(info);
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(
-            success
-                ? (info.oneClick
-                      ? 'Abonelik iptal edildi.'
-                      : 'Abonelikten çıkma işlemi açıldı.')
-                : 'Abonelikten çıkma işlemi başarısız oldu.',
-          ),
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('İşlem başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    }
-  }
-
-  /// Opens the OS print dialog for the open mail's PDF rendering.
-  Future<void> _printMail() async {
-    final email = _email;
-    if (email == null) return;
-    try {
-      await printMailPdf(email);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Yazdırma başarısız: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    }
-  }
-
-  /// Opens the OS share sheet with the open mail's PDF rendering.
-  Future<void> _sharePdf() async {
-    final email = _email;
-    if (email == null) return;
-    try {
-      await shareMailPdf(email);
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'PDF paylaşma başarısız: ${friendlyErrorMessage(error)}',
-          ),
-        ),
-      );
-    }
-  }
-
   Widget _buildBody() {
     if (_loading) {
       return const Center(child: CircularProgressIndicator());
@@ -872,7 +266,10 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
 
     return ListView.builder(
       controller: _scroll,
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: withBottomInset(
+        context,
+        const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      ),
       itemCount: _thread.length + 2,
       itemBuilder: (context, index) {
         if (index == 0) {
@@ -894,7 +291,7 @@ class _MailDetailScreenState extends State<MailDetailScreen> {
               ? const SizedBox.shrink()
               : Padding(
                   padding: const EdgeInsets.only(top: 8),
-                  child: _QuickReply(
+                  child: QuickReply(
                     email: email,
                     from: _originatingFrom(email),
                   ),
@@ -1060,20 +457,20 @@ class _SingleMessageState extends State<_SingleMessage> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _RecipientLine(label: 'Kimden: ', addresses: email.senderEmail),
+                RecipientLine(label: 'Kimden: ', addresses: email.senderEmail),
                 if (email.recipients.isNotEmpty)
-                  _RecipientLine(
+                  RecipientLine(
                     label: 'Alıcı: ',
                     addresses: email.recipients.join(', '),
                   ),
                 if (email.cc.isNotEmpty)
-                  _RecipientLine(label: 'Cc: ', addresses: email.cc.join(', ')),
+                  RecipientLine(label: 'Cc: ', addresses: email.cc.join(', ')),
                 if (email.bcc.isNotEmpty)
-                  _RecipientLine(
+                  RecipientLine(
                     label: 'Bcc: ',
                     addresses: email.bcc.join(', '),
                   ),
-                _RecipientLine(
+                RecipientLine(
                   label: 'Tarih: ',
                   addresses: formatMailDateFull(email.timestamp),
                 ),
@@ -1082,7 +479,7 @@ class _SingleMessageState extends State<_SingleMessage> {
           ),
         if (labels.isNotEmpty) ...[
           const SizedBox(height: 12),
-          _LabelChips(labels: labels),
+          LabelChips(labels: labels),
         ],
         if (email.authentication case final authentication?) ...[
           const SizedBox(height: 8),
@@ -1127,10 +524,10 @@ class _SingleMessageState extends State<_SingleMessage> {
         ],
         if (email.remoteImageHosts.isNotEmpty &&
             !email.remoteImagesAllowed) ...[
-          _RemoteContentBanner(email: email),
+          RemoteContentBanner(email: email),
           const SizedBox(height: 12),
         ],
-        _MessageBody(email: email, collapseQuoted: collapseQuoted),
+        MessageBody(email: email, collapseQuoted: collapseQuoted),
         if (email.attachments.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text(
@@ -1142,7 +539,7 @@ class _SingleMessageState extends State<_SingleMessage> {
             ),
           ),
           const SizedBox(height: 8),
-          _AttachmentList(email: email),
+          AttachmentList(email: email),
         ],
         Padding(
           padding: const EdgeInsets.only(top: 6),
@@ -1202,563 +599,5 @@ class _SingleMessageState extends State<_SingleMessage> {
         ? first.substring(0, first.indexOf('<')).trim().replaceAll('"', '')
         : first.split('@').first;
     return name.isEmpty ? first : "$name'ye";
-  }
-}
-
-class _MessageBody extends StatefulWidget {
-  const _MessageBody({required this.email, this.collapseQuoted = false});
-
-  final Email email;
-  final bool collapseQuoted;
-
-  @override
-  State<_MessageBody> createState() => _MessageBodyState();
-}
-
-class _MessageBodyState extends State<_MessageBody> {
-  bool _showQuoted = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final email = widget.email;
-    final colors = AppTheme.colors(context);
-    final style = TextStyle(fontSize: 15, height: 1.6, color: colors.bodyText);
-    final html = email.bodyHtml;
-    final hideQuoted = widget.collapseQuoted && !_showQuoted;
-    final Widget body;
-    final bool hasQuoted;
-    if (html == null || html.trim().isEmpty) {
-      final collapsed = collapseQuotedText(email.bodyText);
-      hasQuoted = widget.collapseQuoted && collapsed.collapsed;
-      body = SelectableText(
-        hideQuoted ? collapsed.visible : email.bodyText,
-        style: style,
-      );
-    } else {
-      hasQuoted = widget.collapseQuoted && htmlHasQuotedContent(html);
-      body = SelectionArea(
-        child: HtmlWidget(
-          html,
-          textStyle: style,
-          factoryBuilder: () => MailLinkWidgetFactory(
-            onLinkTap: (href, text) => unawaited(
-              MailLinkOpener.open(context, href, displayText: text),
-            ),
-          ),
-          customStylesBuilder: (element) {
-            if (element.localName == 'img' || element.localName == 'table') {
-              return {'max-width': '100%'};
-            }
-            return null;
-          },
-          customWidgetBuilder: (element) {
-            if (hideQuoted &&
-                isQuotedHtmlElement(
-                  element.localName,
-                  element.classes,
-                  element.id,
-                )) {
-              return const SizedBox.shrink();
-            }
-            if (element.localName != 'img') return null;
-            final src = element.attributes['src'] ?? '';
-            if (src.startsWith('data:')) return null;
-            if (email.remoteImagesAllowed &&
-                (src.startsWith('https://') || src.startsWith('http://'))) {
-              return null;
-            }
-            return const SizedBox.shrink();
-          },
-        ),
-      );
-    }
-    final fullWidthBody = SizedBox(
-      key: Key('message-body-${email.id}'),
-      width: double.infinity,
-      child: body,
-    );
-    if (!hasQuoted) return fullWidthBody;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        fullWidthBody,
-        TextButton(
-          key: Key('toggle-quoted-${email.id}'),
-          onPressed: () => setState(() => _showQuoted = !_showQuoted),
-          child: Text(
-            _showQuoted ? 'Alıntıyı gizle' : 'Alıntı ve imzayı göster',
-          ),
-        ),
-      ],
-    );
-  }
-}
-
-class _QuickReply extends StatefulWidget {
-  const _QuickReply({required this.email, required this.from});
-
-  final Email email;
-  final String? from;
-
-  @override
-  State<_QuickReply> createState() => _QuickReplyState();
-}
-
-class _QuickReplyState extends State<_QuickReply> {
-  final _controller = TextEditingController();
-  bool _sending = false;
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  Future<void> _send() async {
-    final text = _controller.text.trim();
-    if (text.isEmpty || _sending) return;
-    final repo = AppConfig.mailRepository;
-    final email = widget.email;
-    final messenger = ScaffoldMessenger.of(context);
-    setState(() => _sending = true);
-    try {
-      // Prefill ve kimlik paralel çekilir; kimlik alınamazsa varsayılanla
-      // devam edilir.
-      final prefillFuture = repo.getComposePrefill(email.id, 'reply');
-      final identityFuture = repo
-          .listIdentities(email.accountId)
-          .then((items) => items.where((item) => item.isDefault).firstOrNull)
-          .catchError((_) => null);
-      final prefill = await prefillFuture;
-      final identity = await identityFuture;
-      final signature = await resolveComposeSignature(
-        repo,
-        accountId: email.accountId,
-        mode: ComposeSignatureMode.reply,
-        identity: identity,
-      );
-      final queue = PendingSendQueue.instance;
-      final pending = PendingSend(
-        id: queue.nextId(),
-        to: prefill.to,
-        cc: prefill.cc,
-        subject: prefill.suggestedSubject,
-        body: signature.trim().isEmpty ? text : '$text\n\n--\n$signature',
-        from: widget.from,
-        fromAccountId: email.accountId,
-        threadId: email.threadId,
-        inReplyToId: email.id,
-        identityId: identity?.id,
-      );
-      await queue.enqueue(pending, messenger: messenger);
-      final queued = queue.isPending(pending.id);
-      // Yanıtlandı işareti ağ çağrısı yapar; toast'ı bekletmesin.
-      unawaited(repo.markAsReplied([email.id]).catchError((Object _) {}));
-      if (!mounted) return;
-      if (queued) _controller.clear();
-      setState(() => _sending = false);
-      final undoWindow = PendingSendQueue.undoWindow;
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text(queued ? 'Yanıt gönderiliyor' : 'Yanıt gönderildi'),
-          // Aksiyonlu SnackBar varsayılan olarak kalıcıdır; süre dolunca
-          // kapanması için açıkça kapatılır.
-          persist: false,
-          duration: queued && undoWindow > Duration.zero
-              ? undoWindow
-              : const Duration(seconds: 3),
-          action: queued && undoWindow > Duration.zero
-              ? SnackBarAction(
-                  label: 'Geri Al',
-                  onPressed: () {
-                    if (queue.cancel(pending.id) && mounted) {
-                      _controller.text = text;
-                    }
-                  },
-                )
-              : null,
-        ),
-      );
-    } catch (error) {
-      if (!mounted) return;
-      setState(() => _sending = false);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('Yanıt gönderilemedi: ${friendlyErrorMessage(error)}'),
-        ),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    return Container(
-      key: const Key('quick-reply'),
-      padding: const EdgeInsets.only(left: 12, right: 2),
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: colors.border.withValues(alpha: 0.6),
-          width: 0.8,
-        ),
-        borderRadius: BorderRadius.circular(10),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: TextField(
-              key: const Key('quick-reply-field'),
-              controller: _controller,
-              enabled: !_sending,
-              minLines: 1,
-              maxLines: 5,
-              textCapitalization: TextCapitalization.sentences,
-              style: const TextStyle(fontSize: 14),
-              onChanged: (_) => setState(() {}),
-              decoration: const InputDecoration(
-                hintText: 'Hızlı yanıt yaz…',
-                isDense: true,
-                contentPadding: EdgeInsets.symmetric(vertical: 10),
-                border: InputBorder.none,
-                enabledBorder: InputBorder.none,
-                focusedBorder: InputBorder.none,
-                disabledBorder: InputBorder.none,
-                filled: false,
-              ),
-            ),
-          ),
-          IconButton(
-            key: const Key('quick-reply-send'),
-            tooltip: 'Yanıtı gönder',
-            onPressed: _sending || _controller.text.trim().isEmpty
-                ? null
-                : _send,
-            icon: _sending
-                ? const SizedBox(
-                    width: 18,
-                    height: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(LucideIcons.send),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RemoteContentBanner extends StatefulWidget {
-  const _RemoteContentBanner({required this.email});
-
-  final Email email;
-
-  @override
-  State<_RemoteContentBanner> createState() => _RemoteContentBannerState();
-}
-
-class _RemoteContentBannerState extends State<_RemoteContentBanner> {
-  bool _loading = false;
-  Object? _error;
-
-  Future<void> _load() async {
-    if (_loading) return;
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-    try {
-      await AppConfig.mailRepository.loadRemoteImages(widget.email.id);
-    } catch (error) {
-      if (mounted) setState(() => _error = error);
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    return Container(
-      key: Key('remote-content-${widget.email.id}'),
-      width: double.infinity,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: colors.border),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            'Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.',
-          ),
-          if (_error != null) ...[
-            const SizedBox(height: 4),
-            Text(
-              friendlyErrorMessage(_error!),
-              style: TextStyle(
-                fontSize: 12,
-                color: Theme.of(context).colorScheme.error,
-              ),
-            ),
-          ],
-          const SizedBox(height: 4),
-          Wrap(
-            spacing: 4,
-            children: [
-              TextButton(
-                key: Key('load-remote-content-${widget.email.id}'),
-                onPressed: _loading ? null : () => _load(),
-                child: _loading
-                    ? const SizedBox(
-                        width: 16,
-                        height: 16,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : Text(_error == null ? 'Görselleri yükle' : 'Tekrar dene'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RecipientLine extends StatelessWidget {
-  const _RecipientLine({required this.label, required this.addresses});
-
-  final String label;
-  final String addresses;
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    return Text.rich(
-      TextSpan(
-        style: TextStyle(fontSize: 13, color: colors.secondaryText),
-        children: [
-          TextSpan(
-            text: label,
-            style: const TextStyle(fontWeight: FontWeight.w600),
-          ),
-          TextSpan(text: addresses),
-        ],
-      ),
-    );
-  }
-}
-
-class _LabelChips extends StatelessWidget {
-  const _LabelChips({required this.labels});
-
-  final List<MailLabel> labels;
-
-  @override
-  Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 6,
-      runSpacing: 6,
-      children: [
-        for (final label in labels)
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: label.color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(20),
-            ),
-            child: Text(
-              label.name,
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: label.color,
-              ),
-            ),
-          ),
-      ],
-    );
-  }
-}
-
-class _AttachmentList extends StatefulWidget {
-  const _AttachmentList({required this.email});
-
-  final Email email;
-
-  @override
-  State<_AttachmentList> createState() => _AttachmentListState();
-}
-
-class _AttachmentListState extends State<_AttachmentList> {
-  @override
-  void initState() {
-    super.initState();
-    _autoDownload();
-  }
-
-  @override
-  void didUpdateWidget(covariant _AttachmentList oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.email.id != widget.email.id ||
-        oldWidget.email.attachments != widget.email.attachments) {
-      _autoDownload();
-    }
-  }
-
-  void _autoDownload() {
-    unawaited(
-      AttachmentAutoDownloader().onMailOpened(
-        AppConfig.mailRepository,
-        widget.email,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) => Column(
-    children: [
-      for (final attachment in widget.email.attachments)
-        _AttachmentTile(mailId: widget.email.id, attachment: attachment),
-    ],
-  );
-}
-
-class _AttachmentTile extends StatelessWidget {
-  const _AttachmentTile({required this.mailId, required this.attachment});
-
-  final String mailId;
-  final Attachment attachment;
-
-  Future<void> _download(BuildContext context) async {
-    try {
-      await AppConfig.mailRepository.ensureAttachmentFile(mailId, attachment);
-    } catch (error) {
-      if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(friendlyErrorMessage(error))));
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final colors = AppTheme.colors(context);
-    final repository = AppConfig.mailRepository;
-    final content = Row(
-      children: [
-        Icon(LucideIcons.fileText, size: 20, color: colors.secondaryText),
-        const SizedBox(width: 10),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                attachment.name,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Theme.of(context).colorScheme.onSurface,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '${attachment.typeLabel} · ${attachment.sizeLabel}',
-                style: TextStyle(fontSize: 12, color: colors.secondaryText),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-    Widget tile(AttachmentDownloadState state) {
-      Widget status = const SizedBox.shrink();
-      Widget? action;
-      if (state is AttachmentDownloading) {
-        final percent = state.progress;
-        status = Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            LinearProgressIndicator(value: percent),
-            const SizedBox(height: 4),
-            Text(
-              percent == null ? 'İndiriliyor…' : '%${(percent * 100).round()}',
-            ),
-          ],
-        );
-        action = IconButton(
-          tooltip: 'İndirmeyi iptal et',
-          onPressed: () =>
-              repository.cancelAttachmentDownload(mailId, attachment),
-          icon: const Icon(LucideIcons.x, size: 18),
-        );
-      } else if (state is AttachmentCompleted) {
-        status = const Text('Hazır');
-      } else if (state is AttachmentFailed) {
-        status = Text(
-          state.message,
-          style: TextStyle(color: Theme.of(context).colorScheme.error),
-        );
-        if (state.retryable) {
-          action = IconButton(
-            tooltip: 'Tekrar dene',
-            onPressed: () => _download(context),
-            icon: const Icon(LucideIcons.rotateCw, size: 18),
-          );
-        }
-      } else if (state is AttachmentCancelled) {
-        status = const Text('İndirme iptal edildi.');
-        action = IconButton(
-          tooltip: 'Tekrar dene',
-          onPressed: () => _download(context),
-          icon: const Icon(LucideIcons.download, size: 18),
-        );
-      } else {
-        action = IconButton(
-          tooltip: 'Eki indir',
-          onPressed: () => _download(context),
-          icon: const Icon(LucideIcons.download, size: 18),
-        );
-      }
-      return InkWell(
-        onTap: () => Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) =>
-                AttachmentPreviewScreen(mailId: mailId, attachment: attachment),
-          ),
-        ),
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 8),
-          child: Column(
-            children: [
-              Row(
-                children: [
-                  Expanded(child: content),
-                  ?action,
-                ],
-              ),
-              if (state is AttachmentDownloading ||
-                  state is AttachmentFailed ||
-                  state is AttachmentCancelled ||
-                  state is AttachmentCompleted)
-                Align(alignment: Alignment.centerLeft, child: status),
-            ],
-          ),
-        ),
-      );
-    }
-
-    if (attachment.id == null) return tile(const AttachmentIdle());
-    try {
-      return ValueListenableBuilder<AttachmentDownloadState>(
-        valueListenable: repository.attachmentDownloadState(mailId, attachment),
-        builder: (context, state, _) => tile(state),
-      );
-    } on UnimplementedError {
-      return tile(const AttachmentIdle());
-    }
   }
 }

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart' show ThemeMode;
 
 import '../services/app_preferences_store.dart';
 import '../services/notification_settings_store.dart';
+import '../services/screen_protection_service.dart';
 import '../services/server_address_store.dart';
 
 /// How often the mailbox refreshes itself in the background while the app
@@ -113,6 +114,7 @@ class AppSettingsController extends ChangeNotifier {
   String _serverBaseUrl = ServerAddressStore.defaultBaseUrl;
   ThemeMode _themeMode = ThemeMode.system;
   bool _biometricLockEnabled = false;
+  bool _screenProtectionEnabled = false;
   BiometricLockTimeout _biometricLockTimeout = BiometricLockTimeout.immediately;
   AttachmentAutoDownloadMode _attachmentAutoDownloadMode =
       AttachmentAutoDownloadMode.off;
@@ -136,6 +138,12 @@ class AppSettingsController extends ChangeNotifier {
   /// start and on returning from the background. See `BiometricLockGate`.
   bool get biometricLockEnabled => _biometricLockEnabled;
   BiometricLockTimeout get biometricLockTimeout => _biometricLockTimeout;
+
+  /// Whether the OS-level privacy screen is on: screenshots/recordings and the
+  /// recent-apps preview are blocked (Android) or covered (iOS). Off by
+  /// default; applied natively as soon as it changes and again on launch —
+  /// see [ScreenProtectionService].
+  bool get screenProtectionEnabled => _screenProtectionEnabled;
 
   /// Configured HTTP API base URL, normalized (no trailing slash).
   String get serverBaseUrl => _serverBaseUrl;
@@ -254,6 +262,14 @@ class AppSettingsController extends ChangeNotifier {
     unawaited(AppPreferencesStore.saveBiometricLockEnabled(value));
   }
 
+  set screenProtectionEnabled(bool value) {
+    if (_screenProtectionEnabled == value) return;
+    _screenProtectionEnabled = value;
+    notifyListeners();
+    unawaited(ScreenProtectionService.apply(value));
+    unawaited(AppPreferencesStore.saveScreenProtectionEnabled(value));
+  }
+
   set biometricLockTimeout(BiometricLockTimeout value) {
     if (_biometricLockTimeout == value) return;
     _biometricLockTimeout = value;
@@ -311,6 +327,15 @@ class AppSettingsController extends ChangeNotifier {
     _biometricLockEnabled = biometricLock;
     _biometricLockTimeout =
         biometricTimeout ?? BiometricLockTimeout.immediately;
+    notifyListeners();
+  }
+
+  /// Loads the persisted privacy-screen preference and applies it natively.
+  Future<void> loadScreenProtection() async {
+    final loaded = await AppPreferencesStore.loadScreenProtectionEnabled();
+    await ScreenProtectionService.apply(loaded);
+    if (loaded == _screenProtectionEnabled) return;
+    _screenProtectionEnabled = loaded;
     notifyListeners();
   }
 
@@ -408,6 +433,7 @@ class AppSettingsController extends ChangeNotifier {
       .._serverBaseUrl = ServerAddressStore.defaultBaseUrl
       .._themeMode = ThemeMode.system
       .._biometricLockEnabled = false
+      .._screenProtectionEnabled = false
       .._biometricLockTimeout = BiometricLockTimeout.immediately
       .._attachmentAutoDownloadMode = AttachmentAutoDownloadMode.off
       .._attachmentAutoDownloadLimit = AttachmentAutoDownloadLimit.fiveMb

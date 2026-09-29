@@ -33,9 +33,10 @@ error codes, idempotency rules, enum values). Read it before implementing any
 `ApiMailRepository` method rather than guessing the shape of a request/response.
 
 **Layering:**
-- `lib/models/` — plain data classes (`Email`, `MailAccount`, `MailFolder` enum, `MailLabel`). `MailFolder.pinned` is a virtual folder (grouping pinned mails across real folders), not a server-side one.
+- `lib/models/` — plain data classes (`Email`, `MailAccount`, `MailFolder` enum, `MailLabel`). `MailFolder.pinned` is a virtual folder (grouping pinned mails across real folders), not a server-side one. `MailFolderInfo`/`FolderKind` describe real server folders; `FolderRules` (`lib/utils/`) holds rename/move/delete/role rules.
 - `lib/repositories/` — the `MailRepository` interface and its `ApiMailRepository` implementation.
-- `lib/services/` — API plumbing used only by `ApiMailRepository` (`api_client.dart` for HTTP, `api_auth_service.dart` for token/session, `api_mail_service.dart` for mail endpoints, `token_store.dart`/`session_store.dart` for persistence via `flutter_secure_storage`/`shared_preferences`).
+- `lib/repositories/api/` — feature modules (labels, contacts, folders, drafts, search, mail actions, signatures, templates, scheduled send, account settings) that take a `RepositoryContext` (implemented by `ApiMailRepository`) plus `SessionRegistry`/`AccountSession`. `ApiMailRepository` only delegates; put new logic in a module.
+- `lib/services/` — API plumbing used only by `ApiMailRepository` (`api_client.dart` for HTTP, `api_auth_service.dart` for token/session, `api_mail_service.dart` for mail endpoints, split into endpoint-group `part` mixins under `api_mail_service/`, `token_store.dart`/`session_store.dart` for persistence via `flutter_secure_storage`/`shared_preferences`).
 - `lib/state/` — cross-widget UI state that isn't mail data itself (`MailSelectionController` for multi-select mode, `AppSettingsController` for sync interval/server address settings).
 - `lib/screens/` + `lib/widgets/` — UI. `HomeScreen` hosts the drawer/folder/list/selection-mode shell; other screens (`inbox`, `mail_detail`, `compose`, `search`, `accounts`, `settings`, `login`) are pushed on top.
 

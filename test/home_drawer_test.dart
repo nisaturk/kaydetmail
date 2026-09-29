@@ -6,7 +6,6 @@ import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
-import 'package:kaydetmail/screens/accounts_screen.dart';
 import 'package:kaydetmail/screens/home_screen.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/widgets/app_drawer.dart';
@@ -102,8 +101,7 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('Hesapları eşitle runs the global sync instead of opening '
-      'accounts', (tester) async {
+  testWidgets('Hesapları eşitle runs the global sync', (tester) async {
     final repo = await pumpHome(tester);
     repo.calls.clear();
     await openDrawer(tester);
@@ -112,7 +110,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.calls, ['sync:all', 'refresh:all']);
-    expect(find.byType(AccountsScreen), findsNothing);
     expect(find.byType(AppDrawer), findsNothing, reason: 'drawer closes');
     expect(find.text('Hesaplar eşitlendi.'), findsOneWidget);
   });

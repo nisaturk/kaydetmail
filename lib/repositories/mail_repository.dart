@@ -15,6 +15,7 @@ import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
+import '../models/mail_folder_info.dart';
 import '../models/mail_label.dart';
 import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
@@ -97,6 +98,12 @@ abstract class MailRepository extends ChangeNotifier {
   });
 
   Future<void> logout();
+
+  /// Signs one account out of this device only (tokens and every on-device
+  /// trace are removed; the other accounts stay connected). Signing out the
+  /// last account is a full [logout]. The mail account itself is untouched
+  /// on the server — unlike [removeAccount].
+  Future<void> signOutAccount(String accountId);
 
   /// Re-authenticates the signed-in account after its stored credentials
   /// stopped working (`mail_account_needs_reauthentication`). Keeps the
@@ -228,11 +235,13 @@ abstract class MailRepository extends ChangeNotifier {
 
   /// Every device currently signed into this account, for the "Bağlı
   /// cihazlar" settings screen. One entry marks [MailSession.isCurrentDevice].
-  Future<List<MailSession>> getSessions();
+  ///
+  /// [accountId] selects the account; by default the active (or first) one.
+  Future<List<MailSession>> getSessions({String? accountId});
 
   /// Closes a device's session. If it's the current device, the caller must
   /// also sign the app out locally — this only revokes it server-side.
-  Future<void> revokeSession(String sessionId);
+  Future<void> revokeSession(String sessionId, {String? accountId});
 
   // --- Reading ------------------------------------------------------
 
@@ -518,12 +527,13 @@ abstract class MailRepository extends ChangeNotifier {
   /// never be edited/deleted through another account's session.
   List<ManualContact> getManualContactsForAccount(String accountId);
 
-  /// Adds a contact to the primary/active account. Throws [ArgumentError]
+  /// Adds a contact to [accountId], or the primary/active account when null. Throws [ArgumentError]
   /// (Turkish message) for an invalid or already-saved (case-insensitive)
   /// email. Offline changes are queued locally until the backend confirms.
   Future<ManualContact> addManualContact({
     required String email,
     String? displayName,
+    String? accountId,
   });
 
   /// Edits a contact's email/display name. Same validation and offline
@@ -756,6 +766,11 @@ abstract class MailRepository extends ChangeNotifier {
   /// distinct from [MailFolder]'s fixed set and from virtual groupings like
   /// starred/pinned. Populated by [refreshCustomFolders].
   List<MailCustomFolder> getCustomFolders({String? accountId}) => const [];
+
+  /// Every available folder of [accountId] — standard and custom — with
+  /// counts, sync flag and role. Populated by [refreshCustomFolders].
+  List<MailFolderInfo> getAccountFolders(String accountId) => const [];
+
   /// Physical server folder ids for available standard roles of an account.
   /// Virtual folders have no remote parent and are not included.
   Map<MailFolder, String> standardFolderIds(String accountId) => const {};
@@ -764,10 +779,15 @@ abstract class MailRepository extends ChangeNotifier {
   List<Email> cachedCustomFolderMails(String accountId, String folderId) =>
       const [];
 
-
   /// Re-fetches the custom folder list for every account in scope, or only
   /// for [accountId] when given.
-  Future<void> refreshCustomFolders({String? accountId}) async {}
+  ///
+  /// [rediscover] also asks the server to re-scan its folder tree first, so
+  /// folders created or deleted outside the app (webmail, cPanel) show up.
+  Future<void> refreshCustomFolders({
+    String? accountId,
+    bool rediscover = false,
+  }) async {}
 
   /// One page of mail from one custom folder, newest first. Independent of
   /// the [MailFolder]-keyed paging used elsewhere — custom folders are
@@ -808,6 +828,7 @@ abstract class MailRepository extends ChangeNotifier {
     required String folderId,
     required String name,
   }) => throw UnimplementedError('renameCustomFolder');
+
   /// Moves a custom folder under an available same-account server folder,
   /// or to the personal namespace root when [parentFolderId] is null.
   Future<void> changeCustomFolderParent({
@@ -815,7 +836,6 @@ abstract class MailRepository extends ChangeNotifier {
     required String folderId,
     required String? parentFolderId,
   }) => throw UnimplementedError('changeCustomFolderParent');
-
 
   Future<void> deleteCustomFolder({
     required String accountId,

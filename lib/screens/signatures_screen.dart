@@ -282,7 +282,6 @@ class _SignatureEditor extends StatefulWidget {
 class _SignatureEditorState extends State<_SignatureEditor> {
   late final TextEditingController _name;
   late final TextEditingController _bodyText;
-  late final TextEditingController _bodyHtml;
   bool _saving = false;
   String? _error;
 
@@ -291,14 +290,12 @@ class _SignatureEditorState extends State<_SignatureEditor> {
     super.initState();
     _name = TextEditingController(text: widget.signature?.name ?? '');
     _bodyText = TextEditingController(text: widget.signature?.bodyText ?? '');
-    _bodyHtml = TextEditingController(text: widget.signature?.bodyHtml ?? '');
   }
 
   @override
   void dispose() {
     _name.dispose();
     _bodyText.dispose();
-    _bodyHtml.dispose();
     super.dispose();
   }
 
@@ -306,7 +303,6 @@ class _SignatureEditorState extends State<_SignatureEditor> {
     if (_saving) return;
     final name = _name.text.trim();
     final bodyText = _bodyText.text.trim();
-    final bodyHtml = _bodyHtml.text.trim();
     if (name.isEmpty || name.length > 100) {
       setState(() => _error = 'İmza adı 1-100 karakter olmalı.');
       return;
@@ -325,7 +321,6 @@ class _SignatureEditorState extends State<_SignatureEditor> {
       accountId: widget.accountId,
       name: name,
       bodyText: bodyText,
-      bodyHtml: bodyHtml.isEmpty ? null : bodyHtml,
       createdAt: widget.signature?.createdAt ?? now,
       updatedAt: now,
     );
@@ -376,16 +371,6 @@ class _SignatureEditorState extends State<_SignatureEditor> {
             minLines: 4,
             maxLines: 8,
             decoration: const InputDecoration(labelText: 'İmza metni'),
-          ),
-          const SizedBox(height: 12),
-          TextField(
-            key: const Key('signature-body-html'),
-            controller: _bodyHtml,
-            minLines: 3,
-            maxLines: 6,
-            decoration: const InputDecoration(
-              labelText: 'HTML gövdesi (isteğe bağlı)',
-            ),
           ),
           if (_error != null) ...[
             const SizedBox(height: 12),

@@ -31,14 +31,19 @@ class ApiException implements Exception {
     } catch (_) {
       details = const <String, dynamic>{};
     }
-    final fallbackTitle = details.isEmpty && body.isNotEmpty
-        ? body.substring(0, body.length > 120 ? 120 : body.length)
-        : null;
+    // A non-JSON body (proxy/HTML error page, stack trace, internal host
+    // names) is deliberately never copied into the exception: it can reach
+    // the UI and crash reports, and tells the user nothing actionable.
+    String? text(String key) {
+      final value = details[key];
+      return value is String ? value : null;
+    }
+
     return ApiException(
       status: status,
-      code: details['code'] as String?,
-      title: details['title'] as String? ?? fallbackTitle,
-      correlationId: details['correlationId'] as String?,
+      code: text('code'),
+      title: text('title'),
+      correlationId: text('correlationId'),
       details: details,
     );
   }

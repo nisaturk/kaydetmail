@@ -21,6 +21,30 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('pin/reply/forward', () {
+    test('pinned mail floats to the top, newest-first inside each group', () async {
+      final mailService = _RecordingMailService(
+        folders: [_folder('folder-inbox', 'Inbox')],
+        pagesByFolderId: {
+          'folder-inbox': _page([
+            _mailJson('newest', receivedAt: '2026-09-20T10:00:00Z'),
+            _mailJson('middle', receivedAt: '2026-09-19T10:00:00Z'),
+            _mailJson('old-a', receivedAt: '2026-09-10T10:00:00Z'),
+            _mailJson('old-b', receivedAt: '2026-09-09T10:00:00Z'),
+          ]),
+        },
+      );
+      final repo = await _repositoryWithLoadedInbox(mailService);
+      ids() => repo.getEmailsInFolder(MailFolder.inbox).map((e) => e.id).toList();
+
+      expect(ids(), ['newest', 'middle', 'old-a', 'old-b']);
+
+      await repo.setPinned(['old-b', 'old-a'], true);
+      expect(ids(), ['old-a', 'old-b', 'newest', 'middle']);
+
+      await repo.setPinned(['old-a'], false);
+      expect(ids(), ['old-b', 'newest', 'middle', 'old-a']);
+    });
+
     test(
       'setPinned writes through to the backend and caps at maxPinnedMails',
       () async {
@@ -176,7 +200,7 @@ void main() {
   });
   group('starred virtual folder', () {
     test(
-      'shows only starred mail while pins only change folder order',
+      'shows only starred mail while pinned mail floats to the top of its folder',
       () async {
         final mailService = _RecordingMailService(
           folders: [
@@ -201,8 +225,8 @@ void main() {
         expect(starred.map((e) => e.id), ['mail-archived']);
 
         final inbox = repo.getEmailsInFolder(MailFolder.inbox);
-        // Pinning changes flags, not chronological order.
-        expect(inbox.first.id, 'mail-new');
+        // A pinned mail leads the folder even though it is the older one.
+        expect(inbox.map((e) => e.id), ['mail-old', 'mail-new']);
       },
     );
 

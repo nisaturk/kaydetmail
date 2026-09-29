@@ -1,3 +1,5 @@
+import '../utils/insets.dart';
+
 import 'package:flutter/material.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -116,7 +118,7 @@ class _SyncScopeScreenState extends State<SyncScopeScreen> {
           : current == null
           ? const SizedBox.shrink()
           : ListView(
-              padding: const EdgeInsets.all(16),
+              padding: withBottomInset(context, const EdgeInsets.all(16)),
               children: [
                 Text(
                   widget.account.email,

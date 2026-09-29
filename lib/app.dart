@@ -197,6 +197,7 @@ class _AuthGateState extends State<_AuthGate> {
     await Future.wait([
       AppSettingsController.instance.loadServerAddress(),
       AppSettingsController.instance.loadBehaviorPreferences(),
+      AppSettingsController.instance.loadScreenProtection(),
       AppSettingsController.instance.loadAttachmentPreferences(),
       AppSettingsController.instance.loadUndoSendDelay(),
       AppSettingsController.instance.loadSyncPolicy(),

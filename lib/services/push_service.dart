@@ -212,7 +212,7 @@ class PushService {
   }
 
   static void _routeTap(RemoteMessage message) {
-    final mailId = message.data['mailId'];
+    final mailId = message.data['mailId'] as String?;
     if (mailId != null && mailId.isNotEmpty) {
       _mailTapped.add((mailId: mailId, reply: false));
     }

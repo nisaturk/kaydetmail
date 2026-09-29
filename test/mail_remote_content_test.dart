@@ -88,4 +88,40 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('plain-http remote images stay hidden even after opting in', (
+    tester,
+  ) async {
+    AppConfig.mailRepositoryForTest = _FakeRepo(
+      Email(
+        id: 'm2',
+        senderName: 'Gönderen',
+        senderEmail: 'gonderen@example.com',
+        recipients: const ['ben@example.com'],
+        subject: 'Bülten',
+        bodyText: 'Gövde',
+        bodyHtml:
+            '<p>Merhaba</p><img src="http://images.example/insecure.jpg">'
+            '<img src="https://images.example/secure.jpg">',
+        remoteImagesAllowed: true,
+        timestamp: DateTime(2026),
+        isRead: true,
+      ),
+    );
+
+    await tester.pumpWidget(
+      const MaterialApp(home: MailDetailScreen(emailId: 'm2')),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    final sources = tester
+        .widgetList<Image>(find.byType(Image))
+        .map((image) => image.image)
+        .whereType<NetworkImage>()
+        .map((image) => image.url)
+        .toList();
+    expect(sources, isNot(contains('http://images.example/insecure.jpg')));
+    expect(sources, contains('https://images.example/secure.jpg'));
+  });
 }
