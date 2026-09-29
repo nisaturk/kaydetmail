@@ -90,6 +90,12 @@ class MailCache {
         queued_at_ms INTEGER NOT NULL,
         PRIMARY KEY (account_id, mail_id, category)
       )''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS draft_queue (
+        account_id TEXT NOT NULL, draft_id TEXT NOT NULL, payload TEXT NOT NULL,
+        queued_at_ms INTEGER NOT NULL,
+        PRIMARY KEY (account_id, draft_id)
+      )''');
   }
 
   final CommonDatabase _db;
@@ -151,6 +157,45 @@ class MailCache {
     }
   }
 
+  /// Durable locally composed drafts awaiting backend synchronization.
+  List<Email> loadDraftQueue(String accountId) {
+    final rows = _db.select(
+      'SELECT payload FROM draft_queue WHERE account_id = ? ORDER BY queued_at_ms DESC',
+      [accountId],
+    );
+    return [
+      for (final row in rows)
+        _fromJson(jsonDecode(row['payload'] as String) as Map<String, dynamic>),
+    ];
+  }
+
+  void queueDraft(String accountId, Email draft) {
+    _db.execute(
+      'INSERT OR REPLACE INTO draft_queue VALUES (?, ?, ?, ?)',
+      [
+        accountId,
+        draft.id,
+        jsonEncode(_toJson(draft, includeAttachmentBytes: true)),
+        DateTime.now().millisecondsSinceEpoch,
+      ],
+    );
+  }
+
+  void removeQueuedDraft(String accountId, String draftId) => _db.execute(
+    'DELETE FROM draft_queue WHERE account_id = ? AND draft_id = ?',
+    [accountId, draftId],
+  );
+
+  bool queuedDraftMatches(String accountId, Email draft) {
+    final rows = _db.select(
+      'SELECT payload FROM draft_queue WHERE account_id = ? AND draft_id = ?',
+      [accountId, draft.id],
+    );
+    return rows.length == 1 &&
+        rows.single['payload'] ==
+            jsonEncode(_toJson(draft, includeAttachmentBytes: true));
+  }
+
   /// Drops the cached mails of [accountId]. Flags and labels are user data
   /// and survive (they are keyed by mail id and reattach on the next load).
   void clear(String accountId) =>
@@ -166,6 +211,7 @@ class MailCache {
       'folders',
       'manual_contacts',
       'offline_mutations',
+      'draft_queue',
     ]) {
       _db.execute('DELETE FROM $table WHERE account_id = ?', [accountId]);
     }
@@ -202,7 +248,10 @@ class MailCache {
     };
   }
 
-  static Map<String, dynamic> _toJson(Email e) => {
+  static Map<String, dynamic> _toJson(
+    Email e, {
+    bool includeAttachmentBytes = false,
+  }) => {
     'id': e.id,
     'senderName': e.senderName,
     'senderEmail': e.senderEmail,
@@ -223,10 +272,18 @@ class MailCache {
     'accountId': e.accountId,
     'threadId': e.threadId,
     'inReplyToId': e.inReplyToId,
+    'identityId': e.headers['draftIdentityId'],
     'hasAttachments': e.hasAttachments,
     'attachments': [
       for (final a in e.attachments)
-        {'id': a.id, 'name': a.name, 'size': a.sizeBytes, 'mime': a.mimeType},
+        {
+          'id': a.id,
+          'name': a.name,
+          'size': a.sizeBytes,
+          'mime': a.mimeType,
+          if (includeAttachmentBytes && a.bytes != null)
+            'bytes': base64Encode(a.bytes!),
+        },
     ],
   };
 
@@ -254,6 +311,9 @@ class MailCache {
     accountId: j['accountId'] as String,
     threadId: j['threadId'] as String,
     inReplyToId: j['inReplyToId'] as String?,
+    headers: {
+      if (j['identityId'] != null) 'draftIdentityId': j['identityId'] as String,
+    },
     hasAttachments: j['hasAttachments'] as bool? ?? false,
     attachments: [
       for (final a in (j['attachments'] as List).cast<Map<String, dynamic>>())
@@ -262,6 +322,9 @@ class MailCache {
           name: a['name'] as String,
           sizeBytes: a['size'] as int,
           mimeType: a['mime'] as String?,
+          bytes: a['bytes'] == null
+              ? null
+              : base64Decode(a['bytes'] as String),
         ),
     ],
   );

@@ -29,6 +29,7 @@ import 'outbox_screen.dart';
 import 'scheduled_sends_screen.dart';
 import 'reply_reminders_screen.dart';
 import 'search_screen.dart';
+import 'add_account_screen.dart';
 import 'settings_screen.dart';
 
 /// The main mail interface: a drawer to switch folders plus the mail list.
@@ -142,6 +143,13 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openSearch() {
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
+  }
+
+  void _addAccount() {
+    if (!_isRailLayout) Navigator.of(context).pop();
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const AddAccountScreen()),
+    );
   }
 
   void _openDestination(DrawerDestination destination) {
@@ -661,6 +669,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onLogout: _logout,
           onOpenDestination: _openDestination,
           onSyncAccounts: _syncAccounts,
+          onAddAccount: _addAccount,
         );
         return Scaffold(
           appBar: _selection.isActive

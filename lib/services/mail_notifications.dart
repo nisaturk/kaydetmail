@@ -52,13 +52,19 @@ class MailNotification {
 
   static MailNotification? fromPushData(Map<String, String> data) {
     final type = data['type'];
-    if (type != 'new_mail' && type != 'snooze_expired') return null;
+    if (type != 'new_mail' &&
+        type != 'snooze_expired' &&
+        type != 'reply_reminder') {
+      return null;
+    }
     final accountId = _clean(data['accountId']);
     final mailId = _clean(data['mailId']);
     if (accountId == null || mailId == null) return null;
     final snooze = type == 'snooze_expired';
+    final replyReminder = type == 'reply_reminder';
     final privacy = NotificationPrivacy.fromBackend(data['privacy']);
     final sender = _clean(data['sender']);
+    final recipient = _clean(data['recipient']);
     final subject = _clean(data['subject']);
     final preview = _clean(data['preview']);
     if (privacy == NotificationPrivacy.private ||
@@ -66,9 +72,15 @@ class MailNotification {
       return MailNotification(
         accountId: accountId,
         mailId: mailId,
-        title: snooze ? 'Ertelenen e-posta geri döndü' : 'Yeni e-posta',
+        title: snooze
+            ? 'Ertelenen e-posta geri döndü'
+            : replyReminder
+            ? 'Yanıt bekleniyor'
+            : 'Yeni e-posta',
         body: snooze
             ? 'Ertelenen bir iletiniz gelen kutusuna döndü.'
+            : replyReminder
+            ? 'Gönderdiğiniz e-postaya henüz yanıt gelmedi.'
             : 'Yeni bir iletiniz var.',
       );
     }
@@ -79,8 +91,16 @@ class MailNotification {
     return MailNotification(
       accountId: accountId,
       mailId: mailId,
-      title: snooze ? 'Ertelenen e-posta geri döndü' : sender ?? 'Yeni e-posta',
-      body: snooze && sender != null ? '$sender: $details' : details,
+      title: snooze
+          ? 'Ertelenen e-posta geri döndü'
+          : replyReminder
+          ? 'Yanıt bekleniyor'
+          : sender ?? 'Yeni e-posta',
+      body: replyReminder && recipient != null
+          ? '$recipient: $details'
+          : snooze && sender != null
+          ? '$sender: $details'
+          : details,
     );
   }
 

@@ -5,6 +5,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../config/app_config.dart';
 import '../models/mail_folder.dart';
+import '../models/email.dart';
 import '../services/session_store.dart';
 import '../state/app_settings_controller.dart';
 import '../state/outbox_store.dart';
@@ -66,7 +67,9 @@ class _AuthGate extends StatefulWidget {
 class _AuthGateState extends State<_AuthGate> {
   bool? _loggedIn;
   StreamSubscription<({String mailId, bool reply})>? _mailTapSub;
+  StreamSubscription<Email>? _draftFailureSub;
   Timer? _syncTimer;
+  final Set<String> _routingDraftIds = <String>{};
 
   bool _handlingLogout = false;
   ({String mailId, bool reply})? _pendingMailTap;
@@ -90,6 +93,9 @@ class _AuthGateState extends State<_AuthGate> {
     super.initState();
     AppSettingsController.instance.addListener(_onSettingsChanged);
     AppConfig.mailRepository.addListener(_onRepositoryChanged);
+    _draftFailureSub = AppConfig.mailRepository.draftSyncFailures.listen(
+      _openFailedDraft,
+    );
     _check();
     if (AppConfig.pushEnabled) {
       _mailTapSub = PushService.onMailTapped.listen(_openTappedMail);
@@ -99,6 +105,7 @@ class _AuthGateState extends State<_AuthGate> {
 
   @override
   void dispose() {
+    _draftFailureSub?.cancel();
     _mailTapSub?.cancel();
     _composeRouter.dispose();
     AppSettingsController.instance.removeListener(_onSettingsChanged);
@@ -107,6 +114,44 @@ class _AuthGateState extends State<_AuthGate> {
     super.dispose();
   }
 
+  Future<void> _openFailedDraft(Email draft) async {
+    if (!mounted || _loggedIn != true || !_routingDraftIds.add(draft.id)) return;
+    final navigator = _navigatorKey.currentState;
+    final context = _navigatorKey.currentContext;
+    if (navigator == null || context == null) {
+      _routingDraftIds.remove(draft.id);
+      return;
+    }
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.'),
+      ),
+    );
+    try {
+      await navigator.push(
+        MaterialPageRoute(
+          builder: (_) => ComposeScreen(
+            editingDraftId: draft.id,
+            initialFrom: draft.senderEmail,
+            initialFromAccountId: draft.accountId,
+            initialTo: draft.recipients.join(', '),
+            initialCc: draft.cc.join(', '),
+            initialBcc: draft.bcc.join(', '),
+            initialSubject: draft.subject,
+            initialBody: draft.bodyText,
+            initialBodyHtml: draft.bodyHtml,
+            initialAttachments: draft.attachments,
+            attachmentSourceMailId: draft.id,
+            initialThreadId: draft.threadId.isEmpty ? null : draft.threadId,
+            inReplyToId: draft.inReplyToId,
+            initialIdentityId: draft.headers['draftIdentityId'],
+          ),
+        ),
+      );
+    } finally {
+      _routingDraftIds.remove(draft.id);
+    }
+  }
   void _openTappedMail(({String mailId, bool reply}) tap) {
     if (_loggedIn != true ||
         (AppSettingsController.instance.biometricLockEnabled &&

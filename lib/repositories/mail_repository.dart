@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -241,11 +242,10 @@ abstract class MailRepository extends ChangeNotifier {
 
   // --- Reading ------------------------------------------------------
 
-  /// Current snapshot of the folder's emails, newest first.
+  /// Current snapshot of the folder's emails, strictly newest timestamp first.
   ///
   /// Scoped to the active mailbox: one account when an account is selected,
-  /// all accounts when unified. Within a folder, starred/pinned mails float
-  /// above the rest; newest-first is preserved inside each group.
+  /// all accounts when unified.
   List<Email> getEmailsInFolder(MailFolder folder);
 
   /// Every mail the repository holds, regardless of folder or account,
@@ -398,6 +398,9 @@ abstract class MailRepository extends ChangeNotifier {
   Future<ComposeLimits> composeLimits(String accountId) async =>
       throw UnimplementedError();
 
+  /// Background failure after the local draft was safely saved.
+  Stream<Email> get draftSyncFailures => const Stream<Email>.empty();
+
   /// Creates a new draft, or — when [draftId] is given — updates the
   /// existing draft in place instead of creating a duplicate.
   ///
@@ -418,7 +421,11 @@ abstract class MailRepository extends ChangeNotifier {
     String? inReplyToId,
     String? identityId,
     String? draftId,
+    void Function(Email draft)? onSyncFailure,
   });
+
+  /// Stops screen-local handling after its draft editor is disposed.
+  void detachDraftSyncFailureHandler(String draftId) {}
 
   /// Deletes a draft. Unknown ids are ignored.
   Future<void> deleteDraft(String draftId);
