@@ -48,7 +48,7 @@ class _ServerAddressDialogState extends State<ServerAddressDialog> {
       if (mounted) {
         setState(() {
           _saving = false;
-          _error = e.message;
+          _error = e.message?.toString();
         });
       }
     }

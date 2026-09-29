@@ -254,7 +254,8 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
   ];
 
   List<Attachment> get _keptAttachments => [
-    for (final info in (_detail?.attachments ?? const []))
+    for (final info
+        in (_detail?.attachments ?? const <ScheduledSendAttachmentInfo>[]))
       if (!_removedAttachmentIds.contains(info.id))
         Attachment(
           id: info.id,

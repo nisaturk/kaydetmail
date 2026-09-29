@@ -127,7 +127,7 @@ class _ContactEditorDialogState extends State<_ContactEditorDialog> {
       if (mounted) {
         setState(() {
           _submitting = false;
-          _error = e.message;
+          _error = e.message?.toString();
         });
       }
     } catch (error) {

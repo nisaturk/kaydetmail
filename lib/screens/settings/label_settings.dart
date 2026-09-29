@@ -257,7 +257,7 @@ class _LabelEditorDialogState extends State<_LabelEditorDialog> {
       if (mounted) {
         setState(() {
           _submitting = false;
-          _error = e.message;
+          _error = e.message?.toString();
         });
       }
     } catch (error) {

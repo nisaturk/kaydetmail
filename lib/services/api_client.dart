@@ -212,7 +212,7 @@ class ApiClient {
       onListen: () {
         void arm() {
           timer?.cancel();
-          timer = Timer(const Duration(seconds: 30), () {
+          timer = Timer(_requestTimeout, () {
             if (!abort.isCompleted) abort.complete();
             finishError(
               const ApiException(
@@ -389,11 +389,17 @@ class ApiClient {
         : null;
     // Peek at the method to decide about 429 retries — MultipartRequests
     // report POST/PUT, plain Requests report their own method.
-    final probe = await createRequest();
+    // The probe is reused for the first non-GET send so the request body
+    // factory runs once less.
+    http.BaseRequest? probe = await createRequest();
     final isGet = probe.method == 'GET';
-    Future<http.Response> sendOnce(String? token) async => isGet
-        ? _sendIdempotent(createRequest, accessToken: token)
-        : _send(await createRequest(), accessToken: token, throwErrors: false);
+    Future<http.Response> sendOnce(String? token) async {
+      if (isGet) return _sendIdempotent(createRequest, accessToken: token);
+      final request = probe ?? await createRequest();
+      probe = null;
+      return _send(request, accessToken: token, throwErrors: false);
+    }
+
     var response = await sendOnce(sentToken);
     if (!authenticated || response.statusCode != 401) {
       if (response.statusCode >= 400) {
