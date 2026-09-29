@@ -3423,7 +3423,7 @@ class ApiMailRepository extends MailRepository {
           : threadId,
       inReplyToId: inReplyToId ?? previous?.inReplyToId,
       headers: {
-        if (identityId != null) 'draftIdentityId': identityId,
+        if (identityId case final id?) 'draftIdentityId': id,
       },
     );
     if (oldIndex < 0) {
