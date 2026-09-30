@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/widgets/biometric_lock_gate.dart';
@@ -106,6 +107,22 @@ void main() {
     await tester.tap(find.text('Yine de devam et'));
     await tester.pumpAndSettle();
 
+    expect(find.text('Gizli Posta Kutusu'), findsOneWidget);
+  });
+
+  testWidgets('allows explicit access when the platform has no auth plugin', (
+    tester,
+  ) async {
+    AppSettingsController.instance.biometricLockEnabled = true;
+    fake.authenticateError = MissingPluginException('local_auth unavailable');
+
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+
+    expect(find.text('Gizli Posta Kutusu'), findsNothing);
+    expect(find.text('Yine de devam et'), findsOneWidget);
+    await tester.tap(find.text('Yine de devam et'));
+    await tester.pumpAndSettle();
     expect(find.text('Gizli Posta Kutusu'), findsOneWidget);
   });
 

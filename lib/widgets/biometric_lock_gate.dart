@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
@@ -156,6 +157,14 @@ class _BiometricLockGateState extends State<BiometricLockGate>
         _unlocked = didAuthenticate;
       });
       _reportLockState(didAuthenticate);
+    } on MissingPluginException {
+      // Linux has no local_auth implementation. Keep access explicit, just
+      // like a device without credentials, rather than offering endless retries.
+      if (!mounted) return;
+      setState(() {
+        _authenticating = false;
+        _deviceUnsupported = true;
+      });
     } on LocalAuthException catch (e) {
       if (!mounted) return;
       final noCredentials =

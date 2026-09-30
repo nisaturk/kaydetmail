@@ -124,6 +124,12 @@ The device needs access to that address on your LAN. Update the device
 profiles if your backend runs at a different address. All three enable push;
 the release profile also passes `--release`.
 
+`Kaydetmail (Linux, Debug)` targets Linux (`-d linux`), connects to
+`http://localhost:5071`, and disables mobile push. Open `kaydetmail-frontend/`
+as the Android Studio project, select this run profile and the **Linux (desktop)**
+device, then use Run or Debug. For the default Compose backend, change the
+profile's `API_BASE_URL` port to `8080`.
+
 ## Push notifications
 
 FCM is on by default on Android/iOS (`AppConfig.pushEnabled`; web and desktop skip it).
@@ -164,6 +170,59 @@ flutter pub get
 flutter run                        # against the configured backend
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:5071   # Android emulator, override
 ```
+
+### Linux desktop
+
+Linux x64 supports the desktop app, with tokens and the encrypted cache key stored
+in the session's Secret Service keyring. Flutter 3.47.5 / Dart 3.13.2+ and the
+Linux desktop toolchain are required.
+
+On Ubuntu 24.04, install build dependencies and a keyring provider:
+
+```bash
+sudo apt-get install clang cmake ninja-build pkg-config libgtk-3-dev libsecret-1-dev libstdc++-12-dev gnome-keyring
+```
+
+On Arch-based systems:
+
+```bash
+sudo pacman -S --needed base-devel clang cmake ninja pkgconf gtk3 libsecret gnome-keyring
+```
+
+Run from a graphical desktop session with a session D-Bus and an unlocked
+Secret Service provider (for example, GNOME Keyring or a compatible KWallet
+configuration). Installing `libsecret` alone does not provide a keyring daemon.
+Credentials and cache keys are not downgraded to plaintext if the keyring is
+unavailable.
+
+From the project directory:
+
+```bash
+flutter pub get
+flutter run -d linux --dart-define=API_BASE_URL=http://localhost:5071
+
+# Standalone release; Flutter is not needed on the destination machine.
+flutter build linux --release --dart-define=API_BASE_URL=http://localhost:5071
+./build/linux/x64/release/bundle/kaydetmail
+```
+
+Use the backend's actual address/port (`http://localhost:8080` for the default
+Compose stack), or change it from the login screen's server settings.
+Distribute the **entire `bundle/` directory**, not just the executable; it includes
+Flutter, plugin libraries, PDFium, native SQLite assets and application resources.
+The destination still needs GTK 3, libsecret, a working keyring and compatible
+system libraries. Build on the oldest Linux distribution you intend to support;
+a bundle built on a newer system may require a newer glibc.
+
+Linux does not use mobile Firebase push/monitoring, home-screen widgets, mobile
+share-intent intake or biometric app locking. Periodic mailbox refresh runs while
+the app is open; closing it stops client-side refresh. The Linux biometric-lock
+setting is hidden. An already-enabled lock on a platform without `local_auth`
+offers explicit continuation rather than trapping the user in retry attempts.
+
+CI builds both Linux Debug and Release on Ubuntu 24.04 and uploads the complete
+release bundle as `kaydetmail-linux-x64`.
+
 
 ## Testing
 

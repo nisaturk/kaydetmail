@@ -70,6 +70,14 @@ set_target_properties(${BINARY_NAME}
 )
 
 
+# Keep printing's cached PDFium architecture in sync with the target CPU.
+# An empty/stale cache entry otherwise produces an invalid download URL.
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|amd64|AMD64)$")
+  set(PDFIUM_ARCH "x64" CACHE STRING "Target PDFium architecture" FORCE)
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64)$")
+  set(PDFIUM_ARCH "arm64" CACHE STRING "Target PDFium architecture" FORCE)
+endif()
+
 # Generated plugin build rules, which manage building the plugins and adding
 # them to the application.
 include(flutter/generated_plugins.cmake)
