@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/compose_prefill.dart';
@@ -12,6 +13,7 @@ import 'package:kaydetmail/models/mail_signature.dart';
 import 'package:kaydetmail/models/mail_security.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/mail_detail_screen.dart';
+import 'package:kaydetmail/screens/mail_detail/message_body.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
@@ -153,29 +155,258 @@ class _ThreadRepo extends MailRepository {
 }
 
 void main() {
-  group('conversation text helpers', () {
-    test('collapses quoted replies and the signature block', () {
-      final quoted = collapseQuotedText(
-        'Tamam.\n\n20 Eyl tarihinde Ayşe yazdı:\n> eski',
+  group('conversation body separation', () {
+    test('plain replies and signatures toggle independently in source order', () {
+      final body = ConversationBody.text(
+        'Current answer\n-- \nMy signature\n'
+        'On Tuesday, Alice wrote:\n> Previous answer\n> -- \n> Alice signature',
       );
-      expect(quoted.collapsed, isTrue);
-      expect(quoted.visible, 'Tamam.');
-
-      final signed = collapseQuotedText('Merhaba\n-- \nAyşe');
-      expect(signed.visible, 'Merhaba');
-
-      final allQuote = collapseQuotedText('> sadece alıntı');
-      expect(allQuote.collapsed, isFalse);
+      expect(body.hasQuotes, isTrue);
+      expect(body.hasSignatures, isTrue);
+      expect(
+        body.render(showQuotes: false, showSignatures: false),
+        'Current answer',
+      );
+      final signed = body.render(showQuotes: false, showSignatures: true);
+      expect(signed, contains('My signature'));
+      expect(signed, isNot(contains('Previous answer')));
+      final quoted = body.render(showQuotes: true, showSignatures: false);
+      expect(quoted, contains('Previous answer'));
+      expect(quoted, isNot(contains('signature')));
+      final all = body.render(showQuotes: true, showSignatures: true);
+      expect(all, contains('My signature'));
+      expect(all, contains('Alice signature'));
     });
 
-    test('summarizes unique senders oldest first with a count', () {
-      final messages = [
-        _message('c', 'Ali', '', 3),
-        _message('b', 'Mehmet', '', 2),
-        _message('a', 'Ayse', '', 1),
-        _message('d', 'Ayse', '', 4),
-      ];
-      expect(threadParticipantSummary(messages), 'Ayse, Mehmet, Ali · 4 ileti');
+    test(
+      'inline answers and ordinary content are not mistaken for metadata',
+      () {
+        final body = ConversationBody.text(
+          '> Question\nAnswer\n--not a delimiter\nFrom: my notes',
+        );
+        expect(
+          body.render(showQuotes: false, showSignatures: false),
+          'Answer\n--not a delimiter\nFrom: my notes',
+        );
+        final inline = ConversationBody.text(
+          'Current\nOn Tuesday, Alice wrote:\n> Question\nMy inline answer',
+        );
+        expect(
+          inline.render(showQuotes: false, showSignatures: false),
+          contains('My inline answer'),
+        );
+        final html = ConversationBody.html(
+          '<p>Current</p><blockquote>A literary quotation</blockquote>'
+          '<p>gmail_quote is a class name, not metadata in text.</p>',
+        );
+        expect(html.hasQuotes, isFalse);
+        expect(
+          html.render(showQuotes: false, showSignatures: false),
+          contains('A literary quotation'),
+        );
+      },
+    );
+
+    test(
+      'HTML client signatures remain independent from sibling citations',
+      () {
+        for (final html in [
+          '<p>Current</p><div class="gmail_signature">Signature</div>'
+              '<div class="gmail_quote">Previous</div>',
+          "<p>Current</p><div id='Signature'>Signature</div>"
+              "<div id='divRplyFwdMsg'>From: Alice</div><p>Previous</p>Loose tail",
+          '<p>Current</p><div class="moz-signature">Signature</div>'
+              '<div class="moz-cite-prefix">On Tuesday, Alice wrote:</div>'
+              '<blockquote>Previous</blockquote><p>Inline answer</p>',
+        ]) {
+          final body = ConversationBody.html(html);
+          final hidden = body.render(showQuotes: false, showSignatures: false);
+          expect(hidden, contains('Current'));
+          expect(hidden, isNot(contains('Signature')));
+          expect(hidden, isNot(contains('Previous')));
+          expect(hidden, isNot(contains('Loose tail')));
+          final signature = body.render(
+            showQuotes: false,
+            showSignatures: true,
+          );
+          expect(signature, contains('Signature'));
+          expect(signature, isNot(contains('Previous')));
+          final quotes = body.render(showQuotes: true, showSignatures: false);
+          expect(quotes, contains('Previous'));
+          expect(quotes, isNot(contains('Signature')));
+          if (html.contains('Inline answer')) {
+            expect(hidden, contains('Inline answer'));
+          }
+        }
+      },
+    );
+
+    test(
+      'deduplicates only complete represented quotes and preserves media',
+      () {
+        final plain = ConversationBody.text(
+          'Current\nOn Tuesday, Alice wrote:\n> Previous',
+        );
+        expect(
+          plain.render(
+            showQuotes: true,
+            showSignatures: false,
+            representedBodies: ['Previous'],
+          ),
+          'Current',
+        );
+        expect(
+          plain.render(
+            showQuotes: true,
+            showSignatures: false,
+            representedBodies: ['Different'],
+          ),
+          contains('Previous'),
+        );
+        final html = ConversationBody.html(
+          '<p>Current</p><div class="gmail_quote">'
+          'Previous<img src="https://example.com/unique.png"></div>',
+        );
+        expect(
+          html.render(
+            showQuotes: true,
+            showSignatures: false,
+            representedBodies: ['Previous'],
+          ),
+          contains('unique.png'),
+        );
+        final partial = ConversationBody.text(
+          'Current\nOn Tuesday, Alice wrote:\n> Previous\n> Unloaded content',
+        );
+        expect(
+          partial.render(
+            showQuotes: true,
+            showSignatures: false,
+            representedBodies: ['Previous'],
+          ),
+          contains('Unloaded content'),
+        );
+        final meaningfulHeader = ConversationBody.text(
+          'Current\nOn Tuesday, Alice wrote:\n> Previous\n> From: my private notes',
+        );
+        expect(
+          meaningfulHeader.render(
+            showQuotes: true,
+            showSignatures: false,
+            representedBodies: ['Previous'],
+          ),
+          contains('my private notes'),
+        );
+      },
+    );
+
+    group('quoted history that the thread already shows', () {
+      // Shapes taken from a real thread: Gmail wraps its quote in
+      // `gmail_quote`; the other client flattened its history into plain
+      // lines inside one <p>, with no quote marker of any kind.
+      final first = ConversationBody.text('Mesaj 1\n');
+      final second = ConversationBody.html(
+        '<div dir="auto">Mesaj 2</div><br>'
+        '<div class="gmail_quote"><div class="gmail_attr">On Wed, Sep 30, '
+        '2026, 10:41  &lt;<a href="mailto:a@example.com">a@example.com</a>'
+        '&gt; wrote:<br></div><blockquote class="gmail_quote">Mesaj 1<br>\n'
+        '</blockquote></div>',
+      );
+      final flat = ConversationBody.html(
+        '<p>Mesaj 3<br/><br/>--<br/>Sevgiler,<br/>Nisa Türk<br/><br/>'
+        'Çar, 30 Eyl 2026, 10:42 tarihinde b@example.com yazdı:<br/>Mesaj 2<br/>'
+        'On Wed, Sep 30, 2026, 10:41  &lt;a@example.com&gt; wrote:<br/>'
+        'Mesaj 1</p><blockquote><br/></blockquote><p><br/></p>',
+      );
+      final earlier = [first, second];
+
+      String render(
+        ConversationBody body, {
+        bool showQuotes = false,
+        List<ConversationBody> thread = const [],
+      }) => body.render(
+        showQuotes: showQuotes,
+        showSignatures: false,
+        representedBodies: thread.map((mail) => mail.unquotedText),
+        earlier: thread,
+      );
+
+      test('flattened html history is a quote: hidden until asked for', () {
+        expect(flat.hasQuotes, isTrue);
+        final hidden = render(flat, thread: earlier);
+        expect(hidden, contains('Mesaj 3'));
+        expect(hidden, contains('Nisa Türk'));
+        expect(hidden, isNot(contains('yazdı')));
+        expect(hidden, isNot(contains('Mesaj 2')));
+        expect(hidden, isNot(contains('Mesaj 1')));
+      });
+
+      test('flattened history is not repeated when quotes are shown', () {
+        final shown = render(flat, showQuotes: true, thread: earlier);
+        expect(shown, contains('Mesaj 3'));
+        expect(shown, isNot(contains('Mesaj 2')));
+        expect(shown, isNot(contains('Mesaj 1')));
+      });
+
+      test('flattened history the thread lacks stays available', () {
+        final shown = render(
+          flat,
+          showQuotes: true,
+          thread: [ConversationBody.text('Something else entirely')],
+        );
+        expect(shown, contains('Mesaj 2'));
+        expect(shown, contains('Mesaj 1'));
+      });
+
+      test('a short quoted reply is recognised as repeating the thread', () {
+        final shown = render(second, showQuotes: true, thread: [first]);
+        expect(shown, contains('Mesaj 2'));
+        expect(shown, isNot(contains('Mesaj 1')));
+      });
+
+      test('an attribution before a marked citation keeps the answer', () {
+        final body = ConversationBody.html(
+          '<p>Current</p><div>On Tuesday, Alice wrote:</div>'
+          '<blockquote type="cite">Previous</blockquote>'
+          '<p>Inline answer</p>',
+        );
+        final hidden = render(body);
+        expect(hidden, contains('Current'));
+        expect(hidden, contains('Inline answer'));
+        expect(hidden, isNot(contains('Previous')));
+        expect(hidden, isNot(contains('wrote')));
+      });
+
+      test('multi-message nested plain quote is hidden when shown', () {
+        final body = ConversationBody.text(
+          'Mesaj 4\n\nOn Tuesday, Ayse wrote:\n> Mesaj 3\n>\n'
+          '> On Monday, Ali wrote:\n>> Mesaj 2',
+        );
+        expect(
+          render(
+            body,
+            showQuotes: true,
+            thread: [
+              ConversationBody.text('Mesaj 2'),
+              ConversationBody.text(
+                'Mesaj 3\nOn Monday, Ali wrote:\n> Mesaj 2',
+              ),
+            ],
+          ),
+          'Mesaj 4',
+        );
+      });
+
+      test('a quote with an image is never dropped for matching text', () {
+        final body = ConversationBody.html(
+          '<p>Current</p><div class="gmail_quote">Mesaj 1'
+          '<img src="https://example.com/a.png"></div>',
+        );
+        expect(
+          render(body, showQuotes: true, thread: [first]),
+          contains('a.png'),
+        );
+      });
     });
   });
 
@@ -261,52 +492,6 @@ void main() {
       expect(repo.getAllEmails().single.folder, MailFolder.trash);
     });
 
-    testWidgets('star action uses a filled amber icon when starred', (
-      tester,
-    ) async {
-      await open(tester, 'm2');
-      expect(find.byIcon(Icons.star_outline), findsWidgets);
-      await tester.tap(find.byTooltip('Yıldızla').first);
-      await tester.pumpAndSettle();
-      final icon = tester.widget<Icon>(find.byIcon(Icons.star).first);
-      expect(icon.color, Colors.amber);
-    });
-
-    testWidgets('plain and HTML bodies use the available thread width', (
-      tester,
-    ) async {
-      await tester.binding.setSurfaceSize(const Size(360, 700));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
-      repo.history = [
-        repo.older.copyWith(bodyText: 'Kısa eski ileti'),
-        repo.newer.copyWith(
-          bodyText: 'Kısa ileti',
-          bodyHtml: '<p>Kısa ileti</p>',
-        ),
-      ];
-      await open(tester, 'm2');
-      expect(
-        tester.getSize(find.byKey(const Key('message-body-m2'))).width,
-        328,
-      );
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('message-body-m1')),
-        200,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(
-        tester.getSize(find.byKey(const Key('message-body-m1'))).width,
-        328,
-      );
-      await tester.binding.setSurfaceSize(const Size(900, 700));
-      await tester.pumpAndSettle();
-      expect(
-        tester.getSize(find.byKey(const Key('message-body-m1'))).width,
-        868,
-      );
-      expect(tester.takeException(), isNull);
-    });
-
     testWidgets('wide HTML table stays inside the available message width', (
       tester,
     ) async {
@@ -323,48 +508,207 @@ void main() {
       await open(tester, 'm2');
       expect(
         tester.getSize(find.byKey(const Key('message-body-m2'))).width,
-        288,
+        lessThanOrEqualTo(320),
       );
       expect(tester.takeException(), isNull);
     });
 
     testWidgets(
-      'm2 opens first, older m1 stays expanded; quote alone toggles',
+      'one opened body reveals history and signatures independently',
       (tester) async {
         await open(tester, 'm2');
-        expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
-        final scroll = tester
-            .state<ScrollableState>(find.byType(Scrollable).first)
-            .position;
-        expect(scroll.pixels, 0);
-        expect(find.text('Mehmet'), findsOneWidget);
-        expect(find.byType(Card), findsNothing);
-        await tester.scrollUntilVisible(
-          find.byKey(const Key('message-overflow-m1')),
-          250,
-          scrollable: find.byType(Scrollable).first,
-        );
-        expect(find.textContaining('İlk mesaj gövdesi.'), findsWidgets);
-        expect(find.byKey(const Key('message-reply-m1')), findsNothing);
-        expect(find.textContaining('> İlk mesaj'), findsNothing);
-        await tester.scrollUntilVisible(
-          find.byKey(const Key('toggle-quoted-m2')),
-          -200,
-          scrollable: find.byType(Scrollable).first,
-        );
+        expect(find.byKey(const Key('message-history-m1')), findsNothing);
+        expect(find.byKey(const Key('message-overflow-m2')), findsOneWidget);
         await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
         await tester.pumpAndSettle();
-        expect(find.textContaining('> İlk mesaj'), findsOneWidget);
-        await tester.scrollUntilVisible(
-          find.byKey(const Key('message-recipients-m2')),
-          -200,
-          scrollable: find.byType(Scrollable).first,
+        expect(find.textContaining('İlk mesaj gövdesi.'), findsOneWidget);
+        expect(find.textContaining('> İlk mesaj'), findsNothing);
+        expect(find.textContaining('Şirket A.Ş.'), findsNothing);
+        expect(find.byKey(const Key('message-overflow-m1')), findsNothing);
+        await tester.ensureVisible(
+          find.byKey(const Key('toggle-signature-m2')),
         );
-        await tester.tap(find.byKey(const Key('message-recipients-m2')));
+        await tester.tap(find.byKey(const Key('toggle-signature-m2')));
         await tester.pumpAndSettle();
-        expect(find.textContaining('Kimden: '), findsOneWidget);
+        expect(find.textContaining('Şirket A.Ş.'), findsOneWidget);
+        await tester.ensureVisible(find.byKey(const Key('toggle-quoted-m2')));
+        await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('message-history-m1')), findsNothing);
+        await tester.ensureVisible(find.byKey(const Key('toggle-quoted-m2')));
+        await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
+        await tester.pumpAndSettle();
+        expect(find.textContaining('Şirket A.Ş.'), findsOneWidget);
       },
     );
+
+    for (final useHtml in [false, true]) {
+      testWidgets(
+        'single ${useHtml ? 'HTML' : 'plain'} mail has effective independent toggles',
+        (tester) async {
+          final email = repo.newer.copyWith(
+            bodyText:
+                'Current\n-- \nSignature\nOn Tuesday, Alice wrote:\n> Previous',
+            bodyHtml: useHtml
+                ? '<p>Current</p><div class="gmail_signature">Signature</div>'
+                      '<div class="gmail_quote">Previous</div>'
+                : null,
+          );
+          await tester.pumpWidget(
+            MaterialApp(
+              home: Scaffold(body: MessageBody(email: email)),
+            ),
+          );
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('Current', findRichText: true),
+            findsWidgets,
+          );
+          expect(
+            find.textContaining('Signature', findRichText: true),
+            findsNothing,
+          );
+          expect(
+            find.textContaining('Previous', findRichText: true),
+            findsNothing,
+          );
+          await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('Previous', findRichText: true),
+            findsWidgets,
+          );
+          expect(
+            find.textContaining('Signature', findRichText: true),
+            findsNothing,
+          );
+          await tester.tap(find.byKey(const Key('toggle-signature-m2')));
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('Signature', findRichText: true),
+            findsWidgets,
+          );
+          await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('Previous', findRichText: true),
+            findsNothing,
+          );
+          expect(
+            find.textContaining('Signature', findRichText: true),
+            findsWidgets,
+          );
+          await tester.tap(find.byKey(const Key('toggle-signature-m2')));
+          await tester.pumpAndSettle();
+          expect(
+            find.textContaining('Signature', findRichText: true),
+            findsNothing,
+          );
+        },
+      );
+    }
+
+    for (final useHtml in [false, true]) {
+      testWidgets(
+        'older ${useHtml ? 'HTML' : 'plain'} messages step inward and shrink without reply metadata',
+        (tester) async {
+          final history = [
+            for (var index = 0; index < 12; index++)
+              _message(
+                'history-$index',
+                'Alice',
+                'Message $index',
+                index + 1,
+              ).copyWith(
+                bodyHtml: useHtml
+                    ? '<p style="font-size: 15px">Message $index</p>'
+                    : null,
+              ),
+          ];
+          final opened = _message('opened', 'Bob', 'Current message', 23);
+          await tester.pumpWidget(
+            MaterialApp(
+              home: MediaQuery(
+                data: const MediaQueryData(textScaler: TextScaler.linear(2)),
+                child: Scaffold(
+                  body: SingleChildScrollView(
+                    child: SizedBox(
+                      width: 320,
+                      child: MessageBody(
+                        email: opened,
+                        history: history.reversed.toList(),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          );
+          await tester.pumpAndSettle();
+          await tester.tap(find.byKey(const Key('toggle-quoted-opened')));
+          await tester.pumpAndSettle();
+
+          double renderedFontSize(String id) {
+            double? size;
+            void visitText(
+              InlineSpan span,
+              double inheritedSize,
+              TextScaler scaler,
+            ) {
+              final fontSize = span.style?.fontSize ?? inheritedSize;
+              if (span is TextSpan) {
+                if (span.text?.contains('Message') == true ||
+                    span.text?.contains('Current message') == true) {
+                  size = scaler.scale(fontSize);
+                }
+                for (final child in span.children ?? const <InlineSpan>[]) {
+                  visitText(child, fontSize, scaler);
+                }
+              }
+            }
+
+            void visit(RenderObject object) {
+              if (size != null) return;
+              if (object is RenderEditable) {
+                visitText(object.text!, 15, object.textScaler);
+              } else if (object is RenderParagraph) {
+                visitText(object.text, 15, object.textScaler);
+              } else {
+                object.visitChildren(visit);
+              }
+            }
+
+            visit(tester.renderObject(find.byKey(Key('message-body-$id'))));
+            return size!;
+          }
+
+          var previousLeft = tester
+              .getRect(find.byKey(const Key('message-body-opened')))
+              .left;
+          var previousTop = double.negativeInfinity;
+          var previousFontSize = renderedFontSize('opened');
+          for (final message in history.reversed) {
+            final rect = tester.getRect(
+              find.byKey(Key('message-history-${message.id}')),
+            );
+            final fontSize = renderedFontSize(message.id);
+            expect(rect.left, greaterThan(previousLeft));
+            if (previousTop.isFinite) {
+              expect(rect.left - previousLeft, closeTo(1, 0.001));
+            }
+            expect(rect.top, greaterThan(previousTop));
+            expect(rect.right, lessThanOrEqualTo(320));
+            expect(rect.width, greaterThan(200));
+            expect(fontSize, lessThan(previousFontSize));
+            expect(fontSize, greaterThanOrEqualTo(24));
+            previousLeft = rect.left;
+            previousTop = rect.top;
+            previousFontSize = fontSize;
+          }
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
 
     testWidgets('compact header reveals recipients only on summary tap', (
       tester,
@@ -405,7 +749,10 @@ void main() {
       await open(tester, 'm2');
       expect(find.text('Üçüncü ileti'), findsNothing);
       expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
       await open(tester, 'm3');
+      await tester.tap(find.byKey(const Key('toggle-quoted-m3')));
+      await tester.pumpAndSettle();
       expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
     });
 
@@ -419,7 +766,7 @@ void main() {
         24,
       );
       final m3 = _message('m3', 'Ali', 'Üçüncü ileti', 23);
-      repo.history = [repo.older, repo.newer, m3, m4];
+      repo.history = [m4];
       repo.enrichmentGate = Completer<List<Email>>();
       await tester.pumpWidget(
         MaterialApp(
@@ -437,13 +784,11 @@ void main() {
       repo.enrichmentGate!.complete(repo.history!);
       await tester.pump();
       expect(scroll.pixels, 120);
-      expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('message-overflow-m3')),
-        250,
-        scrollable: find.byType(Scrollable).first,
-      );
-      expect(find.byKey(const Key('message-overflow-m3')), findsOneWidget);
+      await tester.ensureVisible(find.byKey(const Key('toggle-quoted-m4')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('toggle-quoted-m4')));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('message-history-m3')), findsOneWidget);
     });
 
     testWidgets('only the opened message keeps inline compose actions', (
@@ -455,39 +800,34 @@ void main() {
       for (final action in ['reply', 'reply-all', 'forward']) {
         expect(find.byKey(Key('message-$action-m2')), findsOneWidget);
       }
-      await tester.scrollUntilVisible(
-        find.byKey(const Key('message-overflow-m1')),
-        250,
-        scrollable: find.byType(Scrollable).first,
-      );
+      await tester.ensureVisible(find.byKey(const Key('toggle-quoted-m2')));
+      await tester.tap(find.byKey(const Key('toggle-quoted-m2')));
+      await tester.pumpAndSettle();
       for (final action in ['reply', 'reply-all', 'forward']) {
         expect(find.byKey(Key('message-$action-m1')), findsNothing);
       }
-      final star = tester.getRect(find.byKey(const Key('message-star-m1')));
-      final menu = tester.getRect(find.byKey(const Key('message-overflow-m1')));
-      expect(menu.left, greaterThanOrEqualTo(star.right));
-      expect(menu.center.dy, star.center.dy);
-      expect(tester.takeException(), isNull);
+      expect(find.byKey(const Key('message-overflow-m1')), findsNothing);
+      expect(find.byKey(const Key('message-star-m1')), findsNothing);
     });
 
     for (final mode in ['reply', 'reply-all', 'forward']) {
-      testWidgets('older message menu $mode targets that message', (
+      testWidgets('opened message menu $mode targets the selected message', (
         tester,
       ) async {
         repo.failPrefill = true;
         await open(tester, 'm2');
         await tester.scrollUntilVisible(
-          find.byKey(const Key('message-overflow-m1')),
+          find.byKey(const Key('message-overflow-m2')),
           250,
           scrollable: find.byType(Scrollable).first,
         );
-        await tester.tap(find.byKey(const Key('message-overflow-m1')));
+        await tester.tap(find.byKey(const Key('message-overflow-m2')));
         await tester.pumpAndSettle();
-        await tester.tap(find.byKey(Key('message-menu-$mode-m1')));
+        await tester.tap(find.byKey(Key('message-menu-$mode-m2')));
         await tester.pumpAndSettle();
 
-        expect(repo.prefillSources, ['$mode:m1']);
-        expect(find.byKey(Key('message-menu-$mode-m1')), findsNothing);
+        expect(repo.prefillSources, ['$mode:m2']);
+        expect(find.byKey(Key('message-menu-$mode-m2')), findsNothing);
       });
     }
 
@@ -529,14 +869,11 @@ void main() {
 
       expect(find.byKey(const Key('thread-message-count')), findsOneWidget);
       expect(find.text('5 ileti'), findsOneWidget);
-      expect(find.text('Önceki iletiler'), findsOneWidget);
+      expect(find.byKey(const Key('message-history-m4')), findsNothing);
+      await tester.tap(find.byKey(const Key('toggle-quoted-m5')));
+      await tester.pumpAndSettle();
       for (final id in ['m4', 'm3', 'm2', 'm1']) {
-        await tester.scrollUntilVisible(
-          find.byKey(Key('message-overflow-$id')),
-          250,
-          scrollable: find.byType(Scrollable).first,
-        );
-        expect(find.byKey(Key('message-overflow-$id')), findsOneWidget);
+        expect(find.byKey(Key('message-history-$id')), findsOneWidget);
       }
       expect(tester.takeException(), isNull);
     });

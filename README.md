@@ -19,7 +19,9 @@ one unified inbox.
 - **Reading, threading & actions.** Mail lists and search show each message as an
   independent row; swipes and bulk actions affect only the explicitly selected messages,
   never their unselected thread siblings. Opening a message still shows its conversation:
-  the opened message stays first, with older messages displayed fully below it.
+  the opened message stays first. Expanding quoted history shows older messages
+  newest-to-oldest, with a subtle 1 px indent step and progressively smaller text;
+  long threads retain readable width and respect accessibility text scaling.
   Reply, reply-all and forward buttons remain below the opened message; older messages
   use the three-dot header menu beside the star. Each action targets its own message.
   Read/unread, star/pin (capped at 3 concurrent pins), trash/restore,

@@ -886,7 +886,13 @@ class AppLocalizationsEn extends AppLocalizations {
   String get hideQuote => 'Hide quote';
 
   @override
-  String get showQuoteAndSignature => 'Show quote and signature';
+  String get showQuote => 'Show quote';
+
+  @override
+  String get showSignature => 'Show signature';
+
+  @override
+  String get hideSignature => 'Hide signature';
 
   @override
   String get remoteImagesWereBlockedIn =>
@@ -2786,28 +2792,6 @@ class AppLocalizationsEn extends AppLocalizations {
   @override
   String forwardDateLineHtml(Object date) {
     return '<strong>Date:</strong> $date<br>';
-  }
-
-  @override
-  String andMorePeople(Object names, int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count more people',
-      one: '1 more person',
-    );
-    return '$names and $_temp0';
-  }
-
-  @override
-  String threadParticipantSummary(Object people, int count) {
-    String _temp0 = intl.Intl.pluralLogic(
-      count,
-      locale: localeName,
-      other: '$count messages',
-      one: '1 message',
-    );
-    return '$people · $_temp0';
   }
 
   @override

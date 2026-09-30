@@ -1502,11 +1502,23 @@ abstract class AppLocalizations {
   /// **'Alıntıyı gizle'**
   String get hideQuote;
 
-  /// No description provided for @showQuoteAndSignature.
+  /// No description provided for @showQuote.
   ///
   /// In tr, this message translates to:
-  /// **'Alıntı ve imzayı göster'**
-  String get showQuoteAndSignature;
+  /// **'Alıntıyı göster'**
+  String get showQuote;
+
+  /// No description provided for @showSignature.
+  ///
+  /// In tr, this message translates to:
+  /// **'İmzayı göster'**
+  String get showSignature;
+
+  /// No description provided for @hideSignature.
+  ///
+  /// In tr, this message translates to:
+  /// **'İmzayı gizle'**
+  String get hideSignature;
 
   /// No description provided for @remoteImagesWereBlockedIn.
   ///
@@ -4744,18 +4756,6 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'<strong>Tarih:</strong> {date}<br>'**
   String forwardDateLineHtml(Object date);
-
-  /// No description provided for @andMorePeople.
-  ///
-  /// In tr, this message translates to:
-  /// **'{names} ve {count} kişi daha'**
-  String andMorePeople(Object names, int count);
-
-  /// No description provided for @threadParticipantSummary.
-  ///
-  /// In tr, this message translates to:
-  /// **'{people} · {count} ileti'**
-  String threadParticipantSummary(Object people, int count);
 
   /// No description provided for @recipientToMe.
   ///

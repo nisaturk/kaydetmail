@@ -442,7 +442,9 @@
   "reconnect": "Yeniden Bağlan",
   "signIn": "Giriş Yap",
   "hideQuote": "Alıntıyı gizle",
-  "showQuoteAndSignature": "Alıntı ve imzayı göster",
+  "showQuote": "Alıntıyı göster",
+  "showSignature": "İmzayı göster",
+  "hideSignature": "İmzayı gizle",
   "remoteImagesWereBlockedIn": "Bu mesajda uzak görseller güvenlik nedeniyle durduruldu.",
   "loadImages": "Görselleri yükle",
   "cancelDownload": "İndirmeyi iptal et",
@@ -1301,24 +1303,6 @@
   "@forwardDateLineHtml": {
     "placeholders": {
       "date": {}
-    }
-  },
-  "andMorePeople": "{names} ve {count} kişi daha",
-  "@andMorePeople": {
-    "placeholders": {
-      "names": {},
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "threadParticipantSummary": "{people} · {count} ileti",
-  "@threadParticipantSummary": {
-    "placeholders": {
-      "people": {},
-      "count": {
-        "type": "int"
-      }
     }
   },
   "recipientToMe": "bana",
