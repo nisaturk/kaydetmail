@@ -71,7 +71,6 @@ class _AuthGateState extends State<_AuthGate> {
   StreamSubscription<({String mailId, bool reply})>? _mailTapSub;
   StreamSubscription<Email>? _draftFailureSub;
   Timer? _syncTimer;
-  final Set<String> _routingDraftIds = <String>{};
 
   bool _handlingLogout = false;
   ({String mailId, bool reply})? _pendingMailTap;
@@ -96,7 +95,7 @@ class _AuthGateState extends State<_AuthGate> {
     AppSettingsController.instance.addListener(_onSettingsChanged);
     AppConfig.mailRepository.addListener(_onRepositoryChanged);
     _draftFailureSub = AppConfig.mailRepository.draftSyncFailures.listen(
-      _openFailedDraft,
+      _notifyDraftSyncFailure,
     );
     _check();
     if (AppConfig.pushEnabled) {
@@ -116,43 +115,19 @@ class _AuthGateState extends State<_AuthGate> {
     super.dispose();
   }
 
-  Future<void> _openFailedDraft(Email draft) async {
-    if (!mounted || _loggedIn != true || !_routingDraftIds.add(draft.id)) {
-      return;
-    }
-    final navigator = _navigatorKey.currentState;
+  void _notifyDraftSyncFailure(Email draft) {
+    if (!mounted || _loggedIn != true) return;
     final context = _navigatorKey.currentContext;
-    if (navigator == null || context == null) {
-      _routingDraftIds.remove(draft.id);
-      return;
-    }
+    if (context == null) return;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(l10nNow.draftSavedLocallyServerSync)),
-    );
-    try {
-      await navigator.push(
-        MaterialPageRoute(
-          builder: (_) => ComposeScreen(
-            editingDraftId: draft.id,
-            initialFrom: draft.senderEmail,
-            initialFromAccountId: draft.accountId,
-            initialTo: draft.recipients.join(', '),
-            initialCc: draft.cc.join(', '),
-            initialBcc: draft.bcc.join(', '),
-            initialSubject: draft.subject,
-            initialBody: draft.bodyText,
-            initialBodyHtml: draft.bodyHtml,
-            initialAttachments: draft.attachments,
-            attachmentSourceMailId: draft.id,
-            initialThreadId: draft.threadId.isEmpty ? null : draft.threadId,
-            inReplyToId: draft.inReplyToId,
-            initialIdentityId: draft.headers['draftIdentityId'],
-          ),
+      SnackBar(
+        content: Text(l10nNow.draftSavedLocallyServerSync),
+        action: SnackBarAction(
+          label: l10nNow.open,
+          onPressed: () => openDraftEditor(context, draft),
         ),
-      );
-    } finally {
-      _routingDraftIds.remove(draft.id);
-    }
+      ),
+    );
   }
 
   void _openTappedMail(({String mailId, bool reply}) tap) {

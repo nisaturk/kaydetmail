@@ -1,10 +1,11 @@
 import 'dart:async';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:html/parser.dart' as html_parser;
+import 'package:kaydetmail/app.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_account.dart';
@@ -16,9 +17,12 @@ import 'package:kaydetmail/models/scheduled_send.dart';
 import 'package:kaydetmail/models/mail_signature.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/compose_screen.dart';
+import 'package:kaydetmail/screens/home_screen.dart';
 import 'package:kaydetmail/screens/outbox_screen.dart';
 import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
+import 'package:kaydetmail/services/session_store.dart';
+import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 /// Minimal in-memory [MailRepository] double. Every method not exercised by
@@ -43,6 +47,10 @@ class _FakeMailRepository extends MailRepository {
   final List<String> deletedDrafts = [];
   final List<Email> savedDrafts = [];
   final List<bool> readReceiptRequests = [];
+  final draftFailures = StreamController<Email>.broadcast();
+
+  @override
+  Stream<Email> get draftSyncFailures => draftFailures.stream;
 
   @override
   bool get isLoggedIn => true;
@@ -497,6 +505,64 @@ void main() {
   });
 
   group('compose exit behavior', () {
+    testWidgets('background draft failure opens editor only on user request', (
+      tester,
+    ) async {
+      final draft = Email(
+        id: 'local-draft-failed',
+        accountId: _accountA.id,
+        senderEmail: _accountA.email,
+        senderName: 'Me',
+        recipients: const ['reply@example.com'],
+        subject: 'Saved reply',
+        bodyText: 'My locally saved reply',
+        timestamp: DateTime.utc(2026),
+        folder: MailFolder.drafts,
+      );
+      final repo = _FakeMailRepository(
+        accounts: const [_accountA],
+        emails: [draft],
+      );
+      AppSettingsController.resetForTest();
+      const widgetUpdates = MethodChannel('home_widget/updates');
+      tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        widgetUpdates,
+        (_) async => null,
+      );
+      addTearDown(() {
+        tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+          widgetUpdates,
+          null,
+        );
+      });
+      AppConfig.mailRepositoryForTest = repo;
+      await SessionStore.addEmail(_accountA.email);
+      await tester.runAsync(() async {
+        await tester.pumpWidget(const KaydetApp());
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+      });
+      await tester.pumpAndSettle();
+      expect(find.byType(HomeScreen), findsOneWidget);
+
+      repo.draftFailures.add(draft);
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposeScreen), findsNothing);
+      await tester.tap(find.widgetWithText(SnackBarAction, 'Aç'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposeScreen), findsOneWidget);
+      expect(_bodyText(tester), draft.bodyText);
+      await tester.tap(find.byTooltip('Kapat'));
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposeScreen), findsNothing);
+
+      repo.draftFailures.add(draft);
+      await tester.pumpAndSettle();
+      expect(find.byType(ComposeScreen), findsNothing);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await repo.draftFailures.close();
+      AppSettingsController.resetForTest();
+    });
+
     testWidgets('new mail offers save as draft or discard', (tester) async {
       final repo = _FakeMailRepository(accounts: const [_accountA]);
       await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');

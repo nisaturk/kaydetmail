@@ -20,6 +20,8 @@ class DraftModule {
   Future<void> _draftWrites = Future.value();
   final Map<String, void Function(Email)> _draftFailureCallbacks = {};
   final _draftSyncFailureController = StreamController<Email>.broadcast();
+  final Set<String> _blockedDraftIds = {};
+  final Set<String> _reportedDraftIds = {};
 
   Stream<Email> get draftSyncFailures => _draftSyncFailureController.stream;
 
@@ -56,6 +58,7 @@ class DraftModule {
     if (cache == null) return;
     for (final session in _ctx.registry.sessions.values) {
       for (final local in cache.loadDraftQueue(session.account.id)) {
+        if (_blockedDraftIds.contains(local.id)) continue;
         try {
           final saved = await _serializeDraftWrite(
             () => _writeDraft(
@@ -92,24 +95,31 @@ class DraftModule {
           if (saved.id != local.id) _draftIdSuccessor[local.id] = saved.id;
           cache.removeQueuedDraft(session.account.id, local.id);
           _draftFailureCallbacks.remove(local.id);
+          _blockedDraftIds.remove(local.id);
+          _reportedDraftIds.remove(local.id);
           _ctx.notify();
-        } catch (_) {
+        } catch (error) {
           final latest = session.findLoaded(local.id);
           if (latest != null &&
               !cache.queuedDraftMatches(session.account.id, latest)) {
             scheduleSync();
             continue;
           }
-          final callback = _draftFailureCallbacks[local.id];
-          if (callback != null) {
-            callback(local);
-          } else {
-            _draftSyncFailureController.add(local);
+          if (_reportedDraftIds.add(local.id)) {
+            final callback = _draftFailureCallbacks[local.id];
+            if (callback != null) {
+              callback(local);
+            } else {
+              _draftSyncFailureController.add(local);
+            }
           }
-          Future<void>.delayed(const Duration(seconds: 15), () {
-            scheduleSync();
-          });
-          return;
+          if (error is ApiException && error.isTransient) {
+            Future<void>.delayed(const Duration(seconds: 15), scheduleSync);
+          } else {
+            // Retain the queue entry, but retry a rejected request only after
+            // the user saves it again (or the session is restored).
+            _blockedDraftIds.add(local.id);
+          }
         }
       }
     }
@@ -293,6 +303,8 @@ class DraftModule {
       rethrow;
     }
     if (onSyncFailure != null) _draftFailureCallbacks[id] = onSyncFailure;
+    _blockedDraftIds.remove(id);
+    _reportedDraftIds.remove(id);
     _ctx.notify();
     scheduleSync();
     return local;
@@ -442,6 +454,8 @@ class DraftModule {
     if (draftId.startsWith('local-draft-')) {
       _ctx.cache?.removeQueuedDraft(initialSession.account.id, draftId);
       _draftFailureCallbacks.remove(draftId);
+      _blockedDraftIds.remove(draftId);
+      _reportedDraftIds.remove(draftId);
       _ctx.removeMany(initialSession, [draftId]);
       _ctx.notify();
       return Future.value();
