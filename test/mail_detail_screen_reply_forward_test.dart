@@ -223,7 +223,12 @@ void main() {
       final repo = _FakeRepo(_mail(), accounts: [_account]);
       await _pumpDetail(tester, repo);
 
-      await tester.tap(find.byTooltip('Daha fazla'));
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byTooltip('Daha fazla'),
+        ),
+      );
       await tester.pumpAndSettle();
       await tester.tap(find.text('Tümünü Yanıtla'));
       await tester.pumpAndSettle();

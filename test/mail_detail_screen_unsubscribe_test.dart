@@ -56,7 +56,12 @@ Future<void> _pumpDetail(WidgetTester tester, _FakeRepo repo) async {
 }
 
 Future<void> _openOverflowMenu(WidgetTester tester) async {
-  await tester.tap(find.byTooltip('Daha fazla'));
+  await tester.tap(
+    find.descendant(
+      of: find.byType(AppBar),
+      matching: find.byTooltip('Daha fazla'),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 

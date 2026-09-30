@@ -303,12 +303,12 @@ void main() {
         expect(find.text('Mehmet'), findsOneWidget);
         expect(find.byType(Card), findsNothing);
         await tester.scrollUntilVisible(
-          find.byKey(const Key('message-reply-m1')),
+          find.byKey(const Key('message-overflow-m1')),
           250,
           scrollable: find.byType(Scrollable).first,
         );
         expect(find.textContaining('İlk mesaj gövdesi.'), findsWidgets);
-        expect(find.byKey(const Key('message-reply-m1')), findsOneWidget);
+        expect(find.byKey(const Key('message-reply-m1')), findsNothing);
         expect(find.textContaining('> İlk mesaj'), findsNothing);
         await tester.scrollUntilVisible(
           find.byKey(const Key('toggle-quoted-m2')),
@@ -402,30 +402,57 @@ void main() {
       expect(scroll.pixels, 120);
       expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
       await tester.scrollUntilVisible(
-        find.byKey(const Key('message-reply-m3')),
+        find.byKey(const Key('message-overflow-m3')),
         250,
         scrollable: find.byType(Scrollable).first,
       );
-      expect(find.byKey(const Key('message-reply-m3')), findsOneWidget);
+      expect(find.byKey(const Key('message-overflow-m3')), findsOneWidget);
     });
 
-    testWidgets('per-message reply uses that message as the source', (
+    testWidgets('only the opened message keeps inline compose actions', (
       tester,
     ) async {
-      repo.failPrefill = true;
+      await tester.binding.setSurfaceSize(const Size(320, 700));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
       await open(tester, 'm2');
-      expect(find.byKey(const Key('thread-toggle-all')), findsNothing);
-
+      for (final action in ['reply', 'reply-all', 'forward']) {
+        expect(find.byKey(Key('message-$action-m2')), findsOneWidget);
+      }
       await tester.scrollUntilVisible(
-        find.byKey(const Key('message-reply-m1')),
+        find.byKey(const Key('message-overflow-m1')),
         250,
         scrollable: find.byType(Scrollable).first,
       );
-      await tester.tap(find.byKey(const Key('message-reply-m1')));
-      await tester.pump();
-
-      expect(repo.prefillSources, ['reply:m1']);
+      for (final action in ['reply', 'reply-all', 'forward']) {
+        expect(find.byKey(Key('message-$action-m1')), findsNothing);
+      }
+      final star = tester.getRect(find.byKey(const Key('message-star-m1')));
+      final menu = tester.getRect(find.byKey(const Key('message-overflow-m1')));
+      expect(menu.left, greaterThanOrEqualTo(star.right));
+      expect(menu.center.dy, star.center.dy);
+      expect(tester.takeException(), isNull);
     });
+
+    for (final mode in ['reply', 'reply-all', 'forward']) {
+      testWidgets('older message menu $mode targets that message', (
+        tester,
+      ) async {
+        repo.failPrefill = true;
+        await open(tester, 'm2');
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('message-overflow-m1')),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
+        await tester.tap(find.byKey(const Key('message-overflow-m1')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(Key('message-menu-$mode-m1')));
+        await tester.pumpAndSettle();
+
+        expect(repo.prefillSources, ['$mode:m1']);
+        expect(find.byKey(Key('message-menu-$mode-m1')), findsNothing);
+      });
+    }
 
     testWidgets('newer send echoes stay out of opened m2 history', (
       tester,
@@ -468,11 +495,11 @@ void main() {
       expect(find.text('Önceki iletiler'), findsOneWidget);
       for (final id in ['m4', 'm3', 'm2', 'm1']) {
         await tester.scrollUntilVisible(
-          find.byKey(Key('message-reply-$id')),
+          find.byKey(Key('message-overflow-$id')),
           250,
           scrollable: find.byType(Scrollable).first,
         );
-        expect(find.byKey(Key('message-reply-$id')), findsOneWidget);
+        expect(find.byKey(Key('message-overflow-$id')), findsOneWidget);
       }
       expect(tester.takeException(), isNull);
     });

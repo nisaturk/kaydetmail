@@ -320,6 +320,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
               ownAddress: _originatingFrom(message),
               labels: _labelsFor(message),
               collapseQuoted: _thread.length > 1,
+              showComposeActions: index == 1,
               onCompose: (mode, title) =>
                   _openComposePrefill(mode, title: title, target: message),
               onStar: () => _watchBackgroundMutation(
@@ -344,6 +345,7 @@ class _SingleMessage extends StatefulWidget {
     required this.labels,
     required this.onCompose,
     required this.onStar,
+    required this.showComposeActions,
     this.collapseQuoted = false,
   });
 
@@ -351,6 +353,7 @@ class _SingleMessage extends StatefulWidget {
   final String? ownAddress;
   final List<MailLabel> labels;
   final bool collapseQuoted;
+  final bool showComposeActions;
   final Future<void> Function(String mode, String title) onCompose;
   final VoidCallback onStar;
 
@@ -441,6 +444,7 @@ class _SingleMessageState extends State<_SingleMessage> {
               ),
             ),
             IconButton(
+              key: Key('message-star-${email.id}'),
               onPressed: widget.onStar,
               tooltip: email.isStarred ? l10nNow.removeStar : l10nNow.star,
               visualDensity: VisualDensity.compact,
@@ -449,6 +453,37 @@ class _SingleMessageState extends State<_SingleMessage> {
                 email.isStarred ? Icons.star : Icons.star_outline,
                 color: email.isStarred ? Colors.amber : null,
               ),
+            ),
+            PopupMenuButton<String>(
+              key: Key('message-overflow-${email.id}'),
+              tooltip: l10nNow.more,
+              style: IconButton.styleFrom(visualDensity: VisualDensity.compact),
+              icon: const Icon(LucideIcons.ellipsisVertical, size: 20),
+              onSelected: (mode) => widget.onCompose(
+                mode,
+                mode == 'reply'
+                    ? l10nNow.reply
+                    : mode == 'reply-all'
+                    ? l10nNow.replyAll
+                    : l10nNow.forward,
+              ),
+              itemBuilder: (context) => [
+                PopupMenuItem(
+                  key: Key('message-menu-reply-${email.id}'),
+                  value: 'reply',
+                  child: Text(l10nNow.reply),
+                ),
+                PopupMenuItem(
+                  key: Key('message-menu-reply-all-${email.id}'),
+                  value: 'reply-all',
+                  child: Text(l10nNow.replyAll2),
+                ),
+                PopupMenuItem(
+                  key: Key('message-menu-forward-${email.id}'),
+                  value: 'forward',
+                  child: Text(l10nNow.forward),
+                ),
+              ],
             ),
           ],
         ),
@@ -552,37 +587,38 @@ class _SingleMessageState extends State<_SingleMessage> {
           const SizedBox(height: 8),
           AttachmentList(email: email),
         ],
-        Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              OutlinedButton.icon(
-                key: Key('message-reply-${email.id}'),
-                style: _actionStyle(colors),
-                onPressed: () => widget.onCompose('reply', l10nNow.reply),
-                icon: const Icon(LucideIcons.reply, size: 16),
-                label: Text(l10nNow.reply),
-              ),
-              OutlinedButton.icon(
-                key: Key('message-reply-all-${email.id}'),
-                style: _actionStyle(colors),
-                onPressed: () =>
-                    widget.onCompose('reply-all', l10nNow.replyAll),
-                icon: const Icon(LucideIcons.replyAll, size: 16),
-                label: Text(l10nNow.replyAll2),
-              ),
-              OutlinedButton.icon(
-                key: Key('message-forward-${email.id}'),
-                style: _actionStyle(colors),
-                onPressed: () => widget.onCompose('forward', l10nNow.forward),
-                icon: const Icon(LucideIcons.forward, size: 16),
-                label: Text(l10nNow.forward),
-              ),
-            ],
+        if (widget.showComposeActions)
+          Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                OutlinedButton.icon(
+                  key: Key('message-reply-${email.id}'),
+                  style: _actionStyle(colors),
+                  onPressed: () => widget.onCompose('reply', l10nNow.reply),
+                  icon: const Icon(LucideIcons.reply, size: 16),
+                  label: Text(l10nNow.reply),
+                ),
+                OutlinedButton.icon(
+                  key: Key('message-reply-all-${email.id}'),
+                  style: _actionStyle(colors),
+                  onPressed: () =>
+                      widget.onCompose('reply-all', l10nNow.replyAll),
+                  icon: const Icon(LucideIcons.replyAll, size: 16),
+                  label: Text(l10nNow.replyAll2),
+                ),
+                OutlinedButton.icon(
+                  key: Key('message-forward-${email.id}'),
+                  style: _actionStyle(colors),
+                  onPressed: () => widget.onCompose('forward', l10nNow.forward),
+                  icon: const Icon(LucideIcons.forward, size: 16),
+                  label: Text(l10nNow.forward),
+                ),
+              ],
+            ),
           ),
-        ),
       ],
     );
   }

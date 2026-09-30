@@ -16,8 +16,11 @@ one unified inbox.
   screen for custom IMAP folders, including nested browsing, create/rename/delete and
   moving mail. The detail move sheet shows nested folders only from the mail's account;
   mixed-account selections can move only to shared standard folder types.
-- **Reading, threading & actions.** Conversations render as collapsible cards;
-  read/unread, star/pin (capped at 3 concurrent pins), trash/restore,
+- **Reading, threading & actions.** The opened message stays first, with older
+  messages displayed fully below it. Reply, reply-all and forward buttons remain
+  below the opened message; older messages use the three-dot header menu beside
+  the star. Each action targets its own message. Read/unread, star/pin
+  (capped at 3 concurrent pins), trash/restore,
   archive, spam, move, and multi-select bulk actions.
   Mail move and label edits update loaded lists immediately and restore rejected changes
   if the server refuses them. Permanent deletion keeps mail visible in Trash until the
