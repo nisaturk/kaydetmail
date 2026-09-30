@@ -833,6 +833,9 @@ class AppLocalizationsTr extends AppLocalizations {
   String get replySent => 'Yanıt gönderildi';
 
   @override
+  String get emailSent => 'E-posta gönderildi.';
+
+  @override
   String couldntSendTheReply(Object value) {
     return 'Yanıt gönderilemedi: $value';
   }

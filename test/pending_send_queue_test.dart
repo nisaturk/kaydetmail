@@ -1,7 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
-import 'package:flutter/widgets.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
@@ -11,6 +12,7 @@ import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/state/outbox_store.dart';
 import 'package:kaydetmail/state/pending_send_queue.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:kaydetmail/l10n/l10n.dart';
 
 Email _sent() => Email(
   id: 'sent-1',
@@ -90,6 +92,84 @@ void main() {
     AppSettingsController.resetForTest();
   });
 
+  testWidgets(
+    'success feedback waits for confirmed delivery and survives undo dismissal',
+    (tester) async {
+      final messengerKey = GlobalKey<ScaffoldMessengerState>();
+      await tester.pumpWidget(
+        MaterialApp(
+          scaffoldMessengerKey: messengerKey,
+          home: const Scaffold(body: SizedBox()),
+        ),
+      );
+      final store = OutboxStore.inMemory();
+      final queue = PendingSendQueue.forTest(store);
+      final delivery = Completer<Email>();
+      final undo = messengerKey.currentState!.showSnackBar(
+        SnackBar(
+          content: const Text('Undo send'),
+          duration: PendingSendQueue.undoWindow,
+          action: SnackBarAction(label: 'Undo', onPressed: () {}),
+        ),
+      );
+      var undoClosed = false;
+      unawaited(undo.closed.then((_) => undoClosed = true));
+      await queue.enqueue(
+        const PendingSend(
+          id: 'feedback',
+          to: ['a@b.com'],
+          subject: 'S',
+          body: 'B',
+        ),
+        sendEmail: _send((_) => delivery.future),
+        messenger: messengerKey.currentState,
+      );
+      await tester.pump(PendingSendQueue.undoWindow);
+      expect(find.byKey(const Key('send-success-snackbar')), findsNothing);
+      expect(store.load().single.status, OutboxStatus.sending);
+      delivery.complete(_sent());
+      await tester.pump();
+      if (!undoClosed) undo.close();
+      await tester.pumpAndSettle();
+      expect(find.text(l10nNow.emailSent), findsOneWidget);
+      expect(store.load(), isEmpty);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('send-success-snackbar')), findsNothing);
+    },
+  );
+
+  testWidgets('failed delivery never shows a success toast', (tester) async {
+    final messengerKey = GlobalKey<ScaffoldMessengerState>();
+    await tester.pumpWidget(
+      MaterialApp(
+        scaffoldMessengerKey: messengerKey,
+        home: const Scaffold(body: SizedBox()),
+      ),
+    );
+    final store = OutboxStore.inMemory();
+    final queue = PendingSendQueue.forTest(store);
+    await queue.enqueue(
+      const PendingSend(
+        id: 'failure-feedback',
+        to: ['a@b.com'],
+        subject: 'S',
+        body: 'B',
+      ),
+      sendEmail: _send((_) async {
+        throw const ApiException(status: 400, code: 'invalid_recipient');
+      }),
+      messenger: messengerKey.currentState,
+    );
+    await tester.pump(PendingSendQueue.undoWindow);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const Key('send-success-snackbar')), findsNothing);
+    expect(find.text(l10nNow.couldntSendTheMessageWas), findsOneWidget);
+    expect(store.load().single.status, OutboxStatus.failed);
+    await tester.pump(const Duration(seconds: 5));
+    await tester.pumpAndSettle();
+  });
+
   testWidgets('undo window follows the configured delay', (tester) async {
     await tester.pumpWidget(const SizedBox());
     AppSettingsController.instance.undoSendDelay = UndoSendDelay.seconds20;
@@ -115,7 +195,12 @@ void main() {
     final queue = PendingSendQueue.forTest(OutboxStore.inMemory());
     var sent = 0;
     await queue.enqueue(
-      const PendingSend(id: 'send-bg', to: ['a@b.com'], subject: 'S', body: 'B'),
+      const PendingSend(
+        id: 'send-bg',
+        to: ['a@b.com'],
+        subject: 'S',
+        body: 'B',
+      ),
       sendEmail: _send((_) async {
         sent++;
         return _sent();

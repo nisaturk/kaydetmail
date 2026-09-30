@@ -1550,6 +1550,12 @@ abstract class AppLocalizations {
   /// **'Yanıt gönderildi'**
   String get replySent;
 
+  /// No description provided for @emailSent.
+  ///
+  /// In tr, this message translates to:
+  /// **'E-posta gönderildi.'**
+  String get emailSent;
+
   /// No description provided for @couldntSendTheReply.
   ///
   /// In tr, this message translates to:

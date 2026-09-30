@@ -284,9 +284,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
   // ── Bulk actions ──────────────────────────────────────────────────────
   //
-  // Selected rows stand for whole conversations, so every operation expands
-  // them to all member messages first. Delete/archive confirm with a compact
-  // SnackBar whose Undo restores each message to its exact previous folder.
+  // Actions operate on explicit selected messages only. Delete/archive show a
+  // compact SnackBar whose Undo restores each selected message's prior folder.
 
   // ── Folder-contextual bulk actions ───────────────────────────────────
   //
@@ -368,14 +367,10 @@ class _HomeScreenState extends State<HomeScreen> {
     }());
   }
 
-  /// Trash only: expunges the selected conversations' Trash messages. No
+  /// Trash only: expunges the selected messages. No
   /// Undo exists, so it asks first.
   Future<void> _actionDeleteForever() async {
-    final ids = idsInFolder(
-      _repo,
-      expandThreadIds(_repo, _selection.selectedIds),
-      _folder,
-    );
+    final ids = idsInFolder(_repo, _selection.selectedIds.toList(), _folder);
     if (ids.isEmpty) {
       _selection.exit();
       return;
@@ -441,17 +436,17 @@ class _HomeScreenState extends State<HomeScreen> {
     onlyCurrentFolder: true,
   );
 
-  /// [onlyCurrentFolder] limits the thread-expanded ids to messages in the
+  /// [onlyCurrentFolder] limits selected ids to messages in the
   /// folder being viewed — see [idsInFolder].
   Future<void> _runBulkMove({
     required Future<void> Function(List<String> ids) action,
     required String Function(int count) success,
     bool onlyCurrentFolder = false,
   }) async {
-    final threadIds = expandThreadIds(_repo, _selection.selectedIds);
+    final selectedIds = _selection.selectedIds.toList();
     final ids = onlyCurrentFolder
-        ? idsInFolder(_repo, threadIds, _folder)
-        : threadIds;
+        ? idsInFolder(_repo, selectedIds, _folder)
+        : selectedIds;
     if (ids.isEmpty) {
       _selection.exit();
       return;
@@ -551,7 +546,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _actionStar() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds.toList();
     if (ids.isEmpty) return;
     final starred = !_selectionAllStarred;
     _runOptimisticAction(
@@ -562,7 +557,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   /// Marks read unless every selected message is already read.
   Future<void> _actionToggleRead() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds.toList();
     if (ids.isEmpty) return;
     final markRead = _selectionAnyUnread;
     _runOptimisticAction(
@@ -572,21 +567,21 @@ class _HomeScreenState extends State<HomeScreen> {
     );
   }
 
-  /// True while any selected message (thread-expanded) is unread — drives
+  /// True while any selected message is unread — drives
   /// both [_actionToggleRead]'s decision and the toolbar button's
   /// icon/tooltip, so the button always names the action it is about to
   /// perform instead of a fixed label regardless of state.
   bool get _selectionAnyUnread {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds;
     final byId = {for (final e in _repo.getAllEmails()) e.id: e};
     return ids.any((id) => !(byId[id]?.isRead ?? true));
   }
 
-  /// True when every selected message (thread-expanded) is already
+  /// True when every selected message is already
   /// starred — drives both [_actionStar] and the "Yıldızla"/"Yıldızı
   /// kaldır" menu label, matching mail_detail_screen's per-mail toggle.
   bool get _selectionAllStarred {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds;
     if (ids.isEmpty) return false;
     final byId = {for (final e in _repo.getAllEmails()) e.id: e};
     return ids.every((id) => byId[id]?.isStarred ?? false);
@@ -617,7 +612,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _actionSnooze() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds.toList();
     if (ids.isEmpty) return;
     if (_folder == MailFolder.snoozed) {
       _runOptimisticAction(
@@ -636,7 +631,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _actionLabel() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds.toList();
     if (ids.isEmpty) return;
     // Shared picker with the mail detail screen, so labeling never forks into
     // two implementations.
@@ -645,7 +640,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _actionUnlabel() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds.toList();
     if (ids.isEmpty) return;
     _runOptimisticAction(
       ids: ids,
@@ -654,7 +649,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _actionMove() async {
-    final ids = expandThreadIds(_repo, _selection.selectedIds);
+    final ids = _selection.selectedIds.toList();
     final byId = {for (final email in _repo.getAllEmails()) email.id: email};
     final emails = ids.map((id) => byId[id]).whereType<Email>().toList();
     if (emails.isEmpty) return;
@@ -938,7 +933,7 @@ class _HomeScreenState extends State<HomeScreen> {
         PopupMenuItem(value: 'spam', child: Text(l10nNow.moveToSpam)),
       if (_showMarkNotSpamAction)
         PopupMenuItem(value: 'not_spam', child: Text(l10nNow.notSpam)),
-      if (anyLabeled(_repo, expandThreadIds(_repo, _selection.selectedIds)))
+      if (anyLabeled(_repo, _selection.selectedIds.toList()))
         PopupMenuItem(value: 'unlabel', child: Text(l10nNow.removeLabel))
       else
         PopupMenuItem(value: 'label', child: Text(l10nNow.label)),

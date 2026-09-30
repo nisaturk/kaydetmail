@@ -76,9 +76,9 @@ mixin _ReplyMixin on _MailDetailStateBase {
           ? l10nNow.wroteSender(sender)
           : l10nNow.wroteOnDate(formattedDate, sender);
       initialBody =
-          '\n\n$attribution\n> ${email.bodyText.replaceAll('\n', '\n> ')}';
+          '$attribution\n> ${email.bodyText.replaceAll('\n', '\n> ')}';
       initialBodyHtml =
-          '<p><br></p><p>${htmlEscape.convert(attribution)}</p>'
+          '<p>${htmlEscape.convert(attribution)}</p>'
           '<blockquote>$originalHtml</blockquote>';
     }
 
@@ -92,6 +92,7 @@ mixin _ReplyMixin on _MailDetailStateBase {
           initialSubject: prefill.suggestedSubject,
           initialBody: initialBody,
           initialBodyHtml: initialBodyHtml,
+          initialReplyWritingLines: isForward ? 0 : 5,
           initialAttachments: initialAttachments,
           attachmentSourceMailId: isForward ? email.id : null,
           initialThreadId: isForward ? null : email.threadId,

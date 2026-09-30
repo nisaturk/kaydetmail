@@ -86,12 +86,11 @@ Future<void> openDraftEditor(BuildContext context, Email draft) async {
 /// Smart-back saves a draft when content exists.
 ///
 /// Three more behaviors live here:
-/// - **Signature**: when [editingDraftId] is null (a genuinely new send, not
-///   restoring a stored draft), the signature saved for the selected Kimden
-///   account ([MailAccount.signature]) is appended to the body automatically, and
-///   re-applied if Kimden changes — but only while the body still matches
-///   exactly what auto-insertion put there, so real typing is never
-///   clobbered. See `_syncSignature`.
+/// - **Signature**: genuinely new messages receive the selected sender's
+///   signature, before quoted history in replies. Restored drafts and undone
+///   sends keep their existing body. Sender changes update the signature only
+///   while the editor still matches the last automatic insertion, so typing
+///   and formatting are never clobbered. See `_syncSignature`.
 /// - **Undo send**: "Gönder" doesn't call `MailRepository.sendEmail`
 ///   directly — it hands the fields to [PendingSendQueue], which holds them
 ///   for a few seconds (with a "Geri Al" SnackBar) before the real send
@@ -117,6 +116,8 @@ class ComposeScreen extends StatefulWidget {
     this.initialSubject = '',
     this.initialBody = '',
     this.initialBodyHtml,
+    this.initialReplyWritingLines = 0,
+    this.insertSignature = true,
     this.initialAttachments = const [],
     this.attachmentSourceMailId,
     this.editingDraftId,
@@ -139,6 +140,14 @@ class ComposeScreen extends StatefulWidget {
   final String initialSubject;
   final String initialBody;
   final String? initialBodyHtml;
+
+  /// Blank authored lines before [initialBody]/[initialBodyHtml], which contain
+  /// the attribution and quoted history of a new reply. Restored bodies already
+  /// contain this space and must leave this at zero.
+  final int initialReplyWritingLines;
+
+  /// False when reopening an already composed body (for example Undo send).
+  final bool insertSignature;
   final List<Attachment> initialAttachments;
 
   /// The mail [initialAttachments] with a null `bytes` belong to (the
@@ -188,6 +197,10 @@ class _ComposeScreenState extends _ComposeStateBase
     );
     _initialBodyDelta = jsonEncode(initialDocument.toDelta().toJson());
     _bodyBeforeSignature = _bodyText;
+    _signatureInsertionOffset = widget.initialReplyWritingLines > 0
+        ? widget.initialReplyWritingLines
+        : _bodyBeforeSignature.length;
+    _managedSignatureDelta = _initialBodyDelta;
     // Fields that already carry content start visible so nothing is lost;
     // empty ones stay hidden behind the Cc/Bcc menu.
     _ccExpanded = _ccRecipients.isNotEmpty;

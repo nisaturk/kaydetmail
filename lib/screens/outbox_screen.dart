@@ -83,6 +83,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
         builder: (_) => ComposeScreen(
           composeTitle: replacing ? l10nNow.editMessage : l10nNow.newMessage,
           replacesOutboxId: replacing ? send.id : null,
+          insertSignature: false,
           initialFrom: send.from,
           initialTo: send.to.join(', '),
           initialCc: send.cc.join(', '),

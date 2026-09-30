@@ -20,9 +20,9 @@ mixin _MenuMixin
     } else if (action == 'snooze') {
       await _toggleSnooze();
     } else if (action == 'label') {
-      await showLabelPicker(context, emailIds: _conversationIds);
+      await showLabelPicker(context, emailIds: [widget.emailId]);
     } else if (action == 'unlabel') {
-      _watchBackgroundMutation(removeAllLabels(_repo, _conversationIds));
+      _watchBackgroundMutation(removeAllLabels(_repo, [widget.emailId]));
     } else if (action == 'delete_forever') {
       await _deleteForever();
     } else if (action == 'move') {

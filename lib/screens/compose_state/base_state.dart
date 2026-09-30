@@ -77,18 +77,22 @@ abstract class _ComposeStateBase extends State<ComposeScreen> {
   List<Contact> _contacts = const [];
 
   // --- Signature -----------------------------------------------------
-  /// Body content as it was right before [_insertedSignature] was last
-  /// appended — the baseline [_syncSignature] compares against to detect
-  /// whether the user has typed anything else since.
+  /// Body without the managed signature, including any quoted history.
   String _bodyBeforeSignature = '';
+
+  int _signatureInsertionOffset = 0;
+
+  String _managedSignatureDelta = '';
+
+  int _signatureRequest = 0;
 
   String _insertedSignature = '';
 
   late final String _initialBodyDelta;
 
-  /// Only a genuinely new send auto-gets a signature — restoring a stored
-  /// draft must never inject one that was never part of it.
-  bool get _signatureEligible => widget.editingDraftId == null;
+  /// Restored bodies already contain their signature and writing space.
+  bool get _signatureEligible =>
+      widget.editingDraftId == null && widget.insertSignature;
 
   MailRepository get _repo => AppConfig.mailRepository;
 
@@ -96,7 +100,8 @@ abstract class _ComposeStateBase extends State<ComposeScreen> {
     final html = widget.initialBodyHtml;
     if (html != null && html.trim().isNotEmpty) {
       try {
-        return quill.Document.fromDelta(HtmlToDelta().convert(html));
+        final document = quill.Document.fromDelta(HtmlToDelta().convert(html));
+        return _withReplyWritingSpace(document);
       } catch (_) {
         // Keep backend plain text when rich conversion rejects malformed HTML.
       }
@@ -109,6 +114,13 @@ abstract class _ComposeStateBase extends State<ComposeScreen> {
         : htmlToPlainText(html);
     if (fallback.isNotEmpty) {
       document.insert(0, fallback);
+    }
+    return _withReplyWritingSpace(document);
+  }
+
+  quill.Document _withReplyWritingSpace(quill.Document document) {
+    if (widget.initialReplyWritingLines > 0) {
+      document.insert(0, '\n' * widget.initialReplyWritingLines);
     }
     return document;
   }

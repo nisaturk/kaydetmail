@@ -118,6 +118,7 @@ mixin _SendMixin
                   builder: (_) => ComposeScreen(
                     composeTitle: composeTitle,
                     editingDraftId: draftId,
+                    insertSignature: false,
                     initialFrom: from,
                     initialTo: to.join(', '),
                     initialCc: cc.join(', '),
@@ -137,13 +138,11 @@ mixin _SendMixin
           ),
         ),
       );
+      var undoClosed = false;
+      unawaited(controller.closed.then((_) => undoClosed = true));
       unawaited(
         Future<void>.delayed(undoWindow, () {
-          try {
-            controller.close();
-          } catch (_) {
-            // Already gone.
-          }
+          if (!undoClosed) controller.close();
         }),
       );
     }

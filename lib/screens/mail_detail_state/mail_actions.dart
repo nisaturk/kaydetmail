@@ -128,8 +128,9 @@ mixin _MailActionsMixin on _MailDetailStateBase, _ThreadLoadMixin, _ReplyMixin {
 
   /// Expunge stays visible until server confirms deletion.
   Future<void> _deleteForever() async {
-    final ids = idsInFolder(_repo, _conversationIds, MailFolder.trash);
-    if (ids.isEmpty) return;
+    final email = _email;
+    if (email == null || email.folder != MailFolder.trash) return;
+    final ids = [email.id];
     final confirmed = await confirmPermanentDelete(context, ids.length);
     if (!confirmed || !mounted) return;
     final messenger = ScaffoldMessenger.of(context);

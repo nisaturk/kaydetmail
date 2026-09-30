@@ -625,7 +625,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
       await _loadRemoteSessionState(session, flags);
       await _loadMailbox(session);
       await _seedStarred(session);
-      unawaited(_seedThreadSizes(session));
       try {
         final refreshed = await mailService.getAccount();
         session.account = refreshed.copyWith(quota: session.account.quota);
@@ -703,7 +702,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
       await _loadRemoteSessionState(session, flags);
       await _loadMailbox(session);
       await _seedStarred(session);
-      unawaited(_seedThreadSizes(session));
       try {
         final refreshed = await session.mailService.getAccount();
         session.account = refreshed.copyWith(quota: session.account.quota);
@@ -1362,9 +1360,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     unawaited(_attachmentAutoDownloader.preloadListed(this, refreshed));
     // Refresh only re-fetches page 1. Mail paged in earlier via
     // loadMoreEmails is still real and must not vanish just because this
-    // pass didn't re-verify it — losing it also breaks threadStatusOf's
-    // cross-message reply/forward aggregation for any thread whose
-    // answered/forwarded message lived past page 1.
+    // pass didn't re-verify it — mail lists must retain every fetched page.
     //
     // Page 1 is newest-first, though, so it does cover everything down to
     // its oldest item (the whole folder when the page isn't full): a cached
@@ -1697,27 +1693,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     return List.unmodifiable(thread);
   }
 
-  @override
-  int serverThreadSize(String threadId) {
-    for (final session in _sessions.values) {
-      final size = session.serverThreadSizes[threadId];
-      if (size != null) return size;
-    }
-    return 0;
-  }
-
-  /// Best-effort: message counts per conversation, so an inbox row shows the
-  /// whole thread even when the replies live in an unloaded folder.
-  Future<void> _seedThreadSizes(AccountSession session) async {
-    try {
-      final page = await session.mailService.getConversations(pageSize: 100);
-      for (final c in page.items) {
-        session.serverThreadSizes[c.id] = c.messageCount;
-      }
-      notifyListeners();
-    } catch (_) {}
-  }
-
   /// Server-side conversation list (`GET /api/conversations`) for the
   /// primary session.
   Future<ConversationListPage> getConversations({
@@ -1769,7 +1744,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
       thread.add(stamped);
       _upsertDetail(session, stamped);
     }
-    session.serverThreadSizes[threadId] = thread.length;
     // One notification persists every upsert to this account's SQLite bucket
     // and lets open detail panes consume enriched bodies immediately.
     notifyListeners();

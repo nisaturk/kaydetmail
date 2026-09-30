@@ -450,6 +450,7 @@
   "downloadAttachment": "Eki indir",
   "sendingReply": "Yanıt gönderiliyor",
   "replySent": "Yanıt gönderildi",
+  "emailSent": "E-posta gönderildi.",
   "couldntSendTheReply": "Yanıt gönderilemedi: {value}",
   "@couldntSendTheReply": {
     "placeholders": {

@@ -911,6 +911,9 @@ class AppLocalizationsEn extends AppLocalizations {
   String get replySent => 'Reply sent';
 
   @override
+  String get emailSent => 'Email sent.';
+
+  @override
   String couldntSendTheReply(Object value) {
     return 'Couldn’t send the reply: $value';
   }
