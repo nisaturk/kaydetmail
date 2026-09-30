@@ -37,6 +37,9 @@ class BiometricLockSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (defaultTargetPlatform == TargetPlatform.linux) {
+      return const SizedBox.shrink();
+    }
     final settings = AppSettingsController.instance;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
