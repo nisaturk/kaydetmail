@@ -112,6 +112,15 @@ class AppDrawer extends StatelessWidget {
                               onTap: () => onSelectFolder(folder),
                               badgeCount: _badgeCount(repo, folder),
                             ),
+                          for (final destination in [
+                            DrawerDestination.outbox,
+                            DrawerDestination.scheduled,
+                          ])
+                            _SectionTile(
+                              icon: destination.icon,
+                              label: destination.label,
+                              onTap: () => onOpenDestination(destination),
+                            ),
                           _CustomFolderSection(
                             folders: repo.getCustomFolders(),
                             accountNames: {

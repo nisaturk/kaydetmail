@@ -1,7 +1,7 @@
 part of '../api_mail_service.dart';
 
 mixin _SearchApi on _ApiMailServiceBase {
-  /// Full-text + filtered search over cached server mail. All filters are
+  /// Literal term-substring + filtered search over cached server mail. All filters are
   /// optional and AND-ed. Note the singular `hasAttachment` — `/mails` uses
   /// the plural `hasAttachments`.
   Future<List<Email>> search({

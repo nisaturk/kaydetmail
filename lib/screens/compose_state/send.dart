@@ -204,6 +204,7 @@ mixin _SendMixin
   /// through the standard pickers, then queues the mail with
   /// `MailRepository.scheduleSend` instead of sending it now.
   Future<void> _scheduleSend() async {
+    if (_sending) return;
     if (!_validateRecipients()) return;
     if (!_validateAttachmentsReady()) return;
     if (!_validateAttachmentLimits()) return;
@@ -234,6 +235,8 @@ mixin _SendMixin
       return;
     }
 
+    final messenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
     setState(() => _sending = true);
     try {
       await _repo.scheduleSend(
@@ -260,22 +263,26 @@ mixin _SendMixin
         }
       }
       if (!mounted) return;
-      Navigator.of(context).pop(true);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            l10nNow.theEmailIsScheduledTo(formatMailDateFull(sendAt)),
+      navigator.pop(true);
+      messenger
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(
+              l10nNow.theEmailIsScheduledTo(formatMailDateFull(sendAt)),
+            ),
           ),
-        ),
-      );
+        );
     } catch (e) {
       if (mounted) {
         setState(() => _sending = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(l10nNow.couldntSchedule(friendlyErrorMessage(e))),
-          ),
-        );
+        messenger
+          ..clearSnackBars()
+          ..showSnackBar(
+            SnackBar(
+              content: Text(l10nNow.couldntSchedule(friendlyErrorMessage(e))),
+            ),
+          );
       }
     }
   }

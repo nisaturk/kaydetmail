@@ -1,5 +1,6 @@
 {
   "@@locale": "tr",
+  "pressBackAgainToExit": "Çıkmak için geri tuşuna tekrar basın.",
   "draftSavedLocallyServerSync": "Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.",
   "outgoingMessagesAreWaitingFor": "{attention} gönderi Giden Kutusu’nda incelenmeyi bekliyor.",
   "@outgoingMessagesAreWaitingFor": {
@@ -632,7 +633,7 @@
   "retry": "Yeniden dene",
   "cancelSend2": "Gönderimi iptal et",
   "noScheduledSends": "Zamanlanmış gönderim yok",
-  "scheduleASendWithThe": "Yazarken \"Gönder\" yanındaki oktan bir gönderim zamanlayınca burada görünür.",
+  "scheduleASendWithThe": "E-posta yazarken sağ üstteki menüden \"Zamanla\" seçeneğini kullanın. Zamanlanan iletiler burada görünür.",
   "newEmailsAdded": "Sunucu taraması tamamlandı. {imported} yeni e-posta eklendi.",
   "@newEmailsAdded": {
     "placeholders": {

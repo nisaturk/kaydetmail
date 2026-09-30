@@ -10,6 +10,9 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get pressBackAgainToExit => 'Press back again to exit.';
+
+  @override
   String get draftSavedLocallyServerSync =>
       'Draft saved locally; server sync failed.';
 
@@ -1280,7 +1283,7 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get scheduleASendWithThe =>
-      'Schedule a send with the arrow next to “Send” while composing and it will appear here.';
+      'While composing, choose “Schedule” from the top-right menu. Scheduled messages appear here.';
 
   @override
   String newEmailsAdded(int imported) {

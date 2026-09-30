@@ -10,6 +10,9 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get pressBackAgainToExit => 'Çıkmak için geri tuşuna tekrar basın.';
+
+  @override
   String get draftSavedLocallyServerSync =>
       'Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.';
 
@@ -1204,7 +1207,7 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get scheduleASendWithThe =>
-      'Yazarken \"Gönder\" yanındaki oktan bir gönderim zamanlayınca burada görünür.';
+      'E-posta yazarken sağ üstteki menüden \"Zamanla\" seçeneğini kullanın. Zamanlanan iletiler burada görünür.';
 
   @override
   String newEmailsAdded(int imported) {

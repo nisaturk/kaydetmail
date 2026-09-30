@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import '../utils/insets.dart';
 
 import 'package:flutter/material.dart';
@@ -28,28 +30,55 @@ class ScheduledSendsScreen extends StatefulWidget {
   State<ScheduledSendsScreen> createState() => _ScheduledSendsScreenState();
 }
 
-class _ScheduledSendsScreenState extends State<ScheduledSendsScreen> {
+class _ScheduledSendsScreenState extends State<ScheduledSendsScreen>
+    with WidgetsBindingObserver {
   MailRepository get _repo => AppConfig.mailRepository;
 
   bool _loading = true;
   Object? _error;
+  Timer? _refreshTimer;
+  bool _refreshing = false;
+  bool _foreground = true;
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (_foreground) unawaited(_load(showLoading: false));
+    });
     _load();
   }
 
-  Future<void> _load() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
+  @override
+  void dispose() {
+    _refreshTimer?.cancel();
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    _foreground = state == AppLifecycleState.resumed;
+    if (_foreground) unawaited(_load(showLoading: false));
+  }
+
+  Future<void> _load({bool showLoading = true}) async {
+    if (_refreshing) return;
+    _refreshing = true;
+    if (showLoading) {
+      setState(() {
+        _loading = true;
+        _error = null;
+      });
+    }
     try {
       await _repo.refreshScheduledSends();
+      _error = null;
     } catch (e) {
-      _error = e;
+      if (showLoading) _error = e;
     } finally {
+      _refreshing = false;
       if (mounted) setState(() => _loading = false);
     }
   }

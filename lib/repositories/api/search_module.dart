@@ -35,8 +35,8 @@ class SearchModule {
     }
   }
 
-  /// Full-text + filtered search over server-cached mail; reaches mail not
-  /// yet loaded into the local buckets.
+  /// Literal term-substring + filtered search over server-cached mail, with
+  /// a device-cache fallback only when the server cannot be reached.
   Future<List<Email>> searchOnServer({
     required String query,
     String? accountId,
@@ -60,23 +60,72 @@ class SearchModule {
       folder: folder,
       customFolderId: customFolderId,
     )) {
-      final results = await session.mailService.search(
-        query: query,
-        resolveFolder: session.resolveFolder,
-        folderId: folderId,
-        conversationId: conversationId,
-        from: from,
-        to: to,
-        fromDate: fromDate,
-        toDate: toDate,
-        isRead: isRead,
-        flagged: flagged,
-        hasAttachment: hasAttachment,
-        labelId: labelId,
-        page: page,
-        pageSize: pageSize,
-      );
-      all.addAll(results.map(session.stampLocalFlags));
+      try {
+        final results = await session.mailService.search(
+          query: query,
+          resolveFolder: session.resolveFolder,
+          folderId: folderId,
+          conversationId: conversationId,
+          from: from,
+          to: to,
+          fromDate: fromDate,
+          toDate: toDate,
+          isRead: isRead,
+          flagged: flagged,
+          hasAttachment: hasAttachment,
+          labelId: labelId,
+          page: page,
+          pageSize: pageSize,
+        );
+        all.addAll(results.map(session.stampLocalFlags));
+      } catch (error) {
+        if (!_ctx.isOfflineFailure(error)) rethrow;
+        _ctx.markOffline(session);
+        final buckets = customFolderId != null
+            ? [session.customFolderEmails[customFolderId] ?? const <Email>[]]
+            : folder != null
+            ? [session.emails[folder] ?? const <Email>[]]
+            : [...session.emails.values, ...session.customFolderEmails.values];
+        final unique = {
+          for (final bucket in buckets)
+            for (final email in bucket)
+              email.id: session.stampLocalFlags(email),
+        };
+        final fromTerm = from?.trim().toLowerCase() ?? '';
+        final toTerm = to?.trim().toLowerCase() ?? '';
+        final matches =
+            unique.values.where((email) {
+              return email.matchesQuery(query) &&
+                  (conversationId == null ||
+                      email.threadId == conversationId) &&
+                  (labelId == null || email.labelIds.contains(labelId)) &&
+                  (isRead == null || email.isRead == isRead) &&
+                  (flagged == null || email.isStarred == flagged) &&
+                  (hasAttachment == null ||
+                      (email.hasAttachments || email.attachments.isNotEmpty) ==
+                          hasAttachment) &&
+                  (fromDate == null || !email.timestamp.isBefore(fromDate)) &&
+                  (toDate == null || email.timestamp.isBefore(toDate)) &&
+                  (fromTerm.isEmpty ||
+                      email.senderEmail.toLowerCase().contains(fromTerm) ||
+                      email.senderName.toLowerCase().contains(fromTerm)) &&
+                  (toTerm.isEmpty ||
+                      [
+                        ...email.recipients,
+                        ...email.cc,
+                        ...email.bcc,
+                      ].any((value) => value.toLowerCase().contains(toTerm)));
+            }).toList()..sort((a, b) {
+              final date = b.timestamp.compareTo(a.timestamp);
+              return date != 0 ? date : b.id.compareTo(a.id);
+            });
+        final effectivePage = page < 1 ? 1 : page;
+        final effectiveSize = pageSize < 1 ? 50 : pageSize;
+        all.addAll(
+          matches.skip((effectivePage - 1) * effectiveSize).take(effectiveSize),
+        );
+        _ctx.notify();
+      }
     }
     return all;
   }

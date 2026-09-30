@@ -1,5 +1,6 @@
 {
   "@@locale": "en",
+  "pressBackAgainToExit": "Press back again to exit.",
   "draftSavedLocallyServerSync": "Draft saved locally; server sync failed.",
   "outgoingMessagesAreWaitingFor": "{attention, plural, =1{1 outgoing message is waiting for review in the Outbox.} other{{attention} outgoing messages are waiting for review in the Outbox.}}",
   "open": "Open",
@@ -348,7 +349,7 @@
   "retry": "Retry",
   "cancelSend2": "Cancel send",
   "noScheduledSends": "No scheduled sends",
-  "scheduleASendWithThe": "Schedule a send with the arrow next to “Send” while composing and it will appear here.",
+  "scheduleASendWithThe": "While composing, choose “Schedule” from the top-right menu. Scheduled messages appear here.",
   "newEmailsAdded": "Server scan finished. {imported, plural, =1{1 new email added.} other{{imported} new emails added.}}",
   "scanningTheServer": "Scanning the server… {imported, plural, =1{1 new email added} other{{imported} new emails added}}; {remaining} matches left.",
   "serverScanStopped": "Server scan stopped. {imported, plural, =1{1 new email added} other{{imported} new emails added}}; {remaining} matches couldn’t be fetched. Try again.",
