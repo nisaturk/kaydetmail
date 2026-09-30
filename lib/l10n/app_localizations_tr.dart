@@ -808,7 +808,13 @@ class AppLocalizationsTr extends AppLocalizations {
   String get hideQuote => 'Alıntıyı gizle';
 
   @override
-  String get showQuoteAndSignature => 'Alıntı ve imzayı göster';
+  String get showQuote => 'Alıntıyı göster';
+
+  @override
+  String get showSignature => 'İmzayı göster';
+
+  @override
+  String get hideSignature => 'İmzayı gizle';
 
   @override
   String get remoteImagesWereBlockedIn =>
@@ -2658,16 +2664,6 @@ class AppLocalizationsTr extends AppLocalizations {
   @override
   String forwardDateLineHtml(Object date) {
     return '<strong>Tarih:</strong> $date<br>';
-  }
-
-  @override
-  String andMorePeople(Object names, int count) {
-    return '$names ve $count kişi daha';
-  }
-
-  @override
-  String threadParticipantSummary(Object people, int count) {
-    return '$people · $count ileti';
   }
 
   @override

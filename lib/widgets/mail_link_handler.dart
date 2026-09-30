@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_widget_from_html_core/flutter_widget_from_html_core.dart';
 import 'package:url_launcher/url_launcher.dart';
 
@@ -159,6 +160,12 @@ class MailLinkWidgetFactory extends WidgetFactory {
   final void Function(String href, String displayText) onLinkTap;
 
   @override
+  Widget? buildImageWidget(BuildTree tree, ImageSource src) {
+    final image = super.buildImageWidget(tree, src);
+    return image == null ? null : _MailImageBaseline(child: image);
+  }
+
+  @override
   void parse(BuildTree tree) {
     final element = tree.element;
     if (element.localName == 'a' && !element.attributes.containsKey('href')) {
@@ -186,4 +193,26 @@ class MailLinkWidgetFactory extends WidgetFactory {
       onTap: () => onLinkTap(target, element.text),
     );
   }
+}
+
+class _MailImageBaseline extends SingleChildRenderObjectWidget {
+  const _MailImageBaseline({required super.child});
+
+  @override
+  RenderObject createRenderObject(BuildContext context) =>
+      _RenderMailImageBaseline();
+}
+
+class _RenderMailImageBaseline extends RenderProxyBox {
+  // An HTML image is a replaced element: its text baseline is its bottom
+  // edge. Supplying both baselines avoids RenderImage's unsupported dry
+  // baseline and proxy renderers falling back when a child returns null.
+  @override
+  double computeDryBaseline(
+    BoxConstraints constraints,
+    TextBaseline baseline,
+  ) => getDryLayout(constraints).height;
+
+  @override
+  double computeDistanceToActualBaseline(TextBaseline baseline) => size.height;
 }

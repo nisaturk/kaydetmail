@@ -35,9 +35,9 @@ part 'mail_detail_state/mail_actions.dart';
 part 'mail_detail_state/menu.dart';
 part 'mail_detail_state/base_state.dart';
 
-/// Full view of the opened mail followed by older messages in its conversation.
-/// Opening marks the selected mail as read; enrichment appends older history
-/// without moving the reader's scroll position.
+/// Full view of the opened mail, with quoted conversation history inline.
+/// Opening marks the selected mail as read; enrichment adds earlier history
+/// without replacing the selected message or moving the reader.
 class MailDetailScreen extends StatefulWidget {
   const MailDetailScreen({
     super.key,
@@ -251,7 +251,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
         context,
         const EdgeInsets.fromLTRB(16, 8, 16, 32),
       ),
-      itemCount: _thread.length + 2,
+      itemCount: 3,
       itemBuilder: (context, index) {
         if (index == 0) {
           return Padding(
@@ -295,38 +295,16 @@ class _MailDetailScreenState extends _MailDetailStateBase
                   ),
                 );
         }
-        final message = index == 1 ? _thread.first : _thread[index - 2];
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            if (index == 3)
-              Padding(
-                padding: const EdgeInsets.only(top: 12, bottom: 4),
-                child: Text(
-                  l10nNow.earlierMessages,
-                  style: TextStyle(
-                    fontSize: 12,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 0.3,
-                    color: colors.secondaryText,
-                  ),
-                ),
-              ),
-            if (index > 2)
-              Divider(height: 24, thickness: 0.5, color: colors.border),
-            _SingleMessage(
-              email: message,
-              ownAddress: _originatingFrom(message),
-              labels: _labelsFor(message),
-              collapseQuoted: _thread.length > 1,
-              showComposeActions: index == 1,
-              onCompose: (mode, title) =>
-                  _openComposePrefill(mode, title: title, target: message),
-              onStar: () => _watchBackgroundMutation(
-                _repo.setStarred([message.id], !message.isStarred),
-              ),
-            ),
-          ],
+        return _SingleMessage(
+          email: email,
+          history: _thread.skip(1).toList(),
+          ownAddress: _originatingFrom(email),
+          labels: _labelsFor(email),
+          onCompose: (mode, title) =>
+              _openComposePrefill(mode, title: title, target: email),
+          onStar: () => _watchBackgroundMutation(
+            _repo.setStarred([email.id], !email.isStarred),
+          ),
         );
       },
     );
@@ -344,15 +322,13 @@ class _SingleMessage extends StatefulWidget {
     required this.labels,
     required this.onCompose,
     required this.onStar,
-    required this.showComposeActions,
-    this.collapseQuoted = false,
+    required this.history,
   });
 
   final Email email;
   final String? ownAddress;
   final List<MailLabel> labels;
-  final bool collapseQuoted;
-  final bool showComposeActions;
+  final List<Email> history;
   final Future<void> Function(String mode, String title) onCompose;
   final VoidCallback onStar;
 
@@ -367,7 +343,6 @@ class _SingleMessageState extends State<_SingleMessage> {
   Widget build(BuildContext context) {
     final email = widget.email;
     final labels = widget.labels;
-    final collapseQuoted = widget.collapseQuoted;
     final colors = AppTheme.colors(context);
     final onSurface = Theme.of(context).colorScheme.onSurface;
     return Column(
@@ -572,7 +547,7 @@ class _SingleMessageState extends State<_SingleMessage> {
           RemoteContentBanner(email: email),
           const SizedBox(height: 12),
         ],
-        MessageBody(email: email, collapseQuoted: collapseQuoted),
+        MessageBody(email: email, history: widget.history),
         if (email.attachments.isNotEmpty) ...[
           const SizedBox(height: 16),
           Text(
@@ -586,38 +561,37 @@ class _SingleMessageState extends State<_SingleMessage> {
           const SizedBox(height: 8),
           AttachmentList(email: email),
         ],
-        if (widget.showComposeActions)
-          Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                OutlinedButton.icon(
-                  key: Key('message-reply-${email.id}'),
-                  style: _actionStyle(colors),
-                  onPressed: () => widget.onCompose('reply', l10nNow.reply),
-                  icon: const Icon(LucideIcons.reply, size: 16),
-                  label: Text(l10nNow.reply),
-                ),
-                OutlinedButton.icon(
-                  key: Key('message-reply-all-${email.id}'),
-                  style: _actionStyle(colors),
-                  onPressed: () =>
-                      widget.onCompose('reply-all', l10nNow.replyAll),
-                  icon: const Icon(LucideIcons.replyAll, size: 16),
-                  label: Text(l10nNow.replyAll2),
-                ),
-                OutlinedButton.icon(
-                  key: Key('message-forward-${email.id}'),
-                  style: _actionStyle(colors),
-                  onPressed: () => widget.onCompose('forward', l10nNow.forward),
-                  icon: const Icon(LucideIcons.forward, size: 16),
-                  label: Text(l10nNow.forward),
-                ),
-              ],
-            ),
+        Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              OutlinedButton.icon(
+                key: Key('message-reply-${email.id}'),
+                style: _actionStyle(colors),
+                onPressed: () => widget.onCompose('reply', l10nNow.reply),
+                icon: const Icon(LucideIcons.reply, size: 16),
+                label: Text(l10nNow.reply),
+              ),
+              OutlinedButton.icon(
+                key: Key('message-reply-all-${email.id}'),
+                style: _actionStyle(colors),
+                onPressed: () =>
+                    widget.onCompose('reply-all', l10nNow.replyAll),
+                icon: const Icon(LucideIcons.replyAll, size: 16),
+                label: Text(l10nNow.replyAll2),
+              ),
+              OutlinedButton.icon(
+                key: Key('message-forward-${email.id}'),
+                style: _actionStyle(colors),
+                onPressed: () => widget.onCompose('forward', l10nNow.forward),
+                icon: const Icon(LucideIcons.forward, size: 16),
+                label: Text(l10nNow.forward),
+              ),
+            ],
           ),
+        ),
       ],
     );
   }
