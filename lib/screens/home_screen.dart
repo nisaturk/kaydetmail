@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lucide_icons_flutter/lucide_icons.dart';
 
 import '../config/app_config.dart';
@@ -52,6 +53,11 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   MailFolder _folder = MailFolder.inbox;
   final MailSelectionController _selection = MailSelectionController();
+  final GlobalKey<ScaffoldState> _scaffoldKey = GlobalKey<ScaffoldState>();
+  bool _drawerOpen = false;
+  static const Duration _exitConfirmationWindow = Duration(seconds: 2);
+  Timer? _exitConfirmationTimer;
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>? _exitPrompt;
   final Set<String> _mutatingMailIds = {};
   bool _checkingMutationConflicts = false;
 
@@ -88,15 +94,57 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _shareIntake.start();
+    _selection.addListener(_resetExitConfirmation);
     AppConfig.mailRepository.addListener(_checkMutationConflicts);
   }
 
   @override
   void dispose() {
     AppConfig.mailRepository.removeListener(_checkMutationConflicts);
+    _resetExitConfirmation();
     _shareIntake.dispose();
     _selection.dispose();
     super.dispose();
+  }
+
+  void _resetExitConfirmation() {
+    _exitConfirmationTimer?.cancel();
+    _exitConfirmationTimer = null;
+    _exitPrompt?.close();
+    _exitPrompt = null;
+  }
+
+  void _onBackInvoked(bool didPop, Object? result) {
+    if (didPop || ModalRoute.of(context)?.isCurrent != true) return;
+    // A drawer is local route history, not a request to leave the mailbox.
+    // Also handle back while its opening animation is still in progress.
+    if (_scaffoldKey.currentState?.isDrawerOpen ?? false) {
+      _scaffoldKey.currentState!.closeDrawer();
+      _resetExitConfirmation();
+      return;
+    }
+    if (_selection.isActive) {
+      _selection.exit();
+      return;
+    }
+    if (ModalRoute.of(context)?.isFirst != true) return;
+    if (_exitConfirmationTimer?.isActive ?? false) {
+      _resetExitConfirmation();
+      SystemNavigator.pop();
+      return;
+    }
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.clearSnackBars();
+    _exitPrompt = messenger.showSnackBar(
+      SnackBar(
+        content: Text(l10nNow.pressBackAgainToExit),
+        duration: _exitConfirmationWindow,
+      ),
+    );
+    _exitConfirmationTimer = Timer(
+      _exitConfirmationWindow,
+      _resetExitConfirmation,
+    );
   }
 
   /// Surfaces a permanently rejected offline mail or contact mutation (see
@@ -141,17 +189,20 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openSearch() {
+    _resetExitConfirmation();
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const SearchScreen()));
   }
 
   void _addAccount() {
+    _resetExitConfirmation();
     if (!_isRailLayout) Navigator.of(context).pop();
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const AddAccountScreen()));
   }
 
   void _openDestination(DrawerDestination destination) {
+    _resetExitConfirmation();
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
     final screen = switch (destination) {
       DrawerDestination.scheduled => const ScheduledSendsScreen(),
@@ -163,6 +214,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _openCustomFolder(MailCustomFolder folder) {
+    _resetExitConfirmation();
     if (!_isRailLayout) Navigator.of(context).pop(); // close the drawer
     Navigator.of(context).push(
       MaterialPageRoute(
@@ -209,6 +261,7 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _showMailboxSelector() {
+    _resetExitConfirmation();
     _selection.exit();
     showModalBottomSheet<String>(
       context: context,
@@ -278,6 +331,7 @@ class _HomeScreenState extends State<HomeScreen> {
   static const String _unifiedScope = '__unified__';
 
   void _openCompose() {
+    _resetExitConfirmation();
     Navigator.of(context)
         .push(MaterialPageRoute(builder: (_) => const ComposeScreen()));
   }
@@ -703,39 +757,50 @@ class _HomeScreenState extends State<HomeScreen> {
           onAddAccount: _addAccount,
           onSelectCustomFolder: _openCustomFolder,
         );
-        return Scaffold(
-          appBar: _selection.isActive
-              ? _buildSelectionAppBar()
-              : widget.customFolder != null
-              ? AppBar(title: Text(widget.customFolder!.name))
-              : _buildNormalAppBar(),
-          drawer: widget.customFolder != null || showRail
-              ? null
-              : drawerContent,
-          floatingActionButton: _selection.isActive
-              ? null
-              : FloatingActionButton(
-                  onPressed: _openCompose,
-                  tooltip: l10nNow.newEmail,
-                  child: const Icon(LucideIcons.mailPlus),
-                ),
-          body: widget.customFolder != null
-              ? _buildMailArea(showDetailPane: false)
-              : showRail
-              ? Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    drawerContent,
-                    VerticalDivider(
-                      width: 1,
-                      color: AppTheme.colors(context).border,
-                    ),
-                    Expanded(
-                      child: _buildMailArea(showDetailPane: showDetailPane),
-                    ),
-                  ],
-                )
-              : _buildMailArea(showDetailPane: false),
+        return PopScope(
+          canPop:
+              _drawerOpen ||
+              (!_selection.isActive && ModalRoute.of(context)?.isFirst != true),
+          onPopInvokedWithResult: _onBackInvoked,
+          child: Scaffold(
+            key: _scaffoldKey,
+            onDrawerChanged: (open) {
+              _resetExitConfirmation();
+              setState(() => _drawerOpen = open);
+            },
+            appBar: _selection.isActive
+                ? _buildSelectionAppBar()
+                : widget.customFolder != null
+                ? AppBar(title: Text(widget.customFolder!.name))
+                : _buildNormalAppBar(),
+            drawer: widget.customFolder != null || showRail
+                ? null
+                : drawerContent,
+            floatingActionButton: _selection.isActive
+                ? null
+                : FloatingActionButton(
+                    onPressed: _openCompose,
+                    tooltip: l10nNow.newEmail,
+                    child: const Icon(LucideIcons.mailPlus),
+                  ),
+            body: widget.customFolder != null
+                ? _buildMailArea(showDetailPane: false)
+                : showRail
+                ? Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      drawerContent,
+                      VerticalDivider(
+                        width: 1,
+                        color: AppTheme.colors(context).border,
+                      ),
+                      Expanded(
+                        child: _buildMailArea(showDetailPane: showDetailPane),
+                      ),
+                    ],
+                  )
+                : _buildMailArea(showDetailPane: false),
+          ),
         );
       },
     );

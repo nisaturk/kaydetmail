@@ -1585,6 +1585,12 @@ void main() {
       await tester.pump();
       await tester.enterText(find.byKey(const Key('subject-field')), 'Konu');
       await tester.pump();
+      final messenger = tester.state<ScaffoldMessengerState>(
+        find.byType(ScaffoldMessenger),
+      );
+      messenger
+        ..showSnackBar(const SnackBar(content: Text('Eski uyarı')))
+        ..showSnackBar(const SnackBar(content: Text('Kuyruktaki eski uyarı')));
 
       await tester.tap(find.byKey(const Key('send-options-menu')));
       await tester.pumpAndSettle();
@@ -1609,6 +1615,14 @@ void main() {
       expect(repo.scheduled, hasLength(1));
       expect(repo.scheduled.single.to, ['x@y.com']);
       expect(find.textContaining('zamanlandı'), findsOneWidget);
+      expect(repo.sent, isEmpty);
+      expect(find.byType(ComposeScreen), findsNothing);
+      expect(find.text('Eski uyarı'), findsNothing);
+      expect(find.text('Kuyruktaki eski uyarı'), findsNothing);
+      expect(find.textContaining('gönderiliyor'), findsNothing);
+      await tester.pump(const Duration(seconds: 5));
+      await tester.pumpAndSettle();
+      expect(find.text('Kuyruktaki eski uyarı'), findsNothing);
     });
   });
 

@@ -182,15 +182,24 @@ class Email {
     return '${compact.substring(0, 120).trimRight()}…';
   }
 
-  /// Client-side match used by search. True when [query] is empty or appears
-  /// (case-insensitively) in the sender, subject or body.
+  /// Every whitespace-separated literal term must appear (case-insensitively)
+  /// in at least one cached searchable field. Empty [query] matches all.
   bool matchesQuery(String query) {
-    final q = query.trim().toLowerCase();
-    if (q.isEmpty) return true;
-    return senderName.toLowerCase().contains(q) ||
-        senderEmail.toLowerCase().contains(q) ||
-        subject.toLowerCase().contains(q) ||
-        bodyText.toLowerCase().contains(q);
+    final terms = query.trim().toLowerCase().split(_whitespace);
+    return terms.every(
+      (term) =>
+          senderName.toLowerCase().contains(term) ||
+          senderEmail.toLowerCase().contains(term) ||
+          subject.toLowerCase().contains(term) ||
+          bodyText.toLowerCase().contains(term) ||
+          recipients.any((value) => value.toLowerCase().contains(term)) ||
+          cc.any((value) => value.toLowerCase().contains(term)) ||
+          bcc.any((value) => value.toLowerCase().contains(term)) ||
+          attachments.any((value) => value.name.toLowerCase().contains(term)) ||
+          (headers['Message-ID'] ?? headers['Message-Id'] ?? '')
+              .toLowerCase()
+              .contains(term),
+    );
   }
 
   Email copyWith({

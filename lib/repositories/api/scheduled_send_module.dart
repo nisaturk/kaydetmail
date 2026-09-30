@@ -48,7 +48,21 @@ class ScheduledSendModule {
       sendAtUtc: sendAt,
       idempotencyKey: newIdempotencyKey(),
     );
-    final stamped = scheduled.copyWith(accountId: session.account.id);
+    final stamped = ScheduledSend(
+      id: scheduled.id,
+      to: List.unmodifiable(to),
+      cc: List.unmodifiable(cc),
+      bcc: List.unmodifiable(bcc),
+      subject: subject,
+      sendAt: scheduled.sendAt,
+      status: scheduled.status,
+      createdAt: scheduled.createdAt,
+      sentMailId: scheduled.sentMailId,
+      failureReason: scheduled.failureReason,
+      attemptCount: scheduled.attemptCount,
+      nextAttemptAtUtc: scheduled.nextAttemptAtUtc,
+      accountId: session.account.id,
+    );
     session.scheduledSends = [...session.scheduledSends, stamped]
       ..sort((a, b) => a.sendAt.compareTo(b.sendAt));
     _notify();

@@ -98,6 +98,12 @@ abstract class AppLocalizations {
     Locale('tr'),
   ];
 
+  /// No description provided for @pressBackAgainToExit.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çıkmak için geri tuşuna tekrar basın.'**
+  String get pressBackAgainToExit;
+
   /// No description provided for @draftSavedLocallyServerSync.
   ///
   /// In tr, this message translates to:
@@ -2199,7 +2205,7 @@ abstract class AppLocalizations {
   /// No description provided for @scheduleASendWithThe.
   ///
   /// In tr, this message translates to:
-  /// **'Yazarken \"Gönder\" yanındaki oktan bir gönderim zamanlayınca burada görünür.'**
+  /// **'E-posta yazarken sağ üstteki menüden \"Zamanla\" seçeneğini kullanın. Zamanlanan iletiler burada görünür.'**
   String get scheduleASendWithThe;
 
   /// No description provided for @newEmailsAdded.
