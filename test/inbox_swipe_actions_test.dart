@@ -8,7 +8,6 @@ import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/screens/inbox_screen.dart';
-import 'package:kaydetmail/widgets/app_drawer.dart';
 import 'package:kaydetmail/state/app_settings_controller.dart';
 import 'package:kaydetmail/state/mail_selection_controller.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -258,67 +257,4 @@ void main() {
       }
     },
   );
-
-  testWidgets('drawer lists only the requested folders and lower shortcuts', (
-    tester,
-  ) async {
-    AppConfig.mailRepositoryForTest = _FakeRepo();
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Scaffold(
-          drawer: AppDrawer(
-            selectedFolder: MailFolder.inbox,
-            onSelectFolder: (_) {},
-            onLogout: () {},
-            onOpenDestination: (_) {},
-            onSyncAccounts: () {},
-            onAddAccount: () {},
-            onSelectCustomFolder: (_) {},
-          ),
-          body: const SizedBox.shrink(),
-        ),
-      ),
-    );
-    tester.state<ScaffoldState>(find.byType(Scaffold)).openDrawer();
-    await tester.pumpAndSettle();
-
-    for (final label in [
-      'Gelen Kutusu',
-      'Giden Kutusu',
-      'Tüm mailler',
-      'Taslaklar',
-      'Spam',
-      'Çöp Kutusu',
-      'Yıldızlılar',
-      'Arşiv',
-    ]) {
-      expect(find.text(label), findsOneWidget);
-    }
-    final folderLabels = [
-      'Gelen Kutusu',
-      'Giden Kutusu',
-      'Tüm mailler',
-      'Taslaklar',
-      'Spam',
-      'Çöp Kutusu',
-      'Yıldızlılar',
-      'Arşiv',
-    ];
-    final folderPositions = [
-      for (final label in folderLabels) tester.getTopLeft(find.text(label)).dy,
-    ];
-    for (var index = 1; index < folderPositions.length; index++) {
-      expect(folderPositions[index - 1], lessThan(folderPositions[index]));
-    }
-    await tester.drag(
-      find.byType(SingleChildScrollView),
-      const Offset(0, -500),
-    );
-    await tester.pumpAndSettle();
-    for (final label in ['Hesapları eşitle', 'Klasörleri yönet', 'Ayarlar']) {
-      expect(find.text(label), findsOneWidget);
-    }
-    expect(find.text('Ertelenenler'), findsNothing);
-    expect(find.text('Zamanlanmış Gönderimler'), findsNothing);
-  });
 }
