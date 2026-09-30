@@ -45,7 +45,6 @@ class AccountSession {
   /// Set on every successful `_loadMoreFor`/`_refreshEmailsFor` fetch for
   /// the folder — the "son senkronizasyon" hint on empty/error states.
   final Map<MailFolder, DateTime> lastSynced = {};
-  final Map<String, int> serverThreadSizes = {};
 
   Set<String> pinnedIds = {};
   final Set<String> starredIds = {};

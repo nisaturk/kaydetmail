@@ -7,6 +7,7 @@ import 'package:kaydetmail/models/compose_prefill.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_label.dart';
+import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_signature.dart';
 import 'package:kaydetmail/models/mail_security.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
@@ -53,6 +54,14 @@ class _ThreadRepo extends MailRepository {
   Completer<Email?>? detailGate;
   Completer<List<Email>>? enrichmentGate;
   List<Email>? history;
+  final List<String> deletedIds = [];
+
+  @override
+  Future<void> deletePermanently(List<String> ids) async {
+    deletedIds.addAll(ids);
+    history = _thread.where((mail) => !ids.contains(mail.id)).toList();
+    notifyListeners();
+  }
 
   List<Email> get _thread =>
       history ??
@@ -222,6 +231,34 @@ void main() {
       expect(find.text('Tamam, bakıyorum.'), findsOneWidget);
       expect(find.textContaining('İşlem başarısız:'), findsOneWidget);
       expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('permanent delete removes only the opened trashed message', (
+      tester,
+    ) async {
+      repo.history = [
+        repo.older.copyWith(folder: MailFolder.trash),
+        repo.newer.copyWith(folder: MailFolder.trash),
+      ];
+      await open(tester, 'm2');
+      expect(find.text('2 ileti'), findsOneWidget);
+
+      await tester.tap(
+        find.descendant(
+          of: find.byType(AppBar),
+          matching: find.byType(PopupMenuButton<String>),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Kalıcı olarak sil'));
+      await tester.pumpAndSettle();
+      expect(find.text('E-posta kalıcı olarak silinsin mi?'), findsOneWidget);
+      await tester.tap(find.widgetWithText(TextButton, 'Kalıcı olarak sil'));
+      await tester.pumpAndSettle();
+
+      expect(repo.deletedIds, ['m2']);
+      expect(repo.getAllEmails().map((mail) => mail.id), ['m1']);
+      expect(repo.getAllEmails().single.folder, MailFolder.trash);
     });
 
     testWidgets('star action uses a filled amber icon when starred', (

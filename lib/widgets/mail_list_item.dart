@@ -36,7 +36,6 @@ class MailListItem extends StatelessWidget {
     this.selected = false,
     this.accountLabel,
     this.folderLabel,
-    this.threadCount,
     this.labels = const [],
   });
 
@@ -53,10 +52,6 @@ class MailListItem extends StatelessWidget {
   /// tertiary line. Null hides it — folder-scoped lists (a single inbox
   /// screen) already know their folder from context.
   final String? folderLabel;
-
-  /// Messages in the conversation this row represents. When > 1 the row
-  /// aggregates the whole thread and a small `(n)` indicator appears.
-  final int? threadCount;
 
   /// Labels attached to this mail, shown as small colored chips so a
   /// labeled mail is obvious without opening it.
@@ -79,9 +74,6 @@ class MailListItem extends StatelessWidget {
     if (email.forwardedFromKaydetMail) parts.add('iletildi');
     if (email.attachments.isNotEmpty || email.hasAttachments) {
       parts.add(l10nNow.hasAttachments);
-    }
-    if (threadCount != null && threadCount! > 1) {
-      parts.add(l10nNow.messageConversation(threadCount!));
     }
     if (labels.isNotEmpty) {
       parts.add('etiketler: ${labels.map((l) => l.name).join(', ')}');
@@ -195,36 +187,17 @@ class MailListItem extends StatelessWidget {
                             ),
                           ),
                         ),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              email.subject,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: _looksRead
-                                    ? FontWeight.w400
-                                    : FontWeight.w600,
-                                color: _looksRead
-                                    ? colors.secondaryText
-                                    : onSurface,
-                              ),
-                            ),
-                          ),
-                          if (threadCount != null && threadCount! > 1) ...[
-                            const SizedBox(width: 6),
-                            Text(
-                              '($threadCount)',
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.w600,
-                                color: colors.tertiaryText,
-                              ),
-                            ),
-                          ],
-                        ],
+                      Text(
+                        email.subject,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: _looksRead
+                              ? FontWeight.w400
+                              : FontWeight.w600,
+                          color: _looksRead ? colors.secondaryText : onSurface,
+                        ),
                       ),
                       const SizedBox(height: 2),
                       Text(

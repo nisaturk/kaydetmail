@@ -212,6 +212,11 @@ void main() {
       );
       final body = _composeBody(tester);
       expect(body.toPlainText(), contains('Gövde metni'));
+      expect(
+        RegExp(r'^\n{5,}').hasMatch(body.toPlainText()),
+        isTrue,
+        reason: 'the reply opens with several editable lines above history',
+      );
       expect(_hasAttribute(body, 'blockquote'), isTrue);
       expect(_hasAttribute(body, 'bold'), isTrue);
     },

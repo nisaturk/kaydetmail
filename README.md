@@ -16,11 +16,13 @@ one unified inbox.
   screen for custom IMAP folders, including nested browsing, create/rename/delete and
   moving mail. The detail move sheet shows nested folders only from the mail's account;
   mixed-account selections can move only to shared standard folder types.
-- **Reading, threading & actions.** The opened message stays first, with older
-  messages displayed fully below it. Reply, reply-all and forward buttons remain
-  below the opened message; older messages use the three-dot header menu beside
-  the star. Each action targets its own message. Read/unread, star/pin
-  (capped at 3 concurrent pins), trash/restore,
+- **Reading, threading & actions.** Mail lists and search show each message as an
+  independent row; swipes and bulk actions affect only the explicitly selected messages,
+  never their unselected thread siblings. Opening a message still shows its conversation:
+  the opened message stays first, with older messages displayed fully below it.
+  Reply, reply-all and forward buttons remain below the opened message; older messages
+  use the three-dot header menu beside the star. Each action targets its own message.
+  Read/unread, star/pin (capped at 3 concurrent pins), trash/restore,
   archive, spam, move, and multi-select bulk actions.
   Mail move and label edits update loaded lists immediately and restore rejected changes
   if the server refuses them. Permanent deletion keeps mail visible in Trash until the
@@ -32,12 +34,17 @@ one unified inbox.
   reopens the intact local draft. Immediate sends can optionally request read (MDN) and
   delivery (SMTP DSN) receipts; neither is guaranteed by recipients or providers.
   Receipt requests are not supported for scheduled sends.
+  Replies start with five editable blank lines above quoted history; the selected
+  signature sits after the new reply and before the old conversation. Restoring drafts
+  or undoing a send preserves the composed body without adding another signature.
 - **Scheduled send.** Queue a message for a future time from Compose; the backend
   delivers it even if the app is closed and retries recoverable pre-delivery failures
   with backoff. Failed/delivery-uncertain sends stay visible in Zamanlanmış
   Gönderimler for manual reschedule or cancel — never resent automatically.
 - **Undo send and outbox.** Gönder waits for the configured undo interval;
   the complete message and attachment bytes are persisted locally before compose closes.
+  Once delivery is confirmed, an **E-posta gönderildi.** toast replaces the countdown
+  or attachment-upload feedback; failed or uncertain sends never show success.
   Definitive pre-delivery failures can be retried or edited from Giden Kutusu.
   If delivery is uncertain, the app does not resend automatically; check
   Gönderilenler before deleting the local copy or composing another message.

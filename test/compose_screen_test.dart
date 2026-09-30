@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_quill/flutter_quill.dart' as quill;
 import 'package:flutter_test/flutter_test.dart';
+import 'package:html/parser.dart' as html_parser;
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_account.dart';
@@ -148,6 +149,24 @@ class _FakeMailRepository extends MailRepository {
       );
 
   Future<List<MailIdentity>> Function(String accountId)? listIdentitiesImpl;
+
+  Map<String, List<MailSignature>> signatures = {};
+
+  @override
+  Future<List<MailSignature>> listSignatures(
+    String accountId, {
+    bool refresh = false,
+  }) async => signatures[accountId] ?? const [];
+
+  @override
+  Future<SignatureDefaults> getSignatureDefaults(String accountId) async {
+    final available = signatures[accountId];
+    if (available == null) throw StateError('signatures unavailable');
+    return SignatureDefaults(
+      newMailSignatureId: available.first.id,
+      replySignatureId: available.first.id,
+    );
+  }
 
   @override
   Future<List<MailIdentity>> listIdentities(
@@ -384,6 +403,14 @@ class _FakeMailRepository extends MailRepository {
 const _accountA = MailAccount(id: 'acc-a', email: 'a@example.com');
 const _accountB = MailAccount(id: 'acc-b', email: 'b@example.com');
 
+MailSignature _signature(String id, String text) => MailSignature(
+  id: id,
+  name: id,
+  bodyText: text,
+  createdAt: DateTime.utc(2026),
+  updatedAt: DateTime.utc(2026),
+);
+
 Future<void> _pumpCompose(
   WidgetTester tester, {
   required _FakeMailRepository repo,
@@ -393,6 +420,9 @@ Future<void> _pumpCompose(
   String? initialBody,
   String? initialBodyHtml,
   String? initialIdentityId,
+  String? inReplyToId,
+  int initialReplyWritingLines = 0,
+  bool insertSignature = true,
   List<Attachment> initialAttachments = const [],
   String? attachmentSourceMailId,
   bool settle = true,
@@ -417,6 +447,9 @@ Future<void> _pumpCompose(
         initialBody: initialBody ?? '',
         initialBodyHtml: initialBodyHtml,
         initialIdentityId: initialIdentityId,
+        inReplyToId: inReplyToId,
+        initialReplyWritingLines: initialReplyWritingLines,
+        insertSignature: insertSignature,
         initialAttachments: initialAttachments,
         attachmentSourceMailId: attachmentSourceMailId,
       ),
@@ -863,6 +896,229 @@ void main() {
       final bodyText = _bodyText(tester);
       expect(bodyText, '\n\n--\nSaygılarımla,\nA');
     });
+
+    for (final rich in [false, true]) {
+      testWidgets(
+        'reply signature precedes history and switches without altering ${rich ? 'rich' : 'plain'} quotation',
+        (tester) async {
+          final repo =
+              _FakeMailRepository(accounts: const [_accountA, _accountB])
+                ..signatures = {
+                  'acc-a': [_signature('a', 'İmza A')],
+                  'acc-b': [_signature('b', 'İmza B')],
+                };
+          await _pumpCompose(
+            tester,
+            repo: repo,
+            initialFrom: 'a@example.com',
+            inReplyToId: 'old-mail',
+            initialReplyWritingLines: 5,
+            initialBody: 'Ayşe yazdı:\n> Eski yanıt\n> İç geçmiş',
+            initialBodyHtml: rich
+                ? '<p>Ayşe yazdı:</p><blockquote><p><strong>Eski yanıt</strong></p>'
+                      '<p><a href="https://example.com">İç geçmiş</a></p></blockquote>'
+                : null,
+          );
+          final before = _bodyText(tester);
+          expect(
+            before.indexOf('İmza A'),
+            lessThan(before.indexOf('Ayşe yazdı:')),
+          );
+          final history = before.substring(before.indexOf('Ayşe yazdı:'));
+          expect(history, contains('Eski yanıt'));
+          expect(history, contains('İç geçmiş'));
+          final historyOffset = before.indexOf('Ayşe yazdı:');
+          final historyDelta = _body(tester).document
+              .toDelta()
+              .slice(historyOffset);
+
+          await tester.tap(find.byKey(const Key('from-account-menu')));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('b@example.com').last);
+          await tester.pumpAndSettle();
+
+          final after = _bodyText(tester);
+          expect(
+            after.indexOf('İmza B'),
+            lessThan(after.indexOf('Ayşe yazdı:')),
+          );
+          expect(after, isNot(contains('İmza A')));
+          expect(after.substring(after.indexOf('Ayşe yazdı:')), history);
+          expect(
+            _body(tester).document
+                .toDelta()
+                .slice(after.indexOf('Ayşe yazdı:')),
+            historyDelta,
+          );
+          if (rich) {
+            await tester.tap(find.byTooltip('Kapat'));
+            await tester.pumpAndSettle();
+            await tester.tap(find.text('Taslağı Kaydet'));
+            await tester.pumpAndSettle();
+            final saved = repo.savedDrafts.single;
+            expect(
+              saved.bodyHtml!.indexOf('İmza B'),
+              lessThan(saved.bodyHtml!.indexOf('Ayşe yazdı:')),
+            );
+            final quote = html_parser
+                .parse(saved.bodyHtml)
+                .querySelector('blockquote')!;
+            expect(quote.querySelector('strong')!.text, 'Eski yanıt');
+            expect(
+              quote.querySelector('a')!.attributes['href'],
+              'https://example.com',
+            );
+          }
+        },
+      );
+    }
+
+    testWidgets(
+      'formatting-only changes are not overwritten on sender switch',
+      (tester) async {
+        final repo = _FakeMailRepository(
+          accounts: const [
+            MailAccount(
+              id: 'acc-a',
+              email: 'a@example.com',
+              signature: 'İmza A',
+            ),
+            MailAccount(
+              id: 'acc-b',
+              email: 'b@example.com',
+              signature: 'İmza B',
+            ),
+          ],
+        );
+        await _pumpCompose(tester, repo: repo, initialFrom: 'a@example.com');
+        final controller = _body(tester);
+        controller.formatText(
+          _bodyText(tester).indexOf('İmza A'),
+          6,
+          quill.Attribute.bold,
+        );
+        final edited = controller.document.toDelta();
+
+        await tester.tap(find.byKey(const Key('from-account-menu')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('b@example.com').last);
+        await tester.pumpAndSettle();
+
+        expect(controller.document.toDelta(), edited);
+      },
+    );
+
+    testWidgets('a delayed default identity uses its own reply signature', (
+      tester,
+    ) async {
+      final identities = Completer<List<MailIdentity>>();
+      final repo = _FakeMailRepository(accounts: const [_accountA])
+        ..signatures = {
+          'acc-a': [
+            _signature('reply', 'Hesap imzası'),
+            _signature('alias', 'Kimlik imzası'),
+          ],
+        }
+        ..listIdentitiesImpl = (_) => identities.future;
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        inReplyToId: 'old-mail',
+        initialReplyWritingLines: 5,
+        initialBody: 'Ayşe yazdı:\n> Eski yanıt',
+      );
+      expect(_bodyText(tester), contains('Hesap imzası'));
+      identities.complete(const [
+        MailIdentity(
+          id: 'alias-id',
+          emailAddress: 'alias@example.com',
+          signatureId: 'alias',
+          isDefault: true,
+        ),
+      ]);
+      await tester.pumpAndSettle();
+      final body = _bodyText(tester);
+      expect(body, isNot(contains('Hesap imzası')));
+      expect(
+        body.indexOf('Kimlik imzası'),
+        lessThan(body.indexOf('Ayşe yazdı:')),
+      );
+      expect(body, contains('Eski yanıt'));
+    });
+
+    testWidgets('restoring a composed reply never duplicates its signature', (
+      tester,
+    ) async {
+      final repo = _FakeMailRepository(accounts: const [_accountA])
+        ..signatures = {
+          'acc-a': [_signature('reply', 'İmza A')],
+        };
+      await _pumpCompose(
+        tester,
+        repo: repo,
+        initialFrom: 'a@example.com',
+        inReplyToId: 'old-mail',
+        insertSignature: false,
+        initialBody: '\n\n\n\n\nYanıt\n\n--\nİmza A\n\nAyşe yazdı:\nEski yanıt',
+        initialBodyHtml:
+            '<p><br></p><p><br></p><p><br></p><p><br></p><p><br></p>'
+            '<p>Yanıt</p><p><br></p><p>--</p><p>İmza A</p><p><br></p>'
+            '<p>Ayşe yazdı:</p><blockquote><p>Eski yanıt</p></blockquote>',
+      );
+      final text = _bodyText(tester);
+      expect('İmza A'.allMatches(text), hasLength(1));
+      expect(text.indexOf('İmza A'), lessThan(text.indexOf('Ayşe yazdı:')));
+      expect(
+        _body(tester).document
+            .toDelta()
+            .toList()
+            .any((op) => op.attributes?['blockquote'] == true),
+        isTrue,
+      );
+    });
+
+    testWidgets(
+      'Undo restores reply writing space and signature exactly once',
+      (tester) async {
+        final repo = _FakeMailRepository(accounts: const [_accountA])
+          ..signatures = {
+            'acc-a': [_signature('reply', 'İmza A')],
+          };
+        await _pumpCompose(
+          tester,
+          repo: repo,
+          initialFrom: 'a@example.com',
+          initialTo: 'friend@example.com',
+          inReplyToId: 'old-mail',
+          initialReplyWritingLines: 5,
+          initialBody: 'Ayşe yazdı:\nEski yanıt',
+          initialBodyHtml:
+              '<p>Ayşe yazdı:</p>'
+              '<blockquote><p><strong>Eski yanıt</strong></p></blockquote>',
+        );
+        _body(tester).replaceText(
+          0,
+          0,
+          'Yeni yanıt',
+          const TextSelection.collapsed(offset: 10),
+        );
+        final before = _bodyText(tester);
+        final beforeDelta = _body(tester).document.toDelta();
+        await tester.tap(find.byKey(const Key('send-button')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Geri Al'));
+        await tester.pumpAndSettle();
+
+        expect(_bodyText(tester), before);
+        expect(_body(tester).document.toDelta(), beforeDelta);
+        expect('İmza A'.allMatches(_bodyText(tester)), hasLength(1));
+        await tester.pump(
+          PendingSendQueue.undoWindow + const Duration(seconds: 1),
+        );
+        expect(repo.sent, isEmpty);
+      },
+    );
 
     testWidgets('is never inserted while editing an existing draft', (
       tester,

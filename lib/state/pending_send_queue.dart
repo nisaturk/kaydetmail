@@ -348,6 +348,17 @@ class PendingSendQueue with WidgetsBindingObserver {
         abortTrigger: abort.future,
       );
       store.remove(send.id);
+      if (messenger != null && messenger.mounted) {
+        messenger
+          ..removeCurrentSnackBar()
+          ..showSnackBar(
+            SnackBar(
+              key: const Key('send-success-snackbar'),
+              content: Text(l10nNow.emailSent),
+              duration: const Duration(seconds: 4),
+            ),
+          );
+      }
       if (send.draftId != null) {
         try {
           await doDeleteDraft(send.draftId!);

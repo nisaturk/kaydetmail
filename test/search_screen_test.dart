@@ -45,6 +45,13 @@ class _FakeRepo extends MailRepository {
   List<RemoteSearchResult> remoteRounds = const [];
 
   @override
+  List<Email> getAllEmails() => nextResult;
+
+  @override
+  List<Email> getThreadEmails(String threadId) =>
+      nextResult.where((mail) => mail.threadId == threadId).toList();
+
+  @override
   Future<RemoteSearchResult> searchRemote({
     required String query,
     String? accountId,
@@ -158,6 +165,39 @@ void main() {
   setUp(() {
     AppConfig.resetForTest();
   });
+
+  test(
+    'cached search returns separate matching messages from the same thread',
+    () {
+      Email message(String id, String subject, List<String> labels, int day) =>
+          Email(
+            id: id,
+            senderName: 'Sender',
+            senderEmail: 'sender@example.com',
+            recipients: const ['me@example.com'],
+            subject: subject,
+            bodyText: '',
+            timestamp: DateTime(2026, 9, day),
+            threadId: 'same-thread',
+            labelIds: labels,
+            isRead: true,
+          );
+      final repo = _FakeRepo(const [])
+        ..nextResult = [
+          message('older', 'Proje ilk ileti', ['project'], 20),
+          message('newer', 'Proje yanıtı', ['project'], 21),
+          message('unlabeled', 'Proje etiketsiz', [], 22),
+          message('other-subject', 'Başka konu', ['project'], 23),
+        ];
+
+      expect(
+        repo
+            .searchEmails(query: 'Proje', labelId: 'project')
+            .map((mail) => mail.id),
+        ['newer', 'older'],
+      );
+    },
+  );
 
   testWidgets('typing a query triggers a debounced server search', (
     tester,

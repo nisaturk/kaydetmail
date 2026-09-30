@@ -359,10 +359,6 @@ abstract class MailRepository extends ChangeNotifier {
   /// conversations load through [fetchThreadEmails].
   List<Email> getThreadEmails(String threadId);
 
-  /// Message count of a conversation as known by the backend, which can be
-  /// larger than what is loaded locally (e.g. replies still in Sent).
-  int serverThreadSize(String threadId) => 0;
-
   /// Asynchronously refreshes the full conversation for [threadId], oldest
   /// first, with complete message bodies, and upserts results into the
   /// account-scoped memory and persistent mail caches.
@@ -547,33 +543,6 @@ abstract class MailRepository extends ChangeNotifier {
   /// Removes a contact. Unknown ids are ignored; offline deletes are queued.
   Future<void> deleteManualContact(String id);
 
-  /// Aggregates the IMAP-answered, replied-from-app and forwarded-from-app
-  /// flags across every message sharing
-  /// [representative]'s thread, so a thread's single list row reflects the
-  /// whole conversation instead of only whichever message happens to
-  /// represent it (the newest, which may not be the one the user actually
-  /// replied to or forwarded).
-  Email threadStatusOf(Email representative) {
-    if (representative.threadId.isEmpty) return representative;
-    final members = getThreadEmails(representative.threadId);
-    if (members.isEmpty) return representative;
-    bool any(bool Function(Email) flag) =>
-        flag(representative) || members.any(flag);
-    final answered = any((m) => m.imapAnswered);
-    final replied = any((m) => m.repliedFromKaydetMail);
-    final forwarded = any((m) => m.forwardedFromKaydetMail);
-    if (answered == representative.imapAnswered &&
-        replied == representative.repliedFromKaydetMail &&
-        forwarded == representative.forwardedFromKaydetMail) {
-      return representative;
-    }
-    return representative.copyWith(
-      imapAnswered: answered,
-      repliedFromKaydetMail: replied,
-      forwardedFromKaydetMail: forwarded,
-    );
-  }
-
   // --- Search -------------------------------------------------------
 
   /// Searches the server-side corpus. Spans every connected account
@@ -654,33 +623,18 @@ abstract class MailRepository extends ChangeNotifier {
   /// implementations without an offline mutation queue.
   Future<int> queuedOfflineMutationCount(String accountId) async => 0;
 
-  /// Conversations matching a client-side text [query] and an optional label
-  /// filter, one representative row per conversation, newest first.
-  ///
-  /// The text query and the label filter are AND-ed at the message level: a
-  /// conversation is eligible when any of its messages matches both. The
-  /// returned row is the newest message in the conversation that does, so
-  /// opening it still reveals the whole thread via [getThreadEmails]. Empty
-  /// [query] matches everything; `labelId == null` means no label
-  /// restriction. Spans every account, regardless of the active mailbox.
+  /// Individual messages matching a text [query] and optional label filter,
+  /// newest first, across every account regardless of the active mailbox.
+  /// Both filters must match the same message; empty [query] matches all.
   List<Email> searchEmails({String query = '', String? labelId}) {
-    final seen = <String>{};
-    final results = <Email>[];
-    bool matches(Email e) =>
-        e.matchesQuery(query) &&
-        (labelId == null || e.labelIds.contains(labelId));
-
-    for (final email in getAllEmails()) {
-      if (email.threadId.isEmpty) {
-        if (matches(email)) results.add(email);
-        continue;
-      }
-      if (!seen.add(email.threadId)) continue;
-      final candidates = getThreadEmails(email.threadId).where(matches).toList()
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
-      if (candidates.isNotEmpty) results.add(threadStatusOf(candidates.first));
-    }
-    return results;
+    return getAllEmails()
+        .where(
+          (email) =>
+              email.matchesQuery(query) &&
+              (labelId == null || email.labelIds.contains(labelId)),
+        )
+        .toList()
+      ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
   }
 
   // --- Snooze (backend-owned; cached and queued while offline) -------

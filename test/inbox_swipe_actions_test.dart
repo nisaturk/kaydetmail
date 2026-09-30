@@ -26,6 +26,9 @@ class _FakeRepo extends MailRepository {
   );
   final List<String> calls = [];
   Object? moveError;
+  List<Email> siblings = [];
+  final List<String> trashedIds = [];
+  final List<String> readIds = [];
 
   @override
   List<MailAccount> get accounts => const [];
@@ -37,16 +40,21 @@ class _FakeRepo extends MailRepository {
 
   @override
   List<Email> getEmailsInFolder(MailFolder folder) =>
-      (folder == MailFolder.inbox || folder == MailFolder.all) &&
-          !calls.contains('trash')
-      ? [email]
+      folder == MailFolder.inbox || folder == MailFolder.all
+      ? getAllEmails()
+            .where((mail) => folder == MailFolder.all || mail.folder == folder)
+            .toList()
       : [];
 
   @override
-  List<Email> getAllEmails() => [email];
+  List<Email> getAllEmails() => [email, ...siblings];
 
   @override
-  List<Email> getScopedEmails() => [email];
+  List<Email> getScopedEmails() => getAllEmails();
+
+  @override
+  List<Email> getThreadEmails(String threadId) =>
+      getAllEmails().where((mail) => mail.threadId == threadId).toList();
 
   @override
   bool hasMoreEmails(MailFolder folder) => false;
@@ -69,7 +77,12 @@ class _FakeRepo extends MailRepository {
   @override
   Future<void> markAsRead(List<String> ids) async {
     calls.add('read');
-    email = email.copyWith(isRead: true);
+    readIds.addAll(ids);
+    if (ids.contains(email.id)) email = email.copyWith(isRead: true);
+    siblings = [
+      for (final mail in siblings)
+        ids.contains(mail.id) ? mail.copyWith(isRead: true) : mail,
+    ];
     notifyListeners();
   }
 
@@ -77,6 +90,14 @@ class _FakeRepo extends MailRepository {
   Future<void> moveToTrash(List<String> ids) async {
     if (moveError case final error?) throw error;
     calls.add('trash');
+    trashedIds.addAll(ids);
+    if (ids.contains(email.id)) {
+      email = email.copyWith(folder: MailFolder.trash);
+    }
+    siblings = [
+      for (final mail in siblings)
+        ids.contains(mail.id) ? mail.copyWith(folder: MailFolder.trash) : mail,
+    ];
     notifyListeners();
   }
 
@@ -95,8 +116,25 @@ void main() {
   Future<_FakeRepo> pumpInbox(
     WidgetTester tester, {
     MailFolder folder = MailFolder.inbox,
+    bool sameThread = false,
   }) async {
     final repo = _FakeRepo();
+    if (sameThread) {
+      repo.email = repo.email.copyWith(threadId: 'conversation');
+      repo.siblings = [
+        Email(
+          id: 'm2',
+          threadId: 'conversation',
+          senderName: repo.email.senderName,
+          senderEmail: repo.email.senderEmail,
+          recipients: repo.email.recipients,
+          subject: 'Aynı konuşmanın diğer iletisi',
+          bodyText: repo.email.bodyText,
+          timestamp: repo.email.timestamp,
+          isRead: false,
+        ),
+      ];
+    }
     AppConfig.mailRepositoryForTest = repo;
     await tester.pumpWidget(
       MaterialApp(
@@ -144,6 +182,37 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(repo.calls, ['trash']);
+  });
+
+  testWidgets(
+    'same-thread rows stay separate and swiping one keeps its sibling',
+    (tester) async {
+      final repo = await pumpInbox(tester, sameThread: true);
+      expect(find.text('Kaydırılacak'), findsOneWidget);
+      expect(find.text('Aynı konuşmanın diğer iletisi'), findsOneWidget);
+
+      await tester.drag(find.text('Kaydırılacak'), const Offset(-500, 0));
+      await tester.pumpAndSettle();
+
+      expect(repo.trashedIds, ['m1']);
+      expect(find.text('Kaydırılacak'), findsNothing);
+      expect(find.text('Aynı konuşmanın diğer iletisi'), findsOneWidget);
+      expect(repo.siblings.single.folder, MailFolder.inbox);
+    },
+  );
+
+  testWidgets('toggle-read swipe does not mark its thread sibling read', (
+    tester,
+  ) async {
+    AppSettingsController.instance.swipeRight = SwipeGesture.toggleRead;
+    final repo = await pumpInbox(tester, sameThread: true);
+
+    await tester.drag(find.text('Kaydırılacak'), const Offset(500, 0));
+    await tester.pumpAndSettle();
+
+    expect(repo.readIds, ['m1']);
+    expect(repo.email.isRead, isTrue);
+    expect(repo.siblings.single.isRead, isFalse);
   });
 
   testWidgets('a failed swipe keeps an API message', (tester) async {

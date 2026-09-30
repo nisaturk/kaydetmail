@@ -15,6 +15,8 @@ class _FakeRepo extends MailRepository {
   final List<String> calls = [];
   Object? syncError;
   final List<String> conflicts = [];
+  List<Email> emails = [];
+  final List<String> trashedIds = [];
 
   @override
   List<MailAccount> get accounts => const [];
@@ -34,13 +36,30 @@ class _FakeRepo extends MailRepository {
   }
 
   @override
-  List<Email> getEmailsInFolder(MailFolder folder) => const [];
+  List<Email> getEmailsInFolder(MailFolder folder) => emails
+      .where((mail) => folder == MailFolder.all || mail.folder == folder)
+      .toList();
   @override
-  List<Email> getAllEmails() => const [];
+  List<Email> getAllEmails() => emails;
   @override
-  List<Email> getScopedEmails() => const [];
+  List<Email> getScopedEmails() => emails;
   @override
-  int unreadCount(MailFolder folder) => 0;
+  List<Email> getThreadEmails(String threadId) =>
+      emails.where((mail) => mail.threadId == threadId).toList();
+  @override
+  int unreadCount(MailFolder folder) =>
+      getEmailsInFolder(folder).where((mail) => !mail.isRead).length;
+
+  @override
+  Future<void> moveToTrash(List<String> ids) async {
+    trashedIds.addAll(ids);
+    emails = [
+      for (final mail in emails)
+        ids.contains(mail.id) ? mail.copyWith(folder: MailFolder.trash) : mail,
+    ];
+    notifyListeners();
+  }
+
   @override
   bool hasMoreEmails(MailFolder folder) => false;
   @override
@@ -75,12 +94,13 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(412, 915),
     double textScale = 1,
+    List<Email> emails = const [],
   }) async {
     tester.view
       ..physicalSize = size
       ..devicePixelRatio = 1;
     addTearDown(tester.view.reset);
-    final repo = _FakeRepo();
+    final repo = _FakeRepo()..emails = emails;
     AppConfig.mailRepositoryForTest = repo;
     await tester.pumpWidget(
       MaterialApp(
@@ -95,6 +115,46 @@ void main() {
     await tester.pumpAndSettle();
     return repo;
   }
+
+  testWidgets(
+    'multi-select delete leaves an unselected thread sibling in inbox',
+    (tester) async {
+      Email message(String id, String subject, String threadId) => Email(
+        id: id,
+        senderName: 'Gönderen',
+        senderEmail: 'gonderen@example.com',
+        recipients: const ['ben@example.com'],
+        subject: subject,
+        bodyText: 'Gövde',
+        timestamp: DateTime(2026, 9, 26),
+        threadId: threadId,
+        isRead: true,
+      );
+      final repo = await pumpHome(
+        tester,
+        emails: [
+          message('m1', 'Seçilen ileti', 'same-thread'),
+          message('m2', 'Seçilmeyen kardeş ileti', 'same-thread'),
+          message('m3', 'Başka seçilen ileti', 'other-thread'),
+        ],
+      );
+
+      await tester.longPress(find.text('Seçilen ileti'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Başka seçilen ileti'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Sil'));
+      await tester.pumpAndSettle();
+
+      expect(repo.trashedIds, unorderedEquals(['m1', 'm3']));
+      expect(repo.getEmailsInFolder(MailFolder.inbox).map((mail) => mail.id), [
+        'm2',
+      ]);
+      expect(find.text('Seçilmeyen kardeş ileti'), findsOneWidget);
+      expect(find.text('Seçilen ileti'), findsNothing);
+      expect(find.text('Başka seçilen ileti'), findsNothing);
+    },
+  );
 
   Future<void> openDrawer(WidgetTester tester) async {
     tester.state<ScaffoldState>(find.byType(Scaffold).first).openDrawer();

@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:math';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
@@ -196,15 +195,12 @@ class _InboxScreenState extends State<InboxScreen>
     curve: Curves.easeInOut,
   ).drive(Tween(begin: 0.4, end: 1));
 
-  /// Conversations removed from the local list right after a swipe, before the
-  /// async trash move lands. Keyed by thread id (see [_dismissKey]).
+  /// Messages hidden immediately after a swipe, before the async move lands.
   final Set<String> _dismissed = {};
   final Set<String> _moving = {};
 
-  /// Stable identity used to hide a row after swiping and to key the
-  /// Dismissible. Threads share one identity; standalone mails use their id.
-  static String _dismissKey(Email e) =>
-      e.threadId.isEmpty ? 'one:${e.id}' : e.threadId;
+  /// Each row and swipe retain the selected message's own identity.
+  static String _dismissKey(Email e) => e.id;
 
   @override
   void initState() {
@@ -412,13 +408,9 @@ class _InboxScreenState extends State<InboxScreen>
   /// A long press anywhere on the row enters selection mode (the row's
   /// InkWell owns the gesture; the avatar is purely visual).
 
-  /// Moves (or restores) an entire conversation according to [action].
-  /// Every message's original folder is captured first so Undo can put each
-  /// of them back exactly where they were — only the folder changes, every
-  /// other bit of state (labels, read/star/pin, attachments, …) survives.
+  /// Applies a flag change only to the swiped message.
   Future<void> _swipeToggle(Email representative, _SwipeAction action) async {
-    final ids = expandThreadIds(_repo, [representative.id]);
-    if (ids.isEmpty) return;
+    final ids = [representative.id];
     final key = _dismissKey(representative);
     if (_moving.contains(key)) return;
     setState(() => _moving.add(key));
@@ -454,24 +446,11 @@ class _InboxScreenState extends State<InboxScreen>
         action == _SwipeAction.snooze) {
       return _swipeToggle(representative, action);
     }
-    final threadIds = expandThreadIds(_repo, [representative.id]);
-    final ids = switch (action) {
-      _SwipeAction.restore ||
-      _SwipeAction.unspam ||
-      _SwipeAction.unarchive ||
-      _SwipeAction.deleteForever => idsInFolder(
-        _repo,
-        threadIds,
-        widget.folder,
-      ),
-      _ => threadIds,
-    };
+    final ids = [representative.id];
     if (action == _SwipeAction.deleteForever) {
-      if (ids.isEmpty) return;
       final confirmed = await confirmPermanentDelete(context, ids.length);
       if (!confirmed || !mounted) return;
     }
-    if (ids.isEmpty) return;
     final custom = widget.customFolder;
     final customIds = custom == null
         ? const <String>[]
@@ -574,18 +553,16 @@ class _InboxScreenState extends State<InboxScreen>
           return _SkeletonList(pulse: _skeletonPulse);
         }
 
-        // One row per conversation: emails sharing a threadId collapse into a
-        // single representative row (newest of the group wins). Swiped rows
-        // stay hidden until the repository confirms the move.
-        final grouped = sortMailList(
-          _groupByThread(applyMailListFilter(emails, _filter))
-              .where((e) => !_dismissed.contains(_dismissKey(e)))
-              .toList(),
+        // Every message gets its own row. Swiped messages stay hidden until
+        // the repository confirms their move.
+        final visible = sortMailList(
+          applyMailListFilter(
+            emails,
+            _filter,
+          ).where((e) => !_dismissed.contains(_dismissKey(e))).toList(),
           _sort,
         );
-        widget.selection.syncVisibleIds(grouped.map((e) => e.id).toList());
-
-        final threadCounts = _threadCounts();
+        widget.selection.syncVisibleIds(visible.map((e) => e.id).toList());
 
         // In the unified mailbox each row names its originating account;
         // account-specific lists stay clean.
@@ -596,7 +573,7 @@ class _InboxScreenState extends State<InboxScreen>
             : const <String, String>{};
         final labelsById = {for (final l in _repo.getLabels()) l.id: l};
 
-        if (grouped.isEmpty) {
+        if (visible.isEmpty) {
           if (_filter != MailListFilter.all) {
             return _withViewBar(
               _NoMatches(
@@ -620,7 +597,7 @@ class _InboxScreenState extends State<InboxScreen>
         final endAction = _swipeEndAction(widget.folder);
         final colors = AppTheme.colors(context);
         final showFooter = _loadingMore || _loadMoreError != null;
-        final itemCount = grouped.length + (showFooter ? 1 : 0);
+        final itemCount = visible.length + (showFooter ? 1 : 0);
         return _withViewBar(
           RefreshIndicator(
             onRefresh: _refresh,
@@ -632,7 +609,7 @@ class _InboxScreenState extends State<InboxScreen>
               separatorBuilder: (_, _) =>
                   const Divider(indent: 64, endIndent: 16),
               itemBuilder: (context, index) {
-                if (index == grouped.length) {
+                if (index == visible.length) {
                   if (_loadMoreError != null) {
                     return Padding(
                       padding: const EdgeInsets.symmetric(vertical: 8),
@@ -656,7 +633,7 @@ class _InboxScreenState extends State<InboxScreen>
                     ),
                   );
                 }
-                final email = grouped[index];
+                final email = visible[index];
                 final row = MailListItem(
                   key: ValueKey(email.id),
                   email: email,
@@ -670,10 +647,6 @@ class _InboxScreenState extends State<InboxScreen>
                     for (final id in email.labelIds)
                       if (labelsById[id] != null) labelsById[id]!,
                   ],
-                  threadCount: max(
-                    threadCounts[email.threadId] ?? 0,
-                    _repo.serverThreadSize(email.threadId),
-                  ),
                   onTap: () => _onMailTap(email),
                   onLongPress: () => widget.selection.toggle(email.id),
                 );
@@ -763,44 +736,6 @@ class _InboxScreenState extends State<InboxScreen>
       Expanded(child: body),
     ],
   );
-
-  /// Drops every mail whose thread already appeared earlier in the (newest
-  /// first) list, so a conversation occupies exactly one row. The
-  /// representative's reply/forward badges are aggregated across the whole
-  /// thread — the newest message may not be the one the user replied to.
-  List<Email> _groupByThread(List<Email> emails) {
-    final seen = <String>{};
-    final reps = <Email>[];
-    for (final email in emails) {
-      if (email.threadId.isNotEmpty && !seen.add(email.threadId)) continue;
-      reps.add(_repo.threadStatusOf(email));
-    }
-    return reps;
-  }
-
-  /// Messages per conversation in the current mailbox scope (account or
-  /// unified), across folders — so an inbox row can say its thread holds
-  /// messages that also live in Sent.
-  List<Email>? _countsSource;
-  String? _countsAccount;
-  Map<String, int> _counts = const {};
-
-  Map<String, int> _threadCounts() {
-    final active = _repo.activeAccountId;
-    final source = _repo.getScopedEmails();
-    // The repository hands back the same list until something changes.
-    if (identical(source, _countsSource) && active == _countsAccount) {
-      return _counts;
-    }
-    final counts = <String, int>{};
-    for (final email in source) {
-      if (email.threadId.isEmpty) continue;
-      counts[email.threadId] = (counts[email.threadId] ?? 0) + 1;
-    }
-    _countsSource = source;
-    _countsAccount = active;
-    return _counts = counts;
-  }
 }
 
 /// Solid-fill swipe background for one [_SwipeAction] direction. Destructive

@@ -16,7 +16,6 @@ import '../theme/app_theme.dart';
 import '../utils/date_format.dart';
 import '../utils/error_messages.dart';
 import '../utils/mail_pdf_export.dart';
-import '../utils/mail_threads.dart';
 import '../utils/mail_unsubscribe.dart';
 import '../widgets/move_folder_sheet.dart';
 import '../widgets/label_picker_sheet.dart';
@@ -175,7 +174,7 @@ class _MailDetailScreenState extends _MailDetailStateBase
               value: 'delete_forever',
               child: Text(l10nNow.deletePermanently),
             ),
-          if (anyLabeled(_repo, _conversationIds))
+          if (anyLabeled(_repo, [email.id]))
             PopupMenuItem(value: 'unlabel', child: Text(l10nNow.removeLabel))
           else
             PopupMenuItem(value: 'label', child: Text(l10nNow.label)),

@@ -35,14 +35,6 @@ abstract class _MailDetailStateBase extends State<MailDetailScreen> {
   String? _enrichingKey;
 
   String? _enrichedKey;
-
-  /// Labels apply to the whole conversation, the same unit a list row and
-  /// the bulk "Etiketle" act on — labeling only the opened message would
-  /// leave the row's representative (often another message) unchanged.
-  List<String> get _conversationIds {
-    final ids = expandThreadIds(_repo, [widget.emailId]);
-    return ids.isEmpty ? [widget.emailId] : ids;
-  }
 }
 
 bool _sameIds(List<Email> a, List<Email> b) {

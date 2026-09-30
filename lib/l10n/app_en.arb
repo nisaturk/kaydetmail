@@ -242,6 +242,7 @@
   "downloadAttachment": "Download attachment",
   "sendingReply": "Sending reply",
   "replySent": "Reply sent",
+  "emailSent": "Email sent.",
   "couldntSendTheReply": "Couldn’t send the reply: {value}",
   "writeAQuickReply": "Write a quick reply…",
   "sendReply": "Send reply",

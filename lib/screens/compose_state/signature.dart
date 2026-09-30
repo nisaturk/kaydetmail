@@ -3,8 +3,15 @@ part of '../compose_screen.dart';
 mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
   // --- Signature -------------------------------------------------------
 
-  String _signatureSuffix(String signature) =>
-      signature.trim().isEmpty ? '' : '\n\n--\n$signature';
+  String _signatureSuffix(String signature) {
+    if (signature.trim().isEmpty) return '';
+    final beforeQuote = widget.initialReplyWritingLines > 0 ? '\n\n' : '';
+    return '\n\n--\n$signature$beforeQuote';
+  }
+
+  bool get _signatureBodyUnchanged =>
+      jsonEncode(_bodyController.document.toDelta().toJson()) ==
+      _managedSignatureDelta;
 
   Future<void> _loadIdentities() async {
     final accountId = _resolvedFromAccountId;
@@ -32,6 +39,7 @@ mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
                   .firstOrNull
             : identities.where((identity) => identity.isDefault).firstOrNull;
       });
+      await _syncSignature();
     } catch (error) {
       if (!mounted || widget.initialIdentityId == null) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -49,18 +57,14 @@ mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
     await _syncSignature();
   }
 
-  /// Applies the signature for the current Kimden account and compose mode
-  /// (new/reply/forward default, or the chosen identity's own signature), but
-  /// only while the body still exactly matches [_bodyBeforeSignature] plus
-  /// whatever signature was last inserted — i.e. the user hasn't typed
-  /// anything else since. Called once on open and again every time Kimden
-  /// changes, so a switch re-applies the new account's signature without
-  /// ever clobbering real typing.
+  /// Updates only the automatically managed signature, before reply history.
+  /// Compare the full delta so sender changes preserve both real typing and
+  /// formatting, including formatting-only edits.
   Future<void> _syncSignature() async {
     if (!_signatureEligible) return;
-    final expected =
-        _bodyBeforeSignature + _signatureSuffix(_insertedSignature);
-    if (_bodyText != expected) return;
+    final request = ++_signatureRequest;
+    if (!_signatureBodyUnchanged) return;
+    final expectedDelta = _managedSignatureDelta;
     final account = _fromAccount;
     final accountId = _resolvedFromAccountId;
     if (account == null || accountId == null) return;
@@ -79,15 +83,25 @@ mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
       identity: _fromIdentity,
       legacySignature: legacy,
     );
-    if (!mounted || _fromAccount != account || _bodyText != expected) return;
+    if (!mounted ||
+        request != _signatureRequest ||
+        _fromAccount != account ||
+        _managedSignatureDelta != expectedDelta ||
+        !_signatureBodyUnchanged) {
+      return;
+    }
+    if (signature == _insertedSignature) return;
     setState(() {
       _bodyController.replaceText(
-        _bodyBeforeSignature.length,
+        _signatureInsertionOffset,
         _signatureSuffix(_insertedSignature).length,
         _signatureSuffix(signature),
         const TextSelection.collapsed(offset: 0),
       );
       _insertedSignature = signature;
+      _managedSignatureDelta = jsonEncode(
+        _bodyController.document.toDelta().toJson(),
+      );
     });
   }
 
@@ -132,30 +146,41 @@ mixin _SignatureMixin on _ComposeStateBase, _RecipientsMixin {
 
   void _insertReusableText(String inserted) {
     if (inserted.isEmpty) return;
-    final signature = _signatureSuffix(_insertedSignature);
-    final managedSignature =
-        _signatureEligible && _bodyText == _bodyBeforeSignature + signature;
+    final managedSignature = _signatureEligible && _signatureBodyUnchanged;
     final source = managedSignature ? _bodyBeforeSignature : _bodyText;
+    final authoredEnd = managedSignature && widget.initialReplyWritingLines > 0
+        ? _signatureInsertionOffset
+        : source.length;
     final selection = _bodySelection;
     final selectionStart = selection.isValid
-        ? selection.start.clamp(0, source.length)
-        : source.length;
+        ? selection.start.clamp(0, authoredEnd)
+        : authoredEnd;
     final selectionEnd = selection.isValid
-        ? selection.end.clamp(0, source.length)
-        : source.length;
+        ? selection.end.clamp(0, authoredEnd)
+        : authoredEnd;
     final replaceEmpty = source.trim().isEmpty;
     final start = replaceEmpty ? 0 : selectionStart;
     final end = replaceEmpty ? source.length : selectionEnd;
     final updated = source.replaceRange(start, end, inserted);
     final cursor = start + inserted.length;
     setState(() {
-      if (managedSignature) _bodyBeforeSignature = updated;
+      if (managedSignature) {
+        _bodyBeforeSignature = updated;
+        if (start <= _signatureInsertionOffset) {
+          _signatureInsertionOffset += inserted.length - (end - start);
+        }
+      }
       _bodyController.replaceText(
         start,
         end - start,
         inserted,
         TextSelection.collapsed(offset: cursor),
       );
+      if (managedSignature) {
+        _managedSignatureDelta = jsonEncode(
+          _bodyController.document.toDelta().toJson(),
+        );
+      }
     });
     _bodyFocus.requestFocus();
   }
