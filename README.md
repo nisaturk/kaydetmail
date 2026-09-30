@@ -32,8 +32,11 @@ one unified inbox.
 - **Compose.** Attachments (files, camera and gallery), drafts,
   reply/reply-all/forward with quoted history, templates, snippets, multiple
   signatures, sender identities and OS share-sheet intake. Draft changes are persisted
-  locally first, then synchronized in the background; failed synchronization warns and
-  reopens the intact local draft. Immediate sends can optionally request read (MDN) and
+  locally first, then synchronized in the background. Failed synchronization warns
+  without reopening the editor; **Aç** opens the preserved local draft on request.
+  Transient failures retry with one notification per saved version. Permanent
+  failures pause until another save or session restore, without blocking other drafts.
+  Immediate sends can optionally request read (MDN) and
   delivery (SMTP DSN) receipts; neither is guaranteed by recipients or providers.
   Receipt requests are not supported for scheduled sends.
   Replies start with five editable blank lines above quoted history; the selected

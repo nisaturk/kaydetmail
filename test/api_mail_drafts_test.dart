@@ -123,6 +123,54 @@ void main() {
 
   group('ApiMailRepository drafts', () {
     test(
+      'permanent sync failure preserves content without blocking other drafts',
+      () async {
+        final service = _FailingDraftMailService();
+        final repo = await _loggedInRepository(service);
+        final failures = <Email>[];
+        final subscription = repo.draftSyncFailures.listen(failures.add);
+        addTearDown(subscription.cancel);
+        final failed = await repo.saveDraft(
+          to: ['a@x.com'],
+          subject: 'Failed reply',
+          body: 'Keep my reply',
+          inReplyToId: 'missing-source',
+        );
+        await _flushDraftSync();
+        await repo.saveDraft(to: ['b@x.com'], subject: 'Healthy draft');
+        await _flushDraftSync();
+
+        final drafts = repo.getEmailsInFolder(MailFolder.drafts);
+        expect(drafts.any((draft) => draft.id == 'healthy-server-id'), isTrue);
+        expect(
+          drafts.singleWhere((draft) => draft.id == failed.id).bodyText,
+          'Keep my reply',
+        );
+        expect(service.failedAttempts, 1);
+        expect(failures.map((draft) => draft.id), [failed.id]);
+        await Future<void>.delayed(const Duration(seconds: 16));
+        expect(service.failedAttempts, 1);
+
+        service.sourceAvailable = true;
+        await repo.saveDraft(
+          draftId: failed.id,
+          to: failed.recipients,
+          subject: failed.subject,
+          body: 'Edited reply',
+          inReplyToId: failed.inReplyToId,
+        );
+        await _flushDraftSync();
+        expect(
+          repo
+              .getEmailsInFolder(MailFolder.drafts)
+              .singleWhere((draft) => draft.id == 'recovered-server-id')
+              .bodyText,
+          'Edited reply',
+        );
+      },
+    );
+
+    test(
       'saveDraft persists locally first, then reconciles with server id',
       () async {
         final mailService = _RecordingMailService();
@@ -374,6 +422,35 @@ class _RecordingMailService extends ApiMailService {
   );
 }
 
+class _FailingDraftMailService extends _RecordingMailService {
+  int failedAttempts = 0;
+  bool sourceAvailable = false;
+
+  @override
+  Future<DraftResult> createDraft({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) async {
+    if (replySourceMailId != null && !sourceAvailable) {
+      failedAttempts++;
+      throw const ApiException(status: 404, code: 'mail_not_found');
+    }
+    return DraftResult(
+      created: true,
+      mailId: replySourceMailId == null
+          ? 'healthy-server-id'
+          : 'recovered-server-id',
+    );
+  }
+}
+
 class _SlowDeleteMailService extends _RecordingMailService {
   final Completer<void> deleteStarted = Completer<void>();
   bool deletionRequested = false;
@@ -385,6 +462,7 @@ class _SlowDeleteMailService extends _RecordingMailService {
     await super.deleteDraft(id);
   }
 }
+
 /// Reads every no-filename multipart part named [field], in order.
 Future<List<String>> _partValues(WireMultipart request, String field) async =>
     request.values(field);
