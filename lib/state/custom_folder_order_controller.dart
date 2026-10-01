@@ -44,7 +44,9 @@ class CustomFolderOrderController extends ChangeNotifier {
   }
 
   /// Moves [folderId] by [offset] among its siblings in [accountFolders]
-  /// (all from one account). Returns false when the move is out of range.
+  /// (all from one account; may be a subset of the account's folders — the
+  /// stored positions of the rest are kept). Returns false when the move is
+  /// out of range.
   Future<bool> move(
     List<MailCustomFolder> accountFolders,
     String folderId,
@@ -53,10 +55,8 @@ class CustomFolderOrderController extends ChangeNotifier {
     if (accountFolders.isEmpty) return false;
     final accountId = accountFolders.first.accountId;
     await _ensureLoaded(accountId);
-    final base = reconcileCustomFolderOrder(
-      accountFolders,
-      _orders[accountId] ?? const [],
-    );
+    final persisted = _orders[accountId] ?? const <String>[];
+    final base = reconcileCustomFolderOrder(accountFolders, persisted);
     final next = moveCustomFolderAmongSiblings(
       accountFolders,
       base,
@@ -64,9 +64,15 @@ class CustomFolderOrderController extends ChangeNotifier {
       offset,
     );
     if (next == null) return false;
-    _orders[accountId] = next;
+    final moved = next.toSet();
+    final merged = [
+      ...next,
+      for (final id in persisted)
+        if (!moved.contains(id)) id,
+    ];
+    _orders[accountId] = merged;
     notifyListeners();
-    await _save(accountId, next);
+    await _save(accountId, merged);
     return true;
   }
 

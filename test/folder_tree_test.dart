@@ -52,6 +52,32 @@ void main() {
     expect(rows, hasLength(4));
   });
 
+  test('sections keep a tree with its root: custom children stay under '
+      'their standard parent, role-assigned roots are the user\'s own', () {
+    final sections = splitFolderSections(
+      buildFolderRows([
+        _f('inbox', 'INBOX', kind: FolderKind.inbox),
+        _f('kid', 'Kid', parent: 'inbox'),
+        _f('sent', 'Sent', kind: FolderKind.sent),
+        _f('mine', 'Mine'),
+        MailFolderInfo(
+          accountId: 'a',
+          folderId: 'role',
+          name: 'Gonderilmis',
+          fullName: 'Gonderilmis',
+          kind: FolderKind.sent,
+          isSyncEnabled: false,
+          roleOverride: FolderKind.sent,
+        ),
+      ]),
+    );
+    expect(
+      [for (final r in sections.standard) r.folder.folderId],
+      ['inbox', 'kid', 'sent'],
+    );
+    expect([for (final r in sections.own) r.folder.folderId], ['role', 'mine']);
+  });
+
   test('subtreeIds includes the folder and all descendants only', () {
     final all = [
       _f('a', 'A'),

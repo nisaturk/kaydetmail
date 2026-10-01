@@ -249,7 +249,11 @@
       "value": {}
     }
   },
-  "standardFolder": "Standart klasör",
+  "standardFolders": "Standart klasörler",
+  "myFolders": "Klasörlerim",
+  "spam": "Spam",
+  "showSubfolders": "Alt klasörleri göster",
+  "hideSubfolders": "Alt klasörleri gizle",
   "unread": "{unreadCount} okunmamış",
   "@unread": {
     "placeholders": {

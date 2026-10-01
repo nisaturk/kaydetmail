@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_account.dart';
+import 'package:kaydetmail/models/mail_custom_folder.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
@@ -16,10 +17,20 @@ class _FakeRepo extends MailRepository {
   Object? syncError;
   final List<String> conflicts = [];
   List<Email> emails = [];
+  List<MailCustomFolder> customFolders = const [];
   final List<String> trashedIds = [];
 
   @override
-  List<MailAccount> get accounts => const [];
+  List<MailAccount> get accounts => customFolders.isEmpty
+      ? const []
+      : const [MailAccount(id: 'acc', email: 'ben@example.com')];
+  @override
+  List<MailCustomFolder> getCustomFolders({String? accountId}) => customFolders;
+  @override
+  Map<MailFolder, String> standardFolderIds(String accountId) => const {
+    MailFolder.inbox: 'inbox-id',
+    MailFolder.sent: 'sent-id',
+  };
   @override
   String get currentUser => 'ben@example.com';
   @override
@@ -259,5 +270,58 @@ void main() {
         await tester.pumpWidget(const SizedBox.shrink());
       }
     }
+  });
+
+  testWidgets('the Inbox row expands its sub-folders; other folders stay in '
+      'Klasörler', (tester) async {
+    MailCustomFolder folder(String id, String name, String? parent) =>
+        MailCustomFolder(
+          accountId: 'acc',
+          folderId: id,
+          name: name,
+          fullName: name,
+          isSyncEnabled: false,
+          parentFolderId: parent,
+          parentIdKnown: true,
+        );
+    final repo = _FakeRepo()
+      ..customFolders = [
+        folder('a', 'Faturalar', 'inbox-id'),
+        folder('b', 'Ocak', 'a'),
+        folder('c', 'Projeler', null),
+        folder('d', 'Gönderilmişlerim', 'sent-id'),
+      ];
+    tester.view
+      ..physicalSize = const Size(412, 915)
+      ..devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    AppConfig.mailRepositoryForTest = repo;
+    await tester.pumpWidget(const MaterialApp(home: HomeScreen()));
+    await tester.pumpAndSettle();
+    await openDrawer(tester);
+
+    expect(find.text('Faturalar'), findsNothing);
+    expect(find.text('Projeler'), findsOneWidget);
+    expect(find.text('Gönderilmişlerim'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('inbox-expander')));
+    await tester.pumpAndSettle();
+    expect(find.text('Faturalar'), findsOneWidget);
+    expect(find.text('Ocak'), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.text('Ocak')).dx,
+      greaterThan(tester.getTopLeft(find.text('Faturalar')).dx),
+    );
+    expect(find.text('Projeler'), findsOneWidget);
+
+    await tester.tap(find.byKey(const Key('inbox-expander')));
+    await tester.pumpAndSettle();
+    expect(find.text('Faturalar'), findsNothing);
+  });
+
+  testWidgets('no chevron when the Inbox has no sub-folders', (tester) async {
+    await pumpHome(tester);
+    await openDrawer(tester);
+    expect(find.byKey(const Key('inbox-expander')), findsNothing);
   });
 }

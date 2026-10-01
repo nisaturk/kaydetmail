@@ -21,12 +21,12 @@ enum MailFolder {
   String get label => switch (this) {
     MailFolder.inbox => l10nNow.inbox,
     MailFolder.all => l10nNow.allMail,
-    MailFolder.sent => l10nNow.outbox,
+    MailFolder.sent => l10nNow.sent,
     MailFolder.starred => l10nNow.starred,
     MailFolder.snoozed => l10nNow.snoozed,
     MailFolder.drafts => l10nNow.drafts,
     MailFolder.trash => l10nNow.trash,
-    MailFolder.spam => 'Spam',
+    MailFolder.spam => l10nNow.spam,
     MailFolder.archive => l10nNow.archive,
   };
 
