@@ -2796,6 +2796,36 @@ abstract class AppLocalizations {
   /// **'Sola kaydırınca'**
   String get onSwipeLeft;
 
+  /// No description provided for @swipeSensitivity.
+  ///
+  /// In tr, this message translates to:
+  /// **'Kaydırma hassasiyeti'**
+  String get swipeSensitivity;
+
+  /// No description provided for @swipeSensitivityLow.
+  ///
+  /// In tr, this message translates to:
+  /// **'Düşük'**
+  String get swipeSensitivityLow;
+
+  /// No description provided for @swipeSensitivityNormal.
+  ///
+  /// In tr, this message translates to:
+  /// **'Normal'**
+  String get swipeSensitivityNormal;
+
+  /// No description provided for @swipeSensitivityHigh.
+  ///
+  /// In tr, this message translates to:
+  /// **'Yüksek'**
+  String get swipeSensitivityHigh;
+
+  /// No description provided for @swipeSensitivityHelp.
+  ///
+  /// In tr, this message translates to:
+  /// **'Düşük hassasiyet daha uzun kaydırma gerektirir. İşlem yalnızca belirgin yatay hareketle gerçekleşir; kısa ve hızlı kaydırmalar yeterli değildir.'**
+  String get swipeSensitivityHelp;
+
   /// No description provided for @undoSendPeriod.
   ///
   /// In tr, this message translates to:

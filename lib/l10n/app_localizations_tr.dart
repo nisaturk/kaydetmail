@@ -1548,6 +1548,22 @@ class AppLocalizationsTr extends AppLocalizations {
   String get onSwipeLeft => 'Sola kaydırınca';
 
   @override
+  String get swipeSensitivity => 'Kaydırma hassasiyeti';
+
+  @override
+  String get swipeSensitivityLow => 'Düşük';
+
+  @override
+  String get swipeSensitivityNormal => 'Normal';
+
+  @override
+  String get swipeSensitivityHigh => 'Yüksek';
+
+  @override
+  String get swipeSensitivityHelp =>
+      'Düşük hassasiyet daha uzun kaydırma gerektirir. İşlem yalnızca belirgin yatay hareketle gerçekleşir; kısa ve hızlı kaydırmalar yeterli değildir.';
+
+  @override
   String get undoSendPeriod => 'Göndermeyi geri alma süresi';
 
   @override

@@ -23,6 +23,7 @@ class AppPreferencesStore {
   static const _swipeRightKey = 'kaydet.swipe.right';
   static const _deviceContactsKey = 'kaydet.contacts.deviceEnabled';
   static const _swipeLeftKey = 'kaydet.swipe.left';
+  static const _swipeSensitivityKey = 'kaydet.swipe.sensitivity';
   static const _pauseSyncOnBatterySaverKey = 'kaydet.sync.pauseOnBatterySaver';
 
   static const _attachmentAutoDownloadModeKey =
@@ -99,6 +100,20 @@ class AppPreferencesStore {
   }) async {
     final preferences = await SharedPreferences.getInstance();
     await preferences.setString(right ? _swipeRightKey : _swipeLeftKey, value);
+  }
+
+  static Future<String?> loadSwipeSensitivity() async {
+    try {
+      final preferences = await SharedPreferences.getInstance();
+      return preferences.getString(_swipeSensitivityKey);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Future<void> saveSwipeSensitivity(String value) async {
+    final preferences = await SharedPreferences.getInstance();
+    await preferences.setString(_swipeSensitivityKey, value);
   }
 
   static Future<String?> loadSyncNetworkPolicy() async {

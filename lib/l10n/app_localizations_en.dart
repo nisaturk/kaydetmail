@@ -1641,6 +1641,22 @@ class AppLocalizationsEn extends AppLocalizations {
   String get onSwipeLeft => 'On swipe left';
 
   @override
+  String get swipeSensitivity => 'Swipe sensitivity';
+
+  @override
+  String get swipeSensitivityLow => 'Low';
+
+  @override
+  String get swipeSensitivityNormal => 'Normal';
+
+  @override
+  String get swipeSensitivityHigh => 'High';
+
+  @override
+  String get swipeSensitivityHelp =>
+      'Low sensitivity requires a longer swipe. Actions require a clearly horizontal movement; short, fast swipes are not enough.';
+
+  @override
   String get undoSendPeriod => 'Undo send period';
 
   @override

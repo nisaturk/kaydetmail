@@ -79,7 +79,12 @@ one unified inbox.
   session on the account and can revoke them remotely.
 - **Settings.** Configurable server address (with validation), an in-app-open list
   refresh interval (independent of the backend's own background IMAP sync — see
-  Otomatik Yenileme in Settings), and a swipe-to-delete toggle.
+  Otomatik Yenileme in Settings), configurable left/right swipe actions, and swipe
+  sensitivity under Settings → Interaction. Low/Normal/High sensitivity requires
+  70%/55%/40% of the mail row's width (Normal by default), in either direction.
+  Actions require horizontal displacement at least twice the largest vertical
+  excursion; short fast flings cannot bypass the distance requirement.
+  Swipe preferences persist across restarts.
 
 ## Architecture
 

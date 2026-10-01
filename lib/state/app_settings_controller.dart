@@ -79,6 +79,24 @@ enum SwipeGesture {
   };
 }
 
+enum SwipeSensitivity {
+  low,
+  normal,
+  high;
+
+  double get threshold => switch (this) {
+    SwipeSensitivity.low => 0.70,
+    SwipeSensitivity.normal => 0.55,
+    SwipeSensitivity.high => 0.40,
+  };
+
+  String get label => switch (this) {
+    SwipeSensitivity.low => l10nNow.swipeSensitivityLow,
+    SwipeSensitivity.normal => l10nNow.swipeSensitivityNormal,
+    SwipeSensitivity.high => l10nNow.swipeSensitivityHigh,
+  };
+}
+
 enum SyncNetworkPolicy {
   wifiAndMobile,
   wifiOnly;
@@ -157,6 +175,7 @@ class AppSettingsController extends ChangeNotifier {
   SwipeGesture _swipeRight = SwipeGesture.archive;
   bool _deviceContactsEnabled = false;
   SwipeGesture _swipeLeft = SwipeGesture.trash;
+  SwipeSensitivity _swipeSensitivity = SwipeSensitivity.normal;
   bool _pauseSyncOnBatterySaver = true;
   AttachmentAutoDownloadLimit _attachmentAutoDownloadLimit =
       AttachmentAutoDownloadLimit.fiveMb;
@@ -223,6 +242,15 @@ class AppSettingsController extends ChangeNotifier {
   }
 
   SwipeGesture get swipeLeft => _swipeLeft;
+
+  SwipeSensitivity get swipeSensitivity => _swipeSensitivity;
+
+  set swipeSensitivity(SwipeSensitivity value) {
+    if (_swipeSensitivity == value) return;
+    _swipeSensitivity = value;
+    notifyListeners();
+    unawaited(AppPreferencesStore.saveSwipeSensitivity(value.name));
+  }
 
   set swipeRight(SwipeGesture value) {
     if (_swipeRight == value) return;
@@ -419,6 +447,12 @@ class AppSettingsController extends ChangeNotifier {
     _swipeLeft =
         parse(await AppPreferencesStore.loadSwipeGesture(right: false)) ??
         SwipeGesture.trash;
+    final sensitivity = await AppPreferencesStore.loadSwipeSensitivity();
+    _swipeSensitivity =
+        SwipeSensitivity.values
+            .where((v) => v.name == sensitivity)
+            .firstOrNull ??
+        SwipeSensitivity.normal;
     notifyListeners();
   }
 
@@ -504,6 +538,7 @@ class AppSettingsController extends ChangeNotifier {
       .._swipeRight = SwipeGesture.archive
       .._deviceContactsEnabled = false
       .._swipeLeft = SwipeGesture.trash
+      .._swipeSensitivity = SwipeSensitivity.normal
       .._cleanTrackingQueries = true
       ..notifyListeners();
   }

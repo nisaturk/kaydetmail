@@ -160,12 +160,28 @@ class SwipeSection extends StatelessWidget {
             title: l10nNow.onSwipeRight,
             value: settings.swipeRight,
             onChanged: (v) => settings.swipeRight = v,
+            values: SwipeGesture.values,
+            label: (v) => v.label,
           ),
           _SwipeGestureTile(
             key: const Key('swipe-left-setting'),
             title: l10nNow.onSwipeLeft,
             value: settings.swipeLeft,
             onChanged: (v) => settings.swipeLeft = v,
+            values: SwipeGesture.values,
+            label: (v) => v.label,
+          ),
+          _SwipeGestureTile<SwipeSensitivity>(
+            key: const Key('swipe-sensitivity-setting'),
+            title: l10nNow.swipeSensitivity,
+            value: settings.swipeSensitivity,
+            values: SwipeSensitivity.values,
+            label: (v) => v.label,
+            onChanged: (v) => settings.swipeSensitivity = v,
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+            child: Text(l10nNow.swipeSensitivityHelp),
           ),
         ],
       ],
@@ -173,21 +189,25 @@ class SwipeSection extends StatelessWidget {
   }
 }
 
-class _SwipeGestureTile extends StatelessWidget {
+class _SwipeGestureTile<T> extends StatelessWidget {
   const _SwipeGestureTile({
     super.key,
     required this.title,
     required this.value,
     required this.onChanged,
+    required this.values,
+    required this.label,
   });
 
   final String title;
-  final SwipeGesture value;
-  final ValueChanged<SwipeGesture> onChanged;
+  final T value;
+  final List<T> values;
+  final String Function(T) label;
+  final ValueChanged<T> onChanged;
 
   @override
   Widget build(BuildContext context) {
-    final dropdown = DropdownButton<SwipeGesture>(
+    final dropdown = DropdownButton<T>(
       value: value,
       isExpanded: true,
       underline: const SizedBox.shrink(),
@@ -195,11 +215,11 @@ class _SwipeGestureTile extends StatelessWidget {
         if (v != null) onChanged(v);
       },
       items: [
-        for (final gesture in SwipeGesture.values)
+        for (final gesture in values)
           DropdownMenuItem(
             value: gesture,
             child: Text(
-              gesture.label,
+              label(gesture),
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
             ),

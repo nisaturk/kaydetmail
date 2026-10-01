@@ -19,6 +19,7 @@ import '../utils/error_messages.dart';
 import '../utils/mail_threads.dart';
 import '../utils/mail_ordering.dart';
 import '../widgets/mail_list_item.dart';
+import '../widgets/horizontal_mail_dismissible.dart';
 import '../widgets/mail_list_view_bar.dart';
 import '../widgets/permanent_delete_dialog.dart';
 import '../widgets/snooze_picker.dart';
@@ -666,17 +667,18 @@ class _InboxScreenState extends State<InboxScreen>
                     ? DismissDirection.endToStart
                     : DismissDirection.none;
 
-                Widget dismissible = Dismissible(
+                Widget dismissible = HorizontalMailDismissible(
                   key: ValueKey('dismiss-$dismissKey'),
                   direction: direction,
-                  confirmDismiss: (swipeDirection) async {
+                  threshold:
+                      AppSettingsController.instance.swipeSensitivity.threshold,
+                  onAction: (swipeDirection) async {
                     await _swipeMove(
                       email,
                       swipeDirection == DismissDirection.startToEnd
                           ? startAction
                           : endAction,
                     );
-                    return false;
                   },
                   background: _SwipeBackground(
                     action: startAction,

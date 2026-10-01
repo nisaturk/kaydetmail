@@ -150,6 +150,62 @@ void main() {
     return repo;
   }
 
+  testWidgets('short fast swipes do not trigger an action', (tester) async {
+    AppSettingsController.instance.swipeRight = SwipeGesture.toggleRead;
+    final repo = await pumpInbox(tester);
+    await tester.fling(find.text('Kaydırılacak'), const Offset(160, 0), 2000);
+    await tester.pumpAndSettle();
+    expect(repo.email.isRead, isFalse);
+    expect(repo.readIds, isEmpty);
+  });
+
+  testWidgets('diagonal dragging does not trigger a mail action', (
+    tester,
+  ) async {
+    AppSettingsController.instance.swipeRight = SwipeGesture.toggleRead;
+    final repo = await pumpInbox(tester);
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.text('Kaydırılacak')),
+    );
+    // Initially horizontal, then becomes diagonal after the drag is claimed.
+    await gesture.moveBy(const Offset(60, 0));
+    await tester.pump(const Duration(milliseconds: 100));
+    await gesture.moveBy(const Offset(440, 350));
+    await tester.pump(const Duration(milliseconds: 500));
+    await gesture.up();
+    await tester.pumpAndSettle();
+    expect(repo.email.isRead, isFalse);
+    expect(repo.readIds, isEmpty);
+  });
+
+  testWidgets('sensitivity changes the required horizontal distance', (
+    tester,
+  ) async {
+    AppSettingsController.instance.swipeRight = SwipeGesture.toggleRead;
+    AppSettingsController.instance.swipeSensitivity = SwipeSensitivity.low;
+    final repo = await pumpInbox(tester);
+    await tester.drag(find.text('Kaydırılacak'), const Offset(500, 0));
+    await tester.pumpAndSettle();
+    expect(repo.email.isRead, isFalse);
+    AppSettingsController.instance.swipeSensitivity = SwipeSensitivity.high;
+    await tester.pump();
+    await tester.drag(find.text('Kaydırılacak'), const Offset(500, 0));
+    await tester.pumpAndSettle();
+    expect(repo.email.isRead, isTrue);
+    expect(repo.readIds, ['m1']);
+  });
+
+  test('swipe sensitivity persists across settings restoration', () async {
+    AppSettingsController.instance.swipeSensitivity = SwipeSensitivity.low;
+    await Future<void>.delayed(Duration.zero);
+    AppSettingsController.resetForTest();
+    await AppSettingsController.instance.loadSwipeGestures();
+    expect(
+      AppSettingsController.instance.swipeSensitivity,
+      SwipeSensitivity.low,
+    );
+  });
+
   testWidgets('cached all mail opens without a sync or refresh', (
     tester,
   ) async {
