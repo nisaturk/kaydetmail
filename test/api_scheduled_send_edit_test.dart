@@ -6,15 +6,132 @@ import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
 import 'package:kaydetmail/models/email.dart';
+import 'package:kaydetmail/models/mail_account.dart';
+import 'package:kaydetmail/repositories/api/account_session.dart';
+import 'package:kaydetmail/repositories/api/session_registry.dart';
+import 'package:kaydetmail/repositories/api/scheduled_send_module.dart';
+import 'package:kaydetmail/services/api_auth_service.dart';
+import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/models/scheduled_send.dart';
 import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
+import 'package:kaydetmail/services/mail_cache.dart';
 import 'package:kaydetmail/services/token_store.dart';
 
 import 'support/wire_multipart.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
+
+  test('lost create response survives repository restoration without duplicating delivery', () async {
+    final records = <String, String>{};
+    var loseResponse = true;
+    final client = _multipartClient((request) async {
+      final key =
+          request.headers['Idempotency-Key'] ??
+          request.headers['idempotency-key']!;
+      final id = records.putIfAbsent(key, () => 'scheduled-${records.length}');
+      if (loseResponse) {
+        loseResponse = false;
+        throw http.ClientException('response lost after commit');
+      }
+      return _jsonResponse({
+        'id': id,
+        'sendAtUtc': '2030-10-02T10:00:00Z',
+        'status': 'Pending',
+      });
+    });
+    addTearDown(client.close);
+    final registry = SessionRegistry();
+    registry.sessions['account-1'] = AccountSession(
+      account: const MailAccount(id: 'account-1', email: 'me@example.test'),
+      mailService: ApiMailService(client),
+      authService: ApiAuthService(
+        client: client,
+        tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+        deviceIdentifierProvider: const MemoryDeviceIdentifierProvider(
+          'schedule-test',
+        ),
+      ),
+    );
+    final cache = MailCache.inMemory();
+    addTearDown(cache.db.close);
+    var module = ScheduledSendModule(registry, () {}, () => cache);
+    Future<ScheduledSend> attempt({String subject = 'Same'}) =>
+        module.scheduleSend(
+          to: ['recipient@example.test'],
+          subject: subject,
+          body: 'Body',
+          sendAt: DateTime.utc(2030, 10, 2, 10),
+        );
+    await expectLater(attempt(), throwsA(isA<Exception>()));
+    module = ScheduledSendModule(registry, () {}, () => cache);
+    await attempt(subject: 'Changed');
+    final recovered = await attempt();
+    expect(recovered.id, 'scheduled-0');
+    expect(records.values, ['scheduled-0', 'scheduled-1']);
+    expect(module.getScheduledSends().map((item) => item.id).toSet(), {
+      'scheduled-0',
+      'scheduled-1',
+    });
+    module = ScheduledSendModule(registry, () {}, () => null);
+    await expectLater(attempt(), throwsA(isA<StateError>()));
+    expect(records.values, ['scheduled-0', 'scheduled-1']);
+  });
+
+  test(
+    'lost failed-reschedule response survives repository restoration',
+    () async {
+      final records = <String, String>{};
+      var loseResponse = true;
+      final client = _client((request) async {
+        if (request.method == 'GET') return _jsonResponse({'items': []});
+        final key =
+            request.headers['Idempotency-Key'] ??
+            request.headers['idempotency-key']!;
+        final id = records.putIfAbsent(
+          key,
+          () => 'replacement-${records.length}',
+        );
+        if (loseResponse) {
+          loseResponse = false;
+          throw http.ClientException('response lost after commit');
+        }
+        return _jsonResponse({
+          'id': id,
+          'sendAtUtc': '2030-10-02T10:00:00Z',
+          'status': 'Pending',
+        });
+      });
+      addTearDown(client.close);
+      final registry = SessionRegistry();
+      registry.sessions['account-1'] = AccountSession(
+        account: const MailAccount(id: 'account-1', email: 'me@example.test'),
+        mailService: ApiMailService(client),
+        authService: ApiAuthService(
+          client: client,
+          tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+          deviceIdentifierProvider: const MemoryDeviceIdentifierProvider(
+            'schedule-test',
+          ),
+        ),
+      );
+      final cache = MailCache.inMemory();
+      addTearDown(cache.db.close);
+      var module = ScheduledSendModule(registry, () {}, () => cache);
+      Future<void> attempt() => module.rescheduleFailedSend(
+        id: 'failed-source',
+        to: ['recipient@example.test'],
+        subject: 'Same',
+        body: 'Body',
+        sendAt: DateTime.utc(2030, 10, 2, 10),
+      );
+      await expectLater(attempt(), throwsA(isA<Exception>()));
+      module = ScheduledSendModule(registry, () {}, () => cache);
+      await attempt();
+      expect(records.values, ['replacement-0']);
+    },
+  );
 
   group('ApiMailService scheduled edit', () {
     test('getScheduledSend parses body and staged attachments', () async {
@@ -24,6 +141,7 @@ void main() {
           sent = request;
           return _jsonResponse({
             'id': 'sch-1',
+            'revision': 3,
             'to': ['a@example.com'],
             'cc': [],
             'bcc': [],
@@ -64,6 +182,7 @@ void main() {
 
       await service.updateScheduledSend(
         id: 'sch-1',
+        expectedRevision: 3,
         to: ['a@example.com', 'b@example.com'],
         subject: 'Yeni konu',
         bodyText: 'Yeni gövde',
@@ -89,79 +208,82 @@ void main() {
       expect(added.field, 'attachments');
     });
 
-    test('rescheduleFailedSend posts JSON with fresh Idempotency-Key',
-        () async {
-      late http.Request sent;
-      Map<String, dynamic>? sentBody;
-      final service = ApiMailService(
-        _client((request) async {
-          sent = request;
-          sentBody =
-              jsonDecode(request.body) as Map<String, dynamic>;
-          return _jsonResponse({
-            'id': 'sch-2',
-            'sendAtUtc': '2026-10-03T10:00:00Z',
-            'status': 'Pending',
-          });
-        }),
-      );
-
-      await service.rescheduleFailedSend(
-        id: 'sch-1',
-        to: ['a@example.com'],
-        subject: 'Konu',
-        bodyText: 'Gövde',
-        sendAtUtc: DateTime.utc(2026, 10, 3, 10),
-        idempotencyKey: 'fresh-key',
-      );
-
-      expect(sent.method, 'POST');
-      expect(sent.url.path, '/api/scheduled-sends/sch-1/reschedule');
-      expect(sent.headers['Idempotency-Key'], 'fresh-key');
-      expect(sentBody!['to'], ['a@example.com']);
-      expect(sentBody!['subject'], 'Konu');
-      expect(sentBody!['sendAtUtc'], isNotEmpty);
-    });
-
-    test('listScheduledSends maps DeliveryUnknown with attempt fields',
-        () async {
-      final service = ApiMailService(
-        _client(
-          (_) async => _jsonResponse({
-            'items': [
-              {
-                'id': 'sch-9',
-                'to': ['a@example.com'],
-                'cc': [],
-                'bcc': [],
-                'subject': 'X',
-                'sendAtUtc': '2026-10-01T10:00:00Z',
-                'status': 'DeliveryUnknown',
-                'createdAtUtc': '2026-09-30T10:00:00Z',
-                'sentMailId': null,
-                'failureReason': 'timeout',
-                'attemptCount': 3,
-                'nextAttemptAtUtc': null,
-              },
-            ],
+    test(
+      'rescheduleFailedSend posts JSON with fresh Idempotency-Key',
+      () async {
+        late http.Request sent;
+        Map<String, dynamic>? sentBody;
+        final service = ApiMailService(
+          _client((request) async {
+            sent = request;
+            sentBody = jsonDecode(request.body) as Map<String, dynamic>;
+            return _jsonResponse({
+              'id': 'sch-2',
+              'sendAtUtc': '2026-10-03T10:00:00Z',
+              'status': 'Pending',
+            });
           }),
-        ),
-      );
+        );
 
-      final items = await service.listScheduledSends();
+        await service.rescheduleFailedSend(
+          id: 'sch-1',
+          to: ['a@example.com'],
+          subject: 'Konu',
+          bodyText: 'Gövde',
+          sendAtUtc: DateTime.utc(2026, 10, 3, 10),
+          idempotencyKey: 'fresh-key',
+        );
 
-      expect(items.single.status, ScheduledSendStatus.deliveryUnknown);
-      expect(items.single.attemptCount, 3);
-      expect(items.single.failureReason, 'timeout');
-    });
+        expect(sent.method, 'POST');
+        expect(sent.url.path, '/api/scheduled-sends/sch-1/reschedule');
+        expect(sent.headers['Idempotency-Key'], 'fresh-key');
+        expect(sentBody!['to'], ['a@example.com']);
+        expect(sentBody!['subject'], 'Konu');
+        expect(sentBody!['sendAtUtc'], isNotEmpty);
+      },
+    );
+
+    test(
+      'listScheduledSends maps DeliveryUnknown with attempt fields',
+      () async {
+        final service = ApiMailService(
+          _client(
+            (_) async => _jsonResponse({
+              'items': [
+                {
+                  'id': 'sch-9',
+                  'to': ['a@example.com'],
+                  'cc': [],
+                  'bcc': [],
+                  'subject': 'X',
+                  'sendAtUtc': '2026-10-01T10:00:00Z',
+                  'status': 'DeliveryUnknown',
+                  'createdAtUtc': '2026-09-30T10:00:00Z',
+                  'sentMailId': null,
+                  'failureReason': 'timeout',
+                  'attemptCount': 3,
+                  'nextAttemptAtUtc': null,
+                },
+              ],
+            }),
+          ),
+        );
+
+        final items = await service.listScheduledSends();
+
+        expect(items.single.status, ScheduledSendStatus.deliveryUnknown);
+        expect(items.single.attemptCount, 3);
+        expect(items.single.failureReason, 'timeout');
+      },
+    );
   });
 }
 
 http.Response _jsonResponse(Map<String, dynamic> json) => http.Response.bytes(
-      utf8.encode(jsonEncode(json)),
-      200,
-      headers: {'content-type': 'application/json; charset=utf-8'},
-    );
+  utf8.encode(jsonEncode(json)),
+  200,
+  headers: {'content-type': 'application/json; charset=utf-8'},
+);
 
 ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
     ApiClient(
@@ -173,21 +295,20 @@ ApiClient _client(Future<http.Response> Function(http.Request) handler) =>
 ApiClient _multipartClient(
   Future<http.Response> Function(WireMultipart) handler, {
   String method = 'POST',
-}) =>
-    ApiClient(
-      tokenStore: TokenStore(storage: _MemoryTokenStorage()),
-      accountId: 'account-1',
-      httpClient: MockClient.streaming((request, bodyStream) async {
-        expect(request.method, method);
-        final response = await handler(
-          await WireMultipart.decode(request, bodyStream),
-        );
-        return http.StreamedResponse(
-          Stream.value(response.bodyBytes),
-          response.statusCode,
-        );
-      }),
+}) => ApiClient(
+  tokenStore: TokenStore(storage: _MemoryTokenStorage()),
+  accountId: 'account-1',
+  httpClient: MockClient.streaming((request, bodyStream) async {
+    expect(request.method, method);
+    final response = await handler(
+      await WireMultipart.decode(request, bodyStream),
     );
+    return http.StreamedResponse(
+      Stream.value(response.bodyBytes),
+      response.statusCode,
+    );
+  }),
+);
 
 class _MemoryTokenStorage implements TokenStorage {
   final Map<String, String> _values = {};

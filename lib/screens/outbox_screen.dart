@@ -167,7 +167,7 @@ class _OutboxScreenState extends State<OutboxScreen> {
     final items = _items;
     return Scaffold(
       appBar: AppBar(
-        title: Text(l10nNow.outbox),
+        title: Text(l10nNow.pendingEmails),
         actions: [
           IconButton(onPressed: _refresh, icon: const Icon(Icons.refresh)),
         ],

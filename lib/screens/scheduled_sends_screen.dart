@@ -261,6 +261,11 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
       final detail = await _repo.getScheduledSend(widget.item.id);
       if (!mounted) return;
       _detail = detail;
+      _toController.text = detail.to.join(', ');
+      _ccController.text = detail.cc.join(', ');
+      _bccController.text = detail.bcc.join(', ');
+      _subjectController.text = detail.subject;
+      _sendAt = detail.sendAt;
       final plain =
           detail.bodyText ??
           (detail.bodyHtml == null
@@ -390,6 +395,7 @@ class _ScheduledEditSheetState extends State<_ScheduledEditSheet> {
     try {
       await _repo.updateScheduledSend(
         id: widget.item.id,
+        expectedRevision: _detail!.revision,
         to: to,
         cc: _parse(_ccController.text),
         bcc: _parse(_bccController.text),

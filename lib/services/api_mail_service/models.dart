@@ -144,10 +144,29 @@ class BulkActionResult {
     required this.mailId,
     required this.success,
     this.code,
+    this.reconciliationPending = false,
+    this.retryable = false,
   });
 
   final String mailId;
   final bool success;
+  /// The remote move committed, but its destination UID is not known yet.
+  final bool reconciliationPending;
+
+  /// Transport failures affect only this item and the unattempted tail, never
+  /// outcomes already acknowledged by an earlier chunk.
+  final bool retryable;
+
+  bool get canRetry => retryable || switch (code) {
+    'mail_reconciliation_pending' ||
+    'mail_account_needs_reauthentication' ||
+    'mail_provider_unavailable' ||
+    'mail_move_failed' ||
+    'mail_delete_failed' ||
+    'network_unavailable' ||
+    'request_timeout' => true,
+    _ => false,
+  };
 
   /// Failure error code (see the mail action error table), null on success.
   final String? code;

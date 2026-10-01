@@ -91,6 +91,7 @@ class Email {
     this.accountId = '',
     this.threadId = '',
     this.inReplyToId,
+    this.reconciliationPending = false,
     this.headers = const {},
     this.authentication,
     this.security,
@@ -150,6 +151,9 @@ class Email {
   /// mail object lives in exactly one account, so starring/reading/deleting
   /// it in the unified inbox affects only the originating account.
   final String accountId;
+
+  /// True while a remote move awaits its destination UID in the cache.
+  final bool reconciliationPending;
 
   /// Stable conversation identifier shared by every mail that belongs to the
   /// same thread (a reply reuses the original message's id). Empty means
@@ -229,6 +233,7 @@ class Email {
     String? accountId,
     String? threadId,
     String? inReplyToId,
+    bool? reconciliationPending,
     Map<String, String>? headers,
     MailAuthentication? authentication,
     MailContentSecurity? security,
@@ -263,6 +268,8 @@ class Email {
       accountId: accountId ?? this.accountId,
       threadId: threadId ?? this.threadId,
       inReplyToId: inReplyToId ?? this.inReplyToId,
+      reconciliationPending:
+          reconciliationPending ?? this.reconciliationPending,
       headers: headers ?? this.headers,
       authentication: authentication ?? this.authentication,
       security: security ?? this.security,

@@ -23,6 +23,7 @@ import '../models/mail_session.dart';
 import '../models/mail_template.dart';
 import '../models/manual_contact.dart';
 import '../models/remote_search_result.dart';
+import '../models/search_page.dart';
 import '../models/scheduled_send.dart';
 import '../utils/idempotency_key.dart';
 import '../models/scheduled_send_detail.dart';
@@ -1102,8 +1103,8 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
           pageSize: 100,
           resolveFolder: session.resolveFolder,
         );
-        flagged.addAll(result);
-        if (result.length < 100) break;
+        flagged.addAll(result.items);
+        if (result.page * result.pageSize >= result.total) break;
       }
       session.starredIds
         ..clear()
@@ -1283,6 +1284,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     if (session.hasMore[folder] == false) return const [];
     final folderId = session.folderIds[folder];
     if (folderId == null) return const [];
+    await _actions.replayQueuedMutations(session);
     final page = (session.pages[folder] ?? 0) + 1;
     final result = await session.mailService.getMails(
       folderId: folderId,
@@ -1302,7 +1304,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     session.lastSynced[folder] = DateTime.now();
     _cancelReconnectRetry(session);
     session.offline = false;
-    await _actions.replayQueuedMutations(session);
     notifyListeners();
     unawaited(_attachmentAutoDownloader.preloadListed(this, fresh));
     return List.unmodifiable(fresh);
@@ -1330,7 +1331,9 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   ) async {
     final folderId = session.folderIds[folder];
     if (folderId == null) return;
-    // Fetch first, swap after: the current list stays on screen meanwhile.
+    // Replay first so the server page reflects queued location changes.
+    // The current list stays on screen while replay and fetch complete.
+    await _actions.replayQueuedMutations(session);
     final result = await session.mailService.getMails(
       folderId: folderId,
       page: 1,
@@ -1341,7 +1344,6 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     };
     _cancelReconnectRetry(session);
     session.offline = false;
-    await _actions.replayQueuedMutations(session);
     final refreshed = [
       for (final e in result.items)
         // List items carry no body or star state; keep what we already know.
@@ -1846,6 +1848,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   late final ScheduledSendModule _scheduled = ScheduledSendModule(
     _registry,
     notifyListeners,
+    () => _cache,
   );
 
   @override
@@ -1886,6 +1889,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   @override
   Future<void> updateScheduledSend({
     required String id,
+    required int expectedRevision,
     required List<String> to,
     List<String> cc = const [],
     List<String> bcc = const [],
@@ -1897,6 +1901,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     List<Attachment> attachments = const [],
   }) => _scheduled.updateScheduledSend(
     id: id,
+    expectedRevision: expectedRevision,
     to: to,
     cc: cc,
     bcc: bcc,
@@ -2460,6 +2465,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     required String folderId,
     required int page,
   }) async {
+    await _actions.replayQueuedMutations(session);
     final result = await session.mailService.getMails(
       folderId: folderId,
       resolveFolder: session.resolveFolder,
@@ -2506,16 +2512,27 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   }) async {
     if (ids.isEmpty) return;
     final session = _sessionForAccountId(accountId);
+    final selectedIds = ids.toSet();
+    final moving = {
+      for (final list in session.emails.values.followedBy(
+        session.customFolderEmails.values,
+      ))
+        for (final mail in list)
+          if (selectedIds.contains(mail.id)) mail.id: mail,
+    };
     final results = await _actions.bulkAndApplyOrQueue(session, 'move', ids, (
       succeeded,
     ) {
       _buckets.removeMany(session, succeeded);
-      session.forgetCustomFolderMails(folderId);
+      session.customFolderEmails
+          .putIfAbsent(folderId, () => <Email>[])
+          .insertAll(0, [
+            for (final id in succeeded)
+              if (moving[id] case final mail?)
+                mail.copyWith(folder: session.resolveFolder(folderId)),
+          ]);
     }, folderId: folderId);
-    final failure = results.where((r) => !r.success).firstOrNull;
-    if (failure != null) {
-      throw ApiException(status: 0, code: failure.code ?? 'mail_move_failed');
-    }
+    _actions.throwForFailedBulkResults([results]);
   }
 
   /// Prefill data for the reply/reply-all/forward screen (see
@@ -2529,7 +2546,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
   late final SearchModule _search = SearchModule(this);
 
   @override
-  Future<List<Email>> searchEmailsOnServer({
+  Future<SearchPage> searchEmailsOnServer({
     required String query,
     String? accountId,
     MailFolder? folder,
@@ -2543,7 +2560,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     bool? flagged,
     bool? hasAttachment,
     String? labelId,
-    int page = 1,
+    SearchContinuation? continuation,
     int pageSize = 20,
   }) => _search.searchOnServer(
     query: query,
@@ -2559,7 +2576,7 @@ class ApiMailRepository extends MailRepository implements RepositoryContext {
     flagged: flagged,
     hasAttachment: hasAttachment,
     labelId: labelId,
-    page: page,
+    continuation: continuation,
     pageSize: pageSize,
   );
 

@@ -4,7 +4,7 @@ mixin _SearchApi on _ApiMailServiceBase {
   /// Literal term-substring + filtered search over cached server mail. All filters are
   /// optional and AND-ed. Note the singular `hasAttachment` — `/mails` uses
   /// the plural `hasAttachments`.
-  Future<List<Email>> search({
+  Future<MailListPage> search({
     required String query,
     required MailFolder Function(String folderId) resolveFolder,
     String? folderId,
@@ -39,9 +39,14 @@ mixin _SearchApi on _ApiMailServiceBase {
     });
     final body = await _client.get(path);
     final items = body['items'] as List;
-    return items
-        .map((item) => _mapMail(item as Map<String, dynamic>, resolveFolder))
-        .toList();
+    return MailListPage(
+      items: items
+          .map((item) => _mapMail(item as Map<String, dynamic>, resolveFolder))
+          .toList(),
+      page: body['page'] as int,
+      pageSize: body['pageSize'] as int,
+      total: body['total'] as int,
+    );
   }
 
   Future<RemoteSearchResult> searchRemote({

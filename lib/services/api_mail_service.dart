@@ -183,6 +183,7 @@ abstract class _ApiMailServiceBase {
     accountId: item['accountId'] as String? ?? '',
     folder: resolveFolder(item['folderId'] as String),
     threadId: item['conversationId'] as String? ?? '',
+    reconciliationPending: item['reconciliationPending'] as bool? ?? false,
   );
 
   /// Maps one `include=body` conversation message, including recipients.
@@ -213,6 +214,7 @@ abstract class _ApiMailServiceBase {
       isRead: item['isRead'] as bool? ?? false,
       folder: resolveFolder(item['folderId'] as String),
       threadId: item['conversationId'] as String? ?? '',
+      reconciliationPending: item['reconciliationPending'] as bool? ?? false,
     );
   }
 
@@ -244,7 +246,7 @@ abstract class _ApiMailServiceBase {
     final body = item['body'] is Map<String, dynamic>
         ? item['body'] as Map<String, dynamic>
         : null;
-    final inReplyTo = item['inReplyToMessageId'] as String?;
+    final replySourceMailId = item['replySourceMailId'] as String?;
     return Email(
       id: item['id'] as String,
       senderName: fromNames.isNotEmpty && fromNames.first.isNotEmpty
@@ -268,7 +270,8 @@ abstract class _ApiMailServiceBase {
       accountId: item['accountId'] as String? ?? '',
       folder: resolveFolder(item['folderId'] as String),
       threadId: item['conversationId'] as String? ?? '',
-      inReplyToId: inReplyTo == null || inReplyTo.isEmpty ? null : inReplyTo,
+      inReplyToId: replySourceMailId,
+      reconciliationPending: item['reconciliationPending'] as bool? ?? false,
       attachments: attachments,
       hasAttachments: item['hasAttachments'] as bool? ?? attachments.isNotEmpty,
       headers: _mapHeaders(item['headers']),

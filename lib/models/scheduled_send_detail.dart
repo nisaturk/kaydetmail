@@ -29,6 +29,7 @@ class ScheduledSendAttachmentInfo {
 class ScheduledSendDetail {
   const ScheduledSendDetail({
     required this.id,
+    required this.revision,
     required this.to,
     this.cc = const [],
     this.bcc = const [],
@@ -42,6 +43,7 @@ class ScheduledSendDetail {
   factory ScheduledSendDetail.fromJson(Map<String, dynamic> json) =>
       ScheduledSendDetail(
         id: json['id'] as String,
+        revision: (json['revision'] as num).toInt(),
         to: _addresses(json['to']),
         cc: _addresses(json['cc']),
         bcc: _addresses(json['bcc']),
@@ -51,13 +53,12 @@ class ScheduledSendDetail {
         sendAt: DateTime.parse(json['sendAtUtc'] as String).toLocal(),
         attachments: [
           for (final item in (json['attachments'] as List? ?? const []))
-            ScheduledSendAttachmentInfo.fromJson(
-              item as Map<String, dynamic>,
-            ),
+            ScheduledSendAttachmentInfo.fromJson(item as Map<String, dynamic>),
         ],
       );
 
   final String id;
+  final int revision;
   final List<String> to;
   final List<String> cc;
   final List<String> bcc;

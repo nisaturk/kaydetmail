@@ -10,6 +10,14 @@ class AppLocalizationsEn extends AppLocalizations {
   AppLocalizationsEn([String locale = 'en']) : super(locale);
 
   @override
+  String get mailReconciliationPending =>
+      'Moved on the server; waiting for folder sync.';
+
+  @override
+  String get mailReconciliationRetry =>
+      'The message is syncing to its destination folder. Try again shortly.';
+
+  @override
   String get pressBackAgainToExit => 'Press back again to exit.';
 
   @override
@@ -101,6 +109,9 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get outbox => 'Outbox';
+
+  @override
+  String get pendingEmails => 'Pending Emails';
 
   @override
   String get starred => 'Starred';
@@ -1286,6 +1297,18 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get retry => 'Retry';
+
+  @override
+  String get loadMoreResults => 'Load more results';
+
+  @override
+  String searchResultCount(int shown, int total) {
+    return '$shown of $total results';
+  }
+
+  @override
+  String get offlineSearchResults =>
+      'Offline accounts show only matches available on this device.';
 
   @override
   String get cancelSend2 => 'Cancel send';

@@ -7,6 +7,8 @@ mixin _SendMixin
         _AttachmentsMixin,
         _SignatureMixin,
         _DraftMixin {
+  DateTime? _lastScheduleAt;
+
   /// Commits pending recipient text into chips, then validates there is at
   /// least one To recipient and every chip looks like a real address.
   /// Shared by [_send] and [_scheduleSend].
@@ -211,14 +213,20 @@ mixin _SendMixin
     final now = DateTime.now();
     final date = await showDatePicker(
       context: context,
-      initialDate: now,
+      initialDate: _lastScheduleAt?.isAfter(now) == true
+          ? _lastScheduleAt!
+          : now,
       firstDate: now,
       lastDate: now.add(const Duration(days: 365)),
     );
     if (date == null || !mounted) return;
     final time = await showTimePicker(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(now.add(const Duration(hours: 1))),
+      initialTime: TimeOfDay.fromDateTime(
+        _lastScheduleAt?.isAfter(now) == true
+            ? _lastScheduleAt!
+            : now.add(const Duration(hours: 1)),
+      ),
     );
     if (time == null || !mounted) return;
     final sendAt = DateTime(
@@ -234,6 +242,7 @@ mixin _SendMixin
       ).showSnackBar(SnackBar(content: Text(l10nNow.pleaseChooseAFutureDate)));
       return;
     }
+    _lastScheduleAt = sendAt;
 
     final messenger = ScaffoldMessenger.of(context);
     final navigator = Navigator.of(context);

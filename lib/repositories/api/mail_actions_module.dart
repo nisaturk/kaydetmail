@@ -44,51 +44,68 @@ class MailActionsModule {
         folderId: folderId,
       );
     } catch (error) {
-      if (_ctx.isOfflineFailure(error)) {
-        _ctx.markOffline(session);
-        final store = session.flagsStore;
-        if (store != null) {
-          try {
-            for (final id in ids) {
-              await store.queueMutation(id, operation, folderId: folderId);
-            }
-          } catch (_) {
-            _buckets.restoreMailLocations(
-              session,
-              _buckets.selectMailLocations(snapshots, ids),
-            );
-            _ctx.notify();
-            rethrow;
-          }
-        }
-        return const [];
+      if (!_ctx.isOfflineFailure(error)) {
+        _buckets.restoreMailLocations(session, snapshots);
+        _ctx.notify();
+        rethrow;
       }
+      results = [
+        for (final id in ids)
+          BulkActionResult(
+            mailId: id,
+            success: false,
+            code: error is ApiException ? error.code : 'network_unavailable',
+            retryable: true,
+          ),
+      ];
+    }
+    final rejected = <String>[];
+    final store = session.flagsStore;
+    final category = mutationCategoryFor(operation, folderId);
+    Object? queueError;
+    for (final result in results) {
+      if (result.success) {
+        _buckets.replaceMany(
+          session,
+          [result.mailId],
+          (mail) => mail.copyWith(
+            reconciliationPending: result.reconciliationPending,
+          ),
+        );
+        await store?.clearQueuedMutation(result.mailId, category);
+      } else if (result.canRetry) {
+        if (result.code == 'network_unavailable' ||
+            result.code == 'request_timeout') {
+          _ctx.markOffline(session);
+        }
+        try {
+          await store?.queueMutation(
+            result.mailId,
+            operation,
+            folderId: folderId,
+            originFolderId: _originFolderId(session, snapshots[result.mailId]),
+          );
+        } catch (error) {
+          queueError ??= error;
+          rejected.add(result.mailId);
+        }
+        if (result.code == 'mail_reconciliation_pending') {
+          _buckets.replaceMany(session, [
+            result.mailId,
+          ], (mail) => mail.copyWith(reconciliationPending: true));
+        }
+      } else {
+        rejected.add(result.mailId);
+      }
+    }
+    if (rejected.isNotEmpty) {
       _buckets.restoreMailLocations(
         session,
-        _buckets.selectMailLocations(snapshots, ids),
+        _buckets.selectMailLocations(snapshots, rejected),
       );
-      _ctx.notify();
-      rethrow;
     }
-    final successfulIds = results
-        .where((result) => result.success)
-        .map((result) => result.mailId)
-        .toSet();
-    final failedSnapshots = _buckets.selectMailLocations(
-      snapshots,
-      ids.where((id) => !successfulIds.contains(id)),
-    );
-    if (failedSnapshots.isNotEmpty) {
-      _buckets.restoreMailLocations(session, failedSnapshots);
-      _ctx.notify();
-    }
-    final store = session.flagsStore;
-    if (store != null) {
-      final category = mutationCategoryFor(operation);
-      for (final id in successfulIds) {
-        await store.clearQueuedMutation(id, category);
-      }
-    }
+    _ctx.notify();
+    if (queueError != null) throw queueError;
     _ctx.refreshCounts(session);
     return results;
   }
@@ -98,7 +115,12 @@ class MailActionsModule {
   ) {
     final failure = accountResults
         .expand((results) => results)
-        .where((result) => !result.success)
+        .where(
+          (result) =>
+              !result.success &&
+              (!result.canRetry ||
+                  result.code == 'mail_reconciliation_pending'),
+        )
         .firstOrNull;
     if (failure != null) {
       throw ApiException(
@@ -108,6 +130,15 @@ class MailActionsModule {
     }
   }
 
+  String? _originFolderId(
+    AccountSession session,
+    MailLocationSnapshot? snapshot,
+  ) {
+    if (snapshot == null) return null;
+    return snapshot.customFolders.keys.firstOrNull ??
+        session.folderIds[snapshot.folders.keys.firstOrNull];
+  }
+
   /// Replays queued mail, pin/snooze/label and manual contact mutations.
   /// Transport failures remain queued for the next reconnect. Server
   /// rejections are dropped and surfaced through [offlineMutationConflicts];
@@ -115,6 +146,20 @@ class MailActionsModule {
   /// Mail changes in the same category and contact changes for the same id
   /// collapse at queue time (see `LocalMailFlagsStore.queueMutation`).
   Future<void> replayQueuedMutations(AccountSession session) async {
+    final active = session.mutationReplay;
+    if (active != null) return active;
+    final replay = _replayQueuedMutations(session);
+    session.mutationReplay = replay;
+    try {
+      await replay;
+    } finally {
+      if (identical(session.mutationReplay, replay)) {
+        session.mutationReplay = null;
+      }
+    }
+  }
+
+  Future<void> _replayQueuedMutations(AccountSession session) async {
     final store = session.flagsStore;
     if (store == null) return;
     final all = await store.readQueuedMutations();
@@ -158,28 +203,46 @@ class MailActionsModule {
           ids,
           folderId: folderId,
         );
-      } catch (_) {
-        continue; // Still offline; the next reconnect retries.
+      } catch (error) {
+        if (error is! ApiException ||
+            error.isTransient ||
+            error.category == ApiErrorCategory.authentication ||
+            error.code == 'mail_account_needs_reauthentication') {
+          continue;
+        }
+        results = [
+          for (final id in ids)
+            BulkActionResult(mailId: id, success: false, code: error.code),
+        ];
       }
       final restored = <String>[];
+      final rejected = <String>[];
       for (final r in results) {
         if (r.success) {
           await store.clearQueuedMutation(r.mailId, category);
+          _buckets.replaceMany(
+            session,
+            [r.mailId],
+            (mail) =>
+                mail.copyWith(reconciliationPending: r.reconciliationPending),
+          );
           changed = true;
-          if (operation == 'restore') restored.add(r.mailId);
-        } else if (r.code == 'mail_operation_conflict' ||
-            r.code == 'mailbox_changed' ||
-            r.code == 'mail_not_found') {
+          if (operation == 'restore' || operation == 'move') {
+            restored.add(r.mailId);
+          }
+        } else if (!r.canRetry) {
           await store.clearQueuedMutation(r.mailId, category);
           session.mutationConflicts.add(r.mailId);
+          if (r.code == 'mail_not_found') {
+            _buckets.removeMany(session, [r.mailId]);
+          } else {
+            rejected.add(r.mailId);
+          }
           changed = true;
         }
-        // Any other failure (e.g. reauthentication needed) stays queued.
       }
-      // The offline placeholder filed a queued restore into Inbox (see
-      // `moveToFolder`) — now that the server confirmed it, correct it to
-      // wherever it actually came from, same as the online restore path.
       if (restored.isNotEmpty) await _fileRestored(session, restored);
+      if (rejected.isNotEmpty) await _fileRestored(session, rejected);
     }
     if (changed) _ctx.notify();
     if (appState.isNotEmpty) await _replayAppState(session, store, appState);
@@ -362,16 +425,7 @@ class MailActionsModule {
             ),
           ),
     );
-    final failure = results
-        .expand((perAccount) => perAccount)
-        .where((result) => !result.success)
-        .firstOrNull;
-    if (failure != null) {
-      throw ApiException(
-        status: 0,
-        code: failure.code ?? 'mail_operation_failed',
-      );
-    }
+    throwForFailedBulkResults(results);
   }
 
   /// Expunge is irreversible: retain cached messages until server confirmation.
@@ -392,6 +446,13 @@ class MailActionsModule {
           _buckets.removeMany(session, successfulIds);
           _ctx.notify();
         }
+        for (final result in results) {
+          if (result.code == 'mail_reconciliation_pending') {
+            _buckets.replaceMany(session, [
+              result.mailId,
+            ], (mail) => mail.copyWith(reconciliationPending: true));
+          }
+        }
         failures.addAll([
           for (final result in results)
             if (!result.success) result.code ?? 'mail_operation_failed',
@@ -404,18 +465,9 @@ class MailActionsModule {
     }
   }
 
-  /// Mails currently in Trash/Spam go back through bulk `restore` (the only
-  /// action that reverses those two); everything else moves via the bulk
-  /// `move`/`archive` actions. Both branches can run per account when [ids]
-  /// mixes trashed and non-trashed mails across multiple connected accounts.
-  ///
-  /// `restore`'s true target folder is only known once the server responds
-  /// (a restored draft goes back to Drafts, not Inbox — see
-  /// [_fileRestored]), so it cannot share [bulkAndApplyOrQueue]'s generic
-  /// "apply this same local effect online or offline" contract: offline, it
-  /// queues the mutation and files the mail into Inbox as a placeholder;
-  /// [replayQueuedMutations] calls [_fileRestored] once the real answer is
-  /// known, exactly like the immediate-online path below does.
+  /// Server-backed Trash/Spam restores use the recorded server origin. An
+  /// outstanding offline move instead has a persisted local origin, so undo
+  /// reduces to an explicit target and never restores an unchanged source.
   Future<void> moveToFolder(List<String> ids, MailFolder folder) async {
     if (ids.isEmpty) return;
     for (final entry in _ctx.registry.groupByOwner(ids).entries) {
@@ -427,52 +479,62 @@ class MailActionsModule {
       final idsForSession = entry.value;
       final restoring = _buckets.idsInTrashOrSpam(session, idsForSession);
       if (restoring.isNotEmpty) {
-        final snapshots = _buckets.snapshotMailLocations(session, restoring);
-        _buckets.moveMany(session, restoring, MailFolder.inbox);
-        _ctx.notify();
-        List<BulkActionResult>? results;
-        try {
-          results = await session.mailService.bulkAction('restore', restoring);
-        } catch (error) {
-          if (!_ctx.isOfflineFailure(error)) {
-            _buckets.restoreMailLocations(session, snapshots);
-            _ctx.notify();
-            rethrow;
-          }
-          _ctx.markOffline(session);
-          final store = session.flagsStore;
-          if (store != null) {
-            try {
-              for (final id in restoring) {
-                await store.queueMutation(id, 'restore');
-              }
-            } catch (_) {
-              _buckets.restoreMailLocations(session, snapshots);
-              _ctx.notify();
-              rethrow;
-            }
-          }
+        final queued =
+            await session.flagsStore?.readQueuedMutations() ??
+            const <QueuedMutation>[];
+        final byId = {
+          for (final mutation in queued)
+            if (mutationCategoryFor(mutation.operation, mutation.folderId) ==
+                'location')
+              mutation.mailId: mutation,
+        };
+        final groups = <String?, List<String>>{};
+        for (final id in restoring) {
+          final previous = byId[id];
+          final target =
+              previous != null &&
+                  const {
+                    'trash',
+                    'spam',
+                    'archive',
+                    'move',
+                  }.contains(previous.operation)
+              ? previous.originFolderId
+              : null;
+          groups.putIfAbsent(target, () => []).add(id);
         }
-        if (results != null) {
-          final restored = results
-              .where((result) => result.success)
-              .map((result) => result.mailId)
-              .toList();
-          final failedSnapshots = _buckets.selectMailLocations(
-            snapshots,
-            restoring.where((id) => !restored.contains(id)),
+        for (final group in groups.entries) {
+          final targetId = group.key;
+          final targetFolder = targetId == null
+              ? MailFolder.inbox
+              : session.resolveFolder(targetId);
+          final results = await bulkAndApplyOrQueue(
+            session,
+            targetId == null ? 'restore' : 'move',
+            group.value,
+            (affected) {
+              if (targetId == null ||
+                  session.folderTypeById.containsKey(targetId)) {
+                _buckets.moveMany(session, affected, targetFolder);
+              } else {
+                final moved = [
+                  for (final id in affected)
+                    if (session.findLoaded(id) case final mail?)
+                      mail.copyWith(folder: targetFolder),
+                ];
+                _buckets.removeMany(session, affected);
+                session.customFolderEmails
+                    .putIfAbsent(targetId, () => <Email>[])
+                    .insertAll(0, moved);
+              }
+            },
+            folderId: targetId,
           );
-          if (failedSnapshots.isNotEmpty) {
-            _buckets.restoreMailLocations(session, failedSnapshots);
-            _ctx.notify();
-          }
-          final store = session.flagsStore;
-          if (store != null) {
-            for (final id in restored) {
-              await store.clearQueuedMutation(id, 'location');
-            }
-          }
-          await _fileRestored(session, restored);
+          final restored = [
+            for (final result in results)
+              if (result.success) result.mailId,
+          ];
+          if (targetId == null) await _fileRestored(session, restored);
           throwForFailedBulkResults([results]);
         }
       }
@@ -497,9 +559,8 @@ class MailActionsModule {
   /// from, which only the server tracks — the target a caller passes to
   /// [moveToFolder] says nothing about where it went (a restored draft goes
   /// back to Drafts, not Inbox). Asks the server where each mail landed and
-  /// files it there; a mail whose folder can't be determined, or that went
-  /// to a folder this client doesn't track, only leaves Trash/Spam locally
-  /// and shows up again on that folder's next load.
+  /// files it there, retaining raw custom folder ids instead of displaying an
+  /// untracked restored message in Inbox.
   Future<void> _fileRestored(AccountSession session, List<String> ids) async {
     if (ids.isEmpty) return;
     final details = await Future.wait(
@@ -513,19 +574,22 @@ class MailActionsModule {
               return session.resolveFolder(folderId);
             },
           );
-          final tracked = session.folderTypeById.containsKey(landedFolderId);
-          return tracked ? detail : null;
+          return (detail, landedFolderId);
         } catch (_) {
           return null;
         }
       }),
     );
-    for (final detail in details) {
-      if (detail == null) continue;
+    for (final resolved in details) {
+      if (resolved == null) continue;
+      final (detail, rawFolderId) = resolved;
       _buckets.removeMany(session, [detail.id]);
-      session.emails
-          .putIfAbsent(detail.folder, () => <Email>[])
-          .insert(0, session.stampLocalFlags(detail));
+      final list =
+          rawFolderId != null &&
+              !session.folderTypeById.containsKey(rawFolderId)
+          ? session.customFolderEmails.putIfAbsent(rawFolderId, () => <Email>[])
+          : session.emails.putIfAbsent(detail.folder, () => <Email>[]);
+      list.insert(0, session.stampLocalFlags(detail));
     }
     _ctx.notify();
   }

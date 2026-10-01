@@ -12,6 +12,7 @@ import 'app_settings_controller.dart';
 import '../repositories/mail_repository.dart';
 import '../services/api_exception.dart';
 import '../utils/error_messages.dart';
+import '../utils/legacy_reply_source.dart';
 import 'outbox_store.dart';
 import '../l10n/l10n.dart';
 
@@ -101,7 +102,7 @@ class PendingSend {
     'from': from,
     'fromAccountId': fromAccountId,
     'threadId': threadId,
-    'inReplyToId': inReplyToId,
+    'replySourceMailId': inReplyToId,
     'identityId': identityId,
     'requestReadReceipt': requestReadReceipt,
     'draftId': draftId,
@@ -137,7 +138,12 @@ class PendingSend {
     from: json['from'] as String?,
     fromAccountId: json['fromAccountId'] as String?,
     threadId: json['threadId'] as String?,
-    inReplyToId: json['inReplyToId'] as String?,
+    inReplyToId: json.containsKey('replySourceMailId')
+        ? json['replySourceMailId'] as String?
+        : migrateLegacyReplySource(
+            json['inReplyToId'] as String?,
+            draftId: json['draftId'] as String?,
+          ),
     identityId: json['identityId'] as String?,
     requestReadReceipt: json['requestReadReceipt'] as bool? ?? false,
     draftId: json['draftId'] as String?,

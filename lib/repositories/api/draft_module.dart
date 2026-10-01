@@ -23,6 +23,7 @@ class DraftModule {
   final Set<String> _blockedDraftIds = {};
   final Set<String> _reportedDraftIds = {};
 
+  final Set<String> _deletingDraftIds = {};
   Stream<Email> get draftSyncFailures => _draftSyncFailureController.stream;
 
   void detachDraftSyncFailureHandler(String draftId) {
@@ -60,8 +61,15 @@ class DraftModule {
       for (final local in cache.loadDraftQueue(session.account.id)) {
         if (_blockedDraftIds.contains(local.id)) continue;
         try {
-          final saved = await _serializeDraftWrite(
-            () => _writeDraft(
+          await _serializeDraftWrite(() async {
+            // A queued snapshot may have been edited/deleted while another
+            // write was running. Only send the version still in the queue.
+            if (!cache.queuedDraftMatches(session.account.id, local)) {
+              scheduleSync();
+              return;
+            }
+            final resolvedId = await _serverDraftId(local.id);
+            final saved = await _writeDraft(
               to: local.recipients,
               cc: local.cc,
               bcc: local.bcc,
@@ -74,35 +82,70 @@ class DraftModule {
               threadId: local.threadId,
               inReplyToId: local.inReplyToId,
               identityId: local.headers['draftIdentityId'],
-              draftId: local.id.startsWith('local-draft-') ? null : local.id,
-            ),
-          );
-          final latest = session.emails[MailFolder.drafts]?.firstWhere(
-            (e) => e.id == local.id,
-            orElse: () => local,
-          );
-          if (latest != null &&
-              !cache.queuedDraftMatches(session.account.id, latest)) {
+              draftId: resolvedId.startsWith('local-draft-')
+                  ? null
+                  : resolvedId,
+            );
+            if (saved.id != local.id) _draftIdSuccessor[local.id] = saved.id;
+            final latest = cache
+                .loadDraftQueue(session.account.id)
+                .where((e) => e.id == local.id)
+                .firstOrNull;
+            final changed = !cache.queuedDraftMatches(
+              session.account.id,
+              local,
+            );
+            final displayed = changed && latest != null
+                ? saved.copyWith(
+                    senderName: latest.senderName,
+                    senderEmail: latest.senderEmail,
+                    recipients: latest.recipients,
+                    cc: latest.cc,
+                    bcc: latest.bcc,
+                    subject: latest.subject,
+                    bodyText: latest.bodyText,
+                    bodyHtml: latest.bodyHtml,
+                    timestamp: latest.timestamp,
+                    attachments: latest.attachments,
+                    threadId: latest.threadId,
+                    inReplyToId: latest.inReplyToId,
+                    headers: latest.headers,
+                  )
+                : saved;
+            // PUT retires its input id. Even if edited during the request,
+            // the next queued revision must target the replacement.
+            if (!changed || saved.id != local.id) {
+              cache.removeQueuedDraft(session.account.id, local.id);
+            }
+            if (changed && latest != null) {
+              cache.queueDraft(session.account.id, displayed);
+              scheduleSync();
+            }
+            final drafts = session.emails[MailFolder.drafts];
+            drafts?.removeWhere(
+              (e) => e.id == local.id || e.id == resolvedId || e.id == saved.id,
+            );
+            if (!_deletingDraftIds.contains(local.id)) {
+              drafts?.insert(0, displayed);
+            }
+            final callback = _draftFailureCallbacks.remove(local.id);
+            if (changed && callback != null) {
+              _draftFailureCallbacks[saved.id] = callback;
+            }
+            _blockedDraftIds.remove(local.id);
+            _reportedDraftIds.remove(local.id);
+            _ctx.touch();
+            _ctx.notify();
+          });
+        } catch (error) {
+          if (!cache.queuedDraftMatches(session.account.id, local)) {
             scheduleSync();
             continue;
           }
-          final drafts = session.emails[MailFolder.drafts];
-          if (saved.id != local.id) {
-            drafts?.removeWhere((e) => e.id == saved.id);
-          }
-          final index = drafts?.indexWhere((e) => e.id == local.id) ?? -1;
-          if (index >= 0) drafts![index] = saved;
-          if (saved.id != local.id) _draftIdSuccessor[local.id] = saved.id;
-          cache.removeQueuedDraft(session.account.id, local.id);
-          _draftFailureCallbacks.remove(local.id);
-          _blockedDraftIds.remove(local.id);
-          _reportedDraftIds.remove(local.id);
-          _ctx.notify();
-        } catch (error) {
-          final latest = session.findLoaded(local.id);
-          if (latest != null &&
-              !cache.queuedDraftMatches(session.account.id, latest)) {
-            scheduleSync();
+          if (error is ApiException && error.code == 'draft_not_reconciled') {
+            // APPEND is already committed. Wait for its server id rather than
+            // blocking a valid local revision or reporting it as rejected.
+            Future<void>.delayed(const Duration(seconds: 3), scheduleSync);
             continue;
           }
           if (_reportedDraftIds.add(local.id)) {
@@ -178,6 +221,7 @@ class DraftModule {
       candidates.remove(match);
       _draftIdSuccessor[id] = match.id;
       _unresolvedDrafts.remove(id);
+      scheduleSync();
     }
   }
 
@@ -350,18 +394,9 @@ class DraftModule {
       );
       final newId = result.mailId ?? draftId;
       if (newId != draftId) _draftIdSuccessor[draftId] = newId;
-      final drafts = session.emails.putIfAbsent(
-        MailFolder.drafts,
-        () => <Email>[],
-      );
-      final oldIndex = drafts.indexWhere((e) => e.id == draftId);
-      final previous = oldIndex >= 0 ? drafts[oldIndex] : null;
       final updated = Email(
         id: newId,
-        senderName:
-            session.account.displayName ??
-            previous?.senderName ??
-            session.account.email,
+        senderName: session.account.displayName ?? session.account.email,
         senderEmail: from ?? session.account.email,
         recipients: to,
         cc: cc,
@@ -375,30 +410,17 @@ class DraftModule {
         attachments: attachments,
         accountId: session.account.id,
         threadId: (threadId == null || threadId.isEmpty)
-            ? (previous?.threadId.isNotEmpty == true
-                  ? previous!.threadId
-                  : 't-$newId')
+            ? 't-$newId'
             : threadId,
-        inReplyToId: inReplyToId ?? previous?.inReplyToId,
+        inReplyToId: inReplyToId,
       );
       if (result.mailId == null) {
-        // Reconciliation pending: the server stored the new copy and already
-        // retired the old one, but can't name the new id yet. Drop the stale
-        // row and pick the real one up once the Drafts sync lands.
-        final baseline = drafts.map((e) => e.id).toSet();
-        if (oldIndex >= 0) drafts.removeAt(oldIndex);
-        _ctx.touch();
-        _ctx.notify();
-        _trackUnresolvedDraft(session, updated, baseline);
-        return updated;
+        _trackUnresolvedDraft(
+          session,
+          updated,
+          session.emails[MailFolder.drafts]?.map((e) => e.id).toSet() ?? {},
+        );
       }
-      _ctx.touch();
-      if (oldIndex >= 0) {
-        drafts[oldIndex] = updated;
-      } else {
-        drafts.insert(0, updated);
-      }
-      _ctx.notify();
       return updated;
     }
     final result = await session.mailService.createDraft(
@@ -435,7 +457,6 @@ class DraftModule {
       threadId: (threadId == null || threadId.isEmpty) ? 't-$id' : threadId,
       inReplyToId: inReplyToId,
     );
-    _ctx.touch();
     final drafts = session.emails.putIfAbsent(
       MailFolder.drafts,
       () => <Email>[],
@@ -443,51 +464,53 @@ class DraftModule {
     if (result.mailId == null) {
       _trackUnresolvedDraft(session, email, drafts.map((e) => e.id).toSet());
     }
-    drafts.insert(0, email);
-    _ctx.notify();
     return email;
   }
 
   Future<void> deleteDraft(String draftId) {
+    final initialId = _latestDraftId(draftId);
     final initialSession =
-        _ctx.registry.owning(draftId) ?? _ctx.registry.primary;
-    if (draftId.startsWith('local-draft-')) {
-      _ctx.cache?.removeQueuedDraft(initialSession.account.id, draftId);
-      _draftFailureCallbacks.remove(draftId);
-      _blockedDraftIds.remove(draftId);
-      _reportedDraftIds.remove(draftId);
-      _ctx.removeMany(initialSession, [draftId]);
-      _ctx.notify();
-      return Future.value();
-    }
+        _ctx.registry.owning(initialId) ?? _ctx.registry.primary;
     final initialSnapshot = _ctx.snapshotMailLocations(initialSession, [
-      draftId,
+      initialId,
     ]);
-    _ctx.removeMany(initialSession, [draftId]);
+    _deletingDraftIds.add(initialId);
+    _ctx.removeMany(initialSession, [initialId]);
     _ctx.notify();
     return _serializeDraftWrite(() async {
-      final String id;
+      var id = initialId;
+      var session = initialSession;
+      var snapshot = initialSnapshot;
       try {
+        // A create/update already in flight may have replaced the id while
+        // deletion waited. Resolve it before choosing local vs remote delete.
         id = await _serverDraftId(draftId);
-      } catch (_) {
-        _ctx.restoreMailLocations(initialSession, initialSnapshot);
+        session = _ctx.registry.owning(id) ?? initialSession;
+        if (id != initialId) {
+          final replacementSnapshot = _ctx.snapshotMailLocations(session, [id]);
+          if (replacementSnapshot.isNotEmpty) snapshot = replacementSnapshot;
+          _ctx.removeMany(session, [id]);
+          _ctx.notify();
+        }
+        if (!id.startsWith('local-draft-')) {
+          await session.mailService.deleteDraft(id);
+        }
+        for (final removedId in {draftId, initialId, id}) {
+          _ctx.cache?.removeQueuedDraft(session.account.id, removedId);
+          _draftFailureCallbacks.remove(removedId);
+          _blockedDraftIds.remove(removedId);
+          _reportedDraftIds.remove(removedId);
+          _unresolvedDrafts.remove(removedId);
+        }
+        _ctx.removeMany(session, {draftId, initialId, id});
+        _ctx.touch();
         _ctx.notify();
-        rethrow;
-      }
-      final session = _ctx.registry.owning(id) ?? initialSession;
-      final snapshot = id == draftId
-          ? initialSnapshot
-          : _ctx.snapshotMailLocations(session, [id]);
-      if (id != draftId) {
-        _ctx.removeMany(session, [id]);
-        _ctx.notify();
-      }
-      try {
-        await session.mailService.deleteDraft(id);
       } catch (_) {
         _ctx.restoreMailLocations(session, snapshot);
         _ctx.notify();
         rethrow;
+      } finally {
+        _deletingDraftIds.remove(initialId);
       }
     });
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/config/app_config.dart';
@@ -8,8 +10,16 @@ import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/models/mail_custom_folder.dart';
 import 'package:kaydetmail/models/mail_label.dart';
 import 'package:kaydetmail/models/remote_search_result.dart';
+import 'package:kaydetmail/models/search_page.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/screens/search_screen.dart';
+
+Finder get _resultScroller => find.descendant(
+  of: find.byWidgetPredicate(
+    (widget) => widget is ListView && widget.scrollDirection == Axis.vertical,
+  ),
+  matching: find.byType(Scrollable),
+);
 
 class _Call {
   _Call({
@@ -21,6 +31,7 @@ class _Call {
     required this.labelId,
     this.flagged,
     this.hasAttachment,
+    this.continuation,
   });
 
   final String query;
@@ -31,6 +42,7 @@ class _Call {
   final String? labelId;
   final bool? flagged;
   final bool? hasAttachment;
+  final SearchContinuation? continuation;
 }
 
 class _FakeRepo extends MailRepository {
@@ -43,6 +55,28 @@ class _FakeRepo extends MailRepository {
   int remoteCalls = 0;
   String? remoteAccountId;
   List<RemoteSearchResult> remoteRounds = const [];
+  Future<SearchPage> Function(SearchContinuation?)? response;
+
+  SearchPage pageFor(SearchContinuation? continuation, {int pageSize = 20}) {
+    final start = continuation?.accounts['fake']?.consumed ?? 0;
+    final items = nextResult.skip(start).take(pageSize).toList();
+    return SearchPage(
+      items: items,
+      continuation: SearchContinuation(
+        scope: const [],
+        accounts: {
+          'fake': SearchAccountCursor(
+            buffered: const [],
+            nextPage: 1,
+            total: nextResult.length,
+            consumed: start + items.length,
+            remoteHasMore: start + items.length < nextResult.length,
+            offline: false,
+          ),
+        },
+      ),
+    );
+  }
 
   @override
   List<Email> getAllEmails() => nextResult;
@@ -105,7 +139,7 @@ class _FakeRepo extends MailRepository {
   List<MailLabel> getLabelsForAccount(String accountId) => const [];
 
   @override
-  Future<List<Email>> searchEmailsOnServer({
+  Future<SearchPage> searchEmailsOnServer({
     required String query,
     String? accountId,
     MailFolder? folder,
@@ -119,7 +153,7 @@ class _FakeRepo extends MailRepository {
     bool? flagged,
     bool? hasAttachment,
     String? labelId,
-    int page = 1,
+    SearchContinuation? continuation,
     int pageSize = 20,
   }) async {
     calls.add(
@@ -132,9 +166,12 @@ class _FakeRepo extends MailRepository {
         labelId: labelId,
         flagged: flagged,
         hasAttachment: hasAttachment,
+        continuation: continuation,
       ),
     );
-    return nextResult;
+    return response == null
+        ? pageFor(continuation, pageSize: pageSize)
+        : await response!(continuation);
   }
 
   @override
@@ -160,6 +197,20 @@ Future<void> _pumpSearch(WidgetTester tester, _FakeRepo repo) async {
   await tester.pumpWidget(const MaterialApp(home: SearchScreen()));
   await tester.pumpAndSettle();
 }
+
+List<Email> _messages(int count) => [
+  for (var i = 0; i < count; i++)
+    Email(
+      id: 'mail-$i',
+      accountId: 'a1',
+      senderName: 'Sender',
+      senderEmail: 'sender@example.com',
+      recipients: const ['a@example.com'],
+      subject: 'Mail $i',
+      bodyText: '',
+      timestamp: DateTime.utc(2026, 9, 1).subtract(Duration(minutes: i)),
+    ),
+];
 
 void main() {
   setUp(() {
@@ -474,4 +525,126 @@ void main() {
     await tester.pumpAndSettle();
     expect(repo.remoteAccountId, 'a2');
   });
+  testWidgets(
+    'load more reaches results after the first twenty without losing metadata',
+    (tester) async {
+      final repo = _FakeRepo(const [
+        MailAccount(id: 'a1', email: 'a@example.com'),
+      ])..nextResult = _messages(45);
+      await _pumpSearch(tester, repo);
+      await tester.enterText(find.byType(TextField).first, 'mail');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      expect(find.text('45 sonucun 20 tanesi'), findsOneWidget);
+      for (final shown in [40, 45]) {
+        await tester.scrollUntilVisible(
+          find.byKey(const Key('search-load-more')),
+          300,
+          scrollable: _resultScroller,
+        );
+        await tester.tap(find.byKey(const Key('search-load-more')));
+        await tester.pumpAndSettle();
+        expect(find.text('45 sonucun $shown tanesi'), findsOneWidget);
+      }
+      await tester.scrollUntilVisible(
+        find.byKey(const ValueKey('a1:mail-44')),
+        300,
+        scrollable: _resultScroller,
+      );
+      expect(find.byKey(const ValueKey('a1:mail-44')), findsOneWidget);
+      expect(find.byKey(const Key('search-load-more')), findsNothing);
+    },
+  );
+
+  testWidgets(
+    'load-more failure retains results and retries the same checkpoint',
+    (tester) async {
+      final repo = _FakeRepo(const [
+        MailAccount(id: 'a1', email: 'a@example.com'),
+      ])..nextResult = _messages(25);
+      await _pumpSearch(tester, repo);
+      await tester.enterText(find.byType(TextField).first, 'mail');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      repo.response = (_) async {
+        repo.response = null;
+        throw StateError('load failed');
+      };
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('search-load-more')),
+        300,
+        scrollable: _resultScroller,
+      );
+      await tester.tap(find.byKey(const Key('search-load-more')));
+      await tester.pumpAndSettle();
+      expect(find.text('25 sonucun 20 tanesi'), findsOneWidget);
+      expect(find.text('Yeniden dene'), findsOneWidget);
+      final failedCursor = repo.calls.last.continuation;
+      await tester.tap(find.byKey(const Key('search-load-more')));
+      await tester.pumpAndSettle();
+      expect(repo.calls.last.continuation, same(failedCursor));
+      expect(find.text('25 sonucun 25 tanesi'), findsOneWidget);
+    },
+  );
+
+  testWidgets('changing a filter cancels an in-flight load-more result', (
+    tester,
+  ) async {
+    final repo = _FakeRepo(const [
+      MailAccount(id: 'a1', email: 'a@example.com'),
+    ])..nextResult = _messages(25);
+    await _pumpSearch(tester, repo);
+    await tester.enterText(find.byType(TextField).first, 'mail');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    final pending = Completer<SearchPage>();
+    repo.response = (_) => pending.future;
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('search-load-more')),
+      300,
+      scrollable: _resultScroller,
+    );
+    await tester.tap(find.byKey(const Key('search-load-more')));
+    await tester.pump();
+    final stalePage = repo.pageFor(repo.calls.last.continuation);
+    repo.response = null;
+    repo.nextResult = [
+      _messages(1).single.copyWith(subject: 'Filtered result'),
+    ];
+    await tester.tap(find.text('Fatura'));
+    await tester.pumpAndSettle();
+    pending.complete(stalePage);
+    await tester.pumpAndSettle();
+    expect(find.text('Filtered result'), findsOneWidget);
+    expect(find.text('1 sonucun 1 tanesi'), findsOneWidget);
+    expect(find.byKey(const Key('search-load-more')), findsNothing);
+    expect(repo.calls.last.labelId, 'lbl-1');
+    expect(repo.calls.last.continuation, isNull);
+  });
+  testWidgets(
+    'remote import invalidates a paginated checkpoint and revalidates the result total',
+    (tester) async {
+      final repo = _FakeRepo(const [
+        MailAccount(id: 'a1', email: 'a@example.com'),
+      ])..nextResult = _messages(25);
+      await _pumpSearch(tester, repo);
+      await tester.enterText(find.byType(TextField).first, 'mail');
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+      await tester.scrollUntilVisible(
+        find.byKey(const Key('search-load-more')),
+        300,
+        scrollable: _resultScroller,
+      );
+      await tester.tap(find.byKey(const Key('search-load-more')));
+      await tester.pumpAndSettle();
+      expect(find.text('25 sonucun 25 tanesi'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('search-remote')));
+      await tester.pumpAndSettle();
+      expect(repo.calls.last.continuation, isNull);
+      expect(find.text('1 sonucun 1 tanesi'), findsOneWidget);
+      expect(find.text('Sunucudan gelen'), findsOneWidget);
+      expect(find.byKey(const Key('search-load-more')), findsNothing);
+    },
+  );
 }

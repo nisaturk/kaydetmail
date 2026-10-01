@@ -118,7 +118,9 @@ void main() {
       expect(email.isStarred, isTrue);
       expect(email.folder, MailFolder.inbox);
       expect(email.threadId, 'conv-7');
-      expect(email.inReplyToId, '<parent@mail.example.com>');
+      // The MIME In-Reply-To header is not an API mail id; only the
+      // server-provided replySourceMailId may be used as a reply source.
+      expect(email.inReplyToId, isNull);
       expect(email.hasRemoteContent, isTrue);
       expect(email.remoteImageHosts, ['images.example.com']);
       expect(email.trackingPixelHosts, ['track.example.com']);

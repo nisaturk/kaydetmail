@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +14,7 @@ import 'package:kaydetmail/services/api_client.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/mail_cache.dart';
+import 'package:kaydetmail/services/local_mail_flags_store.dart';
 import 'package:kaydetmail/services/token_store.dart';
 import 'package:kaydetmail/services/api_exception.dart';
 
@@ -22,6 +24,52 @@ void main() {
   setUp(() => SharedPreferences.setMockInitialValues({}));
 
   group('offline restore', () {
+    test('concurrent reconnect refreshes replay once and never reinstall the pre-move source page', () async {
+      final cache = MailCache.inMemory();
+      cache.apply('account-1', [
+        _mail('mail-1', 'trash'),
+        _mail('mail-2', 'inbox'),
+      ], const []);
+      cache.saveFolders('account-1', {
+        'folder-inbox': 'inbox',
+        'folder-trash': 'trash',
+      });
+      final flags = LocalMailFlagsStore('account-1', cache);
+      await flags.queueMutation(
+        'mail-1',
+        'trash',
+        originFolderId: 'folder-inbox',
+      );
+      final service = _ReplayRemovesMailService(
+        online: false,
+        folders: [
+          _folder('folder-inbox', 'Inbox'),
+          _folder('folder-trash', 'Trash'),
+        ],
+        pagesByFolderId: {
+          'folder-inbox': _page([_mailJson('mail-1'), _mailJson('mail-2')]),
+        },
+      );
+      final repo = await _restoredRepository(service, cache: cache);
+      service.online = true;
+      final refreshes = Future.wait([
+        repo.refreshEmails(MailFolder.inbox),
+        repo.refreshEmails(MailFolder.inbox),
+      ]);
+      await service.replayStarted.future;
+      service.resumeReplay.complete();
+      await refreshes;
+
+      expect(service.replayCalls, 1);
+      expect(repo.getEmailsInFolder(MailFolder.inbox).map((mail) => mail.id), [
+        'mail-2',
+      ]);
+      expect(repo.getEmailsInFolder(MailFolder.trash).map((mail) => mail.id), [
+        'mail-1',
+      ]);
+      expect(await flags.readQueuedMutations(), isEmpty);
+    });
+
     test('restoreSession falls back to the on-device cache when the backend is unreachable', () async {
       final db = MailCache.inMemory();
       // A previous, successful launch left its mailbox and folder map on
@@ -270,6 +318,40 @@ class _ToggleableMailService extends ApiMailService {
     if (!online) throw const SocketException('Network unreachable');
     return pagesByFolderId[folderId] ??
         MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
+  }
+}
+
+class _ReplayRemovesMailService extends _ToggleableMailService {
+  _ReplayRemovesMailService({
+    required super.online,
+    required super.folders,
+    required super.pagesByFolderId,
+  });
+
+  final replayStarted = Completer<void>();
+  final resumeReplay = Completer<void>();
+  int replayCalls = 0;
+
+  @override
+  Future<List<BulkActionResult>> bulkAction(
+    String action,
+    List<String> mailIds, {
+    String? folderId,
+  }) async {
+    if (!online) throw const SocketException('Network unreachable');
+    replayCalls++;
+    if (!replayStarted.isCompleted) replayStarted.complete();
+    await resumeReplay.future;
+    final source = pagesByFolderId['folder-inbox']!;
+    pagesByFolderId['folder-inbox'] = MailListPage(
+      items: source.items.where((mail) => !mailIds.contains(mail.id)).toList(),
+      page: 1,
+      pageSize: source.pageSize,
+      total: source.total - mailIds.length,
+    );
+    return [
+      for (final id in mailIds) BulkActionResult(mailId: id, success: true),
+    ];
   }
 }
 

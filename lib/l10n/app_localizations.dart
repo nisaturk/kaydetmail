@@ -98,6 +98,18 @@ abstract class AppLocalizations {
     Locale('tr'),
   ];
 
+  /// No description provided for @mailReconciliationPending.
+  ///
+  /// In tr, this message translates to:
+  /// **'Taşıma sunucuda tamamlandı; klasör eşitlemesi bekleniyor.'**
+  String get mailReconciliationPending;
+
+  /// No description provided for @mailReconciliationRetry.
+  ///
+  /// In tr, this message translates to:
+  /// **'İleti hedef klasöre eşitleniyor. Biraz sonra tekrar deneyin.'**
+  String get mailReconciliationRetry;
+
   /// No description provided for @pressBackAgainToExit.
   ///
   /// In tr, this message translates to:
@@ -253,6 +265,12 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Giden Kutusu'**
   String get outbox;
+
+  /// No description provided for @pendingEmails.
+  ///
+  /// In tr, this message translates to:
+  /// **'Bekleyen Mailler'**
+  String get pendingEmails;
 
   /// No description provided for @starred.
   ///
@@ -2213,6 +2231,24 @@ abstract class AppLocalizations {
   /// In tr, this message translates to:
   /// **'Yeniden dene'**
   String get retry;
+
+  /// No description provided for @loadMoreResults.
+  ///
+  /// In tr, this message translates to:
+  /// **'Daha fazla sonuç yükle'**
+  String get loadMoreResults;
+
+  /// No description provided for @searchResultCount.
+  ///
+  /// In tr, this message translates to:
+  /// **'{total} sonucun {shown} tanesi'**
+  String searchResultCount(int shown, int total);
+
+  /// No description provided for @offlineSearchResults.
+  ///
+  /// In tr, this message translates to:
+  /// **'Çevrimdışı hesaplarda yalnızca bu cihazdaki eşleşmeler gösterilir.'**
+  String get offlineSearchResults;
 
   /// No description provided for @cancelSend2.
   ///

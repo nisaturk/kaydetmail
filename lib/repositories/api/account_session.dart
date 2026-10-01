@@ -35,6 +35,9 @@ class AccountSession {
   /// See [ApiMailRepository.offlineMutationConflicts].
   final Set<String> mutationConflicts = {};
 
+  /// Folder refresh fan-out shares one replay per account.
+  Future<void>? mutationReplay;
+
   final Map<MailFolder, String> folderIds = {};
   final Map<String, MailFolder> folderTypeById = {};
   final Map<MailFolder, List<Email>> emails = {};

@@ -12,6 +12,7 @@ import 'package:kaydetmail/models/mail_signature.dart';
 import 'package:kaydetmail/models/mail_template.dart';
 import 'package:kaydetmail/models/manual_contact.dart';
 import 'package:kaydetmail/models/scheduled_send.dart';
+import 'package:kaydetmail/models/search_page.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 
 /// Fully in-memory [MailRepository] with realistic, deliberately awkward
@@ -378,7 +379,7 @@ class DemoMailRepository extends MailRepository {
   Future<void> deleteManualContact(String id) async {}
 
   @override
-  Future<List<Email>> searchEmailsOnServer({
+  Future<SearchPage> searchEmailsOnServer({
     required String query,
     String? accountId,
     MailFolder? folder,
@@ -392,9 +393,12 @@ class DemoMailRepository extends MailRepository {
     bool? flagged,
     bool? hasAttachment,
     String? labelId,
-    int page = 1,
+    SearchContinuation? continuation,
     int pageSize = 20,
-  }) async => const [];
+  }) async => SearchPage(
+    items: const [],
+    continuation: SearchContinuation(scope: const [], accounts: const {}),
+  );
 
   @override
   Future<void> setSnoozed(List<String> ids, DateTime? until) async {}

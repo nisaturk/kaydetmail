@@ -12,6 +12,7 @@ import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/mail_cache.dart';
+import 'package:kaydetmail/services/local_mail_flags_store.dart';
 import 'package:kaydetmail/services/token_store.dart';
 
 void main() {
@@ -139,6 +140,107 @@ void main() {
     expect(mailService.bulkActionCalls, ['trash:mail-1']);
   });
 
+  test('offline trash then undo after restart replays the net origin move, not an illegal restore', () async {
+    final cache = MailCache.inMemory();
+    final firstService = _RecordingMailService();
+    final first = await _repositoryWithLoadedInbox(firstService, cache: cache);
+    firstService.failBulkAction = true;
+    await first.moveToTrash(['mail-1']);
+    cache.apply('account-1', first.getEmailsInFolder(MailFolder.trash), []);
+
+    final restartedService = _RecordingMailService()
+      ..failBulkAction = true
+      ..failGetMails = true;
+    final restarted = await _repositoryWithLoadedInbox(
+      restartedService,
+      cache: cache,
+      loadInbox: false,
+    );
+    expect(restarted.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+
+    await restarted.moveToFolder(['mail-1'], MailFolder.inbox);
+
+    expect(restarted.getEmailsInFolder(MailFolder.trash), isEmpty);
+    expect(restarted.getEmailsInFolder(MailFolder.inbox).single.id, 'mail-1');
+    final queued = (await LocalMailFlagsStore(
+      'account-1',
+      cache,
+    ).readQueuedMutations()).single;
+    expect(queued.operation, 'move');
+    expect(queued.folderId, 'folder-inbox');
+    restartedService
+      ..failBulkAction = false
+      ..failGetMails = false;
+    restartedService.bulkActionCalls.clear();
+    await restarted.refreshEmails(MailFolder.inbox);
+
+    expect(restartedService.bulkActionCalls, ['move:mail-1']);
+    expect(await restarted.queuedOfflineMutationCount('account-1'), 0);
+    expect(restarted.offlineMutationConflicts, isEmpty);
+  });
+
+  for (final code in [
+    'mail_operation_not_supported',
+    'mail_folder_not_found',
+  ]) {
+    test(
+      'terminal $code leaves the replay queue and surfaces a conflict',
+      () async {
+        final service = _RecordingMailService();
+        final repo = await _repositoryWithLoadedInbox(
+          service,
+          cache: MailCache.inMemory(),
+        );
+        service.failBulkAction = true;
+        await repo.moveToTrash(['mail-1']);
+        service
+          ..failBulkAction = false
+          ..forcedResultCodes['mail-1'] = code;
+
+        await repo.refreshEmails(MailFolder.inbox);
+
+        expect(await repo.queuedOfflineMutationCount('account-1'), 0);
+        expect(repo.offlineMutationConflicts, ['mail-1']);
+        expect(
+          repo
+              .getEmailsInFolder(MailFolder.trash)
+              .where((mail) => mail.id == 'mail-1'),
+          isEmpty,
+        );
+        service.bulkActionCalls.clear();
+        await repo.refreshEmails(MailFolder.inbox);
+        expect(service.bulkActionCalls, isEmpty);
+      },
+    );
+  }
+
+  for (final code in [
+    'mail_provider_unavailable',
+    'mail_account_needs_reauthentication',
+    'mail_reconciliation_pending',
+  ]) {
+    test(
+      '$code remains queued without becoming a permanent conflict',
+      () async {
+        final service = _RecordingMailService();
+        final repo = await _repositoryWithLoadedInbox(
+          service,
+          cache: MailCache.inMemory(),
+        );
+        service.failBulkAction = true;
+        await repo.moveToTrash(['mail-1']);
+        service
+          ..failBulkAction = false
+          ..forcedResultCodes['mail-1'] = code;
+
+        await repo.refreshEmails(MailFolder.inbox);
+
+        expect(await repo.queuedOfflineMutationCount('account-1'), 1);
+        expect(repo.offlineMutationConflicts, isEmpty);
+      },
+    );
+  }
+
   test(
     'restore offline files the mail into Inbox as a placeholder, then '
     'corrects it to its real origin folder once the replay succeeds',
@@ -168,7 +270,6 @@ void main() {
       expect(repo.getEmailsInFolder(MailFolder.archive).single.id, 'mail-t');
     },
   );
-
 
   test('a non-read operation replay conflict drops the queued mutation and '
       'surfaces it, same as read/unread', () async {
@@ -287,6 +388,7 @@ void main() {
 Future<ApiMailRepository> _repositoryWithLoadedInbox(
   _RecordingMailService mailService, {
   required MailCache cache,
+  bool loadInbox = true,
 }) async {
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
@@ -308,7 +410,7 @@ Future<ApiMailRepository> _repositoryWithLoadedInbox(
     openCache: () async => cache,
   );
   await repo.restoreSession('person@example.com');
-  await repo.loadMoreEmails(MailFolder.inbox);
+  if (loadInbox) await repo.loadMoreEmails(MailFolder.inbox);
   return repo;
 }
 
@@ -319,6 +421,7 @@ class _RecordingMailService extends ApiMailService {
   bool failBulkAction = false;
 
   bool failGetMail = false;
+  bool failGetMails = false;
   final List<String> bulkActionCalls = [];
   final Map<String, String> forcedResultCodes = {};
 
@@ -359,6 +462,9 @@ class _RecordingMailService extends ApiMailService {
     bool? hasAttachments,
     String? search,
   }) async {
+    if (failGetMails) {
+      throw const ApiException(status: 0, code: 'network_unavailable');
+    }
     final item = folderId == 'folder-trash'
         ? Email(
             id: 'mail-t',

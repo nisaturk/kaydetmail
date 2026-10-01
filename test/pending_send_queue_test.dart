@@ -87,6 +87,40 @@ class _FakeMailRepository extends MailRepository {
 }
 
 void main() {
+  test('legacy queued reply draft restores a valid source without losing its send snapshot', () {
+    const draftId = '00000000-0000-4000-8000-000000000002';
+    final legacy =
+        PendingSend(
+            id: 'queued-reply',
+            idempotencyKey: 'keep-delivery-key',
+            to: const ['friend@example.test'],
+            subject: 'Re: Original',
+            body: 'Edited reply',
+            draftId: draftId,
+            attachments: [
+              Attachment(
+                name: 'note.txt',
+                sizeBytes: 3,
+                bytes: Uint8List.fromList([1, 2, 3]),
+              ),
+            ],
+          ).toJson()
+          ..remove('replySourceMailId')
+          ..['inReplyToId'] = '<original@example.test>';
+
+    final restored = PendingSend.fromJson(legacy);
+    expect(restored.inReplyToId, draftId);
+    expect(restored.idempotencyKey, 'keep-delivery-key');
+    expect(restored.body, 'Edited reply');
+    expect(restored.attachments.single.bytes, [1, 2, 3]);
+    expect(PendingSend.fromJson(restored.toJson()).inReplyToId, draftId);
+
+    legacy['draftId'] = null;
+    expect(PendingSend.fromJson(legacy).inReplyToId, isNull);
+    legacy['inReplyToId'] = draftId;
+    expect(PendingSend.fromJson(legacy).inReplyToId, draftId);
+  });
+
   setUp(() {
     SharedPreferences.setMockInitialValues({});
     AppSettingsController.resetForTest();

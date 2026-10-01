@@ -6,7 +6,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 import 'package:kaydetmail/models/mail_custom_folder.dart';
-import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
 import 'package:kaydetmail/repositories/mail_repository.dart';
 import 'package:kaydetmail/config/app_config.dart';
@@ -876,7 +875,7 @@ class _RoutingFolderService extends ApiMailService {
   Future<List<Map<String, dynamic>>> getContacts() async => const [];
 
   @override
-  Future<List<Email>> search({
+  Future<MailListPage> search({
     required String query,
     required MailFolder Function(String folderId) resolveFolder,
     String? folderId,
@@ -891,7 +890,8 @@ class _RoutingFolderService extends ApiMailService {
     String? labelId,
     int page = 1,
     int pageSize = 20,
-  }) async => const [];
+  }) async =>
+      MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
 
   @override
   Future<ApiMailFolder> createFolder(String name, {String? parentId}) async {
