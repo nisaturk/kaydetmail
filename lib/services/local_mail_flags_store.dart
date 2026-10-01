@@ -12,6 +12,7 @@ class QueuedMutation {
     required this.mailId,
     required this.operation,
     this.folderId,
+    this.originFolderId,
     required this.queuedAtMs,
   });
 
@@ -28,6 +29,10 @@ class QueuedMutation {
   /// `label_add`/`label_remove`, the UTC deadline (ISO-8601) for `snooze`,
   /// the JSON `{email, displayName}` for `contact_create`/`contact_update`.
   final String? folderId;
+
+  /// The location before the queued move, used to turn an offline undo into
+  /// an explicit move rather than restore against an unchanged server folder.
+  final String? originFolderId;
   final int queuedAtMs;
 }
 
@@ -40,7 +45,12 @@ String mutationCategoryFor(String operation, [String? argument]) =>
     switch (operation) {
       'read' || 'unread' => 'read_state',
       'star' || 'unstar' => 'star_state',
-      'archive' || 'trash' || 'restore' || 'move' => 'location',
+      'archive' ||
+      'trash' ||
+      'restore' ||
+      'move' ||
+      'spam' ||
+      'not-spam' => 'location',
       'pin' || 'unpin' => 'pin_state',
       'snooze' || 'unsnooze' => 'snooze_state',
       'label_add' || 'label_remove' => 'label:$argument',
@@ -221,17 +231,43 @@ class LocalMailFlagsStore {
     String mailId,
     String operation, {
     String? folderId,
+    String? originFolderId,
   }) async => _tx(() {
+    final category = mutationCategoryFor(operation, folderId);
+    final previous = _db.select(
+      'SELECT operation, origin_folder_id FROM offline_mutations '
+      'WHERE account_id = ? AND mail_id = ? AND category = ?',
+      [_accountId, mailId, category],
+    ).firstOrNull;
+    if (category == 'location' &&
+        previous != null &&
+        previous['operation'] == operation &&
+        previous['origin_folder_id'] != null) {
+      originFolderId = previous['origin_folder_id'] as String;
+    }
+    if (operation == 'restore' &&
+        previous != null &&
+        previous['origin_folder_id'] != null &&
+        const {
+          'trash',
+          'spam',
+          'archive',
+          'move',
+        }.contains(previous['operation'])) {
+      operation = 'move';
+      folderId = previous['origin_folder_id'] as String;
+    }
     _db.execute(
       'INSERT OR REPLACE INTO offline_mutations '
-      '(account_id, mail_id, category, operation, folder_id, queued_at_ms) '
-      'VALUES (?, ?, ?, ?, ?, ?)',
+      '(account_id, mail_id, category, operation, folder_id, origin_folder_id, queued_at_ms) '
+      'VALUES (?, ?, ?, ?, ?, ?, ?)',
       [
         _accountId,
         mailId,
-        mutationCategoryFor(operation, folderId),
+        category,
         operation,
         folderId,
+        originFolderId,
         DateTime.now().millisecondsSinceEpoch,
       ],
     );
@@ -240,7 +276,7 @@ class LocalMailFlagsStore {
   /// Every queued mutation, oldest first.
   Future<List<QueuedMutation>> readQueuedMutations() async => [
     for (final r in _db.select(
-      'SELECT mail_id, operation, folder_id, queued_at_ms FROM offline_mutations '
+      'SELECT mail_id, operation, folder_id, origin_folder_id, queued_at_ms FROM offline_mutations '
       'WHERE account_id = ? ORDER BY queued_at_ms',
       [_accountId],
     ))
@@ -248,6 +284,7 @@ class LocalMailFlagsStore {
         mailId: r['mail_id'] as String,
         operation: r['operation'] as String,
         folderId: r['folder_id'] as String?,
+        originFolderId: r['origin_folder_id'] as String?,
         queuedAtMs: r['queued_at_ms'] as int,
       ),
   ];

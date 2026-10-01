@@ -221,6 +221,33 @@ void main() {
     expect(uri.queryParameters['search'], 'fatura');
   });
 
+  test('cached search preserves the corpus total independently of page items', () async {
+    final service = ApiMailService(_client((_) async => http.Response(jsonEncode({
+      'items': [
+        for (var i = 0; i < 20; i++)
+          {
+            'id': 'match-$i',
+            'folderId': 'folder-1',
+            'subject': 'Match $i',
+            'fromAddress': 'sender@example.com',
+            'fromDisplayName': 'Sender',
+            'toAddress': 'person@example.com',
+            'isRead': false,
+            'hasAttachments': false,
+            'receivedAt': '2026-09-17T01:56:58Z',
+          },
+      ],
+      'page': 1,
+      'pageSize': 20,
+      'total': 45,
+    }), 200)));
+    final result = await service.search(query: 'match', resolveFolder: (_) => MailFolder.inbox);
+    expect(result.total, 45);
+    expect(result.page, 1);
+    expect(result.pageSize, 20);
+    expect(result.items.map((mail) => mail.id), [for (var i = 0; i < 20; i++) 'match-$i']);
+  });
+
   test(
     'search sends full filter set with correct hasAttachment name',
     () async {

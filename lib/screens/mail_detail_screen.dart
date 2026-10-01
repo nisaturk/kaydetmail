@@ -268,6 +268,29 @@ class _MailDetailScreenState extends _MailDetailStateBase
                     height: 1.25,
                   ),
                 ),
+                if (email.reconciliationPending)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8),
+                    child: Row(
+                      children: [
+                        Icon(
+                          LucideIcons.refreshCw,
+                          size: 14,
+                          color: colors.secondaryText,
+                        ),
+                        const SizedBox(width: 6),
+                        Expanded(
+                          child: Text(
+                            l10nNow.mailReconciliationPending,
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: colors.secondaryText,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 if (_thread.length > 1)
                   Padding(
                     padding: const EdgeInsets.only(top: 4),

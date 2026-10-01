@@ -1,5 +1,7 @@
 {
   "@@locale": "en",
+  "mailReconciliationPending": "Moved on the server; waiting for folder sync.",
+  "mailReconciliationRetry": "The message is syncing to its destination folder. Try again shortly.",
   "pressBackAgainToExit": "Press back again to exit.",
   "draftSavedLocallyServerSync": "Draft saved locally; server sync failed.",
   "outgoingMessagesAreWaitingFor": "{attention, plural, =1{1 outgoing message is waiting for review in the Outbox.} other{{attention} outgoing messages are waiting for review in the Outbox.}}",
@@ -26,6 +28,7 @@
   "inbox": "Inbox",
   "allMail": "All mail",
   "outbox": "Outbox",
+  "pendingEmails": "Pending Emails",
   "starred": "Starred",
   "snoozed": "Snoozed",
   "drafts": "Drafts",
@@ -351,6 +354,15 @@
   "sendTime": "Send time",
   "addAttachment": "Add attachment",
   "retry": "Retry",
+  "loadMoreResults": "Load more results",
+  "searchResultCount": "{shown} of {total} results",
+  "@searchResultCount": {
+    "placeholders": {
+      "shown": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "offlineSearchResults": "Offline accounts show only matches available on this device.",
   "cancelSend2": "Cancel send",
   "noScheduledSends": "No scheduled sends",
   "scheduleASendWithThe": "While composing, choose “Schedule” from the top-right menu. Scheduled messages appear here.",

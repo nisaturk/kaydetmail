@@ -389,6 +389,8 @@ Hesap kapsamında liste, en yeni önce (`receivedAt`). Query: `folderId`, `isRea
 
 Yalnızca sunucudaki önbellekli maillerde metin + filtreli arama; tüm filtreler opsiyonel ve AND'lenir. Query: `q`, `folderId`, `conversationId`, `from`, `to`, `fromDate`, `toDate` (ISO-8601), `isRead`, `flagged`, `hasAttachment` (dikkat: `/mails`'te `hasAttachments`), `page`, `pageSize`. Yanıt şekli `/mails` ile birebir aynı (`MailListResponse`).
 
+`total`, arama süzgecini sağlayan tüm sunucu önbelleği için toplam eşleşmedir (sayfa boyutundan bağımsız). İstemci `SearchPage` (öğeler + değişmez `SearchContinuation`) kullanır: hesap başına `page`/`total` ve tüketilmemiş satırlar bir kontrol noktasında tutulur, böylece çok hesaplı sonuçlar küresel tarih sırasıyla ve 20 öğeyle sınırlanmadan erişilebilir. Arama ekranında **Daha fazla yükle** düğmesi sonraki sayfayı alır; hata olursa aynı kontrol noktası yeniden denenir. Süzgeç, hesap kapsamı ya da uzak içe aktarma değişince devam bilgisi atılır. Çevrimdışı yedek yalnızca cihazdaki eşleşmeleri ve yerel toplamı gösterir; sunucuya erişimi sonradan yitiren sürmekte olan arama yerel veriyle sessizce değiştirilmez.
+
 - Normal `q`, boşluklarla ayrılan literal terimlerin büyük/küçük harf duyarsız alt dize aramasıdır; her terim aynı mailde bulunmalıdır (AND), farklı alanlarda eşleşebilir. `domates`, `Domatesli` ile; `domates çorba`, `Domatesli nefis çorba` ile eşleşir. `%`, `_`, `\` joker karakter değildir.
 - Konu, düz metin gövde, gönderen adı/adresi, alıcılar, katılımcılar, Message-ID ve ek dosya adları sunucuda aranır. PostgreSQL'deki mevcut açık web-search operatörleri (`OR`, `-terim`, çift tırnaklı ifade) korunur; yerel/IMAP aramaya yeni operatörler eklenmez.
 - Ağ yoksa veya istek zaman aşımına uğrarsa repository yalnızca ilgili hesabın cihaz önbelleğinden arar; hesap/klasör/etiket/konuşma/okunma/yıldız/ek/gönderen/alıcı/tarih filtreleri sayfalamadan önce uygulanır. Kimlik doğrulama ve sunucu hataları önbellekle gizlenmez. Cihaz önbelleği yalnızca indirilmiş mesaj/alanları kapsar: liste satırlarında gövde önizlemesi, açılmış mesajlarda saklanmış içerik aranabilir; indirilmemiş gövde, katılımcı adı veya ek adı için çevrimdışı tamlık garanti edilmez. Özel klasör önbelleği kendi ham klasör id'siyle sınırlandırılır.
@@ -507,7 +509,7 @@ Aynı işlemi birden çok maile tek istekte uygular. `action`: `read`, `unread`,
 }
 ```
 
-`code` alanı başarısız item'larda yukarıdaki tekil eylem hata kodlarından biridir (`mail_not_found`, `mail_folder_not_found`, `mail_operation_conflict`, `mail_operation_not_supported`, `mail_move_failed`, `mail_delete_failed`, `mail_provider_unavailable`, `mail_account_needs_reauthentication`); başarılıysa `null`.
+`code` alanı başarısız item'larda yukarıdaki tekil eylem hata kodlarından biridir (`mail_not_found`, `mail_folder_not_found`, `mail_operation_conflict`, `mail_operation_not_supported`, `mail_move_failed`, `mail_delete_failed`, `mail_provider_unavailable`, `mail_account_needs_reauthentication`, `mail_reconciliation_pending`); başarılıysa `null`. Sunucu hedef UID'sini bildirmeyen bir taşıma başarılıysa item `reconciliationPending: true` taşır: mail sunucuda taşınmıştır, yerel satır hedef klasörün sonraki eşitlemesinde eşleştirilir. O zamana dek aynı mail üzerindeki tek/toplu işlemler `409 mail_reconciliation_pending` (toplu item'da aynı `code`) ile reddedilir; eski kaynak UID'si asla kullanılmaz. Tekil eylemler bu durumda `204` yerine `202 { "reconciliationPending": true }` döner. Liste, arama ve konuşma yanıtları bu mailleri hedef klasörde, `reconciliationPending` işaretiyle gösterir.
 
 | Durum | code | Anlamı |
 |---|---|---|
@@ -515,7 +517,7 @@ Aynı işlemi birden çok maile tek istekte uygular. `action`: `read`, `unread`,
 | 400 | — | `mailIds` boş, 100'den fazla eleman içeriyor, ya da `action: move` iken `folderId` eksik (ValidationProblem). |
 | 404 | — | `action` bilinmeyen bir değer (yukarıdaki 11 değerin dışında). |
 
-> `mailIds` başına en fazla **100** eleman kabul edilir. `Idempotency-Key` bu uçta **gerekli değildir** — sadece gönderim uçlarında zorunlu (bkz. [Hızlı başlangıç, kural 2](#bilmen-gereken-dört-kural)).
+> `mailIds` başına en fazla **100** eleman kabul edilir; istemci daha büyük seçimleri tekilleştirir ve en çok 100'lük isteklere böler. Sonraki bir parça ağ hatasıyla düşerse önceki parçaların sonuçları korunur, kalan item'lar yeniden denenebilir başarısız sayılır; kalıcı `delete` hiçbir zaman çevrimdışı kuyruğa alınmaz. Çevrimdışı kuyruğa alınan taşıma/çöp/arşiv işlemleri önceki konumu (`origin`) saklar; geri alma kuyruktaki işlemi iptal etmek yerine açık bir `move(origin)` olarak yeniden oynatılır. Kalıcı reddedilen kuyruk öğeleri kuyruktan çıkar ve çakışma olarak bildirilir; geçici, kimlik doğrulama ve `mail_reconciliation_pending` hataları kuyrukta kalır. Yeniden bağlanmada kuyruk hesap başına tek seferde oynatılır ve liste ancak bundan sonra çekilir. `Idempotency-Key` bu uçta **gerekli değildir** — sadece gönderim uçlarında zorunlu (bkz. [Hızlı başlangıç, kural 2](#bilmen-gereken-dört-kural)).
 
 ---
 
@@ -547,7 +549,9 @@ Yeni taslak oluşturur (sunucu tarafında IMAP `APPEND` ile). Alanlar form-data:
 
 İstemci taslağı önce şifreli yerel kuyruğa kaydeder; sunucu eşitlemesi ekran çıkışını bekletmez. Arka plan hatası editörü otomatik açmaz: bildirimdeki **Aç** eylemiyle veya Taslaklar listesinden kullanıcı açar. Aynı kayıt için tekrarlayan geçici hatalar yalnızca bir kez bildirilir. Geçici hatalar (`ApiException.isTransient`: ağ/zaman aşımı, `429`, `5xx`) yeniden denenir; kalıcı hatalar (`404` dahil) yerel içeriği korur ve aynı oturumda kullanıcı yeniden kaydedene kadar otomatik denenmez. Bir taslağın hatası diğer taslakların eşitlenmesini durdurmaz; oturum yeniden yüklendiğinde kuyruk tekrar değerlendirilir.
 
-`replySourceMailId`, aynı hesaba ait kaynak mailin API kimliğidir; MIME `Message-ID` değildir. Kaynak bulunamazsa oluşturma `404 mail_not_found`, seçili kimlik hesaba ait değilse `404 identity_not_found` dönebilir. HTTP durum kodu tek başına bu nedenleri ayırmaz; Problem Details `code` alanı kontrol edilmelidir.
+Taslak yazma kuyruğu sunucu yanıtının yerel state'e uygulanmasını da sıraya alır. İstek sürerken kullanıcı yeniden düzenlerse yeni içerik korunur ve sonraki revizyon, `PUT` yanıtındaki yeni `mailId` ile eşitlenir. Düzenleme ekranının tuttuğu eski/yerel kimlik silmede de güncel sunucu kimliğine çözülür; devam eden `APPEND`/`PUT` tamamlanmadan yerel taslak silinmiş sayılmaz. Başarılı silme, bekleyen kayıt revizyonunu kuyruktan çıkarır; taslak sonraki eşitlemede yeniden oluşmaz. `reconciliationPending` sırasında yeni düzenlemeler yerelde korunur ve sunucu kimliği bulunduğunda otomatik devam eder.
+
+`replySourceMailId`, aynı hesaba ait kaynak mailin API kimliğidir (GUID); MIME `Message-ID` değildir. `GET /drafts/{id}` ve `GET /mails/{id}` yanıtları taslağın kaynağını `replySourceMailId` olarak, MIME başlığını ayrıca `inReplyToMessageId` olarak verir; istemci yalnızca birincisini gönderir. Taslak değiştirilirken (`PUT`) orijinal konuşma zinciri (`In-Reply-To`/`References`) korunur ve taslağın kendi `Message-ID`'si zincire karışmaz. Eski yerel önbellek/kuyruk kayıtlarında `inReplyToId` taslak kimliğiyle birlikte MIME değeri taşıyabilirdi; açılışta tek seferlik göçle geçerli GUID'e çevrilir (içerik ve ekler korunur, çözülemeyenler boşaltılır). Kaynak bulunamazsa oluşturma `404 mail_not_found`, seçili kimlik hesaba ait değilse `404 identity_not_found` dönebilir. HTTP durum kodu tek başına bu nedenleri ayırmaz; Problem Details `code` alanı kontrol edilmelidir.
 
 | Durum | code | Anlamı |
 |---|---|---|
@@ -564,6 +568,8 @@ Yeni taslak oluşturur (sunucu tarafında IMAP `APPEND` ile). Alanlar form-data:
 
 Yanıt şekli `GET /api/mails/{id}` ile aynıdır (`MailDetailResponse`).
 
+Taslak geçerliliği hesaba ait etkin Taslaklar klasöründe bulunmaya göre belirlenir; bazı IMAP istemcilerinin eklemediği `Draft` bayrağı zorunlu değildir. Sunucuda başka klasöre taşınmış, yalnızca yerel taşıma uzlaştırması bekleyen eski kayıtlar taslak listesine dahil edilmez ve bu kimliklerle düzenleme/silme yapılmaz.
+
 | Durum | code | Anlamı |
 |---|---|---|
 | 404 | — | Taslak yok / başka hesaba ait. |
@@ -572,7 +578,7 @@ Yanıt şekli `GET /api/mails/{id}` ile aynıdır (`MailDetailResponse`).
 ### `PUT /api/drafts/{id}`
 **Auth:** Bearer · **Gövde:** `multipart/form-data`
 
-IMAP taslaklar yerinde düzenlenemez: sunucu eski mesajı siler, yenisini `APPEND` eder. Yanıt `POST /drafts` ile aynı şekil (`{ created: false, mailId, … }`) ama **yeni** bir `mailId` döner. `reconciliationPending: true` ise (örn. art arda iki `PUT`'ta ikinci istek senkronizasyon meşgulken gelirse) yeni kopya sunucuda kayıtlıdır ve eski taslak yine çöpe taşınmıştır, ama `mailId` `null`'dır — eski id'yi state'ten çıkar ve taslak listesini kısa süre sonra tazele.
+IMAP taslaklar yerinde düzenlenemez: sunucu önce yeni mesajı `APPEND` eder, başarılı olunca eski mesajı çöpe taşır. Yanıt `POST /drafts` ile aynı şekil (`{ created: false, mailId, … }`) ama **yeni** bir `mailId` döner. `reconciliationPending: true` ise yeni kopya sunucuda kayıtlıdır ve eski taslak yine çöpe taşınmıştır, ama `mailId` `null`'dır — eski id'yi sonraki HTTP isteğinde kullanma; yerel içeriği koruyup taslak listesini tazeleyerek yeni sunucu kimliğini çöz.
 
 `PUT` hataları: `404 draft_not_found`, `422 mail_not_draft` / `drafts_folder_unavailable`.
 
@@ -629,6 +635,8 @@ Kopya kaydedildiyse sunucu Gönderilmiş klasörünü hemen senkronlar; `mailId`
 ### Zamanlanmış gönderimler
 
 - Yazma ekranında sağ üstteki menü → **Zamanla** ile tarih/saat seçilir. `POST /api/scheduled-sends` normal gönderimle aynı multipart alanlarını, zorunlu `sendAtUtc` ve `Idempotency-Key` başlığını alır.
+- Aynı mantıksal deneme aynı `Idempotency-Key` ile tekrarlanır: anahtar, istek içeriğinin (alıcılar, konu, gövde, ek özetleri, `sendAtUtc`, hesap) parmak iziyle şifreli yerel önbellekte saklanır ve yanıt kaybolsa da uygulama/oturum yeniden başlasa da korunur; başarıda silinir. İçerik değişirse yeni anahtar üretilir. Önbellek açılamıyorsa çift gönderim riskine karşı istek hiç yapılmaz.
+- Bekleyen bir iletinin düzenlenmesi `GET /api/scheduled-sends/{id}` ile gelen `revision`'ı `expectedRevision` olarak gönderir; başka bir cihaz/düzenleme araya girdiyse `409 scheduled_send_modified` döner ve eski sürüm yeni içeriğin üzerine yazılamaz.
 - Yerel saat `toUtc().toIso8601String()` ile gönderilir; API yanıtındaki zaman `toLocal()` ile gösterilir. Oluşturma cevabı yalnızca `{ id, sendAtUtc, status }` içerir; yerel liste, konu ve alıcıları oluşturulan isteğin içeriğinden korur.
 - Menüde **Giden Kutusu** yerel gönderim kuyruğunu, **Zamanlanmış Gönderimler** sunucuda saklanan zamanlı gönderimleri açar. Zamanlanan iletiler yerel Giden Kutusu kuyruğuna eklenmez; uygulama kapalıyken de çalışan sunucu tarafından gönderilir.
 - Zamanlama başarısında yalnızca tarih/saat içeren tek onay gösterilir; normal gönderimin “gönderiliyor”/geri alma akışı başlatılmaz ve eski kuyruklu uyarılar temizlenir.

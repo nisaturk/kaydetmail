@@ -21,6 +21,7 @@ import '../models/mail_session.dart';
 import '../models/manual_contact.dart';
 import '../models/mail_template.dart';
 import '../models/remote_search_result.dart';
+import '../models/search_page.dart';
 import '../models/scheduled_send.dart';
 import '../models/scheduled_send_detail.dart';
 import '../models/mail_signature.dart';
@@ -557,7 +558,9 @@ abstract class MailRepository extends ChangeNotifier {
   /// real per-folder id differs, so it is resolved per session; a session
   /// missing that folder is skipped entirely rather than searched
   /// unfiltered.
-  Future<List<Email>> searchEmailsOnServer({
+  /// Continue using the returned immutable checkpoint, not per-account page
+  /// numbers. A new filter scope or remote import requires a fresh search.
+  Future<SearchPage> searchEmailsOnServer({
     required String query,
     String? accountId,
     MailFolder? folder,
@@ -571,7 +574,7 @@ abstract class MailRepository extends ChangeNotifier {
     bool? flagged,
     bool? hasAttachment,
     String? labelId,
-    int page = 1,
+    SearchContinuation? continuation,
     int pageSize = 20,
   });
 
@@ -681,6 +684,7 @@ abstract class MailRepository extends ChangeNotifier {
   /// attachments not listed in [keepAttachmentIds] are removed.
   Future<void> updateScheduledSend({
     required String id,
+    required int expectedRevision,
     required List<String> to,
     List<String> cc = const [],
     List<String> bcc = const [],

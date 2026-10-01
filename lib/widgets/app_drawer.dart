@@ -25,7 +25,7 @@ extension DrawerDestinationMeta on DrawerDestination {
 
   String get label => switch (this) {
     DrawerDestination.scheduled => l10nNow.scheduledSends,
-    DrawerDestination.outbox => l10nNow.outbox,
+    DrawerDestination.outbox => l10nNow.pendingEmails,
     DrawerDestination.customFolders => l10nNow.otherFolders,
     DrawerDestination.settings => l10nNow.settings,
   };

@@ -1,5 +1,7 @@
 {
   "@@locale": "tr",
+  "mailReconciliationPending": "Taşıma sunucuda tamamlandı; klasör eşitlemesi bekleniyor.",
+  "mailReconciliationRetry": "İleti hedef klasöre eşitleniyor. Biraz sonra tekrar deneyin.",
   "pressBackAgainToExit": "Çıkmak için geri tuşuna tekrar basın.",
   "draftSavedLocallyServerSync": "Taslak yerel olarak kaydedildi; sunucu eşitlemesi başarısız.",
   "outgoingMessagesAreWaitingFor": "{attention} gönderi Giden Kutusu’nda incelenmeyi bekliyor.",
@@ -43,6 +45,7 @@
   "inbox": "Gelen Kutusu",
   "allMail": "Tüm mailler",
   "outbox": "Giden Kutusu",
+  "pendingEmails": "Bekleyen Mailler",
   "starred": "Yıldızlılar",
   "snoozed": "Ertelenenler",
   "drafts": "Taslaklar",
@@ -635,6 +638,15 @@
   "sendTime": "Gönderim zamanı",
   "addAttachment": "Ek ekle",
   "retry": "Yeniden dene",
+  "loadMoreResults": "Daha fazla sonuç yükle",
+  "searchResultCount": "{total} sonucun {shown} tanesi",
+  "@searchResultCount": {
+    "placeholders": {
+      "shown": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "offlineSearchResults": "Çevrimdışı hesaplarda yalnızca bu cihazdaki eşleşmeler gösterilir.",
   "cancelSend2": "Gönderimi iptal et",
   "noScheduledSends": "Zamanlanmış gönderim yok",
   "scheduleASendWithThe": "E-posta yazarken sağ üstteki menüden \"Zamanla\" seçeneğini kullanın. Zamanlanan iletiler burada görünür.",

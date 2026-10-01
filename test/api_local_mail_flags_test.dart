@@ -450,7 +450,7 @@ class _RecordingMailService extends ApiMailService {
       MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
 
   @override
-  Future<List<Email>> search({
+  Future<MailListPage> search({
     required String query,
     required MailFolder Function(String folderId) resolveFolder,
     String? folderId,
@@ -466,15 +466,19 @@ class _RecordingMailService extends ApiMailService {
     int page = 1,
     int pageSize = 20,
   }) async {
-    if (flagged != true) return const [];
-    final start = (page - 1) * pageSize;
-    if (start >= starredMails.length) return const [];
-    return starredMails.skip(start).take(pageSize).toList();
+    final matches = flagged == true ? starredMails : const <Email>[];
+    return MailListPage(
+      items: matches.skip((page - 1) * pageSize).take(pageSize).toList(),
+      page: page,
+      pageSize: pageSize,
+      total: matches.length,
+    );
   }
 
   @override
-  Future<void> mailAction(String id, String action) async {
+  Future<BulkActionResult> mailAction(String id, String action) async {
     singleActionCalls.add('$id:$action');
+    return BulkActionResult(mailId: id, success: true);
   }
 
   @override

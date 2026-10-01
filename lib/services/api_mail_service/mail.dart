@@ -141,49 +141,104 @@ mixin _MailApi on _ApiMailServiceBase {
     return _mapConversationDetail(id, body);
   }
 
-  /// One of the fixed single-mail actions documented for
-  /// `POST /api/mails/{id}/{action}` (read, unread, star, unstar, trash,
-  /// restore, archive, spam, not-spam, delete). No request/response body.
-  Future<void> mailAction(String id, String action) =>
-      _client.post('/api/mails/${Uri.encodeComponent(id)}/$action');
+  /// Acknowledged actions return success; a no-UID move also carries pending
+  /// reconciliation. Follow-up actions must wait for the backend to rebind UID.
+  Future<BulkActionResult> mailAction(String id, String action) async {
+    final body = await _client.post(
+      '/api/mails/${Uri.encodeComponent(id)}/$action',
+    );
+    return BulkActionResult(
+      mailId: id,
+      success: true,
+      reconciliationPending: body['reconciliationPending'] == true,
+    );
+  }
 
-  /// Moves a single mail into an arbitrary target folder.
-  Future<void> moveMail(String id, String folderId) => _client.postJson(
-    '/api/mails/${Uri.encodeComponent(id)}/move',
-    {'folderId': folderId},
-  );
+  Future<BulkActionResult> moveMail(String id, String folderId) async {
+    final body = await _client.postJson(
+      '/api/mails/${Uri.encodeComponent(id)}/move',
+      {'folderId': folderId},
+    );
+    return BulkActionResult(
+      mailId: id,
+      success: true,
+      reconciliationPending: body['reconciliationPending'] == true,
+    );
+  }
 
-  /// Copies a single mail into an arbitrary target folder (the original
-  /// stays where it is).
-  Future<void> copyMail(String id, String folderId) => _client.postJson(
-    '/api/mails/${Uri.encodeComponent(id)}/copy',
-    {'folderId': folderId},
-  );
+  /// Copies without removing the source.
+  Future<BulkActionResult> copyMail(String id, String folderId) async {
+    final body = await _client.postJson(
+      '/api/mails/${Uri.encodeComponent(id)}/copy',
+      {'folderId': folderId},
+    );
+    return BulkActionResult(
+      mailId: id,
+      success: true,
+      reconciliationPending: body['reconciliationPending'] == true,
+    );
+  }
 
-  /// Applies [action] (read, unread, star, unstar, archive, trash, restore,
-  /// spam, not-spam, delete, or move) to every id in
-  /// [mailIds] in one request. Each mail is processed independently server
-  /// side — read the per-item [BulkActionResult.success] rather than
-  /// assuming the whole batch succeeded or failed together.
+  /// Sends at most 100 ids per request. A later transport failure is returned
+  /// per item so callers retain remote-committed outcomes from earlier chunks.
   Future<List<BulkActionResult>> bulkAction(
     String action,
     List<String> mailIds, {
     String? folderId,
   }) async {
-    final body = await _client.postJson('/api/mails/bulk/$action', {
-      'mailIds': mailIds,
-      'folderId': folderId,
-    });
-    final results = body['results'] as List;
-    return results
-        .map(
-          (r) => BulkActionResult(
-            mailId: r['mailId'] as String,
-            success: r['success'] as bool,
-            code: r['code'] as String?,
-          ),
-        )
-        .toList();
+    const maxBatchSize = 100;
+    final ids = mailIds.toSet().toList();
+    final results = <BulkActionResult>[];
+    for (var start = 0; start < ids.length; start += maxBatchSize) {
+      final end = start + maxBatchSize < ids.length
+          ? start + maxBatchSize
+          : ids.length;
+      try {
+        final body = await _client.postJson('/api/mails/bulk/$action', {
+          'mailIds': ids.sublist(start, end),
+          'folderId': folderId,
+        });
+        final responseResults = body['results'] as List;
+        final byId = {
+          for (final r in responseResults)
+            r['mailId'] as String: BulkActionResult(
+              mailId: r['mailId'] as String,
+              success: r['success'] as bool,
+              code: r['code'] as String?,
+              reconciliationPending: r['reconciliationPending'] == true,
+            ),
+        };
+        for (var index = start; index < end; index++) {
+          results.add(
+            byId[ids[index]] ??
+                BulkActionResult(
+                  mailId: ids[index],
+                  success: false,
+                  code: 'mail_operation_failed',
+                  retryable: true,
+                ),
+          );
+        }
+      } catch (error) {
+        final apiError = error is ApiException ? error : null;
+        for (var index = start; index < ids.length; index++) {
+          results.add(
+            BulkActionResult(
+              mailId: ids[index],
+              success: false,
+              code: apiError?.code ?? 'mail_operation_failed',
+              retryable:
+                  apiError == null ||
+                  apiError.isTransient ||
+                  apiError.category == ApiErrorCategory.authentication ||
+                  apiError.code == 'mail_account_needs_reauthentication',
+            ),
+          );
+        }
+        break;
+      }
+    }
+    return results;
   }
 
   /// Pins or unpins mails; the backend enforces a 3-pinned-mails-per-account

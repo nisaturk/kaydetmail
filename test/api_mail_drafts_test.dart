@@ -42,7 +42,8 @@ void main() {
               'flagged': false,
               'receivedAt': '2026-09-18T08:00:00Z',
               'conversationId': 'conv-1',
-              'inReplyToMessageId': 'm-0',
+              'inReplyToMessageId': '<original@example.test>',
+              'replySourceMailId': '00000000-0000-4000-8000-000000000001',
               'attachments': [
                 {
                   'id': 'a-1',
@@ -68,10 +69,35 @@ void main() {
       expect(mail.cc, ['c@x.com']);
       expect(mail.bcc, ['b@x.com']);
       expect(mail.threadId, 'conv-1');
-      expect(mail.inReplyToId, 'm-0');
+      expect(mail.inReplyToId, '00000000-0000-4000-8000-000000000001');
       expect(mail.attachments.single.name, 'rapor.pdf');
       expect(mail.attachments.single.sizeBytes, 48211);
     });
+
+    test(
+      'MIME reply header without a GUID source is never sent as a source id',
+      () async {
+        final service = ApiMailService(
+          _client(
+            (_) async => http.Response(
+              jsonEncode({
+                'id': 'draft-id',
+                'folderId': 'folder-drafts',
+                'inReplyToMessageId': '<original@example.test>',
+                'from': [],
+                'to': [],
+              }),
+              200,
+            ),
+          ),
+        );
+        final draft = await service.getDraft(
+          'draft-id',
+          resolveFolder: (_) => MailFolder.drafts,
+        );
+        expect(draft.inReplyToId, isNull);
+      },
+    );
 
     test(
       'updateDraft PUTs multipart parts and returns the new mailId',
@@ -122,6 +148,179 @@ void main() {
   });
 
   group('ApiMailRepository drafts', () {
+    test(
+      'editing during sync preserves the latest content and replacement id',
+      () async {
+        final service = _ControlledDraftMailService();
+        final repo = await _loggedInRepository(service);
+        final local = await repo.saveDraft(to: ['a@x.com'], body: 'First');
+        await service.createStarted.future;
+        await repo.saveDraft(
+          draftId: local.id,
+          to: ['a@x.com'],
+          body: 'Latest',
+        );
+        service.createCompleted.complete(
+          const DraftResult(created: true, mailId: 'draft-old'),
+        );
+        await _flushDraftSync();
+
+        expect(service.updatedIds, ['draft-old']);
+        expect(service.updatedBodies, ['Latest']);
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.bodyText,
+          'Latest',
+        );
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.id,
+          'draft-new',
+        );
+      },
+    );
+
+    test(
+      'deleting the composer local id after sync deletes the server copy',
+      () async {
+        final service = _RecordingMailService();
+        final repo = await _loggedInRepository(service);
+        final local = await repo.saveDraft(to: ['a@x.com']);
+        await _flushDraftSync();
+        await repo.deleteDraft(local.id);
+        expect(service.deletedDraftIds, ['draft-old']);
+        expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+      },
+    );
+
+    test(
+      'deleting during create waits and removes the appended copy',
+      () async {
+        final service = _ControlledDraftMailService();
+        final repo = await _loggedInRepository(service);
+        final local = await repo.saveDraft(to: ['a@x.com']);
+        await service.createStarted.future;
+        final deletion = repo.deleteDraft(local.id);
+        service.createCompleted.complete(
+          const DraftResult(created: true, mailId: 'draft-old'),
+        );
+        await deletion;
+        await _flushDraftSync();
+        expect(service.deletedDraftIds, ['draft-old']);
+        expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+      },
+    );
+
+    test(
+      'editing during PUT sends the next revision to the replacement',
+      () async {
+        final service = _SlowUpdateMailService();
+        final repo = await _loggedInRepository(service);
+        final local = await repo.saveDraft(to: ['a@x.com'], body: 'Original');
+        await _flushDraftSync();
+        await repo.saveDraft(
+          draftId: local.id,
+          to: ['a@x.com'],
+          body: 'First edit',
+        );
+        await service.updateStarted.future;
+        await repo.saveDraft(
+          draftId: local.id,
+          to: ['a@x.com'],
+          body: 'Last edit',
+        );
+        service.updateCompleted.complete();
+        await _flushDraftSync();
+        expect(service.updatedIds, ['draft-old', 'draft-new']);
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.id,
+          'draft-latest',
+        );
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.bodyText,
+          'Last edit',
+        );
+      },
+    );
+
+    test(
+      'deleting during PUT clears the queued revision permanently',
+      () async {
+        final service = _SlowUpdateMailService();
+        final repo = await _loggedInRepository(service);
+        final local = await repo.saveDraft(to: ['a@x.com']);
+        await _flushDraftSync();
+        await repo.saveDraft(draftId: local.id, to: ['a@x.com'], body: 'Edit');
+        await service.updateStarted.future;
+        final deletion = repo.deleteDraft(local.id);
+        service.updateCompleted.complete();
+        await deletion;
+        await repo.saveDraft(to: ['b@x.com'], body: 'Unrelated');
+        await _flushDraftSync();
+        expect(service.deletedDraftIds, ['draft-new']);
+        expect(service.updatedIds, ['draft-old']);
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.bodyText,
+          'Unrelated',
+        );
+      },
+    );
+
+    test(
+      'pending reconciliation resumes queued edits using the server id',
+      () async {
+        final service = _PendingDraftMailService();
+        final repo = await _loggedInRepository(service);
+        final failures = <Email>[];
+        final subscription = repo.draftSyncFailures.listen(failures.add);
+        addTearDown(subscription.cancel);
+        final local = await repo.saveDraft(to: ['a@x.com'], subject: 'Pending');
+        await _flushDraftSync();
+        await repo.saveDraft(
+          draftId: local.id,
+          to: ['a@x.com'],
+          subject: 'Pending',
+          body: 'Newest revision',
+        );
+        await _flushDraftSync();
+        expect(failures, isEmpty);
+        expect(service.updatedIds, isEmpty);
+        service.imported = true;
+        await repo.refreshEmails(MailFolder.drafts);
+        await _flushDraftSync();
+        expect(service.updatedIds, ['draft-reconciled']);
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.bodyText,
+          'Newest revision',
+        );
+        expect(
+          repo.getEmailsInFolder(MailFolder.drafts).single.id,
+          'draft-new',
+        );
+      },
+    );
+
+    test(
+      'delete reconciles a pending edited draft without leaving a local ghost',
+      () async {
+        final service = _PendingDraftMailService();
+        final repo = await _loggedInRepository(service);
+        final local = await repo.saveDraft(to: ['a@x.com'], subject: 'Pending');
+        await _flushDraftSync();
+        await repo.saveDraft(
+          draftId: local.id,
+          to: ['a@x.com'],
+          subject: 'Pending',
+          body: 'Queued edit',
+        );
+        await _flushDraftSync();
+        service.imported = true;
+        await repo.deleteDraft(local.id);
+        await _flushDraftSync();
+        expect(service.deletedDraftIds, ['draft-reconciled']);
+        expect(service.updatedIds, isEmpty);
+        expect(repo.getEmailsInFolder(MailFolder.drafts), isEmpty);
+      },
+    );
+
     test(
       'permanent sync failure preserves content without blocking other drafts',
       () async {
@@ -420,6 +619,145 @@ class _RecordingMailService extends ApiMailService {
     sentCopySaved: true,
     draftRemoved: true,
   );
+}
+
+class _ControlledDraftMailService extends _RecordingMailService {
+  final createStarted = Completer<void>();
+  final createCompleted = Completer<DraftResult>();
+  final updatedIds = <String>[];
+  final updatedBodies = <String>[];
+
+  @override
+  Future<DraftResult> createDraft({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) {
+    createStarted.complete();
+    return createCompleted.future;
+  }
+
+  @override
+  Future<DraftResult> updateDraft(
+    String id, {
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) async {
+    updatedIds.add(id);
+    updatedBodies.add(bodyText);
+    return const DraftResult(created: false, mailId: 'draft-new');
+  }
+}
+
+class _SlowUpdateMailService extends _RecordingMailService {
+  final updateStarted = Completer<void>();
+  final updateCompleted = Completer<void>();
+  final updatedIds = <String>[];
+
+  @override
+  Future<DraftResult> updateDraft(
+    String id, {
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) async {
+    updatedIds.add(id);
+    if (updatedIds.length == 1) {
+      updateStarted.complete();
+      await updateCompleted.future;
+      return const DraftResult(created: false, mailId: 'draft-new');
+    }
+    if (id != 'draft-new') {
+      throw const ApiException(status: 422, code: 'mail_not_draft');
+    }
+    return const DraftResult(created: false, mailId: 'draft-latest');
+  }
+}
+
+class _PendingDraftMailService extends _RecordingMailService {
+  bool imported = false;
+  final updatedIds = <String>[];
+
+  @override
+  Future<DraftResult> createDraft({
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) async => const DraftResult(created: true, mailId: null);
+
+  @override
+  Future<MailListPage> getMails({
+    required String folderId,
+    required MailFolder Function(String folderId) resolveFolder,
+    int page = 1,
+    int pageSize = 20,
+    bool? isRead,
+    bool? hasAttachments,
+    String? search,
+  }) async => MailListPage(
+    items: [
+      if (imported)
+        Email(
+          id: 'draft-reconciled',
+          senderName: 'person@example.com',
+          senderEmail: 'person@example.com',
+          recipients: const ['a@x.com'],
+          subject: 'Pending',
+          bodyText: '',
+          timestamp: DateTime.now(),
+          folder: MailFolder.drafts,
+          accountId: 'account-1',
+        ),
+    ],
+    page: page,
+    pageSize: pageSize,
+    total: imported ? 1 : 0,
+  );
+
+  @override
+  Future<DraftResult> updateDraft(
+    String id, {
+    required List<String> to,
+    List<String> cc = const [],
+    List<String> bcc = const [],
+    String subject = '',
+    String bodyText = '',
+    String? bodyHtml,
+    List<Attachment> attachments = const [],
+    String? replySourceMailId,
+    String? identityId,
+  }) async {
+    updatedIds.add(id);
+    if (id != 'draft-reconciled') {
+      throw const ApiException(status: 422, code: 'mail_not_draft');
+    }
+    return const DraftResult(created: false, mailId: 'draft-new');
+  }
 }
 
 class _FailingDraftMailService extends _RecordingMailService {

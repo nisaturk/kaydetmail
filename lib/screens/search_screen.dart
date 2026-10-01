@@ -9,6 +9,7 @@ import '../models/folder_sync_status.dart';
 import '../models/mail_account.dart';
 import '../models/mail_custom_folder.dart';
 import '../models/mail_folder.dart';
+import '../models/search_page.dart';
 import '../repositories/mail_repository.dart';
 import '../theme/app_theme.dart';
 import '../utils/error_messages.dart';
@@ -110,6 +111,9 @@ class _SearchScreenState extends State<SearchScreen> {
   String? _labelId;
   _AdvancedFilters _filters = _AdvancedFilters.empty;
   List<Email> _results = const [];
+  SearchPage? _page;
+  bool _loadingMore = false;
+  Object? _loadMoreError;
   bool _loading = false;
   Object? _error;
   int _searchGeneration = 0;
@@ -173,6 +177,10 @@ class _SearchScreenState extends State<SearchScreen> {
       _remoteError = null;
       _remoteLoading = false;
       _error = null;
+      _page = null;
+      _results = const [];
+      _loadingMore = false;
+      _loadMoreError = null;
     });
     if (!_hasActiveSearch) {
       setState(() {
@@ -205,11 +213,10 @@ class _SearchScreenState extends State<SearchScreen> {
         labelId: _labelId,
       );
       if (!mounted || generation != _searchGeneration) return;
-      final byId = {for (final email in results) email.id: email};
-      final sorted = byId.values.toList()
-        ..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+      final sorted = results.items;
       setState(() {
         _results = List.unmodifiable(sorted);
+        _page = results;
         _loading = false;
         _error = null;
       });
@@ -218,6 +225,45 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         _loading = false;
         _error = error;
+      });
+    }
+  }
+
+  Future<void> _loadMore() async {
+    final page = _page;
+    if (page == null || !page.hasMore || _loading || _loadingMore) return;
+    final generation = _searchGeneration;
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
+    try {
+      final next = await _repo.searchEmailsOnServer(
+        query: _query.trim(),
+        accountId: _filters.accountId,
+        folder: _filters.folder,
+        customFolderId: _filters.customFolder?.folderId,
+        from: _filters.from,
+        to: _filters.to,
+        fromDate: _filters.fromDate,
+        toDate: _filters.toDate,
+        isRead: _filters.isRead,
+        flagged: _filters.flagged,
+        hasAttachment: _filters.hasAttachment,
+        labelId: _labelId,
+        continuation: page.continuation,
+      );
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _results = List.unmodifiable([..._results, ...next.items]);
+        _page = next;
+        _loadingMore = false;
+      });
+    } catch (error) {
+      if (!mounted || generation != _searchGeneration) return;
+      setState(() {
+        _loadingMore = false;
+        _loadMoreError = error;
       });
     }
   }
@@ -287,6 +333,13 @@ class _SearchScreenState extends State<SearchScreen> {
 
   void _runSearchNow() {
     final generation = ++_searchGeneration;
+    _debounce?.cancel();
+    setState(() {
+      _page = null;
+      _results = const [];
+      _loadingMore = false;
+      _loadMoreError = null;
+    });
     if (!_hasActiveSearch) {
       setState(() {
         _loading = false;
@@ -457,6 +510,28 @@ class _SearchScreenState extends State<SearchScreen> {
                                 .map((a) => a.email)
                                 .firstOrNull,
                     ),
+                    if (_page != null && !_loading)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Align(
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            l10nNow.searchResultCount(
+                              _results.length,
+                              _page!.total,
+                            ),
+                            key: const Key('search-result-count'),
+                          ),
+                        ),
+                      ),
+                    if (_page?.accountProgress.values.any(
+                          (state) => state.offline,
+                        ) ??
+                        false)
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                        child: Text(l10nNow.offlineSearchResults),
+                      ),
                   ],
                 ),
               ),
@@ -502,16 +577,42 @@ class _SearchScreenState extends State<SearchScreen> {
         ? {for (final account in _repo.accounts) account.id: account.email}
         : const <String, String>{};
     return ListView.separated(
-      itemCount: results.length,
+      itemCount: results.length + ((_page?.hasMore ?? false) ? 1 : 0),
       separatorBuilder: (_, _) => const Divider(indent: 64, endIndent: 16),
       itemBuilder: (context, index) {
+        if (index == results.length) {
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                if (_loadMoreError != null)
+                  Text(friendlyErrorMessage(_loadMoreError!)),
+                TextButton(
+                  key: const Key('search-load-more'),
+                  onPressed: _loadingMore ? null : _loadMore,
+                  child: _loadingMore
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : Text(
+                          _loadMoreError == null
+                              ? l10nNow.loadMoreResults
+                              : l10nNow.retry,
+                        ),
+                ),
+              ],
+            ),
+          );
+        }
         final email = results[index];
         final labelsById = {
           for (final label in _repo.getLabelsForAccount(email.accountId))
             label.id: label,
         };
         return MailListItem(
-          key: ValueKey(email.id),
+          key: ValueKey('${email.accountId}:${email.id}'),
           email: email,
           accountLabel: showAccount ? accountEmail[email.accountId] : null,
           folderLabel: email.folder.label,

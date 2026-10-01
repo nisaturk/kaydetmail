@@ -92,6 +92,7 @@ class ApiException implements Exception {
     'trash_folder_unavailable' ||
     'mail_folder_not_found' => l10nNow.theMailFolderIsUnavailable,
     'mail_operation_not_supported' => l10nNow.thisActionIsntSupportedFor,
+    'mail_reconciliation_pending' => l10nNow.mailReconciliationRetry,
     'mail_operation_conflict' ||
     'mailbox_changed' => l10nNow.theMailboxChangedRefreshAnd,
     'mail_move_failed' => l10nNow.couldntMoveTheEmailTry,

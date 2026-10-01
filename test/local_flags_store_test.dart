@@ -32,6 +32,25 @@ void main() {
     expect(await a.readPinned(), isEmpty);
   });
 
+  test('offline location undo preserves its origin after reopening the store and across accounts', () async {
+    final cache = MailCache.inMemory();
+    final first = LocalMailFlagsStore('a', cache);
+    final other = LocalMailFlagsStore('b', cache);
+    await first.queueMutation('mail', 'archive', originFolderId: 'drafts');
+    await first.queueMutation('mail', 'trash', originFolderId: 'archive');
+    await other.queueMutation('mail', 'trash', originFolderId: 'other-inbox');
+
+    final reopened = LocalMailFlagsStore('a', cache);
+    await reopened.queueMutation('mail', 'restore');
+
+    final restored = (await reopened.readQueuedMutations()).single;
+    expect(restored.operation, 'move');
+    expect(restored.folderId, 'archive');
+    final unrelated = (await other.readQueuedMutations()).single;
+    expect(unrelated.operation, 'trash');
+    expect(unrelated.originFolderId, 'other-inbox');
+  });
+
   test(
     'migrates SharedPreferences state once and removes the old keys',
     () async {

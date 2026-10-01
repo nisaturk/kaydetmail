@@ -192,7 +192,8 @@ class _RecordingMailService extends ApiMailService {
       MailListPage(items: const [], page: page, pageSize: pageSize, total: 0);
 
   @override
-  Future<void> mailAction(String id, String action) async {}
+  Future<BulkActionResult> mailAction(String id, String action) async =>
+      BulkActionResult(mailId: id, success: true);
 
   @override
   Future<List<BulkActionResult>> bulkAction(

@@ -72,6 +72,9 @@ class MailListItem extends StatelessWidget {
     if (email.isPinned) parts.add(l10nNow.pinned);
     if (email.isReplied) parts.add(l10nNow.replied);
     if (email.forwardedFromKaydetMail) parts.add('iletildi');
+    if (email.reconciliationPending) {
+      parts.add(l10nNow.mailReconciliationPending);
+    }
     if (email.attachments.isNotEmpty || email.hasAttachments) {
       parts.add(l10nNow.hasAttachments);
     }
@@ -159,6 +162,17 @@ class MailListItem extends StatelessWidget {
                             const SizedBox(width: 6),
                           ],
                           _StatusIcons(email: email),
+                          if (email.reconciliationPending) ...[
+                            Tooltip(
+                              message: l10nNow.mailReconciliationPending,
+                              child: Icon(
+                                LucideIcons.refreshCw,
+                                size: 13,
+                                color: colors.tertiaryText,
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                          ],
                           Text(
                             time,
                             style: TextStyle(

@@ -250,6 +250,7 @@ mixin _ComposeApi on _ApiMailServiceBase {
   /// as new files.
   Future<void> updateScheduledSend({
     required String id,
+    required int expectedRevision,
     required List<String> to,
     List<String> cc = const [],
     List<String> bcc = const [],
@@ -268,6 +269,7 @@ mixin _ComposeApi on _ApiMailServiceBase {
         bodyHtml: bodyHtml,
       ),
       'sendAtUtc': sendAtUtc.toUtc().toIso8601String(),
+      'expectedRevision': expectedRevision.toString(),
     },
     files: () => [
       ..._composeParts(to: to, cc: cc, bcc: bcc, attachments: attachments),

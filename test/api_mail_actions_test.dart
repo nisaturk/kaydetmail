@@ -15,6 +15,8 @@ import 'package:kaydetmail/services/api_exception.dart';
 import 'package:kaydetmail/services/api_mail_service.dart';
 import 'package:kaydetmail/services/device_identifier_provider.dart';
 import 'package:kaydetmail/services/token_store.dart';
+import 'package:kaydetmail/services/local_mail_flags_store.dart';
+import 'package:kaydetmail/services/mail_cache.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -89,6 +91,49 @@ void main() {
         expect(results[0].success, isTrue);
         expect(results[1].success, isFalse);
         expect(results[1].code, 'mail_not_found');
+      },
+    );
+
+    test('no-UID acknowledgement distinguishes committed from ready', () async {
+      final service = ApiMailService(
+        _client(
+          (_) async =>
+              http.Response(jsonEncode({'reconciliationPending': true}), 202),
+        ),
+      );
+
+      final result = await service.mailAction('mail-1', 'trash');
+
+      expect(result.success, isTrue);
+      expect(result.reconciliationPending, isTrue);
+    });
+
+    test(
+      'bulk actions partition a 205-mail selection into bounded requests',
+      () async {
+        final sizes = <int>[];
+        final service = ApiMailService(
+          _client((request) async {
+            final ids = (jsonDecode(request.body)['mailIds'] as List)
+                .cast<String>();
+            sizes.add(ids.length);
+            return http.Response(
+              jsonEncode({
+                'results': [
+                  for (final id in ids) {'mailId': id, 'success': true},
+                ],
+              }),
+              200,
+            );
+          }),
+        );
+        final ids = List.generate(205, (index) => 'mail-$index');
+
+        final results = await service.bulkAction('trash', ids);
+
+        expect(sizes, [100, 100, 5]);
+        expect(results.map((result) => result.mailId), ids);
+        expect(results.every((result) => result.success), isTrue);
       },
     );
   });
@@ -171,6 +216,144 @@ void main() {
         MailFolder.trash,
       );
     });
+
+    test(
+      'pending trash retains its marker when follow-up delete must wait',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-trash', 'Trash'),
+          ],
+          pagesByFolderId: {
+            'folder-inbox': _page([_mailJson('mail-1', 'folder-inbox')]),
+          },
+        );
+        mailService.bulkResultsOverride = (action, ids) => [
+          for (final id in ids)
+            BulkActionResult(
+              mailId: id,
+              success: action == 'trash',
+              reconciliationPending: true,
+              code: action == 'trash' ? null : 'mail_reconciliation_pending',
+            ),
+        ];
+        final repo = await _repositoryWithLoadedInbox(mailService);
+
+        await repo.moveToTrash(['mail-1']);
+        expect(
+          repo.getEmailsInFolder(MailFolder.trash).single.reconciliationPending,
+          isTrue,
+        );
+        await expectLater(
+          repo.deletePermanently(['mail-1']),
+          throwsA(
+            isA<ApiException>().having(
+              (error) => error.code,
+              'code',
+              'mail_reconciliation_pending',
+            ),
+          ),
+        );
+
+        expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
+        expect(
+          repo.getEmailsInFolder(MailFolder.trash).single.reconciliationPending,
+          isTrue,
+        );
+        expect(mailService.bulkActionCalls, [
+          'trash:mail-1:null',
+          'delete:mail-1:null',
+        ]);
+      },
+    );
+
+    for (final permanent in [false, true]) {
+      test(
+        '${permanent ? 'delete' : 'trash'} retains earlier chunk outcomes after later transport failure',
+        () async {
+          final cache = MailCache.inMemory();
+          final ids = List.generate(205, (index) => 'mail-$index');
+          final sourceFolder = permanent ? MailFolder.trash : MailFolder.inbox;
+          final sourceId = permanent ? 'folder-trash' : 'folder-inbox';
+          var requests = 0;
+          final transport = ApiMailService(
+            _client((request) async {
+              final sentIds = (jsonDecode(request.body)['mailIds'] as List)
+                  .cast<String>();
+              requests++;
+              if (requests == 2) throw http.ClientException('offline');
+              return http.Response(
+                jsonEncode({
+                  'results': [
+                    for (final id in sentIds)
+                      {
+                        'mailId': id,
+                        'success': id != 'mail-2',
+                        'code': id == 'mail-2' ? 'mail_folder_not_found' : null,
+                      },
+                  ],
+                }),
+                200,
+              );
+            }),
+          );
+          final mailService = _RecordingMailService(
+            folders: [
+              _folder('folder-inbox', 'Inbox'),
+              _folder('folder-trash', 'Trash'),
+            ],
+            pagesByFolderId: {
+              sourceId: _page([for (final id in ids) _mailJson(id, sourceId)]),
+            },
+          )..bulkTransport = transport;
+          final repo = await _repositoryWithLoadedFolder(
+            mailService,
+            sourceFolder,
+            cache: cache,
+          );
+
+          await expectLater(
+            permanent ? repo.deletePermanently(ids) : repo.moveToTrash(ids),
+            throwsA(
+              isA<ApiException>().having(
+                (error) => error.code,
+                'code',
+                'mail_folder_not_found',
+              ),
+            ),
+          );
+
+          expect(requests, 2);
+          final sourceIds = repo
+              .getEmailsInFolder(sourceFolder)
+              .map((mail) => mail.id)
+              .toSet();
+          final queued = await LocalMailFlagsStore(
+            'account-1',
+            cache,
+          ).readQueuedMutations();
+          if (permanent) {
+            expect(sourceIds, {'mail-2', ...ids.skip(100)});
+            expect(queued, isEmpty);
+          } else {
+            expect(sourceIds, {'mail-2'});
+            expect(
+              repo
+                  .getEmailsInFolder(MailFolder.trash)
+                  .map((mail) => mail.id)
+                  .toSet(),
+              ids.where((id) => id != 'mail-2').toSet(),
+            );
+            expect(
+              queued.map((mutation) => mutation.mailId).toSet(),
+              ids.skip(100).toSet(),
+            );
+          }
+          repo.dispose();
+        },
+      );
+    }
     test(
       'moveToTrash updates the cache before the server request completes',
       () async {
@@ -337,28 +520,36 @@ void main() {
       ]);
     });
 
-    test('permanent delete keeps cached mail visible until server confirms', () async {
-      final mailService = _RecordingMailService(
-        folders: [
-          _folder('folder-inbox', 'Inbox'),
-          _folder('folder-trash', 'Trash'),
-        ],
-        pagesByFolderId: {
-          'folder-trash': _page([_mailJson('mail-1', 'folder-trash')]),
-        },
-      );
-      final repo = await _repositoryWithLoadedFolder(mailService, MailFolder.trash);
-      final response = Completer<List<BulkActionResult>>();
-      mailService.bulkActionCompleter = response;
+    test(
+      'permanent delete keeps cached mail visible until server confirms',
+      () async {
+        final mailService = _RecordingMailService(
+          folders: [
+            _folder('folder-inbox', 'Inbox'),
+            _folder('folder-trash', 'Trash'),
+          ],
+          pagesByFolderId: {
+            'folder-trash': _page([_mailJson('mail-1', 'folder-trash')]),
+          },
+        );
+        final repo = await _repositoryWithLoadedFolder(
+          mailService,
+          MailFolder.trash,
+        );
+        final response = Completer<List<BulkActionResult>>();
+        mailService.bulkActionCompleter = response;
 
-      final deletion = repo.deletePermanently(['mail-1']);
-      expect(mailService.bulkActionCalls, ['delete:mail-1:null']);
-      expect(repo.getEmailsInFolder(MailFolder.trash).map((mail) => mail.id),
-          ['mail-1']);
-      response.complete([BulkActionResult(mailId: 'mail-1', success: true)]);
-      await deletion;
-      expect(repo.getEmailsInFolder(MailFolder.trash), isEmpty);
-    });
+        final deletion = repo.deletePermanently(['mail-1']);
+        expect(mailService.bulkActionCalls, ['delete:mail-1:null']);
+        expect(
+          repo.getEmailsInFolder(MailFolder.trash).map((mail) => mail.id),
+          ['mail-1'],
+        );
+        response.complete([BulkActionResult(mailId: 'mail-1', success: true)]);
+        await deletion;
+        expect(repo.getEmailsInFolder(MailFolder.trash), isEmpty);
+      },
+    );
 
     test('failed permanent delete leaves cached mail in Trash', () async {
       final mailService = _RecordingMailService(
@@ -370,14 +561,21 @@ void main() {
           'folder-trash': _page([_mailJson('mail-1', 'folder-trash')]),
         },
       );
-      final repo = await _repositoryWithLoadedFolder(mailService, MailFolder.trash);
+      final repo = await _repositoryWithLoadedFolder(
+        mailService,
+        MailFolder.trash,
+      );
       final response = Completer<List<BulkActionResult>>();
       mailService.bulkActionCompleter = response;
 
       final deletion = repo.deletePermanently(['mail-1']);
       expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
       response.complete([
-        BulkActionResult(mailId: 'mail-1', success: false, code: 'mail_delete_failed'),
+        BulkActionResult(
+          mailId: 'mail-1',
+          success: false,
+          code: 'mail_delete_failed',
+        ),
       ]);
       await expectLater(deletion, throwsA(isA<ApiException>()));
       expect(repo.getEmailsInFolder(MailFolder.trash).single.id, 'mail-1');
@@ -598,8 +796,9 @@ Future<ApiMailRepository> _repositoryWithLoadedInbox(
 
 Future<ApiMailRepository> _repositoryWithLoadedFolder(
   _RecordingMailService mailService,
-  MailFolder folder,
-) async {
+  MailFolder folder, {
+  MailCache? cache,
+}) async {
   SharedPreferences.setMockInitialValues({});
   final tokenStore = TokenStore(storage: _MemoryTokenStorage());
   await tokenStore.save(
@@ -618,6 +817,7 @@ Future<ApiMailRepository> _repositoryWithLoadedFolder(
   final repo = ApiMailRepository(
     authService: authService,
     mailService: mailService,
+    openCache: cache == null ? null : () async => cache,
   );
   await repo.restoreSession('person@example.com');
   await repo.loadMoreEmails(folder);
@@ -688,6 +888,7 @@ class _RecordingMailService extends ApiMailService {
   List<BulkActionResult> Function(String action, List<String> ids)?
   bulkResultsOverride;
   Completer<List<BulkActionResult>>? bulkActionCompleter;
+  ApiMailService? bulkTransport;
 
   /// Server folder id each mail's detail reports after a `restore`.
   final Map<String, String> folderAfterRestore = {};
@@ -736,18 +937,21 @@ class _RecordingMailService extends ApiMailService {
   }
 
   @override
-  Future<void> mailAction(String id, String action) async {
+  Future<BulkActionResult> mailAction(String id, String action) async {
     singleActionCalls.add('$id:$action');
+    return BulkActionResult(mailId: id, success: true);
   }
 
   @override
-  Future<void> moveMail(String id, String folderId) async {
+  Future<BulkActionResult> moveMail(String id, String folderId) async {
     singleActionCalls.add('$id:move:$folderId');
+    return BulkActionResult(mailId: id, success: true);
   }
 
   @override
-  Future<void> copyMail(String id, String folderId) async {
+  Future<BulkActionResult> copyMail(String id, String folderId) async {
     singleActionCalls.add('$id:copy:$folderId');
+    return BulkActionResult(mailId: id, success: true);
   }
 
   @override
@@ -766,6 +970,9 @@ class _RecordingMailService extends ApiMailService {
   }) async {
     bulkActionCalls.add('$action:${mailIds.join(",")}:$folderId');
     final completer = bulkActionCompleter;
+    if (bulkTransport != null) {
+      return bulkTransport!.bulkAction(action, mailIds, folderId: folderId);
+    }
     if (completer != null) return completer.future;
     final override = bulkResultsOverride;
     if (override != null) return override(action, mailIds);

@@ -10,6 +10,8 @@ import 'mail_cache_io.dart'
 import '../models/email.dart';
 import '../models/mail_folder.dart';
 
+import '../utils/legacy_reply_source.dart';
+
 /// On-device SQLite copy of the mails the API repository has loaded, so the
 /// app can paint the last known mailbox instantly on cold start and then
 /// revalidate in the background. One row per mail, scoped by account.
@@ -91,12 +93,30 @@ class MailCache {
         queued_at_ms INTEGER NOT NULL,
         PRIMARY KEY (account_id, mail_id, category)
       )''');
+    if (!_db
+        .select('PRAGMA table_info(offline_mutations)')
+        .any((column) => column['name'] == 'origin_folder_id')) {
+      _db.execute(
+        'ALTER TABLE offline_mutations ADD COLUMN origin_folder_id TEXT',
+      );
+    }
     _db.execute('''
       CREATE TABLE IF NOT EXISTS draft_queue (
         account_id TEXT NOT NULL, draft_id TEXT NOT NULL, payload TEXT NOT NULL,
         queued_at_ms INTEGER NOT NULL,
         PRIMARY KEY (account_id, draft_id)
       )''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS scheduled_attempts (
+        account_id TEXT NOT NULL, fingerprint TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        PRIMARY KEY (account_id, fingerprint)
+      )''');
+    _db.execute('''
+      CREATE TABLE IF NOT EXISTS cache_migrations (
+        name TEXT PRIMARY KEY
+      )''');
+    _migrateReplySources();
   }
 
   final CommonDatabase _db;
@@ -104,6 +124,55 @@ class MailCache {
   /// Raw handle for [LocalMailFlagsStore]; everything else goes through the
   /// typed methods above.
   CommonDatabase get db => _db;
+
+  void _migrateReplySources() {
+    const migration = 'reply_source_mail_id';
+    if (_db.select('SELECT name FROM cache_migrations WHERE name = ?', [
+      migration,
+    ]).isNotEmpty) {
+      return;
+    }
+    _db.execute('BEGIN');
+    try {
+      for (final (table, column, idColumn) in [
+        ('mails', 'json', 'id'),
+        ('draft_queue', 'payload', 'draft_id'),
+      ]) {
+        for (final row in _db.select(
+          'SELECT account_id, $idColumn, $column FROM $table',
+        )) {
+          final payload =
+              jsonDecode(row[column] as String) as Map<String, dynamic>;
+          if (payload.containsKey('replySourceMailId')) continue;
+          final legacy = payload.remove('inReplyToId') as String?;
+          payload['replySourceMailId'] = migrateLegacyReplySource(
+            legacy,
+            draftId: payload['folder'] == MailFolder.drafts.name
+                ? payload['id'] as String?
+                : null,
+          );
+          _db.execute(
+            'UPDATE $table SET $column = ? WHERE account_id = ? AND $idColumn = ?',
+            [
+              jsonEncode(
+                _toJson(
+                  _fromJson(payload),
+                  includeAttachmentBytes: table == 'draft_queue',
+                ),
+              ),
+              row['account_id'],
+              row[idColumn],
+            ],
+          );
+        }
+      }
+      _db.execute('INSERT INTO cache_migrations VALUES (?)', [migration]);
+      _db.execute('COMMIT');
+    } catch (_) {
+      _db.execute('ROLLBACK');
+      rethrow;
+    }
+  }
 
   static Future<MailCache> open() async =>
       MailCache._(await platform.openPersistent());
@@ -250,6 +319,32 @@ class MailCache {
             jsonEncode(_toJson(draft, includeAttachmentBytes: true));
   }
 
+  String? readScheduledAttemptKey(String accountId, String fingerprint) {
+    final rows = _db.select(
+      'SELECT idempotency_key FROM scheduled_attempts WHERE account_id = ? AND fingerprint = ?',
+      [accountId, fingerprint],
+    );
+    return rows.isEmpty ? null : rows.single['idempotency_key'] as String;
+  }
+
+  void saveScheduledAttemptKey(
+    String accountId,
+    String fingerprint,
+    String key,
+  ) => _db.execute('INSERT INTO scheduled_attempts VALUES (?, ?, ?)', [
+    accountId,
+    fingerprint,
+    key,
+  ]);
+
+  void removeScheduledAttemptKey(
+    String accountId,
+    String fingerprint,
+  ) => _db.execute(
+    'DELETE FROM scheduled_attempts WHERE account_id = ? AND fingerprint = ?',
+    [accountId, fingerprint],
+  );
+
   /// Drops the cached mails of [accountId]. Flags and labels are user data
   /// and survive (they are keyed by mail id and reattach on the next load).
   void clear(String accountId) =>
@@ -290,6 +385,7 @@ class MailCache {
     'manual_contacts',
     'offline_mutations',
     'draft_queue',
+    'scheduled_attempts',
   ];
 
   bool _hasTable(String name) => _db.select(
@@ -351,7 +447,8 @@ class MailCache {
     'folder': e.folder.name,
     'accountId': e.accountId,
     'threadId': e.threadId,
-    'inReplyToId': e.inReplyToId,
+    'replySourceMailId': e.inReplyToId,
+    'reconciliationPending': e.reconciliationPending,
     'identityId': e.headers['draftIdentityId'],
     'hasAttachments': e.hasAttachments,
     'attachments': [
@@ -391,7 +488,8 @@ class MailCache {
     folder: MailFolder.values.byName(j['folder'] as String),
     accountId: j['accountId'] as String,
     threadId: j['threadId'] as String,
-    inReplyToId: j['inReplyToId'] as String?,
+    inReplyToId: j['replySourceMailId'] as String?,
+    reconciliationPending: j['reconciliationPending'] as bool? ?? false,
     headers: {
       if (j['identityId'] != null) 'draftIdentityId': j['identityId'] as String,
     },

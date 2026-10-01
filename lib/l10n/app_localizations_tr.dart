@@ -10,6 +10,14 @@ class AppLocalizationsTr extends AppLocalizations {
   AppLocalizationsTr([String locale = 'tr']) : super(locale);
 
   @override
+  String get mailReconciliationPending =>
+      'Taşıma sunucuda tamamlandı; klasör eşitlemesi bekleniyor.';
+
+  @override
+  String get mailReconciliationRetry =>
+      'İleti hedef klasöre eşitleniyor. Biraz sonra tekrar deneyin.';
+
+  @override
   String get pressBackAgainToExit => 'Çıkmak için geri tuşuna tekrar basın.';
 
   @override
@@ -95,6 +103,9 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get outbox => 'Giden Kutusu';
+
+  @override
+  String get pendingEmails => 'Bekleyen Mailler';
 
   @override
   String get starred => 'Yıldızlılar';
@@ -1210,6 +1221,18 @@ class AppLocalizationsTr extends AppLocalizations {
 
   @override
   String get retry => 'Yeniden dene';
+
+  @override
+  String get loadMoreResults => 'Daha fazla sonuç yükle';
+
+  @override
+  String searchResultCount(int shown, int total) {
+    return '$total sonucun $shown tanesi';
+  }
+
+  @override
+  String get offlineSearchResults =>
+      'Çevrimdışı hesaplarda yalnızca bu cihazdaki eşleşmeler gösterilir.';
 
   @override
   String get cancelSend2 => 'Gönderimi iptal et';
