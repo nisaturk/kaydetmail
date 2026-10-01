@@ -601,13 +601,13 @@ void main() {
     await tester.tap(find.text(MailFolder.sent.label));
     await tester.pumpAndSettle();
     expect(repo.roleCalls, ['sent-items:sent']);
-    expect(find.text('Giden Kutusu olarak kullanılıyor'), findsOneWidget);
+    expect(find.text('Gönderilenler olarak kullanılıyor'), findsOneWidget);
 
     await openMenu(tester, 'sent-items');
     await tester.tap(find.text('Otomatiğe döndür'));
     await tester.pumpAndSettle();
     expect(repo.roleCalls, ['sent-items:sent', 'sent-items:null']);
-    expect(find.text('Giden Kutusu olarak kullanılıyor'), findsNothing);
+    expect(find.text('Gönderilenler olarak kullanılıyor'), findsNothing);
   });
 
   testWidgets(
@@ -626,18 +626,12 @@ void main() {
       await tester.pumpAndSettle();
       expect(repo.createdParents, ['inbox-id']);
 
-      double indent(String name) =>
-          (tester
-                      .widget<ListTile>(
-                        find.ancestor(
-                          of: find.text(name),
-                          matching: find.byType(ListTile),
-                        ),
-                      )
-                      .contentPadding!
-                  as EdgeInsets)
-              .left;
-      expect(indent('Receipts'), greaterThan(indent('INBOX')));
+      double indent(String name) => tester
+          .getTopLeft(
+            find.ancestor(of: find.text(name), matching: find.byType(ListTile)),
+          )
+          .dx;
+      expect(indent('Receipts'), greaterThan(indent('Gelen Kutusu')));
 
       await openMenu(tester, 'folder-1');
       await tester.tap(find.text('Üst klasörü değiştir'));

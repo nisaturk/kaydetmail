@@ -83,6 +83,20 @@ class AppDrawer extends StatelessWidget {
           listenable: AppConfig.mailRepository,
           builder: (context, _) {
             final repo = AppConfig.mailRepository;
+            final customFolders = repo.getCustomFolders();
+            final standardParents = {
+              for (final account in repo.accounts)
+                account.id: repo.standardFolderIds(account.id).values.toSet(),
+            };
+            final accountNames = {
+              for (final account in repo.accounts) account.id: account.email,
+            };
+            final inboxFolders = _inboxSubtree(customFolders, {
+              for (final account in repo.accounts)
+                account.id: repo.standardFolderIds(
+                  account.id,
+                )[MailFolder.inbox],
+            });
             // minHeight = viewport + spaceBetween pins the lower section to
             // the drawer bottom on tall screens; on short ones the column
             // takes its natural height and everything scrolls together.
@@ -106,12 +120,24 @@ class AppDrawer extends StatelessWidget {
                           const Divider(),
                           const SizedBox(height: 4),
                           for (final folder in _primaryFolders)
-                            _FolderTile(
-                              folder: folder,
-                              selected: folder == selectedFolder,
-                              onTap: () => onSelectFolder(folder),
-                              badgeCount: _badgeCount(repo, folder),
-                            ),
+                            if (folder == MailFolder.inbox)
+                              _InboxGroup(
+                                selected: folder == selectedFolder,
+                                onTap: () => onSelectFolder(folder),
+                                badgeCount: _badgeCount(repo, folder),
+                                folders: inboxFolders,
+                                accountNames: accountNames,
+                                standardParents: standardParents,
+                                order: CustomFolderOrderController.instance,
+                                onSelect: onSelectCustomFolder,
+                              )
+                            else
+                              _FolderTile(
+                                folder: folder,
+                                selected: folder == selectedFolder,
+                                onTap: () => onSelectFolder(folder),
+                                badgeCount: _badgeCount(repo, folder),
+                              ),
                           for (final destination in [
                             DrawerDestination.outbox,
                             DrawerDestination.scheduled,
@@ -122,18 +148,13 @@ class AppDrawer extends StatelessWidget {
                               onTap: () => onOpenDestination(destination),
                             ),
                           _CustomFolderSection(
-                            folders: repo.getCustomFolders(),
-                            accountNames: {
-                              for (final account in repo.accounts)
-                                account.id: account.email,
+                            folders: customFolders,
+                            excludedIds: {
+                              for (final folder in inboxFolders)
+                                folder.folderId,
                             },
-                            standardParents: {
-                              for (final account in repo.accounts)
-                                account.id: repo
-                                    .standardFolderIds(account.id)
-                                    .values
-                                    .toSet(),
-                            },
+                            accountNames: accountNames,
+                            standardParents: standardParents,
                             order: CustomFolderOrderController.instance,
                             onSelect: onSelectCustomFolder,
                           ),
@@ -287,6 +308,7 @@ typedef _DrawerFolderRow = ({
 class _CustomFolderSection extends StatefulWidget {
   const _CustomFolderSection({
     required this.folders,
+    required this.excludedIds,
     required this.accountNames,
     required this.standardParents,
     required this.order,
@@ -294,6 +316,9 @@ class _CustomFolderSection extends StatefulWidget {
   });
 
   final List<MailCustomFolder> folders;
+
+  /// Folders listed elsewhere in the drawer (below the Inbox entry).
+  final Set<String> excludedIds;
   final Map<String, String> accountNames;
   final Map<String, Set<String>> standardParents;
   final CustomFolderOrderController order;
@@ -329,50 +354,23 @@ class _CustomFolderSectionState extends State<_CustomFolderSection> {
   List<_DrawerFolderRow> _rowsFor(
     List<MailCustomFolder> accountFolders,
     String accountId,
-  ) {
-    final rows = <_DrawerFolderRow>[];
-    void visit(List<MailCustomFolderNode> siblings, int depth) {
-      for (final (index, node) in siblings.indexed) {
-        final actualDepth =
-            depth == 0 &&
-                (widget.standardParents[accountId] ?? const {}).contains(
-                  node.folder.parentFolderId,
-                )
-            ? 1
-            : depth;
-        rows.add((
-          folder: node.folder,
-          depth: actualDepth,
-          canMoveUp: index > 0,
-          canMoveDown: index < siblings.length - 1,
-        ));
-        visit(node.children, actualDepth + 1);
-      }
-    }
-
-    visit(
-      buildCustomFolderTree(
-        accountFolders,
-        orderByAccount: widget.order.orders,
-      ),
-      0,
-    );
-    return rows;
-  }
+  ) => _drawerRows(
+    accountFolders,
+    widget.standardParents[accountId] ?? const {},
+    widget.order.orders,
+  );
 
   @override
   Widget build(BuildContext context) {
-    if (widget.folders.isEmpty) return const SizedBox.shrink();
+    final visible = [
+      for (final folder in widget.folders)
+        if (!widget.excludedIds.contains(folder.folderId)) folder,
+    ];
+    if (visible.isEmpty) return const SizedBox.shrink();
     return ListenableBuilder(
       listenable: widget.order,
       builder: (context, _) {
-        final groups = <String, List<MailCustomFolder>>{
-          for (final accountId in widget.accountNames.keys) accountId: [],
-        };
-        for (final folder in widget.folders) {
-          groups.putIfAbsent(folder.accountId, () => []).add(folder);
-        }
-        groups.removeWhere((_, folders) => folders.isEmpty);
+        final groups = _groupByAccount(visible, widget.accountNames.keys);
         final showAccounts = groups.length > 1;
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -420,6 +418,172 @@ class _CustomFolderSectionState extends State<_CustomFolderSection> {
   }
 }
 
+/// Indented tree rows for one account's [accountFolders]. Folders hanging
+/// directly below a standard folder (listed in [standardParents]) start at
+/// depth 1.
+List<_DrawerFolderRow> _drawerRows(
+  List<MailCustomFolder> accountFolders,
+  Set<String> standardParents,
+  Map<String, List<String>> orders,
+) {
+  final rows = <_DrawerFolderRow>[];
+  void visit(List<MailCustomFolderNode> siblings, int depth) {
+    for (final (index, node) in siblings.indexed) {
+      final actualDepth =
+          depth == 0 && standardParents.contains(node.folder.parentFolderId)
+          ? 1
+          : depth;
+      rows.add((
+        folder: node.folder,
+        depth: actualDepth,
+        canMoveUp: index > 0,
+        canMoveDown: index < siblings.length - 1,
+      ));
+      visit(node.children, actualDepth + 1);
+    }
+  }
+
+  visit(buildCustomFolderTree(accountFolders, orderByAccount: orders), 0);
+  return rows;
+}
+
+/// Non-empty per-account folder lists, in [accountIds] order first.
+Map<String, List<MailCustomFolder>> _groupByAccount(
+  Iterable<MailCustomFolder> folders,
+  Iterable<String> accountIds,
+) {
+  final groups = <String, List<MailCustomFolder>>{
+    for (final accountId in accountIds) accountId: [],
+  };
+  for (final folder in folders) {
+    groups.putIfAbsent(folder.accountId, () => []).add(folder);
+  }
+  groups.removeWhere((_, list) => list.isEmpty);
+  return groups;
+}
+
+/// Every folder that sits anywhere below its account's INBOX. [inboxIds] maps
+/// account id to that account's INBOX folder id (null when unknown).
+List<MailCustomFolder> _inboxSubtree(
+  List<MailCustomFolder> folders,
+  Map<String, String?> inboxIds,
+) {
+  final byKey = {
+    for (final folder in folders) (folder.accountId, folder.folderId): folder,
+  };
+  bool isBelowInbox(MailCustomFolder folder, String inboxId) {
+    final seen = <String>{};
+    var current = folder;
+    while (seen.add(current.folderId)) {
+      final parentId = current.parentFolderId;
+      if (parentId == null) return false;
+      if (parentId == inboxId) return true;
+      final parent = byKey[(folder.accountId, parentId)];
+      if (parent == null) return false;
+      current = parent;
+    }
+    return false;
+  }
+
+  return [
+    for (final folder in folders)
+      if (inboxIds[folder.accountId] case final inboxId?)
+        if (isBelowInbox(folder, inboxId)) folder,
+  ];
+}
+
+/// The Inbox entry. When the account has folders below INBOX a chevron on the
+/// right expands them in place.
+class _InboxGroup extends StatefulWidget {
+  const _InboxGroup({
+    required this.selected,
+    required this.onTap,
+    required this.badgeCount,
+    required this.folders,
+    required this.accountNames,
+    required this.standardParents,
+    required this.order,
+    required this.onSelect,
+  });
+
+  final bool selected;
+  final VoidCallback onTap;
+  final int badgeCount;
+  final List<MailCustomFolder> folders;
+  final Map<String, String> accountNames;
+  final Map<String, Set<String>> standardParents;
+  final CustomFolderOrderController order;
+  final ValueChanged<MailCustomFolder> onSelect;
+
+  @override
+  State<_InboxGroup> createState() => _InboxGroupState();
+}
+
+class _InboxGroupState extends State<_InboxGroup> {
+  bool _expanded = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final hasChildren = widget.folders.isNotEmpty;
+    final expanded = _expanded && hasChildren;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _FolderTile(
+          folder: MailFolder.inbox,
+          selected: widget.selected,
+          onTap: widget.onTap,
+          badgeCount: widget.badgeCount,
+          expander: hasChildren
+              ? IconButton(
+                  key: const Key('inbox-expander'),
+                  visualDensity: VisualDensity.compact,
+                  iconSize: 18,
+                  tooltip: expanded
+                      ? l10nNow.hideSubfolders
+                      : l10nNow.showSubfolders,
+                  icon: Icon(
+                    expanded ? LucideIcons.chevronUp : LucideIcons.chevronDown,
+                  ),
+                  onPressed: () => setState(() => _expanded = !expanded),
+                )
+              : null,
+        ),
+        if (expanded)
+          ListenableBuilder(
+            listenable: widget.order,
+            builder: (context, _) {
+              final groups = _groupByAccount(
+                widget.folders,
+                widget.accountNames.keys,
+              );
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final MapEntry(key: accountId, value: accountFolders)
+                      in groups.entries) ...[
+                    if (groups.length > 1)
+                      _AccountSubheading(widget.accountNames[accountId] ?? ''),
+                    for (final row in _drawerRows(
+                      accountFolders,
+                      widget.standardParents[accountId] ?? const {},
+                      widget.order.orders,
+                    ))
+                      _CustomFolderTile(
+                        row: row,
+                        reordering: false,
+                        onTap: () => widget.onSelect(row.folder),
+                      ),
+                  ],
+                ],
+              );
+            },
+          ),
+      ],
+    );
+  }
+}
+
 class _AccountSubheading extends StatelessWidget {
   const _AccountSubheading(this.email);
 
@@ -447,13 +611,13 @@ class _CustomFolderTile extends StatelessWidget {
     required this.row,
     required this.reordering,
     required this.onTap,
-    required this.onMove,
+    this.onMove,
   });
 
   final _DrawerFolderRow row;
   final bool reordering;
   final VoidCallback onTap;
-  final ValueChanged<int> onMove;
+  final ValueChanged<int>? onMove;
 
   @override
   Widget build(BuildContext context) {
@@ -487,14 +651,14 @@ class _CustomFolderTile extends StatelessWidget {
                     iconSize: 18,
                     tooltip: l10nNow.moveUp,
                     icon: const Icon(LucideIcons.chevronUp),
-                    onPressed: row.canMoveUp ? () => onMove(-1) : null,
+                    onPressed: row.canMoveUp ? () => onMove?.call(-1) : null,
                   ),
                   IconButton(
                     visualDensity: VisualDensity.compact,
                     iconSize: 18,
                     tooltip: l10nNow.moveDown,
                     icon: const Icon(LucideIcons.chevronDown),
-                    onPressed: row.canMoveDown ? () => onMove(1) : null,
+                    onPressed: row.canMoveDown ? () => onMove?.call(1) : null,
                   ),
                 ],
               )
@@ -512,12 +676,16 @@ class _FolderTile extends StatelessWidget {
     required this.selected,
     required this.onTap,
     required this.badgeCount,
+    this.expander,
   });
 
   final MailFolder folder;
   final bool selected;
   final VoidCallback onTap;
   final int badgeCount;
+
+  /// Optional trailing button (the Inbox's sub-folder chevron).
+  final Widget? expander;
 
   @override
   Widget build(BuildContext context) {
@@ -547,8 +715,15 @@ class _FolderTile extends StatelessWidget {
             color: selected ? onSurface : colors.secondaryText,
           ),
         ),
-        trailing: badgeCount > 0
-            ? Badge(label: Text('$badgeCount'), largeSize: 20)
+        trailing: badgeCount > 0 || expander != null
+            ? Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (badgeCount > 0)
+                    Badge(label: Text('$badgeCount'), largeSize: 20),
+                  ?expander,
+                ],
+              )
             : null,
       ),
     );

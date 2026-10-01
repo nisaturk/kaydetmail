@@ -72,4 +72,10 @@ class MailFolderInfo {
 
   bool get isStandard => kind.isStandard;
   bool get hasUserRole => roleOverride != null;
+
+  /// Name shown to the user: the localized label for detected standard
+  /// folders (the server may call them `INBOX` / `Sent Items`), the folder's
+  /// own name for custom folders and for folders the user assigned a role to.
+  String get displayName =>
+      isStandard && !hasUserRole ? kind.logical!.label : name;
 }

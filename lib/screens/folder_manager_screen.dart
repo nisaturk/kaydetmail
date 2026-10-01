@@ -167,7 +167,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
                       const SizedBox(width: 8),
                       Icon(_iconFor(row.folder.kind), size: 18),
                       const SizedBox(width: 8),
-                      Flexible(child: Text(row.folder.name)),
+                      Flexible(child: Text(row.folder.displayName)),
                     ],
                   ),
                 ),
@@ -293,7 +293,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     final role = await showDialog<FolderKind>(
       context: context,
       builder: (context) => SimpleDialog(
-        title: Text(l10nNow.whatShouldBeUsedAs(folder.name)),
+        title: Text(l10nNow.whatShouldBeUsedAs(folder.displayName)),
         children: [
           for (final role in FolderRules.assignableRoles)
             SimpleDialogOption(
@@ -316,7 +316,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         folderId: folder.folderId,
         role: role.logical,
       ),
-      success: l10nNow.isNowUsedAs(folder.name, _roleLabel(role)),
+      success: l10nNow.isNowUsedAs(folder.displayName, _roleLabel(role)),
     );
   }
 
@@ -326,7 +326,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
       folderId: folder.folderId,
       role: null,
     ),
-    success: l10nNow.automaticDetectionRestoredFor(folder.name),
+    success: l10nNow.automaticDetectionRestoredFor(folder.displayName),
   );
 
   Future<void> _syncNow(MailFolderInfo folder) => _perform(() async {
@@ -335,7 +335,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
       folderId: folder.folderId,
     );
     await _repo.refreshCustomFolders(accountId: widget.accountId);
-  }, success: l10nNow.synced(folder.name));
+  }, success: l10nNow.synced(folder.displayName));
 
   int get _syncedCount => _scope?.folders.where((f) => f.synced).length ?? 0;
 
@@ -371,8 +371,8 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         if (mounted) setState(() => _scope = updated);
       },
       success: synced.contains(folder.folderId)
-          ? l10nNow.willSyncAutomatically(folder.name)
-          : l10nNow.willNotSyncAutomatically(folder.name),
+          ? l10nNow.willSyncAutomatically(folder.displayName)
+          : l10nNow.willNotSyncAutomatically(folder.displayName),
     );
   }
 
@@ -381,7 +381,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
       builder: (_) => CustomFolderMailScreen(
         accountId: folder.accountId,
         folderId: folder.folderId,
-        name: folder.name,
+        name: folder.displayName,
       ),
     ),
   );
@@ -422,6 +422,7 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
             return _ErrorState(message: _error!, onRetry: _load);
           }
           final rows = buildFolderRows(_folders);
+          final sections = splitFolderSections(rows);
           return RefreshIndicator(
             onRefresh: () => _load(rediscover: true),
             child: ListView(
@@ -449,7 +450,14 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
                     padding: EdgeInsets.all(32),
                     child: Center(child: Text(l10nNow.folderNotFound)),
                   ),
-                for (final row in rows) _row(row),
+                if (sections.standard.isNotEmpty) ...[
+                  _sectionHeader(l10nNow.standardFolders),
+                  for (final row in sections.standard) _row(row),
+                ],
+                if (sections.own.isNotEmpty) ...[
+                  _sectionHeader(l10nNow.myFolders),
+                  for (final row in sections.own) _row(row),
+                ],
               ],
             ),
           );
@@ -458,23 +466,37 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
     );
   }
 
+  Widget _sectionHeader(String title) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+    child: Text(
+      title,
+      style: TextStyle(
+        fontSize: 12,
+        fontWeight: FontWeight.w700,
+        letterSpacing: 0.4,
+        color: AppTheme.colors(context).tertiaryText,
+      ),
+    ),
+  );
+
   Widget _row(FolderRow row) {
     final folder = row.folder;
     final colors = AppTheme.colors(context);
     final parts = <String>[
-      if (folder.hasUserRole)
-        l10nNow.usedAs(_roleLabel(folder.kind))
-      else if (folder.isStandard && folder.kind != FolderKind.inbox)
-        l10nNow.standardFolder,
+      if (folder.hasUserRole) l10nNow.usedAs(_roleLabel(folder.kind)),
       if ((folder.unreadCount ?? 0) > 0) l10nNow.unread(folder.unreadCount!),
       if (folder.totalCount != null) l10nNow.emailCount(folder.totalCount!),
     ];
     final synced = _isSynced(folder);
-    return ListTile(
+    final tile = ListTile(
       key: ValueKey('folder-${folder.folderId}'),
-      contentPadding: EdgeInsets.only(left: 16.0 + 24.0 * row.depth, right: 4),
+      contentPadding: const EdgeInsets.only(left: 8, right: 4),
       leading: Icon(_iconFor(folder.kind), color: colors.secondaryText),
-      title: Text(folder.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+      title: Text(
+        folder.displayName,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
       subtitle: parts.isEmpty ? null : Text(parts.join(' · ')),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
@@ -545,6 +567,29 @@ class _FolderManagerScreenState extends State<FolderManagerScreen> {
         ],
       ),
       onTap: () => _open(folder),
+    );
+    if (row.depth == 0) {
+      return Padding(padding: const EdgeInsets.only(left: 8), child: tile);
+    }
+    // One guide line per level so deep trees stay readable.
+    return IntrinsicHeight(
+      child: Row(
+        children: [
+          const SizedBox(width: 16),
+          for (var i = 0; i < row.depth; i++)
+            SizedBox(
+              width: 20,
+              child: Center(
+                child: VerticalDivider(
+                  width: 1,
+                  thickness: 1,
+                  color: colors.tertiaryText.withValues(alpha: 0.35),
+                ),
+              ),
+            ),
+          Expanded(child: tile),
+        ],
+      ),
     );
   }
 }

@@ -968,11 +968,35 @@ abstract class AppLocalizations {
   /// **'{value} olarak kullanılıyor'**
   String usedAs(Object value);
 
-  /// No description provided for @standardFolder.
+  /// No description provided for @standardFolders.
   ///
   /// In tr, this message translates to:
-  /// **'Standart klasör'**
-  String get standardFolder;
+  /// **'Standart klasörler'**
+  String get standardFolders;
+
+  /// No description provided for @myFolders.
+  ///
+  /// In tr, this message translates to:
+  /// **'Klasörlerim'**
+  String get myFolders;
+
+  /// No description provided for @spam.
+  ///
+  /// In tr, this message translates to:
+  /// **'Spam'**
+  String get spam;
+
+  /// No description provided for @showSubfolders.
+  ///
+  /// In tr, this message translates to:
+  /// **'Alt klasörleri göster'**
+  String get showSubfolders;
+
+  /// No description provided for @hideSubfolders.
+  ///
+  /// In tr, this message translates to:
+  /// **'Alt klasörleri gizle'**
+  String get hideSubfolders;
 
   /// No description provided for @unread.
   ///

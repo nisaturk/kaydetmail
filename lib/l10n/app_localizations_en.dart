@@ -507,7 +507,19 @@ class AppLocalizationsEn extends AppLocalizations {
   }
 
   @override
-  String get standardFolder => 'Standard folder';
+  String get standardFolders => 'Standard folders';
+
+  @override
+  String get myFolders => 'My folders';
+
+  @override
+  String get spam => 'Spam';
+
+  @override
+  String get showSubfolders => 'Show subfolders';
+
+  @override
+  String get hideSubfolders => 'Hide subfolders';
 
   @override
   String unread(Object unreadCount) {

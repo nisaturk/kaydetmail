@@ -57,6 +57,26 @@ List<FolderRow> buildFolderRows(Iterable<MailFolderInfo> folders) {
   return rows;
 }
 
+/// Splits [rows] (from [buildFolderRows]) into the detected standard folders —
+/// each with its sub-folders — and everything else (the user's own folders).
+/// A tree stays in the section of its root.
+({List<FolderRow> standard, List<FolderRow> own}) splitFolderSections(
+  Iterable<FolderRow> rows,
+) {
+  final standard = <FolderRow>[];
+  final own = <FolderRow>[];
+  var target = own;
+  for (final row in rows) {
+    if (row.depth == 0) {
+      target = row.folder.isStandard && !row.folder.hasUserRole
+          ? standard
+          : own;
+    }
+    target.add(row);
+  }
+  return (standard: standard, own: own);
+}
+
 /// Ids of [folderId] and every folder below it.
 Set<String> subtreeIds(Iterable<MailFolderInfo> folders, String folderId) {
   final result = <String>{folderId};

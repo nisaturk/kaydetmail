@@ -498,7 +498,19 @@ class AppLocalizationsTr extends AppLocalizations {
   }
 
   @override
-  String get standardFolder => 'Standart klasör';
+  String get standardFolders => 'Standart klasörler';
+
+  @override
+  String get myFolders => 'Klasörlerim';
+
+  @override
+  String get spam => 'Spam';
+
+  @override
+  String get showSubfolders => 'Alt klasörleri göster';
+
+  @override
+  String get hideSubfolders => 'Alt klasörleri gizle';
 
   @override
   String unread(Object unreadCount) {
