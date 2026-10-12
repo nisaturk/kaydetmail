@@ -189,21 +189,28 @@ class Email {
   /// Every whitespace-separated literal term must appear (case-insensitively)
   /// in at least one cached searchable field. Empty [query] matches all.
   bool matchesQuery(String query) {
-    final terms = query.trim().toLowerCase().split(_whitespace);
-    return terms.every(
-      (term) =>
-          senderName.toLowerCase().contains(term) ||
-          senderEmail.toLowerCase().contains(term) ||
-          subject.toLowerCase().contains(term) ||
-          bodyText.toLowerCase().contains(term) ||
-          recipients.any((value) => value.toLowerCase().contains(term)) ||
-          cc.any((value) => value.toLowerCase().contains(term)) ||
-          bcc.any((value) => value.toLowerCase().contains(term)) ||
-          attachments.any((value) => value.name.toLowerCase().contains(term)) ||
-          (headers['Message-ID'] ?? headers['Message-Id'] ?? '')
-              .toLowerCase()
-              .contains(term),
-    );
+    final remaining = query.trim().toLowerCase().split(_whitespace);
+    if (remaining.singleOrNull == '') return true;
+    for (final field in _searchFields()) {
+      final normalized = field.toLowerCase();
+      remaining.removeWhere(normalized.contains);
+      if (remaining.isEmpty) return true;
+    }
+    return false;
+  }
+
+  Iterable<String> _searchFields() sync* {
+    yield senderName;
+    yield senderEmail;
+    yield subject;
+    yield bodyText;
+    yield* recipients;
+    yield* cc;
+    yield* bcc;
+    for (final attachment in attachments) {
+      yield attachment.name;
+    }
+    yield headers['Message-ID'] ?? headers['Message-Id'] ?? '';
   }
 
   Email copyWith({

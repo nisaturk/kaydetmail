@@ -1,7 +1,10 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:kaydetmail/models/email.dart';
 import 'package:kaydetmail/models/mail_account.dart';
 import 'package:kaydetmail/models/mail_folder.dart';
+import 'package:kaydetmail/models/remote_search_result.dart';
 import 'package:kaydetmail/models/search_page.dart';
 import 'package:kaydetmail/repositories/api/account_session.dart';
 import 'package:kaydetmail/repositories/api/repository_context.dart';
@@ -219,6 +222,212 @@ void main() {
     );
   }
 
+  test('initial account requests overlap without changing tie order', () async {
+    final ctx = _Context();
+    final calls = <String>[];
+    final gates = <String, Completer<void>>{};
+    for (final id in ['two', 'one']) {
+      final session = _session(id, messages: [_message('$id-mail', 1)]);
+      ctx.registry.sessions[id] = session;
+      gates[id] = Completer<void>();
+      (session.mailService as _UnavailableSearch).beforeSearch = (_) {
+        calls.add(id);
+        return gates[id]!.future;
+      };
+    }
+    final search = SearchModule(ctx);
+    final pending = search.searchOnServer(query: 'domates', pageSize: 1);
+    final started = [...calls];
+    gates['one']!.complete();
+    gates['two']!.complete();
+    final page = await pending;
+
+    expect(started, ['two', 'one']);
+    expect(page.items.map((mail) => mail.id), ['one-mail']);
+    expect(page.total, 2);
+    expect(page.accountProgress.keys, ['two', 'one']);
+    final next = await search.searchOnServer(
+      query: 'domates',
+      pageSize: 1,
+      continuation: page.continuation,
+    );
+    expect(next.items.map((mail) => mail.id), ['two-mail']);
+    expect(next.hasMore, isFalse);
+    expect(calls, ['two', 'one']);
+  });
+
+  test(
+    'exhausted account heads refill together and preserve checkpoints',
+    () async {
+      final ctx = _Context();
+      for (final id in ['one', 'two']) {
+        ctx.registry.sessions[id] = _session(
+          id,
+          messages: [for (var i = 0; i < 4; i++) _message('$id-$i', 4 - i)],
+        );
+      }
+      final search = SearchModule(ctx);
+      final initial = await search.searchOnServer(
+        query: 'domates',
+        pageSize: 2,
+      );
+      final checkpoint = SearchContinuation(
+        scope: initial.continuation.scope,
+        accounts: {
+          for (final id in ['one', 'two'])
+            id: SearchAccountCursor(
+              buffered: [],
+              nextPage: 2,
+              total: 4,
+              consumed: 2,
+              remoteHasMore: true,
+              offline: false,
+            ),
+        },
+      );
+      final calls = <(String, int)>[];
+      final gates = <String, Completer<void>>{};
+      for (final entry in ctx.registry.sessions.entries) {
+        gates[entry.key] = Completer<void>();
+        (entry.value.mailService as _UnavailableSearch).beforeSearch = (page) {
+          calls.add((entry.key, page));
+          return gates[entry.key]!.future;
+        };
+      }
+      final pending = search.searchOnServer(
+        query: 'domates',
+        pageSize: 2,
+        continuation: checkpoint,
+      );
+      final started = [...calls];
+      gates['two']!.complete();
+      gates['one']!.complete();
+      final page = await pending;
+
+      expect(started, [('one', 2), ('two', 2)]);
+      expect(page.items.map((mail) => mail.id), ['one-2', 'two-2']);
+      expect(page.total, 8);
+      expect(page.accountProgress.values.map((state) => state.consumed), [
+        3,
+        3,
+      ]);
+      expect(checkpoint.accounts.values.map((state) => state.consumed), [2, 2]);
+
+      for (final session in ctx.registry.sessions.values) {
+        (session.mailService as _UnavailableSearch).beforeSearch = null;
+      }
+      (ctx.registry.sessions['two']!.mailService as _UnavailableSearch)
+              .failPageOnce =
+          2;
+      await expectLater(
+        search.searchOnServer(
+          query: 'domates',
+          pageSize: 2,
+          continuation: checkpoint,
+        ),
+        throwsA(isA<ApiException>()),
+      );
+      expect(checkpoint.accounts.values.map((state) => state.consumed), [2, 2]);
+      final retry = await search.searchOnServer(
+        query: 'domates',
+        pageSize: 2,
+        continuation: checkpoint,
+      );
+      expect(retry.items.map((mail) => mail.id), ['one-2', 'two-2']);
+    },
+  );
+
+  test(
+    'parallel failures retain account error and offline side-effect order',
+    () async {
+      final ctx = _Context();
+      const firstFailure = ApiException(status: 401);
+      final calls = <String>[];
+      final gates = <String, Completer<void>>{};
+      for (final (id, failure) in [
+        ('one', firstFailure),
+        ('two', const ApiException(status: 500)),
+        ('three', const ApiException(status: 0, code: 'network_unavailable')),
+      ]) {
+        final session = _session(id, failure: failure);
+        ctx.registry.sessions[id] = session;
+        gates[id] = Completer<void>();
+        (session.mailService as _UnavailableSearch).beforeSearch = (_) {
+          calls.add(id);
+          return gates[id]!.future;
+        };
+      }
+      final pending = SearchModule(ctx).searchOnServer(query: 'domates');
+      final failure = expectLater(pending, throwsA(same(firstFailure)));
+      final started = [...calls];
+      gates['three']!.complete();
+      gates['two']!.complete();
+      gates['one']!.complete();
+      await failure;
+
+      expect(started, ['one', 'two', 'three']);
+      expect(
+        ctx.registry.sessions.values.every((session) => !session.offline),
+        isTrue,
+      );
+      expect(ctx.notifications, 0);
+    },
+  );
+
+  test(
+    'remote imports remain sequential and stop after the first failure',
+    () async {
+      final ctx = _Context();
+      final calls = <String>[];
+      var firstGate = Completer<RemoteSearchResult>();
+      for (final id in ['one', 'two']) {
+        final session = _session(id);
+        ctx.registry.sessions[id] = session;
+        (session.mailService as _UnavailableSearch).remoteSearch = (_) {
+          calls.add(id);
+          return id == 'one'
+              ? firstGate.future
+              : Future.value(
+                  const RemoteSearchResult(
+                    matched: 3,
+                    imported: 1,
+                    remaining: 2,
+                    complete: false,
+                  ),
+                );
+        };
+      }
+      final search = SearchModule(ctx);
+      final pending = search.searchRemote(query: 'domates');
+      expect(calls, ['one']);
+      firstGate.complete(
+        const RemoteSearchResult(
+          matched: 2,
+          imported: 2,
+          remaining: 0,
+          complete: true,
+        ),
+      );
+      final result = await pending;
+      expect(calls, ['one', 'two']);
+      expect(
+        [result.matched, result.imported, result.remaining, result.complete],
+        [5, 3, 2, false],
+      );
+
+      calls.clear();
+      firstGate = Completer<RemoteSearchResult>();
+      const error = ApiException(status: 500);
+      final failed = expectLater(
+        search.searchRemote(query: 'domates'),
+        throwsA(same(error)),
+      );
+      firstGate.completeError(error);
+      await failed;
+      expect(calls, ['one']);
+    },
+  );
+
   test(
     'failed continuation leaves progress intact and retries the same results',
     () async {
@@ -333,6 +542,8 @@ class _UnavailableSearch extends ApiMailService {
   final ApiException failure;
   final List<Email>? messages;
   int? failPageOnce;
+  Future<void> Function(int page)? beforeSearch;
+  Future<RemoteSearchResult> Function(String? folderId)? remoteSearch;
 
   @override
   Future<MailListPage> search({
@@ -351,6 +562,7 @@ class _UnavailableSearch extends ApiMailService {
     int page = 1,
     int pageSize = 20,
   }) async {
+    await beforeSearch?.call(page);
     if (failPageOnce == page) {
       failPageOnce = null;
       throw const ApiException(status: 500);
@@ -364,9 +576,29 @@ class _UnavailableSearch extends ApiMailService {
       total: matches.length,
     );
   }
+
+  @override
+  Future<RemoteSearchResult> searchRemote({
+    required String query,
+    String? folderId,
+    String? conversationId,
+    String? from,
+    String? to,
+    DateTime? fromDate,
+    DateTime? toDate,
+    bool? isRead,
+    bool? flagged,
+    bool? hasAttachment,
+    String? labelId,
+  }) async {
+    final action = remoteSearch;
+    if (action == null) throw failure;
+    return action(folderId);
+  }
 }
 
 class _Context implements RepositoryContext {
+  int notifications = 0;
   @override
   final registry = SessionRegistry();
   @override
@@ -377,7 +609,7 @@ class _Context implements RepositoryContext {
   @override
   void markOffline(AccountSession session) => session.offline = true;
   @override
-  void notify() {}
+  void notify() => notifications++;
   @override
   dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }

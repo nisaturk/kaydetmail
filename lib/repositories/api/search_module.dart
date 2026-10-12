@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../models/email.dart';
 import '../../models/mail_folder.dart';
 import '../../models/remote_search_result.dart';
 import '../../models/search_page.dart';
+import '../../services/api_mail_service.dart';
 import 'account_session.dart';
 import 'repository_context.dart';
 
@@ -89,29 +92,39 @@ class SearchModule {
     }
     final states = <String, SearchAccountCursor>{...?continuation?.accounts};
 
-    Future<SearchAccountCursor> fetch(
+    Future<MailListPage> request(
       AccountSession session,
       String? folderId,
+      int page,
+    ) {
+      final pending = session.mailService.search(
+        query: query,
+        resolveFolder: session.resolveFolder,
+        folderId: folderId,
+        conversationId: conversationId,
+        from: from,
+        to: to,
+        fromDate: fromDate,
+        toDate: toDate,
+        isRead: isRead,
+        flagged: flagged,
+        hasAttachment: hasAttachment,
+        labelId: labelId,
+        page: page,
+        pageSize: size,
+      );
+      // An earlier account can abort before this request is awaited.
+      pending.ignore();
+      return pending;
+    }
+
+    Future<SearchAccountCursor> fetch(
+      AccountSession session,
       SearchAccountCursor? previous,
+      Future<MailListPage> pending,
     ) async {
-      final page = previous?.nextPage ?? 1;
       try {
-        final results = await session.mailService.search(
-          query: query,
-          resolveFolder: session.resolveFolder,
-          folderId: folderId,
-          conversationId: conversationId,
-          from: from,
-          to: to,
-          fromDate: fromDate,
-          toDate: toDate,
-          isRead: isRead,
-          flagged: flagged,
-          hasAttachment: hasAttachment,
-          labelId: labelId,
-          page: page,
-          pageSize: size,
-        );
+        final results = await pending;
         return SearchAccountCursor(
           buffered: results.items.map(session.stampLocalFlags).toList(),
           nextPage: results.page + 1,
@@ -176,27 +189,38 @@ class SearchModule {
       }
     }
 
-    for (final (session, folderId) in targets) {
-      final id = session.account.id;
-      if (!states.containsKey(id)) {
-        states[id] = await fetch(session, folderId, null);
-      }
+    final requests =
+        <(AccountSession, SearchAccountCursor?, Future<MailListPage>)>[
+          for (final (session, folderId) in targets)
+            if (!states.containsKey(session.account.id))
+              (session, null, request(session, folderId, 1)),
+        ];
+    // Only the reads overlap; apply fallbacks and errors in account order.
+    for (final (session, previous, pending) in requests) {
+      states[session.account.id] = await fetch(session, previous, pending);
     }
     final items = <Email>[];
     while (items.length < size) {
       // Refill exhausted heads before choosing the globally newest result.
       // Other accounts retain their unconsumed rows, rather than skipping
       // them when a global page is dominated by one account.
+      requests.clear();
       for (final (session, folderId) in targets) {
-        final id = session.account.id;
-        final state = states[id]!;
+        final state = states[session.account.id]!;
         if (!state.hasBuffered && state.remoteHasMore) {
-          final next = await fetch(session, folderId, state);
-          if (!next.hasBuffered && next.remoteHasMore) {
-            throw StateError('Search returned an empty page with more results');
-          }
-          states[id] = next;
+          requests.add((
+            session,
+            state,
+            request(session, folderId, state.nextPage),
+          ));
         }
+      }
+      for (final (session, previous, pending) in requests) {
+        final next = await fetch(session, previous, pending);
+        if (!next.hasBuffered && next.remoteHasMore) {
+          throw StateError('Search returned an empty page with more results');
+        }
+        states[session.account.id] = next;
       }
       String? selected;
       for (final entry in states.entries) {
